@@ -28,6 +28,23 @@ KYB and DSA trader verification:
 - UBO registry lookups
 - DSA compliance automation
 
+## 🛒 E-commerce Integrations
+
+### Shopify App
+DSA compliance for Shopify merchants:
+- One-click OAuth installation
+- Automatic store data sync
+- DSA compliance dashboard
+- Self-certification workflow
+
+### WooCommerce Plugin
+DSA compliance for WooCommerce stores:
+- REST API integration
+- Store data sync
+- Compliance status tracking
+
+See [E-commerce Integrations Guide](./docs/ECOMMERCE_INTEGRATIONS.md) for details.
+
 ## 🏗️ Architecture
 
 ```
@@ -37,10 +54,10 @@ eurocomply/
 │   └── dashboard/     # Next.js admin dashboard
 ├── packages/
 │   ├── database/      # Prisma schema & migrations
+│   ├── identity/      # walt.id integration
+│   ├── integrations/  # Shopify & WooCommerce
+│   ├── sdk/           # Client SDK
 │   └── shared/        # Shared types & utilities
-├── plugins/
-│   ├── shopify/       # Shopify app integration
-│   └── woocommerce/   # WooCommerce plugin
 └── docker/            # Docker configuration
 ```
 
@@ -220,9 +237,10 @@ See deployment guides in `/docs/deployment/`
 - [x] ProductTrust API (DPP)
 - [x] WorkforceTrust API (Credentials)
 - [x] MerchantTrust API (KYB/DSA)
+- [x] DSA Article 30 full compliance
+- [x] Shopify Integration
+- [x] WooCommerce Integration
 - [ ] React Dashboard
-- [ ] Shopify Integration
-- [ ] WooCommerce Integration
 - [ ] EBSI Integration (with traction)
 
 ## 📄 License
