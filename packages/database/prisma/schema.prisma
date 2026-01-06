@@ -19,8 +19,11 @@ model Organization {
   name        String
   slug        String   @unique
   domain      String?  @unique
+
+  // Identity (walt.id)
   did         String?  @unique // did:web:eurocomply.io:m:{slug}
-  didDocument Json?    // Cached DID document
+  keyId       String?  // walt.id key reference for signing
+  didDocument Json?    // Cached DID document for hosting
 
   // Subscription & Billing
   plan        Plan     @default(FREE)
@@ -176,9 +179,10 @@ model Passport {
   version        String   @default("1.0")
   data           Json     // Full DPP data (CIRPASS schema)
 
-  // Verifiable Credential
-  credentialId   String?  @unique // walt.id credential ID
-  credential     Json?    // Cached VC
+  // Verifiable Credential (DPP as VC)
+  credentialId   String?  @unique // VC ID (urn:uuid:...)
+  vcJwt          String?  @db.Text // Signed JWT credential
+  credential     Json?    // Cached VC JSON
 
   // QR Code
   qrCodeUrl      String?  // Generated QR code image URL
@@ -391,9 +395,14 @@ model Merchant {
   registrationNumber String?
   vatNumber      String?
 
-  // DID (merchant's own identity)
-  did            String?  @unique
-  didDocument    Json?
+  // Identity (walt.id)
+  did            String?  @unique // did:web:eurocomply.io:m:{merchant-slug}
+  keyId          String?  // walt.id key reference for signing
+  didDocument    Json?    // Cached DID document for hosting
+
+  // KYB Verifiable Credential
+  kybCredentialId  String? // KYB VC ID
+  kybCredentialJwt String? @db.Text // Signed KYB verification credential
 
   // Address
   addressLine1   String?

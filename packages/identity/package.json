@@ -1,0 +1,19 @@
+{
+  "name": "@eurocomply/identity",
+  "version": "0.1.0",
+  "private": true,
+  "description": "EuroComply Identity Infrastructure - DID and VC management via walt.id",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "axios": "^1.6.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.0"
+  }
+}

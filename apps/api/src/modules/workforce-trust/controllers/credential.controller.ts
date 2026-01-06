@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { prisma, CredentialType, CredentialStatus } from '@eurocomply/database';
 import { ApiError } from '../../../common/middleware/errorHandler.js';
-import { waltIdService } from '../services/waltid.service.js';
+import { workforceIdentityService } from '../services/identity.service.js';
 
 // Validation schemas
 const IssueCredentialSchema = z.object({
@@ -34,14 +34,8 @@ export const credentialController = {
       const body = IssueCredentialSchema.parse(req.body);
       const organizationId = req.auth!.organizationId;
 
-      // Get the organization's DID
-      const org = await prisma.organization.findUnique({
-        where: { id: organizationId },
-      });
-
-      if (!org?.did) {
-        throw ApiError.badRequest('Organization does not have a DID configured');
-      }
+      // Get or create the organization's DID
+      const { did: issuerDid, keyId: issuerKeyId } = await workforceIdentityService.ensureOrganizationDid(organizationId);
 
       // Get the credential schema
       const schema = await prisma.credentialSchema.findUnique({
@@ -72,20 +66,24 @@ export const credentialController = {
       });
 
       try {
-        // Issue via walt.id
+        // Issue via shared identity service
         const credentialTypes = ['VerifiableCredential', schema.name];
-        const issued = await waltIdService.issueCredential(org.did, {
-          type: credentialTypes,
-          issuer: org.did,
-          issuanceDate: issuanceDate.toISOString(),
-          expirationDate: expirationDate?.toISOString(),
-          credentialSubject: {
-            id: body.subjectDid,
-            name: body.subjectName,
-            email: body.subjectEmail,
-            ...body.claims,
-          },
-        });
+        const issued = await workforceIdentityService.issueCredential(
+          issuerDid,
+          issuerKeyId,
+          {
+            type: credentialTypes,
+            issuer: issuerDid,
+            issuanceDate: issuanceDate.toISOString(),
+            expirationDate: expirationDate?.toISOString(),
+            credentialSubject: {
+              id: body.subjectDid,
+              name: body.subjectName,
+              email: body.subjectEmail,
+              ...body.claims,
+            },
+          }
+        );
 
         // Update credential with issued data
         const updatedCredential = await prisma.credential.update({
@@ -106,7 +104,7 @@ export const credentialController = {
         });
 
         // Generate OID4VCI offer URL for wallet issuance
-        const { offerUrl } = await waltIdService.generateOid4vciOffer(
+        const { offerUrl } = await workforceIdentityService.generateOid4vciOffer(
           credential.id,
           schema.name
         );
@@ -142,7 +140,7 @@ export const credentialController = {
     try {
       const { vcJwt } = VerifyCredentialSchema.parse(req.body);
 
-      const result = await waltIdService.verifyCredential(vcJwt);
+      const result = await workforceIdentityService.verifyCredential(vcJwt);
 
       res.json({
         success: true,

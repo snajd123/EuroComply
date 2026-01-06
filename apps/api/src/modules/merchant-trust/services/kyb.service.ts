@@ -10,6 +10,7 @@
 
 import { prisma, KybVerification, KybVerificationType, KybStatus, RiskLevel } from '@eurocomply/database';
 import { logger } from '../../../common/utils/logger.js';
+import { merchantIdentityService } from './identity.service.js';
 
 export const kybService = {
   /**
@@ -112,6 +113,23 @@ export const kybService = {
       riskScore,
       riskLevel,
     });
+
+    // If KYB passed, issue Verifiable Credential
+    if (kybStatus === 'VERIFIED') {
+      try {
+        const credential = await merchantIdentityService.issueKybCredential(merchantId);
+        logger.info('KYB Verifiable Credential issued', {
+          merchantId,
+          credentialId: credential.credentialId,
+        });
+      } catch (error) {
+        logger.error('Failed to issue KYB credential', {
+          merchantId,
+          error,
+        });
+        // Don't fail the whole process, credential issuance is not critical
+      }
+    }
   },
 
   /**

@@ -2,6 +2,8 @@ import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { prisma, DsaStatus } from '@eurocomply/database';
 import { ApiError } from '../../../common/middleware/errorHandler.js';
+import { merchantIdentityService } from '../services/identity.service.js';
+import { logger } from '../../../common/utils/logger.js';
 
 // Validation schemas
 const CreateTraderSchema = z.object({
@@ -54,6 +56,7 @@ export const traderController = {
         .replace(/[^a-z0-9]+/g, '-')
         .substring(0, 50);
 
+      // Create merchant record first
       const merchant = await prisma.merchant.create({
         data: {
           organizationId,
@@ -69,14 +72,29 @@ export const traderController = {
           email: body.contact?.email,
           phone: body.contact?.phone,
           website: body.contact?.website,
-          did: `did:web:eurocomply.io:m:${org?.slug}:trader:${traderSlug}`,
           dsaStatus: 'IN_PROGRESS',
         },
       });
 
+      // Initialize DID with real cryptographic key pair
+      const merchantSlug = `${org?.slug}-trader-${traderSlug}`;
+      try {
+        await merchantIdentityService.initializeMerchantDid(merchant.id, merchantSlug);
+      } catch (error) {
+        logger.warn('Failed to initialize merchant DID, continuing without it', {
+          merchantId: merchant.id,
+          error,
+        });
+      }
+
+      // Refetch merchant with DID info
+      const updatedMerchant = await prisma.merchant.findUnique({
+        where: { id: merchant.id },
+      });
+
       res.status(201).json({
         success: true,
-        data: formatTraderResponse(merchant),
+        data: formatTraderResponse(updatedMerchant || merchant),
         meta: {
           requestId: req.requestId,
           timestamp: new Date().toISOString(),

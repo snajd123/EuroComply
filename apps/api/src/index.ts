@@ -12,6 +12,7 @@ import { logger } from './common/utils/logger.js';
 
 // Import routes
 import healthRoutes from './common/routes/health.js';
+import didRoutes from './common/routes/did.js';
 import authRoutes from './common/auth/routes.js';
 import productTrustRoutes from './modules/product-trust/routes.js';
 import workforceTrustRoutes from './modules/workforce-trust/routes.js';
@@ -47,6 +48,10 @@ app.use(rateLimiter);
 
 // Health check (no auth required)
 app.use('/health', healthRoutes);
+
+// DID document hosting (public, no auth)
+// did:web resolution requires these to be at root level
+app.use(didRoutes);
 
 // API routes
 app.use('/v1/auth', authRoutes);

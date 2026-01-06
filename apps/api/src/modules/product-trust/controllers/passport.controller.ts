@@ -4,7 +4,9 @@ import { prisma } from '@eurocomply/database';
 import { ApiError } from '../../../common/middleware/errorHandler.js';
 import { gs1Service } from '../services/gs1.service.js';
 import { qrService } from '../services/qr.service.js';
+import { dppService } from '../services/dpp.service.js';
 import { DppDataSchema } from '@eurocomply/shared';
+import { logger } from '../../../common/utils/logger.js';
 
 // Validation schemas
 const CreatePassportSchema = z.object({
@@ -58,19 +60,52 @@ export const passportController = {
       const verificationUrl = gs1Service.generateDppQrPayload(passport.id);
 
       // Update with verification URL
-      const updatedPassport = await prisma.passport.update({
+      let updatedPassport = await prisma.passport.update({
         where: { id: passport.id },
         data: { verificationUrl },
         include: {
           product: {
-            select: { name: true, gtin: true, sku: true },
+            include: { organization: true },
           },
         },
       });
 
+      // Issue DPP as Verifiable Credential
+      try {
+        await dppService.issueDppCredential(passport.id, {
+          productId: body.productId,
+          productName: updatedPassport.product.name,
+          manufacturerName: updatedPassport.product.organization.name,
+          gtin: updatedPassport.product.gtin || undefined,
+          ...body.data,
+        });
+
+        // Refetch to get credential info
+        updatedPassport = (await prisma.passport.findUnique({
+          where: { id: passport.id },
+          include: {
+            product: {
+              include: { organization: true },
+            },
+          },
+        }))!;
+      } catch (error) {
+        logger.warn('Failed to issue DPP credential, continuing without it', {
+          passportId: passport.id,
+          error,
+        });
+      }
+
       res.status(201).json({
         success: true,
-        data: updatedPassport,
+        data: {
+          ...updatedPassport,
+          product: {
+            name: updatedPassport.product.name,
+            gtin: updatedPassport.product.gtin,
+            sku: updatedPassport.product.sku,
+          },
+        },
         meta: {
           requestId: req.requestId,
           timestamp: new Date().toISOString(),
@@ -303,29 +338,16 @@ export const passportController = {
         data: { anchorStatus: 'PENDING' },
       });
 
-      // In production, this would call walt.id to create a VC and anchor
-      // For now, we simulate the anchoring process
-      // TODO: Implement actual walt.id integration
-
-      // Simulate hash-based anchoring
-      const dataHash = createHash(JSON.stringify(passport.data));
-      const txHash = `0x${dataHash.substring(0, 64)}`; // Simulated tx hash
-
-      const updated = await prisma.passport.update({
-        where: { id },
-        data: {
-          anchorStatus: 'ANCHORED',
-          anchorTxHash: txHash,
-          anchoredAt: new Date(),
-        },
-      });
+      // Issue VC and anchor using walt.id integration
+      const anchorResult = await dppService.anchorDpp(id);
 
       res.json({
         success: true,
         data: {
-          anchorStatus: updated.anchorStatus,
-          anchorTxHash: updated.anchorTxHash,
-          anchoredAt: updated.anchoredAt,
+          credentialId: anchorResult.credentialId,
+          anchorStatus: 'ANCHORED',
+          anchorTxHash: anchorResult.anchorTxHash,
+          anchoredAt: anchorResult.anchoredAt,
         },
         meta: {
           requestId: req.requestId,

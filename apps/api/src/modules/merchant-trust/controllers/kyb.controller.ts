@@ -4,6 +4,7 @@ import { prisma, KybStatus, KybVerificationType } from '@eurocomply/database';
 import { ApiError } from '../../../common/middleware/errorHandler.js';
 import { logger } from '../../../common/utils/logger.js';
 import { kybService } from '../services/kyb.service.js';
+import { merchantIdentityService } from '../services/identity.service.js';
 
 // Validation schemas
 const StartKybSchema = z.object({
@@ -97,10 +98,22 @@ export const kybController = {
             email: body.contact?.email,
             phone: body.contact?.phone,
             website: body.contact?.website,
-            did: `did:web:eurocomply.io:m:${org?.slug}:trader:${merchantSlug}`,
             kybStatus: 'IN_PROGRESS',
           },
         });
+
+        // Initialize DID with real cryptographic key pair
+        const didSlug = `${org?.slug}-${merchantSlug}`;
+        try {
+          await merchantIdentityService.initializeMerchantDid(merchant.id, didSlug);
+          // Refresh merchant to get DID info
+          merchant = (await prisma.merchant.findUnique({ where: { id: merchant.id } }))!;
+        } catch (error) {
+          logger.warn('Failed to initialize merchant DID during KYB', {
+            merchantId: merchant.id,
+            error,
+          });
+        }
       }
 
       // Create verification records for each check type
