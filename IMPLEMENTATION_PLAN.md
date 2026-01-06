@@ -40,17 +40,37 @@ EuroComply is an API-first compliance orchestration platform targeting European 
 - **Encryption**: AES-256 for data at rest, TLS 1.3 in transit
 
 ### Identity & Credentials Stack
-**Recommendation: Build on walt.id open-source stack**
+**Using walt.id Community Stack (FREE, Apache 2.0)**
 
 - W3C Verifiable Credentials support
 - SD-JWT (Selective Disclosure)
-- OID4VCI/OID4VP protocols
-- EBSI compatibility out-of-the-box
+- OID4VCI/OID4VP protocols (wallet compatibility)
+- EBSI compatibility built-in (for future upgrade)
+
+### DID Strategy: did:web Now, did:ebsi Later
+
+**Phase 1 (MVP)**: Use `did:web`
+- `did:web:eurocomply.io` (platform identity)
+- `did:web:eurocomply.io:m:{merchant-slug}` (merchant identities)
+- Works immediately, no EBSI registration required
+- Fully verifiable, industry standard
+
+**Phase 2 (With Traction)**: Upgrade to `did:ebsi`
+- Apply for EBSI Trusted Issuer status when we have customers
+- Flip config flag to switch DID method
+- Existing credentials (did:web) remain valid
+- New credentials use did:ebsi
+
+**Architecture**: Abstract DID creation behind service layer
+- Single config change to switch methods
+- No code changes required for migration
+- Support both methods simultaneously if needed
 
 ### Blockchain/DLT Anchoring
-- **EBSI ONLY**: European Blockchain Services Infrastructure via walt.id
-- **No Fallbacks**: EBSI is the only legally recognized option for eIDAS 2.0 compliance
-- **Strategy**: All anchoring via walt.id → EBSI (see docs/EBSI_INTEGRATION_PLAN.md)
+- **Target**: EBSI (European Blockchain Services Infrastructure)
+- **Current**: did:web (no blockchain, cryptographic signatures only)
+- **Future**: did:ebsi via walt.id when EBSI access obtained
+- **Strategy**: Build EBSI-ready, activate when business traction achieved
 
 ### QR Code & Standards
 - **GS1 Digital Link**: gs1-digital-link-tools library
@@ -439,16 +459,54 @@ eurocomply/
 |----------|------------------|
 | **Technology stack** | Node.js/TypeScript/PostgreSQL ✅ |
 | **Architecture** | Monolith-first ✅ |
-| **Blockchain** | EBSI ONLY via walt.id (no fallbacks) ✅ |
+| **Identity stack** | walt.id Community Stack (FREE) ✅ |
+| **DID method (MVP)** | did:web (no EBSI registration needed) ✅ |
+| **DID method (Future)** | did:ebsi (when traction achieved) ✅ |
 | **Build scope** | All 3 APIs simultaneously ✅ |
 | **Dashboard** | React dashboard included ✅ |
 | **Deployment** | Cloud-native, GDPR-compliant EU ✅ |
 | **E-commerce** | Shopify + WooCommerce ✅ |
 
-## 13. Related Documentation
+## 13. EBSI Roadmap (Future Milestone)
+
+EBSI integration is planned for when EuroComply has business traction.
+
+### Trigger Criteria (Any of these)
+- 50+ paying customers
+- €10K+ MRR
+- Enterprise customer requiring EBSI
+- EBSI onboarding process becomes simpler
+
+### EBSI Activation Steps
+1. Apply to EBSI Support Office for Trusted Issuer status
+2. Complete EU Survey and accreditation process
+3. Register credential schemas on EBSI Trusted Schemas Registry
+4. Obtain EBSI bearer token / access credentials
+5. Update config: `DID_METHOD=ebsi`
+6. Test with EBSI conformance environment
+7. Switch to EBSI production
+8. Offer "EBSI-anchored" as premium feature
+
+### What EBSI Adds
+- Listed in EU Trusted Issuers Registry
+- Credentials anchored to EU government blockchain
+- Full eIDAS 2.0 legal recognition
+- Enhanced trust for enterprise customers
+- "Powered by EBSI" marketing badge
+
+### Current State (MVP)
+- Using: did:web via walt.id Community Stack
+- Credentials: Cryptographically signed, W3C standard
+- Verifiable: Yes (anyone can verify)
+- EBSI-ready: Yes (architecture supports upgrade)
+
+## 14. Related Documentation
 
 - **[EBSI Integration Plan](./docs/EBSI_INTEGRATION_PLAN.md)** - Detailed EBSI architecture via walt.id
 
 ## Ready for Implementation
 
-All decisions confirmed. Proceeding with full platform build.
+All decisions confirmed. Proceeding with full platform build using:
+- **walt.id Community Stack** (free, open source)
+- **did:web** identities (upgrade to did:ebsi later)
+- **W3C Verifiable Credentials** (industry standard)
