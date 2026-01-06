@@ -15,9 +15,6 @@ import healthRoutes from './common/routes/health.js';
 import didRoutes from './common/routes/did.js';
 import authRoutes from './common/auth/routes.js';
 import productTrustRoutes from './modules/product-trust/routes.js';
-import workforceTrustRoutes from './modules/workforce-trust/routes.js';
-import merchantTrustRoutes from './modules/merchant-trust/routes.js';
-import integrationsRoutes from './modules/integrations/index.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -57,11 +54,6 @@ app.use(didRoutes);
 // API routes
 app.use('/v1/auth', authRoutes);
 app.use('/v1', productTrustRoutes);
-app.use('/v1', workforceTrustRoutes);
-app.use('/v1', merchantTrustRoutes);
-
-// E-commerce integrations (Shopify, WooCommerce)
-app.use('/api', integrationsRoutes);
 
 // 404 handler
 app.use((_req, res) => {

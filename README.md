@@ -1,49 +1,22 @@
 # EuroComply
 
-**"The Stripe for Trust"** - Compliance Orchestration Platform for European SMEs
+**Digital Product Passport Infrastructure for ESPR Compliance**
 
-EuroComply provides API-first compliance automation for businesses navigating ESPR, eIDAS 2.0, and DSA regulations.
+EuroComply provides API-first Digital Product Passport (DPP) infrastructure for manufacturers and brands preparing for the EU Ecodesign for Sustainable Products Regulation (ESPR).
 
-## 🎯 Core Modules
+## 🎯 What We Do
 
-### ProductTrust API
-Digital Product Passport (DPP) engine for ESPR compliance:
-- Product lifecycle management
-- GS1 Digital Link QR codes
-- Sustainability claims tracking
-- Unsold goods reporting (ESPR Article 20)
+### Digital Product Passports (DPPs)
 
-### WorkforceTrust API
-eIDAS 2.0 identity orchestration:
-- Verifiable Credential issuance (via walt.id)
-- SD-JWT selective disclosure
-- Background check verification
-- Diploma/employment verification
+Complete DPP lifecycle management for ESPR compliance:
 
-### MerchantTrust API
-KYB and DSA trader verification:
-- VAT validation (VIES)
-- Business registry checks
-- Sanctions screening
-- UBO registry lookups
-- DSA compliance automation
-
-## 🛒 E-commerce Integrations
-
-### Shopify App
-DSA compliance for Shopify merchants:
-- One-click OAuth installation
-- Automatic store data sync
-- DSA compliance dashboard
-- Self-certification workflow
-
-### WooCommerce Plugin
-DSA compliance for WooCommerce stores:
-- REST API integration
-- Store data sync
-- Compliance status tracking
-
-See [E-commerce Integrations Guide](./docs/ECOMMERCE_INTEGRATIONS.md) for details.
+- **Product Registration** - Create and manage product records
+- **Passport Generation** - Issue W3C Verifiable Credentials for products
+- **QR Code Generation** - GS1 Digital Link compliant QR codes
+- **Sustainability Claims** - Track and verify environmental claims
+- **Lifecycle Events** - Manufacturing, shipping, recycling, destruction
+- **Unsold Goods Reporting** - ESPR Article 20 compliance
+- **Public Verification** - Anyone can verify a product's passport
 
 ## 🏗️ Architecture
 
@@ -54,8 +27,7 @@ eurocomply/
 │   └── dashboard/     # Next.js admin dashboard
 ├── packages/
 │   ├── database/      # Prisma schema & migrations
-│   ├── identity/      # walt.id integration
-│   ├── integrations/  # Shopify & WooCommerce
+│   ├── identity/      # walt.id integration (VCs)
 │   ├── sdk/           # Client SDK
 │   └── shared/        # Shared types & utilities
 └── docker/            # Docker configuration
@@ -66,8 +38,7 @@ eurocomply/
 ### Prerequisites
 - Node.js 20+
 - PostgreSQL 16+
-- Redis 7+
-- Docker (optional)
+- Docker (optional, for walt.id)
 
 ### Development Setup
 
@@ -81,7 +52,7 @@ npm install
 2. **Start infrastructure (Docker)**
 ```bash
 cd docker
-docker-compose up -d postgres redis
+docker-compose up -d postgres
 ```
 
 3. **Configure environment**
@@ -104,7 +75,7 @@ npm run dev
 
 The API will be available at `http://localhost:3000`
 
-### With walt.id (for credential issuance)
+### With walt.id (for Verifiable Credentials)
 ```bash
 cd docker
 docker-compose up -d  # Starts all services including walt.id stack
@@ -113,135 +84,122 @@ docker-compose up -d  # Starts all services including walt.id stack
 ## 📚 API Usage
 
 ### Authentication
-All API requests require an API key in the Authorization header:
+All API requests require an API key:
 ```bash
 curl https://api.eurocomply.io/v1/products \
   -H "Authorization: Bearer ec_live_xxxxx"
 ```
 
-### Create Organization
+### Create a Product
 ```bash
-curl -X POST https://api.eurocomply.io/v1/auth/organizations \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "My Company",
-    "slug": "my-company"
-  }'
-```
-
-### Create Product & Passport
-```bash
-# Create product
 curl -X POST https://api.eurocomply.io/v1/products \
   -H "Authorization: Bearer ec_live_xxxxx" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "Sustainable T-Shirt",
-    "gtin": "5901234123457"
+    "gtin": "5901234123457",
+    "sku": "TSHIRT-001"
   }'
+```
 
-# Create DPP
+### Create a Digital Product Passport
+```bash
 curl -X POST https://api.eurocomply.io/v1/passports \
   -H "Authorization: Bearer ec_live_xxxxx" \
   -H "Content-Type: application/json" \
   -d '{
     "productId": "prod_xxx",
     "data": {
-      "productId": "prod_xxx",
-      "productName": "Sustainable T-Shirt",
-      "manufacturerName": "My Company",
-      "carbonFootprint": { "value": 5.2, "unit": "kgCO2e" }
+      "manufacturerName": "EcoFashion GmbH",
+      "manufacturerCountry": "DE",
+      "carbonFootprint": {
+        "value": 5.2,
+        "unit": "kgCO2e"
+      },
+      "recyclability": {
+        "percentage": 85,
+        "instructions": "Remove buttons before recycling"
+      },
+      "materials": [
+        { "name": "Organic Cotton", "percentage": 95 },
+        { "name": "Elastane", "percentage": 5 }
+      ]
     }
   }'
+```
 
-# Generate QR code
+### Generate QR Code
+```bash
 curl -X POST https://api.eurocomply.io/v1/passports/pass_xxx/qr \
   -H "Authorization: Bearer ec_live_xxxxx"
 ```
 
-### Issue Verifiable Credential
+### Record Lifecycle Event
 ```bash
-curl -X POST https://api.eurocomply.io/v1/credentials/issue \
+curl -X POST https://api.eurocomply.io/v1/products/prod_xxx/events \
   -H "Authorization: Bearer ec_live_xxxxx" \
   -H "Content-Type: application/json" \
   -d '{
-    "schemaId": "schema_xxx",
-    "subjectName": "John Doe",
-    "subjectEmail": "john@example.com",
-    "claims": {
-      "employeeId": "EMP001",
-      "department": "Engineering"
-    }
+    "eventType": "DESTROYED",
+    "quantity": 50,
+    "reason": "End of season - unsold inventory",
+    "description": "Donated to textile recycling facility"
   }'
 ```
 
-### KYB Verification
+### Public Verification (No Auth)
 ```bash
-curl -X POST https://api.eurocomply.io/v1/kyb/verify \
-  -H "Authorization: Bearer ec_live_xxxxx" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "legalName": "Acme GmbH",
-    "vatNumber": "DE123456789",
-    "country": "DE"
-  }'
+curl https://api.eurocomply.io/v1/passports/pass_xxx/verify
 ```
 
-## 🔐 Identity Stack
+## 🔐 Identity & Credentials
 
-EuroComply uses **walt.id Community Stack** for credential issuance:
+EuroComply uses **walt.id Community Stack** for W3C Verifiable Credentials:
 
-- **DID Method (MVP)**: `did:web` - Works immediately, no registration needed
-- **DID Method (Future)**: `did:ebsi` - When EBSI Trusted Issuer status obtained
-- **Credential Format**: W3C Verifiable Credentials, SD-JWT
-- **Wallet Protocols**: OID4VCI, OID4VP
+- **DID Method**: `did:web` (e.g., `did:web:eurocomply.io:p:product-id`)
+- **Credential Format**: W3C Verifiable Credentials, JWT
+- **Future**: EBSI integration when regulatory traction exists
 
-### Merchant DIDs
-Each merchant gets their own DID:
-```
-did:web:eurocomply.io:m:{merchant-slug}
-```
+Each product passport is issued as a cryptographically signed Verifiable Credential that can be independently verified.
 
 ## 📋 Environment Variables
 
-See `.env.example` for all configuration options:
+```env
+# Database
+DATABASE_URL=postgresql://user:pass@localhost:5432/eurocomply
 
-| Variable | Description |
-|----------|-------------|
-| `DATABASE_URL` | PostgreSQL connection string |
-| `REDIS_URL` | Redis connection string |
-| `DID_METHOD` | `web` (default) or `ebsi` |
-| `WALTID_CORE_API` | walt.id Core API URL |
+# API
+PORT=3000
+API_HOST=api.eurocomply.io
 
-## 🧪 Testing
-
-```bash
-npm run test        # Run all tests
-npm run test:watch  # Watch mode
+# walt.id (Verifiable Credentials)
+WALTID_CORE_API=http://localhost:7000
+WALTID_SIGNATORY_API=http://localhost:7001
+WALTID_CUSTODIAN_API=http://localhost:7002
+WALTID_AUDITOR_API=http://localhost:7003
 ```
 
-## 📦 Production Deployment
+## 📦 ESPR Timeline
 
-### Docker
-```bash
-cd docker
-docker-compose --profile production up -d
-```
+| Milestone | Date | What It Means |
+|-----------|------|---------------|
+| ESPR enters into force | July 2024 | Framework law active |
+| First delegated acts | 2025-2026 | Product-specific rules |
+| DPP requirements begin | 2027+ | Passports required for covered products |
 
-### Cloud (AWS/GCP)
-See deployment guides in `/docs/deployment/`
+**First product categories**: Textiles, batteries, electronics, furniture
 
 ## 🗺️ Roadmap
 
 - [x] Core API infrastructure
-- [x] ProductTrust API (DPP)
-- [x] WorkforceTrust API (Credentials)
-- [x] MerchantTrust API (KYB/DSA)
-- [x] DSA Article 30 full compliance
-- [x] Shopify Integration
-- [x] WooCommerce Integration
+- [x] Product & Passport management
+- [x] QR code generation (GS1 Digital Link)
+- [x] Verifiable Credential issuance
+- [x] Lifecycle event tracking
 - [ ] React Dashboard
-- [ ] EBSI Integration (with traction)
+- [ ] EBSI integration (when mature)
+- [ ] Batch passport generation
+- [ ] Supply chain integration
 
 ## 📄 License
 
