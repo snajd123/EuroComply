@@ -425,6 +425,13 @@ model Merchant {
   dsaCompletedAt DateTime?
   traderProfilePublic Boolean @default(false)
 
+  // DSA Self-Certification (Article 30(1)(e))
+  // Trader's declaration that products/services comply with EU law
+  selfCertificationAccepted Boolean @default(false)
+  selfCertificationText     String?  @db.Text // The exact legal text they agreed to
+  selfCertifiedAt           DateTime?
+  selfCertifiedIpAddress    String?  // For audit trail
+
   // Risk Assessment
   riskScore      Int?     // 0-100
   riskLevel      RiskLevel?
@@ -437,6 +444,8 @@ model Merchant {
   sanctionsChecks  SanctionsCheck[]
   complianceDocuments ComplianceDocument[]
   ubos             Ubo[]
+  bankAccounts     BankAccount[]
+  documentAttestations DocumentAttestation[]
 
   @@index([organizationId])
   @@index([vatNumber])
@@ -601,6 +610,111 @@ enum DocumentStatus {
   APPROVED
   REJECTED
   EXPIRED
+}
+
+// ===========================================
+// DSA ARTICLE 30: Bank Account & Attestations
+// ===========================================
+
+// Bank Account (DSA Article 30(1)(d))
+// Required: payment account linked to the trader
+model BankAccount {
+  id             String   @id @default(cuid())
+  merchantId     String
+  merchant       Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  // Account Details
+  accountHolder  String   // Name on the account (must match legal name)
+  iban           String   // International Bank Account Number
+  bic            String?  // BIC/SWIFT code
+  bankName       String?
+
+  // Validation
+  ibanValid      Boolean  @default(false)  // IBAN checksum validated
+  ibanCountry    String?  // Extracted country code from IBAN
+
+  // Verification Status
+  // Note: Full verification (microdeposits, etc.) is future enhancement
+  status         BankAccountStatus @default(PENDING)
+  verifiedAt     DateTime?
+  verificationMethod String? // "iban_checksum", "bank_statement", "microdeposit"
+
+  // Audit
+  addedByIp      String?
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([merchantId])
+  @@index([iban])
+}
+
+enum BankAccountStatus {
+  PENDING          // Just added, basic validation done
+  IBAN_VERIFIED    // IBAN format/checksum valid
+  BANK_VERIFIED    // Full bank verification (future)
+  REJECTED
+}
+
+// Document Attestation (DSA Article 30(1)(b))
+// Instead of storing actual ID documents (GDPR nightmare),
+// we store attestations that the trader HAS the required documents.
+// For enhanced verification, integrate with IDV providers (Veriff, etc.)
+model DocumentAttestation {
+  id             String   @id @default(cuid())
+  merchantId     String
+  merchant       Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  // What document is being attested
+  documentType   AttestationDocumentType
+
+  // Attestation details (trader declares they have this document)
+  attestedDocumentDescription String?  // e.g., "German passport", "Dutch ID card"
+  attestedDocumentNumber      String?  // Last 4 chars only for reference: "***1234"
+  attestedDocumentExpiry      DateTime? // When the document expires
+  attestedDocumentCountry     String?  // Issuing country (ISO 3166-1 alpha-2)
+
+  // The legal declaration
+  declarationText String   @db.Text  // The exact legal text they agreed to
+  declarationAccepted Boolean @default(true)
+  declaredAt      DateTime @default(now())
+  declaredByIp    String?
+
+  // Verification status
+  // SELF_DECLARED = trader says they have it (minimum DSA compliance)
+  // IDV_VERIFIED = verified by identity provider (Veriff, Sumsub, etc.)
+  status          AttestationStatus @default(SELF_DECLARED)
+  idvProvider     String?   // e.g., "veriff", "sumsub", "onfido"
+  idvReference    String?   // Provider's reference ID
+  idvVerifiedAt   DateTime?
+  idvResult       Json?     // Provider's verification result
+
+  // For UBO ID verification
+  uboId           String?   // Link to specific UBO if this is for a beneficial owner
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([merchantId])
+  @@index([documentType])
+  @@index([status])
+}
+
+enum AttestationDocumentType {
+  PASSPORT
+  NATIONAL_ID
+  DRIVERS_LICENSE
+  RESIDENCE_PERMIT
+  COMPANY_REGISTRATION  // Certificate of incorporation
+  PROOF_OF_ADDRESS
+}
+
+enum AttestationStatus {
+  SELF_DECLARED   // Trader attested they have the document
+  IDV_PENDING     // Sent to IDV provider for verification
+  IDV_VERIFIED    // Verified by IDV provider
+  IDV_FAILED      // IDV verification failed
+  EXPIRED         // Document has expired
 }
 
 // ===========================================
