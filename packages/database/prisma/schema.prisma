@@ -1,0 +1,636 @@
+// EuroComply Database Schema
+// "The Stripe for Trust" - Compliance Orchestration Platform
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ===========================================
+// CORE: Multi-tenant Organization Management
+// ===========================================
+
+model Organization {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  domain      String?  @unique
+  did         String?  @unique // did:web:eurocomply.io:m:{slug}
+  didDocument Json?    // Cached DID document
+
+  // Subscription & Billing
+  plan        Plan     @default(FREE)
+  stripeCustomerId String?
+
+  // Settings
+  settings    Json     @default("{}")
+
+  // Timestamps
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  apiKeys     ApiKey[]
+  teamMembers TeamMember[]
+  webhooks    Webhook[]
+  products    Product[]
+  credentials Credential[]
+  merchants   Merchant[]
+  auditLogs   AuditLog[]
+
+  @@index([slug])
+}
+
+enum Plan {
+  FREE
+  STARTER
+  GROWTH
+  ENTERPRISE
+}
+
+model ApiKey {
+  id             String   @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name           String
+  keyHash        String   @unique // Hashed API key (never store plaintext)
+  keyPrefix      String   // First 8 chars for identification (ec_live_xxxxxxxx)
+
+  // Permissions
+  scopes         String[] @default(["*"])
+
+  // Security
+  lastUsedAt     DateTime?
+  expiresAt      DateTime?
+  isActive       Boolean  @default(true)
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([keyPrefix])
+  @@index([organizationId])
+}
+
+model TeamMember {
+  id             String   @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  email          String
+  name           String?
+  role           TeamRole @default(MEMBER)
+
+  // Auth (for dashboard access)
+  passwordHash   String?
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([organizationId, email])
+}
+
+enum TeamRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+model Webhook {
+  id             String   @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  url            String
+  events         String[] // Event types to subscribe to
+  secret         String   // For signing webhook payloads
+
+  isActive       Boolean  @default(true)
+
+  // Stats
+  lastTriggeredAt DateTime?
+  failureCount   Int      @default(0)
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([organizationId])
+}
+
+// ===========================================
+// PRODUCT TRUST: Digital Product Passports
+// ===========================================
+
+model Product {
+  id             String   @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // Product Identification
+  name           String
+  description    String?
+  sku            String?
+  gtin           String?  // Global Trade Item Number (EAN/UPC)
+
+  // GS1 Digital Link
+  gs1DigitalLink String?  // Full GS1 Digital Link URL
+
+  // Product Data (CIRPASS compatible)
+  attributes     Json     @default("{}") // Flexible attribute storage
+
+  // Sustainability
+  sustainabilityClaims Json @default("[]")
+
+  // Status
+  status         ProductStatus @default(DRAFT)
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relations
+  passports      Passport[]
+  lifecycleEvents LifecycleEvent[]
+
+  @@unique([organizationId, sku])
+  @@index([organizationId])
+  @@index([gtin])
+}
+
+enum ProductStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+model Passport {
+  id             String   @id @default(cuid())
+  productId      String
+  product        Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  // Passport Data
+  version        String   @default("1.0")
+  data           Json     // Full DPP data (CIRPASS schema)
+
+  // Verifiable Credential
+  credentialId   String?  @unique // walt.id credential ID
+  credential     Json?    // Cached VC
+
+  // QR Code
+  qrCodeUrl      String?  // Generated QR code image URL
+  qrCodeData     String?  // QR code payload
+
+  // Blockchain Anchoring
+  anchorStatus   AnchorStatus @default(NONE)
+  anchorTxHash   String?
+  anchoredAt     DateTime?
+
+  // Verification
+  verificationUrl String? // Public verification URL
+
+  // Status
+  isActive       Boolean  @default(true)
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([productId])
+}
+
+enum AnchorStatus {
+  NONE
+  PENDING
+  ANCHORED
+  FAILED
+}
+
+model LifecycleEvent {
+  id             String   @id @default(cuid())
+  productId      String
+  product        Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  // Event Details
+  eventType      LifecycleEventType
+  description    String?
+  data           Json     @default("{}")
+
+  // For unsold goods tracking
+  quantity       Int?
+  reason         String?  // Destruction reason for ESPR
+
+  // Timestamps
+  occurredAt     DateTime @default(now())
+  createdAt      DateTime @default(now())
+
+  @@index([productId])
+  @@index([eventType])
+}
+
+enum LifecycleEventType {
+  MANUFACTURED
+  SHIPPED
+  RECEIVED
+  SOLD
+  RETURNED
+  RECYCLED
+  DESTROYED      // ESPR unsold goods tracking
+  DONATED
+  REPAIRED
+  REFURBISHED
+}
+
+// ===========================================
+// WORKFORCE TRUST: Credentials & Identity
+// ===========================================
+
+model CredentialSchema {
+  id             String   @id @default(cuid())
+
+  // Schema Definition
+  name           String
+  description    String?
+  version        String   @default("1.0")
+  schemaJson     Json     // JSON Schema definition
+
+  // Type
+  type           CredentialType
+
+  // walt.id Reference
+  waltIdSchemaId String?
+
+  // System or Custom
+  isSystem       Boolean  @default(false)
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relations
+  credentials    Credential[]
+
+  @@unique([name, version])
+}
+
+enum CredentialType {
+  EMPLOYEE_ID
+  EMPLOYMENT_VERIFICATION
+  BACKGROUND_CHECK
+  DIPLOMA
+  PROFESSIONAL_LICENSE
+  TRAINING_CERTIFICATE
+  CUSTOM
+}
+
+model Credential {
+  id             String   @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  schemaId       String
+  schema         CredentialSchema @relation(fields: [schemaId], references: [id])
+
+  // Subject (who the credential is about)
+  subjectDid     String?  // Holder's DID
+  subjectEmail   String?
+  subjectName    String
+
+  // Credential Data
+  claims         Json     // Credential claims
+
+  // Verifiable Credential (walt.id)
+  vcId           String?  @unique // walt.id credential ID
+  vcJwt          String?  // Signed JWT (SD-JWT)
+  vcJson         Json?    // Full VC JSON
+
+  // Issuance
+  issuedAt       DateTime?
+  expiresAt      DateTime?
+
+  // Status
+  status         CredentialStatus @default(PENDING)
+  revokedAt      DateTime?
+  revocationReason String?
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relations
+  verificationRequests VerificationRequest[]
+
+  @@index([organizationId])
+  @@index([subjectEmail])
+  @@index([status])
+}
+
+enum CredentialStatus {
+  PENDING
+  ISSUED
+  REVOKED
+  EXPIRED
+}
+
+model VerificationRequest {
+  id             String   @id @default(cuid())
+  credentialId   String?
+  credential     Credential? @relation(fields: [credentialId], references: [id])
+
+  // Verification Type
+  type           VerificationType
+
+  // Subject Info
+  subjectEmail   String?
+  subjectName    String?
+
+  // Request Data
+  requestData    Json     @default("{}")
+
+  // Verification Result
+  status         VerificationStatus @default(PENDING)
+  result         Json?
+  verifiedAt     DateTime?
+
+  // External Provider Reference
+  providerRef    String?
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([type])
+  @@index([status])
+}
+
+enum VerificationType {
+  BACKGROUND_CHECK
+  DIPLOMA
+  EMPLOYMENT
+  CREDENTIAL_PRESENTATION
+}
+
+enum VerificationStatus {
+  PENDING
+  IN_PROGRESS
+  VERIFIED
+  FAILED
+  EXPIRED
+}
+
+// ===========================================
+// MERCHANT TRUST: KYB & DSA Compliance
+// ===========================================
+
+model Merchant {
+  id             String   @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // Business Info
+  legalName      String
+  tradingName    String?
+  registrationNumber String?
+  vatNumber      String?
+
+  // DID (merchant's own identity)
+  did            String?  @unique
+  didDocument    Json?
+
+  // Address
+  addressLine1   String?
+  addressLine2   String?
+  city           String?
+  postalCode     String?
+  country        String?  // ISO 3166-1 alpha-2
+
+  // Contact
+  email          String?
+  phone          String?
+  website        String?
+
+  // KYB Status
+  kybStatus      KybStatus @default(PENDING)
+  kybCompletedAt DateTime?
+
+  // DSA Compliance
+  dsaStatus      DsaStatus @default(NOT_STARTED)
+  dsaCompletedAt DateTime?
+  traderProfilePublic Boolean @default(false)
+
+  // Risk Assessment
+  riskScore      Int?     // 0-100
+  riskLevel      RiskLevel?
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relations
+  kybVerifications KybVerification[]
+  sanctionsChecks  SanctionsCheck[]
+  complianceDocuments ComplianceDocument[]
+  ubos             Ubo[]
+
+  @@index([organizationId])
+  @@index([vatNumber])
+  @@index([registrationNumber])
+}
+
+enum KybStatus {
+  PENDING
+  IN_PROGRESS
+  VERIFIED
+  FAILED
+  REQUIRES_REVIEW
+}
+
+enum DsaStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLIANT
+  NON_COMPLIANT
+}
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+model KybVerification {
+  id             String   @id @default(cuid())
+  merchantId     String
+  merchant       Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  // Verification Type
+  type           KybVerificationType
+
+  // Result
+  status         VerificationStatus @default(PENDING)
+  result         Json?
+
+  // Provider
+  provider       String?  // e.g., "vies", "business_registry"
+  providerRef    String?
+
+  verifiedAt     DateTime?
+  expiresAt      DateTime?
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([merchantId])
+  @@index([type])
+}
+
+enum KybVerificationType {
+  VAT_VALIDATION
+  BUSINESS_REGISTRY
+  ADDRESS_VERIFICATION
+  IDENTITY_VERIFICATION
+  UBO_VERIFICATION
+}
+
+model SanctionsCheck {
+  id             String   @id @default(cuid())
+  merchantId     String
+  merchant       Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  // Check Details
+  entityName     String
+  entityType     String   // BUSINESS, INDIVIDUAL
+
+  // Result
+  status         SanctionsStatus @default(PENDING)
+  matchFound     Boolean  @default(false)
+  matches        Json?    // Potential matches found
+
+  // Lists Checked
+  listsChecked   String[] @default([])
+
+  checkedAt      DateTime?
+  createdAt      DateTime @default(now())
+
+  @@index([merchantId])
+}
+
+enum SanctionsStatus {
+  PENDING
+  CLEAR
+  POTENTIAL_MATCH
+  CONFIRMED_MATCH
+}
+
+model Ubo {
+  id             String   @id @default(cuid())
+  merchantId     String
+  merchant       Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  // Person Info
+  firstName      String
+  lastName       String
+  dateOfBirth    DateTime?
+  nationality    String?  // ISO 3166-1 alpha-2
+
+  // Ownership
+  ownershipPercentage Float?
+  controlType    String?  // DIRECT, INDIRECT, VOTING_RIGHTS
+
+  // Verification
+  verified       Boolean  @default(false)
+  verifiedAt     DateTime?
+
+  // PEP Check
+  isPep          Boolean  @default(false)
+  pepDetails     Json?
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([merchantId])
+}
+
+model ComplianceDocument {
+  id             String   @id @default(cuid())
+  merchantId     String
+  merchant       Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  // Document Info
+  type           DocumentType
+  name           String
+
+  // Storage
+  fileUrl        String?
+  fileHash       String?  // SHA-256 hash for integrity
+
+  // Status
+  status         DocumentStatus @default(PENDING)
+  reviewedAt     DateTime?
+  reviewNotes    String?
+
+  expiresAt      DateTime?
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([merchantId])
+  @@index([type])
+}
+
+enum DocumentType {
+  CERTIFICATE_OF_INCORPORATION
+  ARTICLES_OF_ASSOCIATION
+  PROOF_OF_ADDRESS
+  ID_DOCUMENT
+  VAT_CERTIFICATE
+  TRADE_LICENSE
+  BANK_STATEMENT
+  OTHER
+}
+
+enum DocumentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+// ===========================================
+// AUDIT & LOGGING
+// ===========================================
+
+model AuditLog {
+  id             String   @id @default(cuid())
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+
+  // Actor
+  actorType      ActorType
+  actorId        String?
+  actorEmail     String?
+
+  // Action
+  action         String
+  resourceType   String
+  resourceId     String?
+
+  // Details
+  details        Json     @default("{}")
+
+  // Request Info
+  ipAddress      String?
+  userAgent      String?
+
+  createdAt      DateTime @default(now())
+
+  @@index([organizationId])
+  @@index([action])
+  @@index([resourceType])
+  @@index([createdAt])
+}
+
+enum ActorType {
+  USER
+  API_KEY
+  SYSTEM
+  WEBHOOK
+}
