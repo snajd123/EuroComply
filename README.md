@@ -18,6 +18,17 @@ Complete DPP lifecycle management for ESPR compliance:
 - **Unsold Goods Reporting** - ESPR Article 20 compliance
 - **Public Verification** - Anyone can verify a product's passport
 
+## 🛒 E-commerce Integrations
+
+Automatically sync products from your existing store:
+
+| Platform | Status | Features |
+|----------|--------|----------|
+| **Shopify** | Ready | OAuth install, auto-sync, QR to metafields |
+| **WooCommerce** | Ready | API key connect, auto-sync, QR to meta |
+
+See [E-commerce Integrations Guide](docs/ECOMMERCE_INTEGRATIONS.md) for setup instructions.
+
 ## 🏗️ Architecture
 
 ```
@@ -28,6 +39,7 @@ eurocomply/
 ├── packages/
 │   ├── database/      # Prisma schema & migrations
 │   ├── identity/      # walt.id integration (VCs)
+│   ├── integrations/  # Shopify & WooCommerce sync
 │   ├── sdk/           # Client SDK
 │   └── shared/        # Shared types & utilities
 └── docker/            # Docker configuration
@@ -171,12 +183,20 @@ DATABASE_URL=postgresql://user:pass@localhost:5432/eurocomply
 # API
 PORT=3000
 API_HOST=api.eurocomply.io
+DASHBOARD_URL=https://dashboard.eurocomply.io
 
 # walt.id (Verifiable Credentials)
 WALTID_CORE_API=http://localhost:7000
 WALTID_SIGNATORY_API=http://localhost:7001
 WALTID_CUSTODIAN_API=http://localhost:7002
 WALTID_AUDITOR_API=http://localhost:7003
+
+# Shopify Integration
+SHOPIFY_API_KEY=your_api_key
+SHOPIFY_API_SECRET=your_api_secret
+
+# WooCommerce Integration
+WOOCOMMERCE_WEBHOOK_SECRET=your_webhook_secret
 ```
 
 ## 📦 ESPR Timeline
@@ -196,6 +216,8 @@ WALTID_AUDITOR_API=http://localhost:7003
 - [x] QR code generation (GS1 Digital Link)
 - [x] Verifiable Credential issuance
 - [x] Lifecycle event tracking
+- [x] Shopify integration
+- [x] WooCommerce integration
 - [ ] React Dashboard
 - [ ] EBSI integration (when mature)
 - [ ] Batch passport generation

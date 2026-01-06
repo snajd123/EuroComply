@@ -1,0 +1,19 @@
+{
+  "name": "@eurocomply/integrations",
+  "version": "1.0.0",
+  "description": "E-commerce integrations for Digital Product Passports",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "@shopify/shopify-api": "^9.0.0",
+    "woocommerce-rest-api": "^1.0.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "@types/node": "^20.0.0"
+  }
+}
