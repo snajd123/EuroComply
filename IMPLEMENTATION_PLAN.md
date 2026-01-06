@@ -48,9 +48,9 @@ EuroComply is an API-first compliance orchestration platform targeting European 
 - EBSI compatibility out-of-the-box
 
 ### Blockchain/DLT Anchoring
-- **Primary**: EBSI (European Blockchain Services Infrastructure)
-- **Fallback**: IOTA (feeless, green) or Polygon (cost-effective)
-- **Strategy**: Batch and anchor hashes, not full data
+- **EBSI ONLY**: European Blockchain Services Infrastructure via walt.id
+- **No Fallbacks**: EBSI is the only legally recognized option for eIDAS 2.0 compliance
+- **Strategy**: All anchoring via walt.id → EBSI (see docs/EBSI_INTEGRATION_PLAN.md)
 
 ### QR Code & Standards
 - **GS1 Digital Link**: gs1-digital-link-tools library
@@ -386,24 +386,23 @@ eurocomply/
 
 ---
 
-## 9. MVP Scope Recommendation
+## 9. Confirmed Build Scope
 
-For initial launch, focus on **ProductTrust API** as the minimum viable product:
+**Building ALL THREE APIs** simultaneously for maximum efficiency:
 
-### MVP Features (4-6 weeks)
+### Full Platform Features
 1. ✅ API authentication (API keys)
-2. ✅ Product/DPP CRUD
-3. ✅ GS1 Digital Link generation
-4. ✅ QR code generation
-5. ✅ Basic lifecycle tracking
-6. ✅ Simple dashboard
-7. ✅ Shopify plugin (basic)
+2. ✅ **ProductTrust API** - DPP CRUD, GS1 Digital Link, QR codes, ESPR reports
+3. ✅ **WorkforceTrust API** - Credential issuance, SD-JWT, background checks
+4. ✅ **MerchantTrust API** - KYB verification, DSA compliance, sanctions
+5. ✅ React Dashboard (included from start)
+6. ✅ Shopify integration
+7. ✅ WooCommerce integration
+8. ✅ EBSI-only blockchain anchoring via walt.id
 
-### Post-MVP (Phase 2)
-- WorkforceTrust API
-- MerchantTrust API
-- AI auto-fill
-- Advanced integrations
+### Deployment
+- Cloud-native (GDPR-compliant EU hosting)
+- AWS EU regions or equivalent
 
 ---
 
@@ -413,7 +412,7 @@ For initial launch, focus on **ProductTrust API** as the minimum viable product:
 |------|--------|------------|
 | ESPR spec changes | High | Schema-agnostic data model |
 | walt.id breaking changes | Medium | Abstraction layer, pinned versions |
-| EBSI availability | Medium | Multi-chain fallback |
+| EBSI availability | Medium | Retry logic, local caching, graceful degradation |
 | Scaling issues | Medium | Horizontal scaling design |
 | Security breach | Critical | Non-custodial architecture, encryption |
 
@@ -434,14 +433,22 @@ For initial launch, focus on **ProductTrust API** as the minimum viable product:
 
 ---
 
-## Next Steps
+## 12. Confirmed Decisions
 
-Please review this plan and confirm:
+| Decision | Confirmed Choice |
+|----------|------------------|
+| **Technology stack** | Node.js/TypeScript/PostgreSQL ✅ |
+| **Architecture** | Monolith-first ✅ |
+| **Blockchain** | EBSI ONLY via walt.id (no fallbacks) ✅ |
+| **Build scope** | All 3 APIs simultaneously ✅ |
+| **Dashboard** | React dashboard included ✅ |
+| **Deployment** | Cloud-native, GDPR-compliant EU ✅ |
+| **E-commerce** | Shopify + WooCommerce ✅ |
 
-1. **Technology stack** - Node.js/TypeScript/PostgreSQL acceptable?
-2. **Architecture approach** - Monolith-first acceptable?
-3. **MVP scope** - ProductTrust API first?
-4. **Phase priorities** - Any reordering needed?
-5. **Additional requirements** - Anything missing?
+## 13. Related Documentation
 
-Once approved, I'll begin implementation following this plan.
+- **[EBSI Integration Plan](./docs/EBSI_INTEGRATION_PLAN.md)** - Detailed EBSI architecture via walt.id
+
+## Ready for Implementation
+
+All decisions confirmed. Proceeding with full platform build.
