@@ -1,20 +1,26 @@
 # EuroComply External Integrations Plan
 
-## Overview
+## Philosophy: Open Compliance
 
-This document outlines all external integrations required for production, how to obtain access, and implementation priority.
+EuroComply uses **official government sources** and **open-source data** wherever possible. This isn't a limitation—it's a feature:
+
+- **VIES** is the official EU Commission VAT database
+- **OpenSanctions** aggregates official EU/UN/US/UK sanction lists
+- **Companies House** is the official UK government registry
+- **walt.id** provides W3C-compliant verifiable credentials
+
+Premium providers charge €10K-100K/year for the same underlying data with better UX. We make EU compliance accessible to SMEs who can't afford enterprise solutions.
 
 ---
 
-## 1. VAT Validation - VIES
+## Core Integrations (All FREE or Near-FREE)
 
-**Purpose**: Validate EU VAT numbers for KYB verification
+### 1. VAT Validation - VIES (European Commission)
 
-**Provider**: European Commission (FREE)
-
-**API**: SOAP/REST
-- SOAP: `https://ec.europa.eu/taxation_customs/vies/checkVatService.wsdl`
-- REST (unofficial): Various wrappers available
+**What it is**: The official EU VAT Information Exchange System
+**Coverage**: All 27 EU member states
+**Cost**: FREE
+**Reliability**: ★★★★★ (It's the official source)
 
 **How to Get Access**:
 - No registration required - publicly available
@@ -22,483 +28,642 @@ This document outlines all external integrations required for production, how to
 
 **Implementation**:
 ```typescript
-// Replace simulation in kyb.service.ts with real VIES call
+// packages/integrations/src/vies.ts
 import soap from 'soap';
 
 const VIES_URL = 'https://ec.europa.eu/taxation_customs/vies/checkVatService.wsdl';
 
-async function validateVatVies(countryCode: string, vatNumber: string) {
+export interface ViesResult {
+  valid: boolean;
+  name: string;
+  address: string;
+  countryCode: string;
+  vatNumber: string;
+  requestDate: Date;
+}
+
+export async function validateVat(countryCode: string, vatNumber: string): Promise<ViesResult> {
   const client = await soap.createClientAsync(VIES_URL);
-  const result = await client.checkVatAsync({
-    countryCode,
-    vatNumber,
+  const [result] = await client.checkVatAsync({
+    countryCode: countryCode.toUpperCase(),
+    vatNumber: vatNumber.replace(/[^0-9A-Za-z]/g, ''),
   });
+
   return {
-    valid: result[0].valid,
-    name: result[0].name,
-    address: result[0].address,
+    valid: result.valid,
+    name: result.name || '',
+    address: result.address || '',
+    countryCode: result.countryCode,
+    vatNumber: result.vatNumber,
+    requestDate: new Date(result.requestDate),
   };
 }
 ```
 
 **Priority**: HIGH
 **Effort**: 1 day
-**Cost**: FREE
 
 ---
 
-## 2. Business Registry APIs
+### 2. Sanctions & PEP Screening - OpenSanctions
 
-**Purpose**: Verify company registration, get official company data
+**What it is**: Open-source aggregation of official sanctions lists
+**Coverage**: EU, UN, US OFAC, UK HMT, plus PEP databases from 100+ countries
+**Cost**: FREE (self-hosted) or FREE API tier
+**Reliability**: ★★★★★ (Same data as ComplyAdvantage, just open)
 
-### Option A: OpenCorporates (Recommended for MVP)
-
-**Coverage**: 140+ jurisdictions, 200M+ companies
-
-**API**: REST
+**Data Sources Included**:
+- EU Consolidated Sanctions List
+- UN Security Council Sanctions
+- US OFAC SDN List
+- UK HMT Sanctions
+- Politically Exposed Persons (PEP) databases
+- Interpol Red Notices
 
 **How to Get Access**:
-1. Go to https://opencorporates.com/api_accounts/new
-2. Sign up for API account
-3. Free tier: 500 requests/month
-4. Paid: Starting $500/month for 10K requests
+1. Self-host: `docker pull opensanctions/yente`
+2. Or use API: https://api.opensanctions.org/ (free tier available)
 
 **Implementation**:
 ```typescript
-const OPENCORPORATES_API = 'https://api.opencorporates.com/v0.4';
+// packages/integrations/src/sanctions.ts
 
-async function lookupCompany(jurisdiction: string, companyNumber: string) {
+const OPENSANCTIONS_API = process.env.OPENSANCTIONS_API || 'https://api.opensanctions.org';
+
+export interface SanctionsMatch {
+  id: string;
+  caption: string;
+  schema: string;
+  score: number;
+  features: Record<string, number>;
+  datasets: string[];
+}
+
+export interface ScreeningResult {
+  matches: SanctionsMatch[];
+  isClean: boolean;
+  highestScore: number;
+  checkedAt: Date;
+}
+
+export async function screenEntity(
+  name: string,
+  type: 'Person' | 'Company' = 'Person',
+  options?: { birthDate?: string; nationality?: string; address?: string }
+): Promise<ScreeningResult> {
+  const properties: Record<string, string[]> = {
+    name: [name],
+  };
+
+  if (options?.birthDate) properties.birthDate = [options.birthDate];
+  if (options?.nationality) properties.nationality = [options.nationality];
+  if (options?.address) properties.address = [options.address];
+
+  const response = await fetch(`${OPENSANCTIONS_API}/match/default`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(process.env.OPENSANCTIONS_API_KEY && {
+        'Authorization': `ApiKey ${process.env.OPENSANCTIONS_API_KEY}`
+      }),
+    },
+    body: JSON.stringify({
+      schema: type,
+      properties,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`OpenSanctions API error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  const matches = data.results || [];
+  const highestScore = matches.length > 0 ? Math.max(...matches.map((m: SanctionsMatch) => m.score)) : 0;
+
+  return {
+    matches,
+    isClean: highestScore < 0.7, // Configurable threshold
+    highestScore,
+    checkedAt: new Date(),
+  };
+}
+
+export async function screenCompany(
+  companyName: string,
+  jurisdiction?: string
+): Promise<ScreeningResult> {
+  return screenEntity(companyName, 'Company', { address: jurisdiction });
+}
+```
+
+**Self-Hosting** (Recommended for production):
+```yaml
+# docker-compose.sanctions.yml
+services:
+  yente:
+    image: opensanctions/yente:latest
+    ports:
+      - "8000:8000"
+    environment:
+      YENTE_ELASTICSEARCH_URL: http://elasticsearch:9200
+    depends_on:
+      - elasticsearch
+
+  elasticsearch:
+    image: elasticsearch:8.11.0
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+    volumes:
+      - sanctions-data:/usr/share/elasticsearch/data
+
+volumes:
+  sanctions-data:
+```
+
+**Priority**: HIGH
+**Effort**: 2 days
+
+---
+
+### 3. UK Company Verification - Companies House
+
+**What it is**: Official UK government company registry
+**Coverage**: All UK registered companies
+**Cost**: FREE
+**Reliability**: ★★★★★ (Official government source)
+
+**How to Get Access**:
+1. Go to https://developer.company-information.service.gov.uk/
+2. Register for API key (instant)
+3. Rate limit: 600 requests per 5 minutes
+
+**Implementation**:
+```typescript
+// packages/integrations/src/companies-house.ts
+
+const COMPANIES_HOUSE_API = 'https://api.company-information.service.gov.uk';
+
+export interface CompanyProfile {
+  companyNumber: string;
+  companyName: string;
+  companyStatus: 'active' | 'dissolved' | 'liquidation' | 'receivership';
+  companyType: string;
+  dateOfCreation: string;
+  registeredOfficeAddress: {
+    addressLine1: string;
+    addressLine2?: string;
+    locality: string;
+    postalCode: string;
+    country: string;
+  };
+  sicCodes: string[];
+  hasCharges: boolean;
+  hasInsolvencyHistory: boolean;
+}
+
+export async function getCompanyProfile(companyNumber: string): Promise<CompanyProfile> {
   const response = await fetch(
-    `${OPENCORPORATES_API}/companies/${jurisdiction}/${companyNumber}?api_token=${API_KEY}`
+    `${COMPANIES_HOUSE_API}/company/${companyNumber}`,
+    {
+      headers: {
+        'Authorization': `Basic ${Buffer.from(process.env.COMPANIES_HOUSE_API_KEY + ':').toString('base64')}`,
+      },
+    }
+  );
+
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw new Error(`Company not found: ${companyNumber}`);
+    }
+    throw new Error(`Companies House API error: ${response.status}`);
+  }
+
+  const data = await response.json();
+
+  return {
+    companyNumber: data.company_number,
+    companyName: data.company_name,
+    companyStatus: data.company_status,
+    companyType: data.type,
+    dateOfCreation: data.date_of_creation,
+    registeredOfficeAddress: {
+      addressLine1: data.registered_office_address.address_line_1,
+      addressLine2: data.registered_office_address.address_line_2,
+      locality: data.registered_office_address.locality,
+      postalCode: data.registered_office_address.postal_code,
+      country: data.registered_office_address.country,
+    },
+    sicCodes: data.sic_codes || [],
+    hasCharges: data.has_charges || false,
+    hasInsolvencyHistory: data.has_insolvency_history || false,
+  };
+}
+
+export async function getCompanyOfficers(companyNumber: string) {
+  const response = await fetch(
+    `${COMPANIES_HOUSE_API}/company/${companyNumber}/officers`,
+    {
+      headers: {
+        'Authorization': `Basic ${Buffer.from(process.env.COMPANIES_HOUSE_API_KEY + ':').toString('base64')}`,
+      },
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Companies House API error: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function searchCompanies(query: string) {
+  const response = await fetch(
+    `${COMPANIES_HOUSE_API}/search/companies?q=${encodeURIComponent(query)}`,
+    {
+      headers: {
+        'Authorization': `Basic ${Buffer.from(process.env.COMPANIES_HOUSE_API_KEY + ':').toString('base64')}`,
+      },
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Companies House API error: ${response.status}`);
+  }
+
+  return response.json();
+}
+```
+
+**Priority**: HIGH
+**Effort**: 1 day
+
+---
+
+### 4. EU Company Registries - Direct Access
+
+For other EU countries, we access national registries directly (many are free or low-cost):
+
+| Country | Registry | API | Cost |
+|---------|----------|-----|------|
+| DE | Handelsregister (via OpenRegister) | REST | FREE (limited) |
+| FR | API Entreprise / data.gouv.fr | REST | FREE |
+| NL | KVK Open Data | REST | FREE (basic) |
+| BE | Crossroads Bank | REST | FREE |
+| ES | BORME | Scraping | FREE |
+
+**Implementation**:
+```typescript
+// packages/integrations/src/eu-registries.ts
+
+// French Companies (data.gouv.fr - Sirene database)
+export async function searchFrenchCompany(siren: string) {
+  const response = await fetch(
+    `https://entreprise.data.gouv.fr/api/sirene/v3/unites_legales/${siren}`
   );
   return response.json();
 }
-```
 
-### Option B: National Registries (Direct)
-
-| Country | Registry | API Available | Cost |
-|---------|----------|---------------|------|
-| DE | Handelsregister | Yes (paid) | ~€2/query |
-| FR | Infogreffe | Yes | ~€1/query |
-| UK | Companies House | Yes (FREE) | Free |
-| NL | KVK | Yes | ~€0.50/query |
-| ES | BORME | Scraping only | - |
-
-**UK Companies House** (FREE - good for testing):
-1. Go to https://developer.company-information.service.gov.uk/
-2. Register for API key
-3. 600 requests/5 minutes
-
-**Priority**: HIGH
-**Effort**: 3-5 days (multiple registries)
-**Cost**: $500-2000/month depending on volume
-
----
-
-## 3. Sanctions & AML Screening
-
-**Purpose**: Check merchants/UBOs against sanctions lists, PEP databases
-
-### Option A: OpenSanctions (Open Source)
-
-**Coverage**: EU, UN, US, UK sanctions + PEP data
-
-**How to Get Access**:
-1. Go to https://opensanctions.org/api/
-2. Self-host (free) or use hosted API
-3. Bulk data download available
-
-**Implementation**:
-```typescript
-const OPENSANCTIONS_API = 'https://api.opensanctions.org';
-
-async function screenEntity(name: string, birthDate?: string) {
-  const response = await fetch(`${OPENSANCTIONS_API}/match/default`, {
-    method: 'POST',
-    headers: { 'Authorization': `ApiKey ${API_KEY}` },
-    body: JSON.stringify({
-      schema: 'Person',
-      properties: { name: [name], birthDate: [birthDate] }
-    })
-  });
+// German Companies (via OffeneRegister.de - community project)
+export async function searchGermanCompany(query: string) {
+  const response = await fetch(
+    `https://db.offeneregister.de/openregister-ef8d2d9.json?sql=select+*+from+company+where+name+like+%27%25${encodeURIComponent(query)}%25%27+limit+10`
+  );
   return response.json();
 }
-```
 
-### Option B: ComplyAdvantage (Enterprise)
-
-**Coverage**: Comprehensive - sanctions, PEP, adverse media
-
-**How to Get Access**:
-1. Contact sales: https://complyadvantage.com/
-2. Pricing: ~$10K+/year
-
-### Option C: Dow Jones Risk & Compliance (Enterprise)
-
-**How to Get Access**:
-1. Contact sales
-2. Pricing: Enterprise ($$$$)
-
-**Priority**: HIGH (required for KYB)
-**Effort**: 2-3 days
-**Cost**: FREE (OpenSanctions) to $10K+/year (enterprise)
-
----
-
-## 4. Identity Verification (IDV)
-
-**Purpose**: Verify UBO identities, document verification
-
-### Option A: Veriff
-
-**Features**: ID document verification, liveness check, biometrics
-
-**How to Get Access**:
-1. Go to https://www.veriff.com/
-2. Sign up for demo/sandbox
-3. Pricing: Pay-per-verification (~$2-5/verification)
-
-### Option B: Onfido
-
-**How to Get Access**:
-1. Go to https://onfido.com/
-2. Sign up for sandbox
-3. Pricing: Similar to Veriff
-
-### Option C: Sumsub
-
-**How to Get Access**:
-1. Go to https://sumsub.com/
-2. Good for EU compliance
-3. Pricing: Competitive
-
-**Implementation** (Veriff example):
-```typescript
-async function createVerificationSession(userId: string) {
-  const response = await fetch('https://stationapi.veriff.com/v1/sessions', {
-    method: 'POST',
-    headers: {
-      'X-AUTH-CLIENT': VERIFF_API_KEY,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      verification: {
-        callback: 'https://api.eurocomply.io/webhooks/veriff',
-        person: { idNumber: userId },
-        vendorData: userId,
-      }
-    })
-  });
-  return response.json(); // Returns URL to redirect user
-}
-```
-
-**Priority**: MEDIUM (needed for full KYB)
-**Effort**: 3-5 days
-**Cost**: $2-5 per verification
-
----
-
-## 5. Address Verification
-
-**Purpose**: Verify business addresses exist and are deliverable
-
-### Option A: Google Address Validation API
-
-**How to Get Access**:
-1. Go to https://console.cloud.google.com/
-2. Enable Address Validation API
-3. Pricing: $0.005/request (first 10K free/month)
-
-### Option B: Loqate (GBG)
-
-**How to Get Access**:
-1. Go to https://www.loqate.com/
-2. Good for EU addresses
-3. Pricing: Pay-per-use
-
-**Implementation**:
-```typescript
-async function validateAddress(address: object) {
+// Belgian Companies (Crossroads Bank)
+export async function searchBelgianCompany(enterpriseNumber: string) {
   const response = await fetch(
-    'https://addressvalidation.googleapis.com/v1:validateAddress',
-    {
-      method: 'POST',
-      headers: { 'X-Goog-Api-Key': GOOGLE_API_KEY },
-      body: JSON.stringify({ address })
-    }
+    `https://opendata.economie.fgov.be/api/v2/enterprise/${enterpriseNumber}`
   );
   return response.json();
 }
 ```
 
 **Priority**: MEDIUM
-**Effort**: 1 day
-**Cost**: ~$50-200/month
+**Effort**: 3-4 days (incremental per country)
 
 ---
 
-## 6. Payment & Billing - Stripe
+### 5. Email - Resend
 
-**Purpose**: Subscription billing, usage-based pricing
+**Cost**: FREE (3,000 emails/month) → $20/month (50K emails)
+**Why Resend**: Modern API, great DX, EU data residency option
 
 **How to Get Access**:
-1. Go to https://dashboard.stripe.com/register
-2. Get API keys immediately
-3. Complete business verification for live mode
+1. Sign up at https://resend.com/
+2. Add DNS records for domain verification
+3. Get API key
 
 **Implementation**:
 ```typescript
-import Stripe from 'stripe';
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-
-// Create customer on org signup
-async function createCustomer(org: Organization) {
-  return stripe.customers.create({
-    email: org.email,
-    metadata: { organizationId: org.id }
-  });
-}
-
-// Create subscription
-async function createSubscription(customerId: string, priceId: string) {
-  return stripe.subscriptions.create({
-    customer: customerId,
-    items: [{ price: priceId }],
-  });
-}
-```
-
-**Priority**: HIGH (for monetization)
-**Effort**: 3-5 days
-**Cost**: 2.9% + $0.30 per transaction
-
----
-
-## 7. Email - Transactional
-
-**Purpose**: Send verification emails, notifications, alerts
-
-### Option A: Resend (Recommended)
-
-**How to Get Access**:
-1. Go to https://resend.com/
-2. Sign up (free tier: 3K emails/month)
-3. Add DNS records for domain verification
-
-### Option B: SendGrid
-
-**How to Get Access**:
-1. Go to https://sendgrid.com/
-2. Free tier: 100 emails/day
-
-### Option C: AWS SES
-
-**How to Get Access**:
-1. AWS Console → SES
-2. Cheapest at scale ($0.10/1000 emails)
-
-**Implementation** (Resend):
-```typescript
+// packages/integrations/src/email.ts
 import { Resend } from 'resend';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-async function sendVerificationEmail(to: string, code: string) {
-  await resend.emails.send({
-    from: 'noreply@eurocomply.io',
+export async function sendEmail(options: {
+  to: string | string[];
+  subject: string;
+  html: string;
+  from?: string;
+}) {
+  return resend.emails.send({
+    from: options.from || 'EuroComply <noreply@eurocomply.io>',
+    to: options.to,
+    subject: options.subject,
+    html: options.html,
+  });
+}
+
+// Pre-built templates
+export async function sendKybVerificationEmail(to: string, merchantName: string, verificationUrl: string) {
+  return sendEmail({
     to,
-    subject: 'Verify your email',
-    html: `<p>Your code: ${code}</p>`
+    subject: `KYB Verification Required - ${merchantName}`,
+    html: `
+      <h1>Know Your Business Verification</h1>
+      <p>Please complete the verification process for ${merchantName}.</p>
+      <a href="${verificationUrl}" style="background: #0066cc; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px;">
+        Start Verification
+      </a>
+    `,
+  });
+}
+
+export async function sendCredentialIssuedEmail(to: string, credentialType: string) {
+  return sendEmail({
+    to,
+    subject: `Your ${credentialType} Credential is Ready`,
+    html: `
+      <h1>Credential Issued</h1>
+      <p>Your ${credentialType} verifiable credential has been issued and is now active.</p>
+      <p>You can view and share your credential from your EuroComply dashboard.</p>
+    `,
   });
 }
 ```
 
 **Priority**: HIGH
 **Effort**: 1 day
-**Cost**: FREE to $20/month
 
 ---
 
-## 8. walt.id Community Stack
+### 6. Payments - Stripe
 
-**Purpose**: DID management, VC issuance, verification
-
-**Status**: Already integrated in code
-
-**How to Deploy**:
-
-### Option A: Self-hosted (Docker)
-```yaml
-# docker-compose.yml
-services:
-  waltid-core:
-    image: waltid/core-api:latest
-    ports: ["7000:7000"]
-
-  waltid-signatory:
-    image: waltid/signatory-api:latest
-    ports: ["7001:7001"]
-
-  waltid-custodian:
-    image: waltid/custodian-api:latest
-    ports: ["7002:7002"]
-
-  waltid-auditor:
-    image: waltid/auditor-api:latest
-    ports: ["7003:7003"]
-```
-
-### Option B: walt.id Cloud (Managed)
-1. Go to https://walt.id/
-2. Contact for cloud offering
-3. Pricing: TBD
-
-**Priority**: HIGH (already integrated)
-**Effort**: 1-2 days for deployment
-**Cost**: FREE (self-hosted) or managed pricing
-
----
-
-## 9. EBSI - European Blockchain (Future)
-
-**Purpose**: did:ebsi for official EU recognition, trusted registries
-
-**Status**: Not yet integrated (using did:web for now)
+**Cost**: 2.9% + €0.25 per transaction (standard EU pricing)
+**Why Stripe**: Industry standard, EU entity, great DX
 
 **How to Get Access**:
-1. Apply for EBSI onboarding: https://ec.europa.eu/digital-building-blocks/wikis/display/EBSI/
-2. Requires legal entity verification
-3. Onboarding process takes weeks/months
-
-**When to Integrate**: After product-market fit with did:web
-
-**Priority**: LOW (future milestone)
-**Effort**: 2-4 weeks
-**Cost**: ~€10-50 per DID registration
-
----
-
-## 10. File Storage
-
-**Purpose**: Store compliance documents, QR codes, exports
-
-### Option A: AWS S3
-
-**How to Get Access**:
-1. AWS Console → S3
-2. Create bucket with appropriate policies
-
-### Option B: Cloudflare R2
-
-**How to Get Access**:
-1. Cloudflare Dashboard → R2
-2. S3-compatible, no egress fees
-3. Pricing: $0.015/GB/month
+1. Sign up at https://dashboard.stripe.com/register
+2. Complete business verification
+3. Get API keys
 
 **Implementation**:
 ```typescript
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+// packages/integrations/src/payments.ts
+import Stripe from 'stripe';
 
-const s3 = new S3Client({ region: 'eu-central-1' });
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: '2023-10-16',
+});
 
-async function uploadDocument(key: string, buffer: Buffer) {
-  await s3.send(new PutObjectCommand({
-    Bucket: 'eurocomply-documents',
+// Products and pricing
+export const PRODUCTS = {
+  PRODUCT_TRUST: {
+    name: 'ProductTrust API',
+    prices: {
+      starter: 'price_xxx', // €99/month - 100 DPPs
+      growth: 'price_xxx',  // €299/month - 1000 DPPs
+      scale: 'price_xxx',   // €999/month - unlimited
+    },
+  },
+  MERCHANT_TRUST: {
+    name: 'MerchantTrust API',
+    prices: {
+      starter: 'price_xxx', // €149/month - 50 verifications
+      growth: 'price_xxx',  // €499/month - 500 verifications
+    },
+  },
+  WORKFORCE_TRUST: {
+    name: 'WorkforceTrust API',
+    prices: {
+      starter: 'price_xxx', // €199/month - 100 employees
+      growth: 'price_xxx',  // €599/month - 1000 employees
+    },
+  },
+};
+
+export async function createCustomer(organizationId: string, email: string, name: string) {
+  return stripe.customers.create({
+    email,
+    name,
+    metadata: { organizationId },
+  });
+}
+
+export async function createSubscription(customerId: string, priceId: string) {
+  return stripe.subscriptions.create({
+    customer: customerId,
+    items: [{ price: priceId }],
+    payment_behavior: 'default_incomplete',
+    expand: ['latest_invoice.payment_intent'],
+  });
+}
+
+export async function createCheckoutSession(
+  customerId: string,
+  priceId: string,
+  successUrl: string,
+  cancelUrl: string
+) {
+  return stripe.checkout.sessions.create({
+    customer: customerId,
+    mode: 'subscription',
+    line_items: [{ price: priceId, quantity: 1 }],
+    success_url: successUrl,
+    cancel_url: cancelUrl,
+  });
+}
+
+export async function handleWebhook(payload: Buffer, signature: string) {
+  return stripe.webhooks.constructEvent(
+    payload,
+    signature,
+    process.env.STRIPE_WEBHOOK_SECRET!
+  );
+}
+```
+
+**Priority**: HIGH (for revenue)
+**Effort**: 3 days
+
+---
+
+### 7. walt.id Community Stack
+
+**Status**: Already integrated
+**Cost**: FREE (self-hosted)
+
+**Production Deployment**:
+```yaml
+# docker-compose.waltid.yml
+services:
+  waltid-core:
+    image: waltid/core-api:latest
+    ports:
+      - "7000:7000"
+    environment:
+      - WALTID_DATA_ROOT=/data
+    volumes:
+      - waltid-data:/data
+
+  waltid-signatory:
+    image: waltid/signatory-api:latest
+    ports:
+      - "7001:7001"
+    environment:
+      - WALTID_CORE_API=http://waltid-core:7000
+
+  waltid-custodian:
+    image: waltid/custodian-api:latest
+    ports:
+      - "7002:7002"
+    environment:
+      - WALTID_CORE_API=http://waltid-core:7000
+
+  waltid-auditor:
+    image: waltid/auditor-api:latest
+    ports:
+      - "7003:7003"
+    environment:
+      - WALTID_CORE_API=http://waltid-core:7000
+
+volumes:
+  waltid-data:
+```
+
+**Priority**: HIGH (already done)
+**Effort**: Deployment only (1 day)
+
+---
+
+### 8. File Storage - Cloudflare R2
+
+**Cost**: FREE (10GB) → ~€15/month (100GB)
+**Why R2**: S3-compatible, no egress fees, EU data centers
+
+**Implementation**:
+```typescript
+// packages/integrations/src/storage.ts
+import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+
+const r2 = new S3Client({
+  region: 'auto',
+  endpoint: process.env.R2_ENDPOINT,
+  credentials: {
+    accessKeyId: process.env.R2_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
+  },
+});
+
+export async function uploadFile(
+  key: string,
+  data: Buffer,
+  contentType: string
+): Promise<string> {
+  await r2.send(new PutObjectCommand({
+    Bucket: process.env.R2_BUCKET,
     Key: key,
-    Body: buffer,
+    Body: data,
+    ContentType: contentType,
   }));
-  return `https://eurocomply-documents.s3.eu-central-1.amazonaws.com/${key}`;
+
+  return `${process.env.R2_PUBLIC_URL}/${key}`;
+}
+
+export async function getSignedDownloadUrl(key: string, expiresIn = 3600) {
+  const command = new GetObjectCommand({
+    Bucket: process.env.R2_BUCKET,
+    Key: key,
+  });
+
+  return getSignedUrl(r2, command, { expiresIn });
 }
 ```
 
 **Priority**: MEDIUM
 **Effort**: 1 day
-**Cost**: ~$10-50/month
 
 ---
 
-## 11. Monitoring & Observability
+### 9. Error Tracking - Sentry
 
-### Sentry (Error Tracking)
-- https://sentry.io/
-- Free tier available
-- Effort: 2 hours
+**Cost**: FREE (5K errors/month)
+**Why Sentry**: Industry standard, great integrations
 
-### Datadog / Grafana (Metrics)
-- Application metrics, dashboards
-- Effort: 1-2 days
+**Implementation**:
+```typescript
+// apps/api/src/instrument.ts
+import * as Sentry from '@sentry/node';
 
-### PagerDuty (Alerting)
-- On-call alerting
-- Effort: 1 day
+Sentry.init({
+  dsn: process.env.SENTRY_DSN,
+  environment: process.env.NODE_ENV,
+  tracesSampleRate: 0.1,
+});
 
----
+export { Sentry };
+```
 
-## Implementation Roadmap
-
-### Phase 1: Core Integrations (Week 1-2)
-| Integration | Provider | Cost | Effort |
-|-------------|----------|------|--------|
-| VAT Validation | VIES | FREE | 1 day |
-| Sanctions Screening | OpenSanctions | FREE | 2 days |
-| Email | Resend | FREE | 1 day |
-| Error Tracking | Sentry | FREE | 2 hours |
-
-### Phase 2: Business Registries (Week 3-4)
-| Integration | Provider | Cost | Effort |
-|-------------|----------|------|--------|
-| UK Companies | Companies House | FREE | 1 day |
-| EU Companies | OpenCorporates | $500/mo | 2 days |
-| Address Validation | Google | $50/mo | 1 day |
-
-### Phase 3: Monetization (Week 5-6)
-| Integration | Provider | Cost | Effort |
-|-------------|----------|------|--------|
-| Payments | Stripe | 2.9%+30c | 3 days |
-| File Storage | Cloudflare R2 | $20/mo | 1 day |
-
-### Phase 4: Advanced KYB (Week 7-8)
-| Integration | Provider | Cost | Effort |
-|-------------|----------|------|--------|
-| ID Verification | Veriff/Sumsub | $3/verify | 3 days |
-| Enhanced Screening | ComplyAdvantage | $10K/yr | 2 days |
+**Priority**: HIGH
+**Effort**: 2 hours
 
 ---
 
-## Environment Variables Needed
+## Future Integrations (When Funded)
+
+These can be added later as premium features or when funding allows:
+
+| Integration | Provider | Purpose | Cost |
+|-------------|----------|---------|------|
+| Enhanced KYB | Veriff/Sumsub | ID document + liveness | ~€3/verify |
+| Adverse Media | ComplyAdvantage | News screening | €10K+/year |
+| More EU Registries | OpenCorporates | 140+ jurisdictions | €500/month |
+| Address Validation | Google/Loqate | Verify addresses | ~€50/month |
+| EBSI Integration | EU Commission | did:ebsi credentials | €10-50/DID |
+
+---
+
+## Environment Variables
 
 ```env
-# VAT Validation
-# (No API key needed for VIES)
+# VAT Validation (VIES - no key needed)
 
 # Business Registries
-OPENCORPORATES_API_KEY=
 COMPANIES_HOUSE_API_KEY=
 
-# Sanctions
-OPENSANCTIONS_API_KEY=
-
-# Identity Verification
-VERIFF_API_KEY=
-VERIFF_API_SECRET=
-
-# Address
-GOOGLE_MAPS_API_KEY=
-
-# Payments
-STRIPE_SECRET_KEY=
-STRIPE_WEBHOOK_SECRET=
+# Sanctions (OpenSanctions)
+OPENSANCTIONS_API=http://localhost:8000  # Self-hosted
+# OPENSANCTIONS_API_KEY=                 # If using hosted API
 
 # Email
 RESEND_API_KEY=
 
-# Storage
-AWS_ACCESS_KEY_ID=
-AWS_SECRET_ACCESS_KEY=
-S3_BUCKET=
+# Payments
+STRIPE_SECRET_KEY=
+STRIPE_WEBHOOK_SECRET=
+STRIPE_PUBLISHABLE_KEY=
+
+# Storage (Cloudflare R2)
+R2_ENDPOINT=
+R2_ACCESS_KEY_ID=
+R2_SECRET_ACCESS_KEY=
+R2_BUCKET=eurocomply
+R2_PUBLIC_URL=
 
 # walt.id
 WALTID_CORE_API=http://localhost:7000
@@ -512,31 +677,70 @@ SENTRY_DSN=
 
 ---
 
-## Estimated Monthly Costs (Production)
+## Estimated Monthly Costs
 
 | Service | Cost |
 |---------|------|
 | VIES | FREE |
-| OpenCorporates | $500 |
-| OpenSanctions | FREE (self-host) |
-| Veriff | ~$500 (100 verifications) |
-| Google Address | $50 |
-| Stripe | 2.9% of revenue |
-| Resend | $20 |
-| Cloudflare R2 | $20 |
-| walt.id | FREE (self-host) |
-| **Total** | **~$1,100/month + Stripe fees** |
+| OpenSanctions | FREE (self-hosted) |
+| Companies House | FREE |
+| EU Registries | FREE |
+| walt.id | FREE (self-hosted) |
+| Resend | FREE → €20 |
+| Cloudflare R2 | FREE → €15 |
+| Sentry | FREE |
+| Stripe | 2.9% + €0.25/tx |
+| **Total Fixed** | **~€35/month** |
+
+Infrastructure (hosting) adds ~€50-100/month for a small production setup.
 
 ---
 
-## Action Items
+## Implementation Roadmap
 
-- [ ] Sign up for OpenCorporates API
-- [ ] Get Companies House API key
-- [ ] Set up OpenSanctions (self-host or API)
-- [ ] Create Stripe account
-- [ ] Set up Resend for email
-- [ ] Deploy walt.id stack
-- [ ] Create S3/R2 bucket
-- [ ] Set up Sentry
-- [ ] Add all env variables to deployment config
+### Week 1: Core Free Integrations
+- [ ] VIES VAT validation
+- [ ] OpenSanctions screening (self-hosted)
+- [ ] Companies House API
+- [ ] Resend email
+- [ ] Sentry error tracking
+
+### Week 2: Infrastructure
+- [ ] Deploy walt.id stack (production)
+- [ ] Set up Cloudflare R2
+- [ ] Production database (managed Postgres)
+
+### Week 3: Monetization
+- [ ] Stripe integration
+- [ ] Subscription management
+- [ ] Usage tracking/metering
+
+### Week 4: Polish
+- [ ] Add more EU registries
+- [ ] Dashboard improvements
+- [ ] Documentation
+
+---
+
+## Why This Approach Works
+
+1. **Official Sources = Maximum Credibility**
+   - VIES is THE source for EU VAT validation
+   - Companies House is THE source for UK companies
+   - No one can question the data quality
+
+2. **Open Source = Auditable**
+   - Customers can verify exactly where data comes from
+   - No black-box compliance theater
+
+3. **Low Cost = Sustainable**
+   - ~€35/month in API costs vs €10K+/month for enterprise
+   - Competitive pricing possible from day one
+
+4. **Same Data, Better Price**
+   - OpenSanctions uses the same EU/UN/US lists as ComplyAdvantage
+   - Premium providers add UX and "adverse media" (nice to have, not required)
+
+5. **Upgrade Path Exists**
+   - Can add premium providers later as upsells
+   - Customer choice: pay more for enhanced screening
