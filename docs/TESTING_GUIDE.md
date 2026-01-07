@@ -1,24 +1,34 @@
 # Testing Guide for EuroComply DPP
 
-## Quick Start Testing (Local Development)
+This guide covers testing the EuroComply platform, with a focus on the **Shopify app development workflow** following Shopify's official testing practices.
 
-### 1. Prerequisites
+## Table of Contents
+
+1. [Quick Start - API Testing](#quick-start---api-testing)
+2. [Shopify App Testing (Standard Workflow)](#shopify-app-testing-standard-workflow)
+3. [WooCommerce Testing](#woocommerce-testing)
+4. [Verifiable Credentials Testing](#verifiable-credentials-testing)
+5. [Troubleshooting](#troubleshooting)
+
+---
+
+## Quick Start - API Testing
+
+### Prerequisites
 
 ```bash
 # Required
 - Node.js 20+
 - Docker & Docker Compose
-- A terminal
 
 # Verify
 node --version  # Should be v20+
 docker --version
 ```
 
-### 2. Start Infrastructure
+### 1. Start Infrastructure
 
 ```bash
-# Start PostgreSQL and Redis only (no walt.id for basic testing)
 cd docker
 docker-compose up -d postgres redis
 
@@ -27,274 +37,270 @@ docker ps
 # Should show eurocomply-db and eurocomply-redis
 ```
 
-### 3. Setup Application
+### 2. Setup Application
 
 ```bash
-# Install dependencies
 npm install
-
-# Generate Prisma client
 npm run db:generate
-
-# Push schema to database
 npm run db:push
-
-# Seed with test data (optional)
-npm run db:seed
+npm run db:seed  # Optional test data
 ```
 
-### 4. Configure Environment
-
-```bash
-cp .env.example .env
-```
-
-Edit `.env` with minimal config for testing:
-```env
-NODE_ENV=development
-PORT=3000
-DATABASE_URL=postgresql://eurocomply:eurocomply@localhost:5432/eurocomply
-REDIS_URL=redis://localhost:6379
-JWT_SECRET=test-secret-change-in-production
-API_KEY_PREFIX=ec_
-
-# Leave walt.id URLs as-is for now (will use mock mode)
-```
-
-### 5. Start the API
+### 3. Start the API
 
 ```bash
 npm run dev
 ```
 
-API should be running at `http://localhost:3000`
+API runs at `http://localhost:3000`
 
----
-
-## Testing the DPP Flow
-
-### Test 1: Health Check
+### 4. Test DPP Endpoints
 
 ```bash
+# Health check
 curl http://localhost:3000/health
-```
 
-Expected:
-```json
-{"status":"ok","timestamp":"..."}
-```
-
-### Test 2: Create an Organization (via seed or manually)
-
-The seed script should create a test organization with an API key. Check the output for the key, or query the database:
-
-```bash
-# Connect to database
-docker exec -it eurocomply-db psql -U eurocomply -d eurocomply
-
-# List organizations
-SELECT id, name, slug FROM "Organization";
-
-# List API keys (you'll see the prefix)
-SELECT id, name, "keyPrefix" FROM "ApiKey";
-```
-
-### Test 3: Create a Product
-
-```bash
-# Replace ec_test_xxx with your actual API key
+# Create a product (replace with your API key)
 curl -X POST http://localhost:3000/v1/products \
   -H "Authorization: Bearer ec_test_xxxxxxxxxxxxx" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "Organic Cotton T-Shirt",
     "sku": "TSHIRT-001",
-    "gtin": "5901234123457",
-    "description": "100% organic cotton t-shirt"
+    "gtin": "5901234123457"
   }'
-```
 
-Expected: Product object with `id`
-
-### Test 4: Create a Digital Product Passport
-
-```bash
+# Create a DPP
 curl -X POST http://localhost:3000/v1/passports \
   -H "Authorization: Bearer ec_test_xxxxxxxxxxxxx" \
   -H "Content-Type: application/json" \
   -d '{
-    "productId": "PRODUCT_ID_FROM_STEP_3",
+    "productId": "PRODUCT_ID",
     "data": {
       "manufacturerName": "EcoFashion GmbH",
-      "manufacturerCountry": "DE",
-      "carbonFootprint": {
-        "value": 5.2,
-        "unit": "kgCO2e"
-      },
-      "recyclability": {
-        "percentage": 85,
-        "instructions": "Remove buttons before recycling"
-      },
-      "materials": [
-        {"name": "Organic Cotton", "percentage": 95},
-        {"name": "Elastane", "percentage": 5}
-      ]
+      "carbonFootprint": {"value": 5.2, "unit": "kgCO2e"}
     }
   }'
-```
 
-Expected: Passport object with `id`
-
-### Test 5: Generate QR Code
-
-```bash
-curl -X POST http://localhost:3000/v1/passports/PASSPORT_ID/qr \
-  -H "Authorization: Bearer ec_test_xxxxxxxxxxxxx"
-```
-
-Expected: QR code URL or base64 image
-
-### Test 6: Public Verification (No Auth Required)
-
-```bash
+# Verify (public, no auth)
 curl http://localhost:3000/v1/passports/PASSPORT_ID/verify
 ```
 
-Expected: Verification result with passport data
+---
 
-### Test 7: Record Lifecycle Event
+## Shopify App Testing (Standard Workflow)
+
+This is the **recommended approach** for testing the Shopify integration. It follows the official Shopify app development workflow.
+
+### Prerequisites
+
+1. **Shopify Partners Account**: Create at [partners.shopify.com](https://partners.shopify.com)
+2. **Development Store**: Create a free dev store from Partners dashboard
+3. **Node.js 20+** and **npm 10+**
+4. **Shopify CLI**: Installed globally or via npx
+
+### Step 1: Create a Shopify App in Partners Dashboard
+
+1. Go to [partners.shopify.com](https://partners.shopify.com)
+2. Navigate to **Apps** → **Create app**
+3. Choose **Create app manually**
+4. Note down your:
+   - **Client ID** (API Key)
+   - **Client Secret** (API Secret Key)
+
+### Step 2: Configure the Shopify Plugin
 
 ```bash
-curl -X POST http://localhost:3000/v1/products/PRODUCT_ID/events \
-  -H "Authorization: Bearer ec_test_xxxxxxxxxxxxx" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "eventType": "MANUFACTURED",
-    "quantity": 1000,
-    "description": "Initial production batch"
-  }'
+cd plugins/shopify
+
+# Copy environment template
+cp .env.example .env
+```
+
+Edit `.env`:
+```env
+SHOPIFY_API_KEY=your_client_id_from_partners
+SHOPIFY_API_SECRET=your_client_secret_from_partners
+DATABASE_URL=postgresql://eurocomply:eurocomply@localhost:5432/shopify_app
+EUROCOMPLY_API_URL=http://localhost:3000
+```
+
+### Step 3: Setup the Database
+
+```bash
+cd plugins/shopify
+
+# Install dependencies
+npm install
+
+# Generate Prisma client
+npx prisma generate
+
+# Push schema to database
+npx prisma db push
+```
+
+### Step 4: Start Development with Shopify CLI
+
+```bash
+# From plugins/shopify directory
+npm run dev
+# or
+npx shopify app dev
+```
+
+**What happens:**
+- Shopify CLI creates a secure tunnel (using Cloudflare)
+- App is accessible via `https://your-tunnel.trycloudflare.com`
+- OAuth URLs are automatically configured
+- Hot Module Replacement (HMR) works out of the box
+
+### Step 5: Install on Development Store
+
+When you run `shopify app dev`:
+1. CLI prompts you to select a development store
+2. It opens a browser to install the app
+3. Complete the OAuth flow
+4. You're now in the embedded app!
+
+### Step 6: Test the DPP Integration
+
+1. **Dashboard**: View DPP sync stats
+2. **Products Page**: See your Shopify products
+3. **Create DPP**: Click "Create DPP" on any product
+4. **Settings**: Configure EuroComply API credentials
+
+### Shopify CLI Commands Reference
+
+```bash
+# Start development server with tunnel
+npm run dev
+
+# Build for production
+npm run build
+
+# Run type checking
+npm run typecheck
+
+# Generate Prisma client
+npm run prisma generate
+
+# Deploy app
+npx shopify app deploy
+```
+
+### Testing Webhooks
+
+Shopify CLI automatically routes webhooks through the tunnel. Test by:
+
+1. Create/update/delete a product in your dev store
+2. Check the terminal for webhook logs
+3. Verify the `ProductSync` table in the database
+
+```bash
+# Connect to Shopify app database
+docker exec -it eurocomply-db psql -U eurocomply -d shopify_app
+
+# Check synced products
+SELECT * FROM "ProductSync";
+```
+
+### Testing Flow Summary
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  SHOPIFY DEVELOPMENT WORKFLOW                                    │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  1. Create Partner Account → partners.shopify.com               │
+│                    ↓                                             │
+│  2. Create Development Store (free, unlimited)                  │
+│                    ↓                                             │
+│  3. Register App → Get API credentials                          │
+│                    ↓                                             │
+│  4. Run `shopify app dev` → Auto-creates tunnel                 │
+│                    ↓                                             │
+│  5. Install on Dev Store → Test embedded app                    │
+│                    ↓                                             │
+│  6. Test Products/DPPs → Webhooks work via tunnel               │
+│                    ↓                                             │
+│  7. Submit for App Store Review (when ready)                    │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Testing Shopify Integration (Local)
+## WooCommerce Testing
 
-### Option A: Use ngrok for OAuth testing
+WooCommerce uses REST API authentication (no OAuth flow required).
 
-```bash
-# Install ngrok
-npm install -g ngrok
+### Option A: Test Against Real WooCommerce
 
-# Expose local API
-ngrok http 3000
+1. **Create WooCommerce Store** (or use existing staging)
+2. **Generate API Keys**:
+   - WooCommerce → Settings → Advanced → REST API
+   - Create keys with Read/Write permissions
 
-# Use the ngrok URL as your Shopify app URL
-# Example: https://abc123.ngrok.io
-```
-
-Then in Shopify Partners:
-1. Create a test app
-2. Set App URL: `https://abc123.ngrok.io/api/shopify/auth`
-3. Set Redirect URL: `https://abc123.ngrok.io/api/shopify/callback`
-
-### Option B: Mock testing (no real Shopify)
-
-Create a test script to simulate product sync:
-
-```typescript
-// scripts/test-shopify-sync.ts
-import { prisma } from '@eurocomply/database';
-
-async function testSync() {
-  // Create a mock organization (as if Shopify connected)
-  const org = await prisma.organization.create({
-    data: {
-      name: 'Test Shopify Store',
-      slug: 'test-store',
-      domain: 'test-store.myshopify.com',
-      settings: {
-        shopify: {
-          shop: 'test-store.myshopify.com',
-          accessToken: 'mock-token',
-          installedAt: new Date().toISOString(),
-        },
-      },
-    },
-  });
-
-  // Create mock synced products
-  const product = await prisma.product.create({
-    data: {
-      organizationId: org.id,
-      name: 'Synced from Shopify',
-      sku: 'SHOP-001',
-      attributes: {
-        shopifyId: 12345,
-        source: 'shopify',
-      },
-    },
-  });
-
-  console.log('Created org:', org.id);
-  console.log('Created product:', product.id);
-}
-
-testSync();
-```
-
----
-
-## Testing WooCommerce Integration
-
-WooCommerce is simpler - no OAuth. Test with:
-
+3. **Test Connection**:
 ```bash
 curl -X POST http://localhost:3000/api/woocommerce/connect \
-  -H "Authorization: Bearer ec_test_xxxxxxxxxxxxx" \
+  -H "Authorization: Bearer ec_your_api_key" \
   -H "Content-Type: application/json" \
   -d '{
-    "siteUrl": "https://your-woo-store.com",
+    "siteUrl": "https://your-store.com",
     "consumerKey": "ck_xxxxx",
     "consumerSecret": "cs_xxxxx"
   }'
 ```
 
-For testing without a real WooCommerce store, mock the connection in the database.
+### Option B: Mock Testing
+
+```bash
+# Create mock WooCommerce connection in database
+docker exec -it eurocomply-db psql -U eurocomply -d eurocomply
+
+INSERT INTO "Organization" (id, name, slug, settings) VALUES (
+  'woo-test-org',
+  'Test WooCommerce Store',
+  'woo-test',
+  '{"woocommerce": {"siteUrl": "https://test.woocommerce.com", "connected": true}}'
+);
+```
 
 ---
 
-## Testing walt.id / Verifiable Credentials
+## Verifiable Credentials Testing
 
-### Option A: Full walt.id stack
+### Full Stack (with walt.id)
 
 ```bash
-# Start all services including walt.id
 cd docker
 docker-compose up -d
 
-# This starts:
-# - postgres (5432)
-# - redis (6379)
-# - waltid-core (7000)
-# - waltid-signatory (7001)
-# - waltid-custodian (7002)
-# - waltid-auditor (7003)
+# Services started:
+# - postgres:5432
+# - redis:6379
+# - waltid-core:7000
+# - waltid-signatory:7001
+# - waltid-custodian:7002
+# - waltid-auditor:7003
 ```
 
-Then test VC issuance:
+Test VC issuance:
 ```bash
-# Anchor a passport (issues VC)
+# Anchor a passport (issues Verifiable Credential)
 curl -X POST http://localhost:3000/v1/passports/PASSPORT_ID/anchor \
   -H "Authorization: Bearer ec_test_xxxxxxxxxxxxx"
 ```
 
-### Option B: Mock mode (without walt.id)
+### Mock Mode (without walt.id)
 
-The identity package should gracefully handle missing walt.id by returning mock credentials. Check `packages/identity/src/config.ts` for mock mode settings.
+If walt.id services aren't running, the identity package falls back to mock credentials for development testing.
 
 ---
 
-## Common Issues
+## Troubleshooting
 
 ### "Cannot find module '@eurocomply/database'"
 ```bash
@@ -304,39 +310,69 @@ npm run db:generate
 ### "Connection refused" to PostgreSQL
 ```bash
 docker-compose up -d postgres
-# Wait a few seconds for startup
+sleep 5  # Wait for startup
 ```
 
-### "Invalid API key"
-Check that you're using the correct key from the seed, including the full prefix (e.g., `ec_test_abc123...`)
-
-### Prisma errors
+### Shopify CLI tunnel issues
 ```bash
-npm run db:push  # Reset schema
-npm run db:seed  # Re-seed data
+# Reset Shopify CLI config
+rm -rf ~/.config/@shopify
+
+# Restart dev
+npm run dev
 ```
+
+### "Invalid API key" errors
+Verify you're using the full key including prefix (e.g., `ec_test_abc123...`)
+
+### Prisma schema drift
+```bash
+npx prisma db push --force-reset
+npm run db:seed
+```
+
+### Webhook not receiving events
+1. Ensure `shopify app dev` is running
+2. Check tunnel is active in terminal output
+3. Verify webhook subscriptions in Shopify admin
 
 ---
 
 ## Test Checklist
 
+### Core API
 - [ ] Health endpoint responds
-- [ ] Can create organization/get API key
 - [ ] Can create product
-- [ ] Can create passport
+- [ ] Can create DPP
 - [ ] Can generate QR code
 - [ ] Public verification works
 - [ ] Lifecycle events recorded
-- [ ] (Optional) Shopify OAuth flow
-- [ ] (Optional) WooCommerce connection
-- [ ] (Optional) VC issuance with walt.id
+
+### Shopify App
+- [ ] `shopify app dev` runs successfully
+- [ ] Tunnel URL is accessible
+- [ ] OAuth flow completes
+- [ ] App installs on dev store
+- [ ] Products visible in app
+- [ ] Can create DPP from product
+- [ ] Settings save correctly
+- [ ] Webhooks trigger on product changes
+
+### WooCommerce
+- [ ] Can connect store
+- [ ] Product sync works
+- [ ] DPP generation works
+
+### Verifiable Credentials
+- [ ] walt.id services start
+- [ ] Can issue VC for passport
+- [ ] VC verification works
 
 ---
 
-## Next Steps After Testing
+## Next Steps
 
-1. **Fix any bugs** found during testing
-2. **Add automated tests** (vitest is already configured)
-3. **Test with real Shopify dev store**
-4. **Test with real WooCommerce staging site**
-5. **Deploy to staging environment**
+1. Complete all checklist items above
+2. Write automated tests (vitest configured in `/vitest.config.ts`)
+3. Submit Shopify app for App Store review
+4. Deploy WooCommerce plugin to WordPress.org
