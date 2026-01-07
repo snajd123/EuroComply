@@ -2,12 +2,12 @@
 
 ## Overview
 
-EuroComply uses a **supplier-only model** for Digital Product Passports. Only verified suppliers can create passports - merchants can only subscribe to use them. This eliminates fraud by design.
+EuroComply uses a **supplier-only model** for Digital Product Passports. Only verified suppliers can create passports - retailers can only subscribe to use them. This eliminates fraud by design.
 
 ## Core Principles
 
-1. **Suppliers create, merchants subscribe** - Only verified suppliers can create DPPs
-2. **No merchant-created passports** - Merchants cannot create, copy, or modify DPPs
+1. **Suppliers create, retailers subscribe** - Only verified suppliers can create DPPs
+2. **No retailer-created passports** - Retailers cannot create, copy, or modify DPPs
 3. **Single source of truth** - Each DPP is maintained by its supplier
 4. **Verified suppliers only** - Suppliers must complete KYB verification before publishing
 5. **Dynamic pricing** - Suppliers set their own prices (minimum €0.50/product/month)
@@ -20,7 +20,7 @@ EuroComply uses a **supplier-only model** for Digital Product Passports. Only ve
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│  MERCHANT SUBSCRIBES TO SUPPLIER DPP                                │
+│  RETAILER SUBSCRIBES TO SUPPLIER DPP                                │
 │                                                                     │
 │  ┌─────────────────────────────────────────────────────────────────┐│
 │  │ Supplier sets price: €X/product/month (minimum €0.50)           ││
@@ -64,7 +64,7 @@ EuroComply uses a **supplier-only model** for Digital Product Passports. Only ve
 │                                                                     │
 │  Day 1-30: Active subscriptions tracked                             │
 │  ┌─────────────────────────────────────────────────────────────────┐│
-│  │ Merchant: fashion-store.myshopify.com                           ││
+│  │ Retailer: fashion-store.myshopify.com                           ││
 │  │                                                                  ││
 │  │ Active DPP subscriptions:                                        ││
 │  │  • ABC Textiles - Organic T-Shirt    €2.00 × 3 products = €6.00 ││
@@ -73,7 +73,7 @@ EuroComply uses a **supplier-only model** for Digital Product Passports. Only ve
 │  │ Monthly total: €7.50                                            ││
 │  └─────────────────────────────────────────────────────────────────┘│
 │                                                                     │
-│  Day 1 (next month): Merchant charged via Stripe                    │
+│  Day 1 (next month): Retailer charged via Stripe                    │
 │                                                                     │
 │  Revenue distribution:                                              │
 │  ┌─────────────────────────────────────────────────────────────────┐│
@@ -111,7 +111,7 @@ model DppSubscriptionEvent {
   id                  String   @id @default(cuid())
 
   // Who subscribed
-  merchantShop        String
+  retailerShop        String
   shopifyProductId    String
 
   // What was subscribed to
@@ -126,7 +126,7 @@ model DppSubscriptionEvent {
   // Billing status
   billingStatus       BillingStatus @default(PENDING)
   billedAt            DateTime?
-  merchantInvoiceId   String?  // Stripe reference
+  retailerInvoiceId   String?  // Stripe reference
 
   // For recurring subscriptions
   billingPeriodStart  DateTime?
@@ -134,16 +134,16 @@ model DppSubscriptionEvent {
 
   createdAt           DateTime @default(now())
 
-  @@index([merchantShop, billingStatus])
+  @@index([retailerShop, billingStatus])
   @@index([supplierId, billingStatus])
 }
 
 enum BillingStatus {
   PENDING         // Usage tracked, not yet billed
-  BILLED          // Charged to merchant
-  PAID            // Merchant payment received
+  BILLED          // Charged to retailer
+  PAID            // Retailer payment received
   FAILED          // Payment failed
-  REFUNDED        // Refunded to merchant
+  REFUNDED        // Refunded to retailer
 }
 
 // Aggregate supplier earnings
@@ -205,15 +205,15 @@ model SupplierPayout {
 }
 ```
 
-### Merchant Billing Integration
+### Retailer Billing Integration
 
 ```typescript
 // Integration with Stripe Billing
 
-interface MerchantSubscriptionBilling {
-  // 1. Create subscription when merchant subscribes to DPP
+interface RetailerSubscriptionBilling {
+  // 1. Create subscription when retailer subscribes to DPP
   createSubscription(params: {
-    merchantId: string;
+    retailerId: string;
     supplierProductId: string;
     price: number;  // Supplier's price
   }): Promise<{
@@ -227,7 +227,7 @@ interface MerchantSubscriptionBilling {
 
 // Example subscription creation
 async function onDppSubscribed(
-  merchantShop: string,
+  retailerShop: string,
   supplierProductId: string,
   supplierPrice: number
 ) {
@@ -237,7 +237,7 @@ async function onDppSubscribed(
   // Record in our DB
   await prisma.dppSubscriptionEvent.create({
     data: {
-      merchantShop,
+      retailerShop,
       supplierProductId,
       priceCharged: supplierPrice,
       supplierShare,
@@ -250,11 +250,11 @@ async function onDppSubscribed(
 
   // Create Stripe subscription
   await stripe.subscriptions.create({
-    customer: merchantStripeCustomerId,
+    customer: retailerStripeCustomerId,
     items: [{ price: supplierPriceId }],
     metadata: {
       supplierProductId,
-      merchantShop,
+      retailerShop,
     },
   });
 }
@@ -363,7 +363,7 @@ async function onDppSubscribed(
                               │ Browse / Search / Filter
                               ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│  SHOPIFY PLUGIN (Merchant View)                                     │
+│  SHOPIFY PLUGIN (Retailer View)                                     │
 │                                                                     │
 │  "Browse Supplier Products"                                         │
 │  ┌─────────────────────────────────────────────────────────────────┐│
@@ -378,7 +378,7 @@ async function onDppSubscribed(
 │  → Link supplier DPP to your product                                │
 │  → Supplier's VC displayed on your store                            │
 │  → "Verified by ABC Textiles"                                       │
-│  → Merchant cannot modify DPP data                                  │
+│  → Retailer cannot modify DPP data                                  │
 │  → Unsubscribe anytime (stops displaying)                           │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
@@ -391,7 +391,7 @@ async function onDppSubscribed(
 ### Supplier Portal (EuroComply Core)
 
 ```prisma
-// Supplier account (separate from Shopify merchants)
+// Supplier account (separate from Shopify retailers)
 model Supplier {
   id                  String   @id @default(cuid())
   email               String   @unique
@@ -432,7 +432,7 @@ enum SupplierVerificationStatus {
 enum CatalogVisibility {
   PUBLIC       // Anyone can see and use
   PRIVATE      // Only supplier can see (draft mode)
-  INVITE_ONLY  // Only invited merchants can see
+  INVITE_ONLY  // Only invited retailers can see
 }
 
 // Supplier's product with full DPP data
@@ -466,7 +466,7 @@ model SupplierProduct {
   activeSubscriptions Int      @default(0)  // Current active subscribers
 
   // Relations
-  merchantLinks       MerchantSupplierLink[]
+  retailerSubscriptions  RetailerSubscription[]
 
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
@@ -491,26 +491,26 @@ enum VcStatus {
 }
 
 enum ProductVisibility {
-  DRAFT        // Not visible to merchants
+  DRAFT        // Not visible to retailers
   PUBLISHED    // Visible per catalog visibility settings
   ARCHIVED     // Hidden but preserved
 }
 
-// Invite-only access for specific merchants
+// Invite-only access for specific retailers
 model SupplierInvitation {
   id                  String   @id @default(cuid())
   supplierId          String
   supplier            Supplier @relation(fields: [supplierId], references: [id])
 
-  merchantEmail       String   // Or shop domain
-  merchantShop        String?  // Shopify shop domain if known
+  retailerEmail       String   // Or shop domain
+  retailerShop        String?  // Shopify shop domain if known
 
   status              InvitationStatus @default(PENDING)
   invitedAt           DateTime @default(now())
   acceptedAt          DateTime?
 
-  @@unique([supplierId, merchantEmail])
-  @@index([merchantShop])
+  @@unique([supplierId, retailerEmail])
+  @@index([retailerShop])
 }
 
 enum InvitationStatus {
@@ -536,9 +536,9 @@ model ProductSync {
   lastSyncedAt        DateTime?
   errorMessage        String?
 
-  // Supplier subscription support (merchants can ONLY subscribe, not create)
+  // Supplier subscription support (retailers can ONLY subscribe, not create)
   supplierProductId   String?  // Supplier product being subscribed to
-  supplierLink        MerchantSupplierLink? @relation(fields: [supplierLinkId], references: [id])
+  supplierLink        RetailerSubscription? @relation(fields: [supplierLinkId], references: [id])
   supplierLinkId      String?  @unique
   subscriptionStatus  SubscriptionStatus @default(INACTIVE)
 
@@ -556,11 +556,11 @@ enum SubscriptionStatus {
   PAYMENT_FAILED  // Payment failed, grace period
 }
 
-// Track active subscriptions between merchants and supplier products
-model MerchantSupplierLink {
+// Track active subscriptions between retailers and supplier products
+model RetailerSubscription {
   id                  String   @id @default(cuid())
 
-  // Merchant side
+  // Retailer side
   shop                String
   shopifyProductId    String
   productSync         ProductSync?
@@ -569,7 +569,7 @@ model MerchantSupplierLink {
   supplierProductId   String   // References SupplierProduct.id
 
   // Subscription details
-  linkType            MerchantLinkType @default(LINKED)  // Always LINKED (no FORKED)
+  linkType            RetailerLinkType @default(LINKED)  // Always LINKED (no FORKED)
   subscribedAt        DateTime @default(now())
   priceAtSubscription Decimal  // Price locked at time of subscription
 
@@ -581,7 +581,7 @@ model MerchantSupplierLink {
   @@index([supplierProductId])
 }
 
-enum MerchantLinkType {
+enum RetailerLinkType {
   LINKED  // Only option - subscribed to supplier's DPP
 }
 ```
@@ -666,7 +666,7 @@ interface SubscribeToSupplierProduct {
   shopifyProductId: string;
   supplierProductId: string;
 }
-// Response: Creates MerchantSupplierLink, updates ProductSync, initiates billing
+// Response: Creates RetailerSubscription, updates ProductSync, initiates billing
 
 // POST /api/dpp/unsubscribe
 interface UnsubscribeFromSupplierProduct {
@@ -734,11 +734,11 @@ interface DppSubscription {
 │  │ Category:     [Textile                        ▼]                 ││
 │  │                                                                  ││
 │  │ ── Fiber Composition ──────────────────────────────────────────  ││
-│  │ [Same form as merchant DPP creation]                             ││
+│  │ [DPP creation form for suppliers]                                ││
 │  │                                                                  ││
 │  │ ── Visibility ─────────────────────────────────────────────────  ││
-│  │ ○ Public - Any verified merchant can use                         ││
-│  │ ○ Invite-only - Only merchants you invite                        ││
+│  │ ○ Public - Any verified retailer can use                         ││
+│  │ ○ Invite-only - Only retailers you invite                        ││
 │  │ ○ Draft - Not visible (save for later)                           ││
 │  │                                                                  ││
 │  │ ☐ Anchor Verifiable Credential (proves you declared this data)  ││
@@ -749,7 +749,7 @@ interface DppSubscription {
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-### Shopify Plugin (Merchant View)
+### Shopify Plugin (Retailer View)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -765,7 +765,7 @@ interface DppSubscription {
 │  │ 100% GOTS Organic Cotton • Made in India                         ││
 │  │ 2.1 kgCO2e • GOTS, OEKO-TEX certified                            ││
 │  │                                                                  ││
-│  │ 💰 €2.00/product/month            Used by 47 merchants           ││
+│  │ 💰 €2.00/product/month            Used by 47 retailers           ││
 │  │                                                                  ││
 │  │              [Subscribe]  [View Details]                         ││
 │  └─────────────────────────────────────────────────────────────────┘│
@@ -777,7 +777,7 @@ interface DppSubscription {
 │  │ 80% Recycled Polyester, 20% Organic Cotton • Made in Portugal    ││
 │  │ 3.4 kgCO2e • GRS certified                                       ││
 │  │                                                                  ││
-│  │ 💰 €1.50/product/month            Used by 23 merchants           ││
+│  │ 💰 €1.50/product/month            Used by 23 retailers           ││
 │  │                                                                  ││
 │  │              [Subscribe]  [View Details]                         ││
 │  └─────────────────────────────────────────────────────────────────┘│
@@ -865,7 +865,7 @@ Can publish products to catalog
 
 ### Phase 3: Billing & Payouts (In Progress)
 - [ ] Stripe Connect integration for suppliers
-- [ ] Merchant subscription billing
+- [ ] Retailer subscription billing
 - [ ] Revenue sharing (80% supplier, 20% platform)
 - [ ] Supplier earnings dashboard
 - [ ] Payout requests
@@ -882,6 +882,6 @@ Can publish products to catalog
 
 1. **Supplier authentication** - Separate from Shopify OAuth, uses email/password + optional 2FA
 2. **Rate limiting** - Prevent catalog scraping, spam product creation
-3. **Data validation** - Same validation rules as merchant DPPs
+3. **Data validation** - Same validation rules for all DPPs
 4. **Verification process** - Manual review prevents fake suppliers
-5. **VC integrity** - Supplier VC is read-only for merchants using "as-is"
+5. **VC integrity** - Supplier VC is read-only for retailers (no modifications allowed)

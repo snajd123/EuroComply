@@ -12,7 +12,7 @@ However, we're missing the **data collection layer** that makes VCs meaningful. 
 ---
 
 ## Phase 1: Textile MVP (Q1-Q2 2025) ✅ COMPLETE
-**Goal: Compliant DPPs for 544,000+ apparel merchants**
+**Goal: Compliant DPPs for 544,000+ apparel retailers**
 
 ### 1.1 Textile-Specific Schema
 Create mandatory fields for EU 2027 "Minimal DPP":
@@ -221,7 +221,7 @@ async function verifyCertification(
 ---
 
 ## Phase 2.5: Supplier DPP Marketplace ✅ COMPLETE
-**Goal: Enable suppliers to publish DPPs that merchants can use**
+**Goal: Enable suppliers to publish DPPs that retailers can subscribe to**
 
 ### 2.5.1 Supplier Portal
 
@@ -243,9 +243,9 @@ Standalone supplier authentication and management:
 - `POST /api/suppliers/verification` - Submit verification docs
 - `GET/POST/PATCH/DELETE /api/suppliers/products` - Product CRUD
 
-### 2.5.2 Merchant Catalog Access
+### 2.5.2 Retailer Catalog Access
 
-Shopify merchants can browse and subscribe to supplier DPPs:
+Retailers (via Shopify/WooCommerce plugins) can browse and subscribe to supplier DPPs:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -257,12 +257,12 @@ Shopify merchants can browse and subscribe to supplier DPPs:
 │  │ ABC Textiles (Verified ✓)                                       ││
 │  │ "Organic Cotton T-Shirt Base"                                   ││
 │  │ 100% Organic Cotton | Made in PT | 3.2 kgCO2e                  ││
-│  │ GOTS Certified | Used by 45 merchants                          ││
+│  │ GOTS Certified | Used by 45 retailers                          ││
 │  │                                                                  ││
 │  │ [Subscribe €2.00/mo]  [View Details]                           ││
 │  └─────────────────────────────────────────────────────────────────┘│
 │                                                                     │
-│  IMPORTANT: Merchants can ONLY subscribe - they cannot create,      │
+│  IMPORTANT: Retailers can ONLY subscribe - they cannot create,      │
 │  copy, or modify DPP data. This eliminates fraud by design.         │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
@@ -290,7 +290,7 @@ const MINIMUM_PAYOUT = 10.00;     // Minimum €10 for withdrawal
 ---
 
 ## Phase 3: Shopify Metaobject Sync (Q3 2025)
-**Goal: Store DPP data natively in Shopify for merchant ownership**
+**Goal: Store DPP subscription data natively in Shopify for retailer access**
 
 ### 3.1 Metaobject Definitions
 
@@ -340,7 +340,7 @@ mutation CreateDppMetaobjectDefinition {
 │                                └────────────┘               │
 │                                                              │
 │  Benefits:                                                   │
-│  • Merchant owns their data (survives uninstall)            │
+│  • Retailer owns their subscription data (survives uninstall)│
 │  • Can display in theme via Liquid                          │
 │  • VC adds cryptographic proof layer                        │
 │                                                              │
@@ -424,7 +424,7 @@ interface ElectronicsDppData {
 
 ### 5.2 Supply Chain VCs
 - Supplier issues VC for their materials
-- Merchant's DPP references supplier VCs
+- Retailer subscribes to supplier's DPP with embedded VCs
 - Chain of custody verification
 
 ### 5.3 EBSI Integration

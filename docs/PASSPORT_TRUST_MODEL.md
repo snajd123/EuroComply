@@ -14,7 +14,7 @@ EuroComply uses a **supplier-only model** for passport creation. This eliminates
 │     → Own the product data                                  │
 │     → Legally liable for accuracy                           │
 │                                                             │
-│  ❌ MERCHANTS cannot create passports                       │
+│  ❌ RETAILERS cannot create passports                       │
 │     → Can only subscribe to supplier DPPs                   │
 │     → Cannot copy or modify data                            │
 │     → Display only                                          │
@@ -28,24 +28,24 @@ EuroComply uses a **supplier-only model** for passport creation. This eliminates
 
 ## Why This Model?
 
-### The Problem with Merchant-Created Passports
+### The Problem with Retailer-Created Passports
 
-If merchants could create their own passports:
+If retailers could create their own passports:
 
 | Risk | Description |
 |------|-------------|
-| **Copying** | Merchant copies supplier data without paying |
-| **False claims** | Merchant claims certifications they don't have |
-| **No accountability** | Who verifies merchant's claims? |
+| **Copying** | Retailer copies supplier data without paying |
+| **False claims** | Retailer claims certifications they don't have |
+| **No accountability** | Who verifies retailer's claims? |
 | **Complex validation** | Need proof requirements, plagiarism detection |
 
 ### The Solution: Supplier-Only
 
 | Benefit | Description |
 |---------|-------------|
-| **Single source of truth** | Supplier creates DPP once, merchants subscribe |
+| **Single source of truth** | Supplier creates DPP once, retailers subscribe |
 | **Verified by default** | Suppliers pass KYB before creating passports |
-| **No copying possible** | Merchants can't create - only subscribe |
+| **No copying possible** | Retailers can't create - only subscribe |
 | **Clear liability** | Supplier is legally responsible for DPP accuracy |
 
 ---
@@ -54,7 +54,7 @@ If merchants could create their own passports:
 
 ```
 ┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│ Certification│     │   Supplier   │     │     DPP      │     │   Merchant   │
+│ Certification│     │   Supplier   │     │     DPP      │     │   Retailer   │
 │    Body      │────▶│  (Verified)  │────▶│  (Signed VC) │────▶│ (Subscribe)  │
 └──────────────┘     └──────────────┘     └──────────────┘     └──────────────┘
        │                    │                    │                    │
@@ -73,8 +73,8 @@ If merchants could create their own passports:
    - Includes certification data with proof
    - Signed as Verifiable Credential (VC)
 
-3. **DPP → Merchant**
-   - Merchant subscribes to supplier's DPP
+3. **DPP → Retailer**
+   - Retailer subscribes to supplier's DPP
    - Pays supplier's price (min €0.50/month)
    - Can display but cannot modify
 
@@ -144,7 +144,7 @@ VERIFIED → SUSPENDED (if violations found)
 
 ### Only Suppliers Can Claim Certifications
 
-Since merchants can't create passports, they can't make false certification claims.
+Since retailers can't create passports, they can't make false certification claims.
 
 | Certification | Who Claims It | Proof Required |
 |--------------|---------------|----------------|
@@ -167,34 +167,34 @@ Certifications can be independently verified:
 
 ---
 
-## What Merchants See
+## What Retailers See
 
 ### Shopify Plugin Flow
 
 ```
-1. Merchant browses Supplier Catalog
+1. Retailer browses Supplier Catalog
    └─ Sees products from verified suppliers
 
-2. Merchant finds their supplier's product
+2. Retailer finds their supplier's product
    └─ Sees price, DPP preview, supplier verification badge
 
-3. Merchant subscribes
+3. Retailer subscribes
    └─ Links DPP to their Shopify product
    └─ Pays supplier's price monthly
 
-4. DPP displays on merchant's store
+4. DPP displays on retailer's store
    └─ Shows "Verified by [Supplier Name]"
    └─ QR code links to public verification
 ```
 
-### What Merchants Cannot Do
+### What Retailers Cannot Do
 
 - ❌ Create their own passport
 - ❌ Modify supplier's DPP data
 - ❌ Claim certifications
 - ❌ Remove supplier attribution
 
-### What Merchants Can Do
+### What Retailers Can Do
 
 - ✅ Browse supplier catalog
 - ✅ Subscribe to supplier DPPs
@@ -240,8 +240,8 @@ When consumers scan a DPP QR code:
 | Question | Answer |
 |----------|--------|
 | Who creates passports? | Only verified suppliers |
-| Can merchants create passports? | No |
-| Can merchants copy data? | No - can only subscribe |
+| Can retailers create passports? | No |
+| Can retailers copy data? | No - can only subscribe |
 | Who is liable for accuracy? | Supplier |
 | How are certifications verified? | During supplier KYB |
 | Can anyone verify a passport? | Yes - public verification endpoint |

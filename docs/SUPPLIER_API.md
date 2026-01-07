@@ -1,6 +1,6 @@
 # Supplier Portal API Reference
 
-API endpoints for the EuroComply Supplier Marketplace. Suppliers can register, create DPPs, and earn revenue when merchants use their products.
+API endpoints for the EuroComply Supplier Marketplace. Suppliers can register, create DPPs, and earn revenue when retailers subscribe to their products.
 
 ## Base URL
 
@@ -240,11 +240,10 @@ Authorization: Bearer <token>
       "description": "100% GOTS certified organic cotton",
       "category": "TEXTILE",
       "visibility": "PUBLISHED",
-      "timesLinked": 45,
-      "timesForked": 12,
+      "timesSubscribed": 45,
       "vcStatus": "ANCHORED",
       "_count": {
-        "merchantLinks": 45,
+        "retailerSubscriptions": 45,
         "usageEvents": 57
       }
     }
@@ -335,7 +334,7 @@ Authorization: Bearer <token>
 
 ### Delete Product
 
-Delete a product. Will fail if merchants are currently linked.
+Delete a product. Will fail if retailers are currently subscribed.
 
 ```
 DELETE /api/suppliers/products/:id
@@ -438,7 +437,7 @@ Authorization: Bearer <token>
     {
       "id": "evt_001",
       "type": "SUBSCRIPTION",
-      "merchantShop": "fashion-store.myshopify.com",
+      "retailerShop": "fashion-store.myshopify.com",
       "productName": "Organic Cotton T-Shirt Base",
       "priceCharged": 2.00,
       "supplierShare": 1.60,
@@ -514,7 +513,7 @@ Authorization: Bearer <token>
 
 ## Public Catalog Endpoints
 
-These endpoints are public (for merchant access).
+These endpoints are public (for retailer access via plugins).
 
 ### Search Catalog
 
@@ -522,7 +521,7 @@ Browse published supplier products.
 
 ```
 GET /api/suppliers/catalog?search=cotton&category=TEXTILE&page=1&limit=20
-X-Merchant-Shop: fashion-store.myshopify.com
+X-Retailer-Shop: fashion-store.myshopify.com
 ```
 
 **Query Parameters:**
@@ -540,7 +539,7 @@ Get details of a published product.
 
 ```
 GET /api/suppliers/catalog/:id
-X-Merchant-Shop: fashion-store.myshopify.com
+X-Retailer-Shop: fashion-store.myshopify.com
 ```
 
 ---
@@ -583,6 +582,6 @@ All errors follow this format:
 
 Future webhook events:
 - `supplier.verified` - Supplier verification approved
-- `product.subscribed` - Merchant subscribed to product
-- `product.unsubscribed` - Merchant unsubscribed from product
+- `product.subscribed` - Retailer subscribed to product
+- `product.unsubscribed` - Retailer unsubscribed from product
 - `payout.completed` - Payout successfully sent

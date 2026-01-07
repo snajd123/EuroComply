@@ -20,14 +20,14 @@ Complete DPP lifecycle management for ESPR compliance:
 
 ### Supplier DPP Marketplace
 
-**Only verified suppliers create passports. Merchants subscribe.**
+**Only verified suppliers create passports. Retailers subscribe.**
 
 - **Supplier Portal** - Suppliers create and publish DPPs for their products
 - **Verified Suppliers** - KYB verification before publishing
 - **Dynamic Pricing** - Suppliers set their own prices (min €0.50/product/month)
-- **Catalog Browse** - Merchants discover and subscribe to supplier DPPs
+- **Catalog Browse** - Retailers discover and subscribe to supplier DPPs
 - **Revenue Sharing** - Suppliers earn 80%, platform takes 20%
-- **No Fraud** - Merchants can't create passports, only subscribe
+- **No Fraud** - Retailers can't create passports, only subscribe
 
 ## 🛒 E-commerce Integrations
 
@@ -256,7 +256,7 @@ WOOCOMMERCE_WEBHOOK_SECRET=your_webhook_secret
 - [x] DPP data collection UI (Shopify app)
 - [x] Higg MSI carbon footprint calculation
 - [x] Supplier marketplace (portal, verification, catalog)
-- [x] Merchant subscription to supplier DPPs
+- [x] Retailer subscription to supplier DPPs
 - [x] Supplier earnings & payouts (dynamic pricing)
 
 ### In Progress

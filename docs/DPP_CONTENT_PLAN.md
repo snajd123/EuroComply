@@ -1,6 +1,6 @@
 # DPP Content Strategy: How Suppliers Create Product-Specific Passport Data
 
-> **Note:** Only verified suppliers create Digital Product Passports. Merchants subscribe to supplier DPPs via the Shopify plugin. See [BUSINESS_MODEL.md](./BUSINESS_MODEL.md) for the full model.
+> **Note:** Only verified suppliers create Digital Product Passports. Retailers subscribe to supplier DPPs via e-commerce plugins (Shopify, WooCommerce). See [BUSINESS_MODEL.md](./BUSINESS_MODEL.md) for the full model.
 
 ## The Problem
 
@@ -14,7 +14,7 @@ Creating ESPR-compliant Digital Product Passports requires **category-specific, 
 |-----------|-------------|
 | **Category-specific requirements** | Textiles need fiber composition; batteries need chemical composition |
 | **Mandatory vs optional fields** | Different categories have different mandatory fields |
-| **Data availability** | Suppliers have manufacturing data; merchants typically don't |
+| **Data availability** | Suppliers have manufacturing data; retailers typically don't |
 | **Data verification** | Claims need to be verifiable, not just stated |
 | **Varying timelines** | Different categories have different compliance deadlines |
 
@@ -51,8 +51,8 @@ Creating ESPR-compliant Digital Product Passports requires **category-specific, 
 │  7. PUBLISH & VC ISSUANCE                                           │
 │     └─ Sign complete DPP data with walt.id                          │
 │                                                                      │
-│  8. MERCHANT SUBSCRIPTION                                           │
-│     └─ Merchants subscribe via Shopify plugin                       │
+│  8. RETAILER SUBSCRIPTION                                           │
+│     └─ Retailers subscribe via e-commerce plugins                   │
 │                                                                      │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -105,11 +105,11 @@ Creating ESPR-compliant Digital Product Passports requires **category-specific, 
 ### Pros
 - Complete control over data
 - Category-specific validation
-- Clear UX for merchants
+- Clear UX for retailers
 
 ### Cons
-- Manual data entry burden on merchants
-- Merchants may not have the data
+- Manual data entry burden on retailers
+- Retailers may not have the data
 
 ---
 
@@ -127,7 +127,7 @@ const TEXTILE_TSHIRT_TEMPLATE = {
     repairability: { score: 3 }, // Low for basic textiles
   },
   requiredOverrides: [
-    'fiberComposition',      // Merchant MUST provide
+    'fiberComposition',      // Retailer MUST provide
     'manufacturerCountry',
   ],
   suggestedFields: [
@@ -182,7 +182,7 @@ templates/
 ```
 
 ### Pros
-- Quick start for merchants
+- Quick start for retailers
 - Industry-appropriate defaults
 - Reduces data entry burden
 
@@ -196,7 +196,7 @@ templates/
 
 ### Pull existing product data from Shopify metafields
 
-Shopify merchants often already have sustainability data in metafields:
+Shopify retailers often already have sustainability data in metafields:
 
 ```typescript
 // Shopify GraphQL query to fetch metafields
@@ -236,12 +236,12 @@ async function pullFromShopifyMetafields(productId: string) {
 ```
 
 ### Pros
-- Uses existing merchant data
+- Uses existing retailer data
 - No duplicate entry
 - Syncs automatically
 
 ### Cons
-- Merchants need to set up metafields first
+- Retailers need to set up metafields first
 - Inconsistent data formats
 
 ---
@@ -255,7 +255,7 @@ async function pullFromShopifyMetafields(productId: string) {
 │                    SUPPLIER DATA FLOW                           │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  Supplier                         Merchant                       │
+│  Supplier                         Retailer                       │
 │  (Factory/Manufacturer)           (Shopify Store)               │
 │                                                                  │
 │  ┌──────────────────┐            ┌──────────────────┐           │
@@ -293,7 +293,7 @@ JEANS-001,"98% Cotton, 2% Elastane",12.5,85,""
 
 ### Calculate carbon footprint from product attributes
 
-For merchants without LCA data, estimate using industry databases:
+For retailers without LCA data, estimate using industry databases:
 
 ```typescript
 interface ProductAttributes {
@@ -411,7 +411,7 @@ enum ProductCategory {
 }
 
 enum DataSource {
-  MANUAL           // Entered by merchant
+  MANUAL           // Entered by retailer
   SHOPIFY_SYNC     // Pulled from Shopify metafields
   SUPPLIER_IMPORT  // Imported from supplier
   LCA_ESTIMATE     // Calculated estimate
@@ -432,7 +432,7 @@ model DppTemplate {
   category        ProductCategory
   productType     String    // "T-Shirt", "Smartphone", etc.
   defaults        Json      // Default values
-  requiredFields  String[]  // Fields merchant must provide
+  requiredFields  String[]  // Fields retailer must provide
   suggestedFields String[]  // Optional but recommended
   benchmarks      Json      // Industry average data
   passports       Passport[]
@@ -520,7 +520,7 @@ model DppTemplate {
 ## Decision Points Needed
 
 1. **Which product categories to support first?**
-   - Textiles (most Shopify merchants)
+   - Textiles (most Shopify retailers)
    - Electronics
    - All from start
 

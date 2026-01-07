@@ -23,7 +23,7 @@ EuroComply provides native integrations for Shopify and WooCommerce to automatic
 
 ## Shopify Integration
 
-### For Merchants
+### For Retailers
 
 **Installation (2 minutes):**
 1. Visit the EuroComply app in Shopify App Store
@@ -89,7 +89,7 @@ The app subscribes to these webhooks:
 
 ## WooCommerce Integration
 
-### For Merchants
+### For Retailers
 
 **Connection (5 minutes):**
 1. Generate REST API keys in WooCommerce → Settings → Advanced → REST API
@@ -290,7 +290,7 @@ if ($qr_url) {
 
 ## Using Supplier DPPs
 
-**Merchants subscribe to DPPs created by verified suppliers.** Merchants cannot create their own passports.
+**Retailers subscribe to DPPs created by verified suppliers.** Retailers cannot create their own passports.
 
 ### Accessing the Supplier Catalog
 
