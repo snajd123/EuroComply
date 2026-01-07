@@ -210,36 +210,94 @@ Certification Body ──verifies──▶ Supplier ──creates──▶ DPP �
 
 ---
 
+## Supplier Legal Liability Under ESPR
+
+### "It's Not My Problem" is Wrong
+
+Suppliers sometimes claim: *"DPPs are the retailer's responsibility, not mine."*
+
+**This is incorrect.** Under ESPR (Ecodesign for Sustainable Products Regulation), ALL economic operators have obligations:
+
+| Economic Operator | ESPR Obligation |
+|-------------------|-----------------|
+| **Manufacturer** | Create DPP, ensure product compliance, maintain technical documentation |
+| **Importer** | Verify DPP exists before placing product on EU market |
+| **Distributor** | Verify DPP exists before supplying to retailers |
+| **Retailer** | Display DPP, don't sell non-compliant products |
+
+### Consequences of Non-Compliance
+
+| Risk | Impact |
+|------|--------|
+| **Market access denied** | Products without DPPs cannot be sold in EU |
+| **Retailer rejection** | Retailers won't stock products from non-compliant suppliers |
+| **Regulatory fines** | Member state enforcement varies, but penalties exist |
+| **Liability chain** | If retailer is fined, they'll pursue supplier for damages |
+| **Competitive loss** | Compliant competitors take your market share |
+
+### The Bottom Line
+
+> "I don't have liability" is factually wrong. Distributors and producers ARE liable under ESPR. The regulation requires verification at every step of the supply chain.
+
+---
+
 ## Incentives
 
 ### Why Suppliers Join
+
+#### The Honest Truth About Revenue
+
+**Revenue from subscriptions is NOT the primary value for most suppliers.**
+
+| Supplier Size | Products | Retailers | Monthly Revenue (80%) |
+|---------------|----------|-----------|----------------------|
+| Small | 10 SKUs | 5 | **€40** ← peanuts |
+| Medium | 100 SKUs | 20 | **€1,600** ← decent |
+| Large | 500 SKUs | 100 | **€40,000** ← significant |
+
+For small and medium suppliers, the €1/product/month is a **bonus**, not the reason to join.
+
+#### The Real Value Proposition
+
+| Value | Why It Matters |
+|-------|----------------|
+| **Avoid building own DPP system** | Building compliant DPP infrastructure costs €50-100k+ |
+| **Avoid compliance fines** | ESPR violations carry penalties |
+| **Market access** | Retailers WILL require DPPs - no DPP = no shelf space |
+| **Brand control** | Same sustainability message across ALL retailers |
+| **Retailer reach** | Access to thousands of stores via our plugins |
+| **Passive income at scale** | Revenue grows as more retailers subscribe |
+
+> You need DPPs anyway. We make it easy AND you get paid when retailers use them.
 
 #### For Producers (Manufacturers)
 
 | Incentive | Description |
 |-----------|-------------|
-| **Revenue** | Earn recurring income from all downstream retailers |
+| **Primary data authority** | You own the manufacturing data - strongest VC attribution |
 | **Brand consistency** | Same DPP data across ALL retailers selling your products |
 | **Enforcement power** | Can require retailers to use your passports |
 | **Marketing reach** | Your brand shown on every retailer's product page |
-| **Control** | Single source of truth - no fragmented claims |
+| **Single source of truth** | No fragmented or incorrect sustainability claims |
 
 #### For Distributors
 
 | Incentive | Description |
 |-----------|-------------|
-| **Value-add service** | Offer DPP access as part of your distribution |
-| **Revenue** | Earn from retailers who can't get DPPs from producers |
-| **Competitive advantage** | Differentiate from distributors without DPP support |
+| **Value-add service** | Offer DPP access as part of your distribution package |
+| **Fill the gap** | Create DPPs when producers don't (many won't) |
+| **Competitive moat** | Differentiate from distributors without DPP support |
 | **Compliance enabler** | Help your retailer network become ESPR-compliant |
+| **Revenue opportunity** | Earn from retailers who can't get DPPs directly |
 
 #### For Both
 
 | Incentive | Description |
 |-----------|-------------|
-| **ESPR compliance** | Fulfill EU regulatory requirements |
+| **Legal compliance** | Meet your ESPR obligations as economic operator |
 | **Verified badge** | "Verified Supplier" increases credibility |
 | **Ecosystem access** | Reach retailers through Shopify/WooCommerce plugins |
+| **Future-proofing** | Be ready as DPP requirements expand to more product categories |
 
 ### Why Retailers Join
 
