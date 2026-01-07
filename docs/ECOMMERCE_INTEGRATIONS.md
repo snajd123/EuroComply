@@ -290,7 +290,7 @@ if ($qr_url) {
 
 ## Using Supplier DPPs
 
-Merchants can browse a catalog of ready-to-use DPPs created by verified suppliers.
+**Merchants subscribe to DPPs created by verified suppliers.** Merchants cannot create their own passports.
 
 ### Accessing the Supplier Catalog
 
@@ -299,39 +299,27 @@ In the Shopify app:
 2. Search by product type, certification, or supplier
 3. Filter by category (Textiles, Electronics, etc.)
 
-### Usage Options
-
-| Option | Price | What Happens |
-|--------|-------|--------------|
-| **Use as-is (Link)** | €1/month | Link directly to supplier's DPP. Supplier's Verifiable Credential is used. You cannot modify the data. |
-| **Customize (Fork)** | €1/month | Fork the DPP into your own. Form is pre-filled with supplier data. You modify and sign your own VC. |
-
-### Link Flow (Use as-is)
+### Subscription Flow
 
 ```
-1. Browse catalog → Select supplier product
-2. Select your Shopify product to link
-3. Confirm → DPP is linked
-4. Your product shows "DPP by [Supplier Name]"
-5. Supplier updates automatically apply
+1. Browse catalog → Find your supplier's product
+2. View price, DPP preview, supplier verification badge
+3. Select your Shopify product to link
+4. Subscribe → DPP is linked to your product
+5. Your product shows "Verified by [Supplier Name]"
+6. Supplier updates automatically apply
 ```
 
-### Fork Flow (Customize)
+### Pricing
 
-```
-1. Browse catalog → Select supplier product
-2. Click "Customize" → Form pre-filled with supplier data
-3. Modify any fields (composition, manufacturer, etc.)
-4. Save → Your own Verifiable Credential is issued
-5. Heritage shows "Based on [Supplier Name]"
-```
+| Parameter | Value |
+|-----------|-------|
+| **Minimum Price** | €0.50/product/month (floor) |
+| **Maximum Price** | Set by supplier (no ceiling) |
+| **Platform Fee** | 20% of subscription price |
+| **Supplier Revenue** | 80% of subscription price |
 
-### Pricing & Revenue
-
-- Both link and fork cost **€1/month per DPP**
-- Suppliers receive **80%** of the fee (€0.80)
-- EuroComply receives **20%** (€0.20)
-- Billed monthly via Shopify usage-based billing
+Suppliers set their own prices. Billed monthly via Shopify usage-based billing.
 
 ---
 

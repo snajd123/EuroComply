@@ -362,9 +362,7 @@ Authorization: Bearer <token>
   "data": {
     "thisMonth": {
       "earnings": 45.60,
-      "links": 48,
-      "forks": 9,
-      "total": 57
+      "subscriptions": 57
     },
     "lastMonth": {
       "earnings": 38.40
@@ -401,15 +399,13 @@ Authorization: Bearer <token>
       "name": "Organic Cotton T-Shirt Base",
       "category": "TEXTILE",
       "visibility": "PUBLISHED",
+      "price": 2.00,
       "stats": {
-        "timesLinked": 45,
-        "timesForked": 12,
-        "totalUsage": 57
+        "activeSubscriptions": 45
       },
       "earnings": {
-        "fromLinks": 36.00,
-        "fromForks": 9.60,
-        "total": 45.60
+        "monthly": 72.00,
+        "total": 324.80
       }
     }
   ]
@@ -441,13 +437,13 @@ Authorization: Bearer <token>
   "data": [
     {
       "id": "evt_001",
-      "type": "LINK_MONTHLY",
+      "type": "SUBSCRIPTION",
       "merchantShop": "fashion-store.myshopify.com",
       "productName": "Organic Cotton T-Shirt Base",
-      "priceCharged": 1.00,
-      "supplierShare": 0.80,
+      "priceCharged": 2.00,
+      "supplierShare": 1.60,
       "billingStatus": "PAID",
-      "createdAt": "2025-01-07T08:00:00Z"
+      "createdAt": "2026-01-07T08:00:00Z"
     }
   ]
 }
@@ -587,6 +583,6 @@ All errors follow this format:
 
 Future webhook events:
 - `supplier.verified` - Supplier verification approved
-- `product.linked` - Merchant linked to product
-- `product.forked` - Merchant forked product
+- `product.subscribed` - Merchant subscribed to product
+- `product.unsubscribed` - Merchant unsubscribed from product
 - `payout.completed` - Payout successfully sent

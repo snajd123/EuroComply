@@ -2,15 +2,15 @@
 
 ## Overview
 
-Suppliers can create full DPPs on the EuroComply platform that merchants can use directly or customize. This creates a marketplace of "DPP-ready" products that reduces data entry burden for merchants while ensuring data quality from verified suppliers.
+EuroComply uses a **supplier-only model** for Digital Product Passports. Only verified suppliers can create passports - merchants can only subscribe to use them. This eliminates fraud by design.
 
 ## Core Principles
 
-1. **Supplier signs = Supplier responsible** - Unmodified DPPs retain supplier's VC
-2. **Merchant modifies = Merchant responsible** - Forked DPPs require merchant's signature
-3. **Link, don't copy** - "Use as-is" creates a reference, not a duplicate
-4. **Verified suppliers only** - Suppliers must complete verification before publishing
-5. **Suppliers earn per usage** - Incentivize quality DPP data with revenue sharing
+1. **Suppliers create, merchants subscribe** - Only verified suppliers can create DPPs
+2. **No merchant-created passports** - Merchants cannot create, copy, or modify DPPs
+3. **Single source of truth** - Each DPP is maintained by its supplier
+4. **Verified suppliers only** - Suppliers must complete KYB verification before publishing
+5. **Dynamic pricing** - Suppliers set their own prices (minimum €0.50/product/month)
 
 ---
 
@@ -20,25 +20,22 @@ Suppliers can create full DPPs on the EuroComply platform that merchants can use
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│  MERCHANT USES SUPPLIER DPP                                         │
+│  MERCHANT SUBSCRIBES TO SUPPLIER DPP                                │
 │                                                                     │
-│  ┌─────────────────┐      ┌─────────────────┐                       │
-│  │ "Use as-is"     │  OR  │ "Customize"     │                       │
-│  │ (Link)          │      │ (Fork)          │                       │
-│  └────────┬────────┘      └────────┬────────┘                       │
-│           │                        │                                │
-│           └──────────┬─────────────┘                                │
+│  ┌─────────────────────────────────────────────────────────────────┐│
+│  │ Supplier sets price: €X/product/month (minimum €0.50)           ││
+│  └─────────────────────────────────────────────────────────────────┘│
+│                      │                                              │
 │                      ▼                                              │
 │           ┌─────────────────────┐                                   │
-│           │  USAGE FEE CHARGED  │                                   │
-│           │  €X per DPP/month   │                                   │
+│           │  MONTHLY BILLING    │                                   │
+│           │  Charged via Stripe │                                   │
 │           └──────────┬──────────┘                                   │
 │                      │                                              │
 │           ┌──────────┴──────────┐                                   │
 │           ▼                     ▼                                   │
 │  ┌─────────────────┐   ┌─────────────────┐                          │
 │  │ SUPPLIER: 80%   │   │ EUROCOMPLY: 20% │                          │
-│  │ (€0.80/DPP)     │   │ (€0.20/DPP)     │                          │
 │  └─────────────────┘   └─────────────────┘                          │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
@@ -46,14 +43,16 @@ Suppliers can create full DPPs on the EuroComply platform that merchants can use
 
 ### Pricing Structure
 
-| Usage Type | Price | Supplier Gets | EuroComply Gets |
-|------------|-------|---------------|-----------------|
-| **Link (Use as-is)** | €1.00/DPP/month | €0.80 | €0.20 |
-| **Fork (Customize)** | €1.00/DPP/month | €0.80 | €0.20 |
+| Parameter | Value |
+|-----------|-------|
+| **Floor Price** | €0.50/product/month (minimum) |
+| **Ceiling** | None (suppliers set their own price) |
+| **Platform Fee** | 20% of supplier's price |
+| **Supplier Revenue** | 80% of subscription price |
 
 **Rationale:**
-- **Both = recurring** to prevent merchants from forking just to avoid monthly fees
-- **Same price** ensures fair treatment regardless of usage type
+- **Dynamic pricing** lets suppliers price according to product value and market
+- **Floor ensures revenue** - no free passports that devalue the marketplace
 - **80/20 split** incentivizes suppliers while funding platform
 
 ### Billing Mechanics
@@ -63,29 +62,26 @@ Suppliers can create full DPPs on the EuroComply platform that merchants can use
 │  MONTHLY BILLING CYCLE                                              │
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                     │
-│  Day 1-30: Usage tracked                                            │
+│  Day 1-30: Active subscriptions tracked                             │
 │  ┌─────────────────────────────────────────────────────────────────┐│
 │  │ Merchant: fashion-store.myshopify.com                           ││
 │  │                                                                  ││
-│  │ Linked DPPs this month:                                          ││
-│  │  • ABC Textiles - Organic T-Shirt Base      × 3 products        ││
-│  │  • XYZ Fabrics - Recycled Hoodie            × 1 product         ││
+│  │ Active DPP subscriptions:                                        ││
+│  │  • ABC Textiles - Organic T-Shirt    €2.00 × 3 products = €6.00 ││
+│  │  • XYZ Fabrics - Recycled Hoodie     €1.50 × 1 product  = €1.50 ││
 │  │                                                                  ││
-│  │ Forked DPPs this month:                                          ││
-│  │  • ABC Textiles - Denim Jacket              × 1 product         ││
-│  │                                                                  ││
-│  │ Monthly total: (4 × €1.00) + (1 × €1.00) = €5.00                ││
+│  │ Monthly total: €7.50                                            ││
 │  └─────────────────────────────────────────────────────────────────┘│
 │                                                                     │
-│  Day 1 (next month): Merchant charged via Shopify billing           │
+│  Day 1 (next month): Merchant charged via Stripe                    │
 │                                                                     │
 │  Revenue distribution:                                              │
 │  ┌─────────────────────────────────────────────────────────────────┐│
-│  │ ABC Textiles:  (3 × €0.80) + (1 × €0.80) = €3.20               ││
-│  │ XYZ Fabrics:   (1 × €0.80) = €0.80                             ││
-│  │ EuroComply:    (4 × €0.20) + (1 × €0.20) = €1.00               ││
-│  │                                            ─────────            ││
-│  │                                    Total:  €5.00                ││
+│  │ ABC Textiles:  €6.00 × 80% = €4.80                              ││
+│  │ XYZ Fabrics:   €1.50 × 80% = €1.20                              ││
+│  │ EuroComply:    €7.50 × 20% = €1.50                              ││
+│  │                               ─────────                          ││
+│  │                       Total:  €7.50                              ││
 │  └─────────────────────────────────────────────────────────────────┘│
 │                                                                     │
 │  Monthly payouts to suppliers (via Stripe Connect)                  │
@@ -110,32 +106,29 @@ model Supplier {
   payouts                 SupplierPayout[]
 }
 
-// Track individual usage events
-model DppUsageEvent {
+// Track individual subscription events
+model DppSubscriptionEvent {
   id                  String   @id @default(cuid())
 
-  // Who used it
+  // Who subscribed
   merchantShop        String
   shopifyProductId    String
 
-  // What was used
+  // What was subscribed to
   supplierProductId   String
   supplierId          String
 
-  // Usage type
-  usageType           UsageType
-
-  // Pricing at time of usage
-  priceCharged        Decimal  // Total price
+  // Pricing at time of subscription (supplier-set price)
+  priceCharged        Decimal  // Total price (supplier's price)
   supplierShare       Decimal  // 80%
   platformShare       Decimal  // 20%
 
   // Billing status
   billingStatus       BillingStatus @default(PENDING)
   billedAt            DateTime?
-  merchantInvoiceId   String?  // Shopify billing reference
+  merchantInvoiceId   String?  // Stripe reference
 
-  // For recurring links
+  // For recurring subscriptions
   billingPeriodStart  DateTime?
   billingPeriodEnd    DateTime?
 
@@ -143,11 +136,6 @@ model DppUsageEvent {
 
   @@index([merchantShop, billingStatus])
   @@index([supplierId, billingStatus])
-}
-
-enum UsageType {
-  LINK_MONTHLY    // Recurring monthly for linked DPPs
-  FORK_MONTHLY    // Recurring monthly for forked DPPs
 }
 
 enum BillingStatus {
@@ -174,8 +162,7 @@ model SupplierEarning {
   netEarnings         Decimal  // Amount to pay supplier
 
   // Stats
-  linkUsageCount      Int
-  forkUsageCount      Int
+  subscriptionCount   Int      // Number of active subscriptions
 
   // Payout status
   payoutStatus        PayoutStatus @default(PENDING)
@@ -221,51 +208,54 @@ model SupplierPayout {
 ### Merchant Billing Integration
 
 ```typescript
-// Integration with Shopify App Billing API
+// Integration with Stripe Billing
 
-interface MerchantUsageBilling {
-  // Use Shopify's Usage-based billing
-  // https://shopify.dev/docs/apps/billing/usage-based
-
-  // 1. Create usage subscription on app install
-  createUsageSubscription(): Promise<{
-    confirmationUrl: string;
+interface MerchantSubscriptionBilling {
+  // 1. Create subscription when merchant subscribes to DPP
+  createSubscription(params: {
+    merchantId: string;
+    supplierProductId: string;
+    price: number;  // Supplier's price
+  }): Promise<{
     subscriptionId: string;
+    clientSecret: string;
   }>;
 
-  // 2. Record usage when merchant links/forks
-  recordUsage(params: {
-    subscriptionId: string;
-    amount: number;
-    description: string;
-  }): Promise<void>;
-
-  // 3. Shopify bills merchant automatically
-  // 4. We receive webhook when payment succeeds
+  // 2. Stripe handles recurring billing automatically
+  // 3. We receive webhook when payment succeeds
 }
 
-// Example usage recording
-async function onDppLinked(merchantShop: string, supplierProductId: string) {
+// Example subscription creation
+async function onDppSubscribed(
+  merchantShop: string,
+  supplierProductId: string,
+  supplierPrice: number
+) {
+  const supplierShare = supplierPrice * 0.80;
+  const platformShare = supplierPrice * 0.20;
+
   // Record in our DB
-  await prisma.dppUsageEvent.create({
+  await prisma.dppSubscriptionEvent.create({
     data: {
       merchantShop,
       supplierProductId,
-      usageType: 'LINK_MONTHLY',
-      priceCharged: 1.00,
-      supplierShare: 0.80,
-      platformShare: 0.20,
+      priceCharged: supplierPrice,
+      supplierShare,
+      platformShare,
       billingStatus: 'PENDING',
       billingPeriodStart: startOfMonth(new Date()),
       billingPeriodEnd: endOfMonth(new Date()),
     }
   });
 
-  // Record with Shopify
-  await shopifyBilling.recordUsage({
-    subscriptionId: merchantSubscriptionId,
-    amount: 1.00,
-    description: `DPP usage: ${supplierProductName}`,
+  // Create Stripe subscription
+  await stripe.subscriptions.create({
+    customer: merchantStripeCustomerId,
+    items: [{ price: supplierPriceId }],
+    metadata: {
+      supplierProductId,
+      merchantShop,
+    },
   });
 }
 ```
@@ -288,14 +278,14 @@ async function onDppLinked(merchantShop: string, supplierProductId: string) {
 │  │                                                                  ││
 │  └─────────────────────────────────────────────────────────────────┘│
 │                                                                     │
-│  📊 Usage by Product                                                │
+│  📊 Subscriptions by Product                                        │
 │  ┌─────────────────────────────────────────────────────────────────┐│
-│  │ Product                  Links   Forks   Earnings               ││
+│  │ Product                  Price    Subs    Monthly Earnings      ││
 │  │ ─────────────────────────────────────────────────────────────── ││
-│  │ Organic Cotton T-Shirt    47      12     €45.20                 ││
-│  │ Recycled Hoodie           23       5     €20.40                 ││
-│  │ Linen Summer Dress        18       3     €15.60                 ││
-│  │ Denim Jacket              12       8     €12.80                 ││
+│  │ Organic Cotton T-Shirt   €2.00     47     €75.20                ││
+│  │ Recycled Hoodie          €1.50     23     €27.60                ││
+│  │ Linen Summer Dress       €2.50     18     €36.00                ││
+│  │ Denim Jacket             €1.00     12     € 9.60                ││
 │  │                                                                  ││
 │  └─────────────────────────────────────────────────────────────────┘│
 │                                                                     │
@@ -349,10 +339,10 @@ async function onDppLinked(merchantShop: string, supplierProductId: string) {
 │  SUPPLIER PORTAL (supplier.eurocomply.com)                          │
 │                                                                     │
 │  1. Register (email/password)                                       │
-│  2. Verify (business docs, manual review)                           │
-│  3. Create Supplier Products with full DPP data                     │
-│  4. Optionally anchor VC (proves supplier declared this data)       │
-│  5. Set visibility: public | private | invite-only                  │
+│  2. Complete KYB verification (business docs, manual review)        │
+│  3. Create Products with full DPP data                              │
+│  4. Set price (minimum €0.50/product/month)                         │
+│  5. Publish to catalog                                              │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
                               │
@@ -364,8 +354,8 @@ async function onDppLinked(merchantShop: string, supplierProductId: string) {
 │  ┌───────────────────┐  ┌───────────────────┐  ┌─────────────────┐ │
 │  │ ABC Textiles      │  │ XYZ Fabrics       │  │ 123 Mills       │ │
 │  │ ✓ Verified        │  │ ✓ Verified        │  │ ⏳ Pending      │ │
-│  │ 12 products       │  │ 8 products        │  │ 3 products      │ │
-│  │ Public catalog    │  │ Invite-only       │  │ (not visible)   │ │
+│  │ 12 products       │  │ 8 products        │  │ (not visible)   │ │
+│  │ €0.50-€3.00/mo    │  │ €1.00-€5.00/mo    │  │                 │ │
 │  └───────────────────┘  └───────────────────┘  └─────────────────┘ │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
@@ -379,15 +369,17 @@ async function onDppLinked(merchantShop: string, supplierProductId: string) {
 │  ┌─────────────────────────────────────────────────────────────────┐│
 │  │ Organic Cotton T-Shirt Base                by ABC Textiles      ││
 │  │ ✓ GOTS Certified  ✓ 2.1 kgCO2e  ✓ REACH Compliant               ││
+│  │ Price: €2.00/product/month                                      ││
 │  │                                                                  ││
-│  │  [Use as-is]  [Customize]                                       ││
+│  │  [Subscribe]  [View Details]                                    ││
 │  └─────────────────────────────────────────────────────────────────┘│
 │                                                                     │
-│  Use as-is:                    Customize:                           │
-│  → Link supplier DPP           → Fork to new DPP                    │
-│  → Supplier's VC valid         → Pre-fill form with supplier data   │
-│  → "Provided by ABC"           → Merchant edits & signs new VC      │
-│  → Merchant cannot edit        → "Based on ABC" (heritage only)     │
+│  Subscribe:                                                         │
+│  → Link supplier DPP to your product                                │
+│  → Supplier's VC displayed on your store                            │
+│  → "Verified by ABC Textiles"                                       │
+│  → Merchant cannot modify DPP data                                  │
+│  → Unsubscribe anytime (stops displaying)                           │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -455,10 +447,13 @@ model SupplierProduct {
   category            ProductCategory @default(TEXTILE)
   imageUrls           String[] // Array of image URLs
 
-  // Full DPP data (same schema as merchant DPPs)
+  // Pricing (supplier-set, minimum €0.50)
+  price               Decimal  @db.Decimal(10, 2)  // Monthly price per product
+
+  // Full DPP data
   dppData             Json     // TextileDppData | ElectronicsDppData | etc.
 
-  // VC status (supplier can optionally anchor their own VC)
+  // VC status
   vcStatus            VcStatus @default(NONE)
   vcId                String?  // EuroComply VC ID if anchored
   vcAnchoredAt        DateTime?
@@ -467,9 +462,8 @@ model SupplierProduct {
   visibility          ProductVisibility @default(DRAFT)
   publishedAt         DateTime?
 
-  // Usage stats
-  timesLinked         Int      @default(0)  // How many merchants linked
-  timesForked         Int      @default(0)  // How many merchants forked
+  // Subscription stats
+  activeSubscriptions Int      @default(0)  // Current active subscribers
 
   // Relations
   merchantLinks       MerchantSupplierLink[]
@@ -530,7 +524,7 @@ enum InvitationStatus {
 ### Shopify Plugin (Extended)
 
 ```prisma
-// Existing model - extended
+// Existing model - extended for subscriptions
 model ProductSync {
   id                  String   @id @default(cuid())
   shop                String
@@ -542,15 +536,11 @@ model ProductSync {
   lastSyncedAt        DateTime?
   errorMessage        String?
 
-  // NEW: Supplier link support
-  linkType            DppLinkType @default(OWNED)
-  supplierProductId   String?  // If linked to supplier product
+  // Supplier subscription support (merchants can ONLY subscribe, not create)
+  supplierProductId   String?  // Supplier product being subscribed to
   supplierLink        MerchantSupplierLink? @relation(fields: [supplierLinkId], references: [id])
   supplierLinkId      String?  @unique
-
-  // If forked, track heritage
-  forkedFromSupplierId    String?  // Original supplier product ID
-  forkedAt                DateTime?
+  subscriptionStatus  SubscriptionStatus @default(INACTIVE)
 
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
@@ -559,13 +549,14 @@ model ProductSync {
   @@index([shop])
 }
 
-enum DppLinkType {
-  OWNED           // Merchant created from scratch
-  SUPPLIER_LINKED // Linked to supplier product (supplier's VC)
-  SUPPLIER_FORKED // Forked from supplier (merchant's VC, heritage noted)
+enum SubscriptionStatus {
+  INACTIVE        // Not subscribed to any supplier DPP
+  ACTIVE          // Active subscription
+  CANCELLED       // Subscription cancelled
+  PAYMENT_FAILED  // Payment failed, grace period
 }
 
-// Track active links between merchants and supplier products
+// Track active subscriptions between merchants and supplier products
 model MerchantSupplierLink {
   id                  String   @id @default(cuid())
 
@@ -577,8 +568,10 @@ model MerchantSupplierLink {
   // Supplier side
   supplierProductId   String   // References SupplierProduct.id
 
-  // Link metadata
-  linkedAt            DateTime @default(now())
+  // Subscription details
+  linkType            MerchantLinkType @default(LINKED)  // Always LINKED (no FORKED)
+  subscribedAt        DateTime @default(now())
+  priceAtSubscription Decimal  // Price locked at time of subscription
 
   // Denormalized for quick access
   supplierName        String
@@ -586,6 +579,10 @@ model MerchantSupplierLink {
 
   @@unique([shop, shopifyProductId])
   @@index([supplierProductId])
+}
+
+enum MerchantLinkType {
+  LINKED  // Only option - subscribed to supplier's DPP
 }
 ```
 
@@ -664,29 +661,31 @@ interface CatalogProduct {
 // Proxied from Shopify plugin to EuroComply catalog API
 // Filters by: public products + products from suppliers who invited this shop
 
-// POST /api/dpp/link-supplier
-interface LinkSupplierProduct {
+// POST /api/dpp/subscribe
+interface SubscribeToSupplierProduct {
   shopifyProductId: string;
   supplierProductId: string;
 }
-// Response: Creates MerchantSupplierLink, updates ProductSync
+// Response: Creates MerchantSupplierLink, updates ProductSync, initiates billing
 
-// POST /api/dpp/fork-supplier
-interface ForkSupplierProduct {
+// POST /api/dpp/unsubscribe
+interface UnsubscribeFromSupplierProduct {
   shopifyProductId: string;
-  supplierProductId: string;
 }
-// Response: Copies DPP data to form, merchant completes and signs
+// Response: Marks subscription as cancelled, stops billing at end of period
 
-// GET /api/dpp/:id/heritage
-// Returns forked-from info if applicable
-interface DppHeritage {
-  forkedFrom?: {
-    supplierProductId: string;
-    supplierName: string;
-    forkedAt: string;
-    originalVcId?: string;
+// GET /api/dpp/:id/subscription
+// Returns subscription status
+interface DppSubscription {
+  active: boolean;
+  supplier: {
+    id: string;
+    name: string;
+    verified: boolean;
   };
+  price: number;
+  subscribedAt: string;
+  nextBillingDate: string;
 }
 ```
 
@@ -766,9 +765,9 @@ interface DppHeritage {
 │  │ 100% GOTS Organic Cotton • Made in India                         ││
 │  │ 2.1 kgCO2e • GOTS, OEKO-TEX certified                            ││
 │  │                                                                  ││
-│  │ 🔐 Supplier VC anchored                     Used by 47 merchants ││
+│  │ 💰 €2.00/product/month            Used by 47 merchants           ││
 │  │                                                                  ││
-│  │              [Use as-is]  [Customize]  [View Details]            ││
+│  │              [Subscribe]  [View Details]                         ││
 │  └─────────────────────────────────────────────────────────────────┘│
 │                                                                     │
 │  ┌─────────────────────────────────────────────────────────────────┐│
@@ -778,45 +777,40 @@ interface DppHeritage {
 │  │ 80% Recycled Polyester, 20% Organic Cotton • Made in Portugal    ││
 │  │ 3.4 kgCO2e • GRS certified                                       ││
 │  │                                                                  ││
-│  │ 🔐 Supplier VC anchored                     Used by 23 merchants ││
+│  │ 💰 €1.50/product/month            Used by 23 merchants           ││
 │  │                                                                  ││
-│  │              [Use as-is]  [Customize]  [View Details]            ││
+│  │              [Subscribe]  [View Details]                         ││
 │  └─────────────────────────────────────────────────────────────────┘│
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
 
 ─────────────────────────────────────────────────────────────────────────
-"Use as-is" Modal:
+Subscribe Modal:
 ┌─────────────────────────────────────────────────────────────────────┐
-│  Link Supplier Product                                              │
+│  Subscribe to Supplier DPP                                          │
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                     │
-│  You're linking this supplier's DPP to your product:                │
+│  You're subscribing to this supplier's Digital Product Passport:    │
 │                                                                     │
 │  Supplier: ABC Textiles (Verified ✓)                                │
 │  Product:  Organic Cotton T-Shirt Base                              │
+│  Price:    €2.00/product/month                                      │
 │                                                                     │
 │  ┌─────────────────────────────────────────────────────────────────┐│
 │  │ ℹ️ What this means:                                             ││
 │  │                                                                  ││
-│  │ • The supplier's Verifiable Credential will be used              ││
-│  │ • Your product page will show "DPP provided by ABC Textiles"     ││
-│  │ • You cannot edit this DPP (use "Customize" to make changes)     ││
+│  │ • The supplier's verified DPP will display on your store         ││
+│  │ • Your product shows "Verified by ABC Textiles"                  ││
+│  │ • You cannot modify the DPP data (supplier controls it)          ││
 │  │ • If supplier updates data, your product updates too             ││
+│  │ • You can unsubscribe at any time                                ││
 │  └─────────────────────────────────────────────────────────────────┘│
 │                                                                     │
 │  Select your Shopify product to link:                               │
 │  [Select Product...                                            ▼]  │
 │                                                                     │
-│                              [Cancel]  [Link Product]               │
+│                              [Cancel]  [Subscribe - €2.00/mo]       │
 └─────────────────────────────────────────────────────────────────────┘
-
-─────────────────────────────────────────────────────────────────────────
-"Customize" Flow:
-→ Opens DPP creation form pre-filled with supplier data
-→ Banner: "Based on ABC Textiles - Organic Cotton T-Shirt Base"
-→ Merchant edits fields
-→ On submit: merchant signs new VC, heritage link preserved
 ```
 
 ---
@@ -856,23 +850,30 @@ Can publish products to catalog
 
 ## Implementation Phases
 
-### Phase 1: Supplier Portal MVP
-- [ ] Supplier registration & login (email/password)
-- [ ] Basic verification workflow (document upload, manual review)
-- [ ] Create/edit supplier products (textile category only)
-- [ ] Publish to public catalog
+### Phase 1: Supplier Portal MVP ✅
+- [x] Supplier registration & login (email/password)
+- [x] Basic verification workflow (document upload, manual review)
+- [x] Create/edit supplier products (textile category only)
+- [x] Set dynamic pricing (minimum €0.50/product/month)
+- [x] Publish to public catalog
 
-### Phase 2: Shopify Integration
-- [ ] Browse supplier catalog in Shopify plugin
-- [ ] "Use as-is" linking flow
-- [ ] "Customize" forking flow
-- [ ] Display supplier attribution on product DPP view
+### Phase 2: Shopify Integration ✅
+- [x] Browse supplier catalog in Shopify plugin
+- [x] Subscribe to supplier DPPs flow
+- [x] Display supplier attribution on product DPP view
+- [x] Unsubscribe flow
 
-### Phase 3: Advanced Features
-- [ ] Supplier VC anchoring (optional)
+### Phase 3: Billing & Payouts (In Progress)
+- [ ] Stripe Connect integration for suppliers
+- [ ] Merchant subscription billing
+- [ ] Revenue sharing (80% supplier, 20% platform)
+- [ ] Supplier earnings dashboard
+- [ ] Payout requests
+
+### Phase 4: Advanced Features
+- [ ] Supplier VC anchoring
 - [ ] Invite-only catalogs
 - [ ] Usage analytics for suppliers
-- [ ] Supplier rating/reviews
 - [ ] Bulk product import (CSV/API)
 
 ---

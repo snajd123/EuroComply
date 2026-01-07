@@ -245,7 +245,7 @@ Standalone supplier authentication and management:
 
 ### 2.5.2 Merchant Catalog Access
 
-Shopify merchants can browse and use supplier DPPs:
+Shopify merchants can browse and subscribe to supplier DPPs:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -259,12 +259,11 @@ Shopify merchants can browse and use supplier DPPs:
 │  │ 100% Organic Cotton | Made in PT | 3.2 kgCO2e                  ││
 │  │ GOTS Certified | Used by 45 merchants                          ││
 │  │                                                                  ││
-│  │ [Use as-is €1/mo]  [Customize €1/mo]                           ││
+│  │ [Subscribe €2.00/mo]  [View Details]                           ││
 │  └─────────────────────────────────────────────────────────────────┘│
 │                                                                     │
-│  Usage Options:                                                     │
-│  • Link (Use as-is): Supplier's VC, supplier maintains data        │
-│  • Fork (Customize): Pre-fill form, merchant signs own VC          │
+│  IMPORTANT: Merchants can ONLY subscribe - they cannot create,      │
+│  copy, or modify DPP data. This eliminates fraud by design.         │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -272,12 +271,14 @@ Shopify merchants can browse and use supplier DPPs:
 ### 2.5.3 Revenue Sharing
 
 ```typescript
-// Pricing Model
-const LINK_PRICE_MONTHLY = 1.00;  // €1/month for linked DPPs
-const FORK_PRICE_MONTHLY = 1.00;  // €1/month for forked DPPs
+// Pricing Model - DYNAMIC PRICING
+const MINIMUM_PRICE = 0.50;       // €0.50 floor per product/month
 const SUPPLIER_SHARE = 0.80;      // 80% to supplier
 const PLATFORM_SHARE = 0.20;      // 20% to EuroComply
 const MINIMUM_PAYOUT = 10.00;     // Minimum €10 for withdrawal
+
+// Suppliers set their own price (no ceiling)
+// Price examples: €0.50, €1.00, €2.50, €5.00, €10.00, etc.
 ```
 
 **Earnings Dashboard:**

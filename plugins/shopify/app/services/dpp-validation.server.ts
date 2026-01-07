@@ -4,10 +4,9 @@
  * Strict validation of DPP data against EU ESPR requirements.
  * Blocks VC issuance if mandatory fields are missing or invalid.
  *
- * CERTIFICATION PROOF REQUIREMENTS:
- * Merchants creating their own passports (not linked to a verified supplier)
- * must provide documentary proof for protected certifications.
- * This prevents merchants from making unsubstantiated certification claims.
+ * NOTE: Only verified suppliers can create DPPs. Merchants subscribe to
+ * supplier passports and cannot create, modify, or copy them.
+ * This supplier-only model eliminates fraud by design.
  */
 
 import type {
@@ -26,146 +25,86 @@ import type {
 } from '../types/dpp-schemas';
 
 // ============================================================================
-// PROTECTED CERTIFICATIONS - Require documentary proof for self-created DPPs
+// SUPPORTED CERTIFICATIONS - Reference list for UI and validation
 // ============================================================================
 
 /**
- * Certifications that require documentary proof (documentUrl) when claimed
- * by merchants creating their own passports (not linked to verified suppliers).
- *
- * Verified suppliers have already undergone KYB verification and their
- * certification claims are trusted. Merchants copying/creating their own
- * DPPs must provide proof to prevent false claims.
+ * List of recognized certifications that can be claimed by verified suppliers.
+ * Only verified suppliers (who have passed KYB) can create DPPs and claim certifications.
+ * Certification claims are trusted because suppliers are verified and legally liable.
  */
-export const PROTECTED_CERTIFICATIONS: Record<string, {
+export const SUPPORTED_CERTIFICATIONS: Record<string, {
   name: string;
   description: string;
+  category: 'textile' | 'electronics' | 'furniture' | 'general';
   verificationUrl?: string;
 }> = {
   // Textile certifications
   'GOTS': {
     name: 'Global Organic Textile Standard',
     description: 'Organic fiber certification requiring chain of custody',
+    category: 'textile',
     verificationUrl: 'https://global-standard.org/certification-and-labelling/check-if-certified',
   },
   'OEKO-TEX': {
     name: 'OEKO-TEX Standard 100',
     description: 'Tested for harmful substances',
-    verificationUrl: 'https://www.oeko-tex.com/en/label-check',
-  },
-  'OEKO-TEX_100': {
-    name: 'OEKO-TEX Standard 100',
-    description: 'Tested for harmful substances',
-    verificationUrl: 'https://www.oeko-tex.com/en/label-check',
-  },
-  'OEKO-TEX_STEP': {
-    name: 'OEKO-TEX STeP',
-    description: 'Sustainable Textile Production',
+    category: 'textile',
     verificationUrl: 'https://www.oeko-tex.com/en/label-check',
   },
   'GRS': {
     name: 'Global Recycled Standard',
     description: 'Recycled content verification',
+    category: 'textile',
     verificationUrl: 'https://textileexchange.org/standards/grs/',
-  },
-  'RCS': {
-    name: 'Recycled Claim Standard',
-    description: 'Recycled input verification',
-    verificationUrl: 'https://textileexchange.org/standards/rcs/',
-  },
-  'OCS': {
-    name: 'Organic Content Standard',
-    description: 'Organic material tracking',
-    verificationUrl: 'https://textileexchange.org/standards/ocs/',
   },
   'BLUESIGN': {
     name: 'bluesign',
     description: 'Sustainable textile production',
+    category: 'textile',
     verificationUrl: 'https://www.bluesign.com/en/consumer/check-products',
   },
   'FAIRTRADE': {
     name: 'Fairtrade Certified',
     description: 'Fair trade practices',
+    category: 'general',
     verificationUrl: 'https://www.fairtrade.net/',
-  },
-  'BCI': {
-    name: 'Better Cotton Initiative',
-    description: 'Sustainable cotton sourcing',
-    verificationUrl: 'https://bettercotton.org/',
-  },
-  'CRADLE_TO_CRADLE': {
-    name: 'Cradle to Cradle Certified',
-    description: 'Circular economy certification',
-    verificationUrl: 'https://www.c2ccertified.org/products/registry',
   },
 
   // Electronics certifications
   'ENERGY_STAR': {
     name: 'ENERGY STAR',
     description: 'Energy efficiency certification',
+    category: 'electronics',
     verificationUrl: 'https://www.energystar.gov/productfinder/',
   },
   'EPEAT': {
     name: 'EPEAT',
     description: 'Electronic product environmental assessment',
+    category: 'electronics',
     verificationUrl: 'https://epeat.net/',
-  },
-  'TCO_CERTIFIED': {
-    name: 'TCO Certified',
-    description: 'IT product sustainability',
-    verificationUrl: 'https://tcocertified.com/product-finder/',
   },
 
   // Furniture certifications
   'FSC': {
     name: 'Forest Stewardship Council',
     description: 'Responsible forestry certification',
+    category: 'furniture',
     verificationUrl: 'https://fsc.org/en/fsc-public-certificate-search',
   },
   'PEFC': {
     name: 'Programme for the Endorsement of Forest Certification',
     description: 'Sustainable forest management',
+    category: 'furniture',
     verificationUrl: 'https://www.pefc.org/find-certified',
   },
   'GREENGUARD': {
     name: 'GREENGUARD Certified',
     description: 'Low chemical emissions',
+    category: 'furniture',
     verificationUrl: 'https://www.ul.com/resources/ul-greenguard-certification-program',
   },
-
-  // General/cross-category
-  'ISO_14001': {
-    name: 'ISO 14001',
-    description: 'Environmental management system',
-  },
-  'ISO_9001': {
-    name: 'ISO 9001',
-    description: 'Quality management system',
-  },
-  'B_CORP': {
-    name: 'B Corporation',
-    description: 'Social and environmental performance',
-    verificationUrl: 'https://www.bcorporation.net/en-us/find-a-b-corp/',
-  },
 };
-
-/**
- * Options for DPP validation
- */
-export interface ValidationOptions {
-  /**
-   * If true, the passport is linked to a verified supplier and
-   * certification proof requirements are relaxed (supplier already verified).
-   * If false (default), merchants must provide documentUrl for protected certifications.
-   */
-  isSupplierLinked?: boolean;
-
-  /**
-   * Supplier verification status. Only 'VERIFIED' suppliers
-   * can have relaxed certification requirements.
-   */
-  supplierVerificationStatus?: 'PENDING' | 'IN_REVIEW' | 'VERIFIED' | 'REJECTED' | 'SUSPENDED';
-}
 
 // ============================================================================
 // MAIN VALIDATION FUNCTION
@@ -173,21 +112,21 @@ export interface ValidationOptions {
 
 /**
  * Validates DPP data against EU ESPR requirements.
+ * Only verified suppliers can create DPPs - merchants can only subscribe.
  *
  * @param data - The DPP data to validate
- * @param options - Validation options (e.g., isSupplierLinked)
  * @returns Validation result with errors and warnings
  */
-export function validateDppData(data: DppData, options: ValidationOptions = {}): ValidationResult {
+export function validateDppData(data: DppData): ValidationResult {
   switch (data.category) {
     case 'textile':
-      return validateTextileDpp(data as TextileDppData, options);
+      return validateTextileDpp(data as TextileDppData);
     case 'electronics':
-      return validateElectronicsDpp(data as ElectronicsDppData, options);
+      return validateElectronicsDpp(data as ElectronicsDppData);
     case 'furniture':
-      return validateFurnitureDpp(data as FurnitureDppData, options);
+      return validateFurnitureDpp(data as FurnitureDppData);
     case 'battery':
-      return validateBatteryDpp(data as BatteryDppData, options);
+      return validateBatteryDpp(data as BatteryDppData);
     default:
       return {
         valid: false,
@@ -201,64 +140,35 @@ export function validateDppData(data: DppData, options: ValidationOptions = {}):
 }
 
 /**
- * Checks if certification proof requirements should be enforced.
- * Proof is NOT required if:
- * - Passport is linked to a verified supplier (isSupplierLinked=true AND supplierVerificationStatus='VERIFIED')
- *
- * Proof IS required if:
- * - Merchant is creating their own passport (isSupplierLinked=false or undefined)
- * - Supplier is not verified (supplierVerificationStatus != 'VERIFIED')
+ * Gets certification info for display purposes.
  */
-function shouldRequireCertificationProof(options: ValidationOptions): boolean {
-  // If linked to a VERIFIED supplier, proof is not required (supplier already verified)
-  if (options.isSupplierLinked && options.supplierVerificationStatus === 'VERIFIED') {
-    return false;
-  }
-  // All other cases: merchant must provide proof
-  return true;
-}
-
-/**
- * Checks if a certification type is protected (requires proof for self-created DPPs).
- */
-export function isProtectedCertification(certType: string): boolean {
-  const normalizedType = certType.toUpperCase().replace(/[\s-]/g, '_');
-  return normalizedType in PROTECTED_CERTIFICATIONS ||
-    Object.keys(PROTECTED_CERTIFICATIONS).some(key =>
-      normalizedType.includes(key) || key.includes(normalizedType)
-    );
-}
-
-/**
- * Gets the protected certification info if the type matches.
- */
-export function getProtectedCertificationInfo(certType: string): {
+export function getCertificationInfo(certType: string): {
   name: string;
   description: string;
+  category: string;
   verificationUrl?: string;
 } | null {
   const normalizedType = certType.toUpperCase().replace(/[\s-]/g, '_');
 
-  if (normalizedType in PROTECTED_CERTIFICATIONS) {
-    return PROTECTED_CERTIFICATIONS[normalizedType];
+  if (normalizedType in SUPPORTED_CERTIFICATIONS) {
+    return SUPPORTED_CERTIFICATIONS[normalizedType];
   }
 
   // Try partial match
-  const matchedKey = Object.keys(PROTECTED_CERTIFICATIONS).find(key =>
+  const matchedKey = Object.keys(SUPPORTED_CERTIFICATIONS).find(key =>
     normalizedType.includes(key) || key.includes(normalizedType)
   );
 
-  return matchedKey ? PROTECTED_CERTIFICATIONS[matchedKey] : null;
+  return matchedKey ? SUPPORTED_CERTIFICATIONS[matchedKey] : null;
 }
 
 // ============================================================================
 // TEXTILE VALIDATION
 // ============================================================================
 
-export function validateTextileDpp(data: TextileDppData, options: ValidationOptions = {}): ValidationResult {
+export function validateTextileDpp(data: TextileDppData): ValidationResult {
   const errors: ValidationError[] = [];
   const warnings: ValidationWarning[] = [];
-  const requireProof = shouldRequireCertificationProof(options);
 
   // ─────────────────────────────────────────────────────────────
   // MANDATORY FIELD VALIDATION (blocks VC issuance if missing)
@@ -436,8 +346,6 @@ export function validateTextileDpp(data: TextileDppData, options: ValidationOpti
   } else {
     data.certifications.forEach((cert, index) => {
       validateCertification(cert, index, warnings);
-      // Enforce proof requirements for protected certifications on self-created DPPs
-      validateCertificationProof(cert, index, errors, warnings, requireProof);
     });
   }
 
@@ -489,10 +397,9 @@ export function validateTextileDpp(data: TextileDppData, options: ValidationOpti
 // ELECTRONICS VALIDATION
 // ============================================================================
 
-export function validateElectronicsDpp(data: ElectronicsDppData, options: ValidationOptions = {}): ValidationResult {
+export function validateElectronicsDpp(data: ElectronicsDppData): ValidationResult {
   const errors: ValidationError[] = [];
   const warnings: ValidationWarning[] = [];
-  const requireProof = shouldRequireCertificationProof(options);
 
   // Manufacturer
   if (!data.manufacturer?.name) {
@@ -581,7 +488,6 @@ export function validateElectronicsDpp(data: ElectronicsDppData, options: Valida
   if (data.certifications && data.certifications.length > 0) {
     data.certifications.forEach((cert, index) => {
       validateCertification(cert, index, warnings);
-      validateCertificationProof(cert, index, errors, warnings, requireProof);
     });
   }
 
@@ -601,10 +507,9 @@ export function validateElectronicsDpp(data: ElectronicsDppData, options: Valida
 // FURNITURE VALIDATION
 // ============================================================================
 
-export function validateFurnitureDpp(data: FurnitureDppData, options: ValidationOptions = {}): ValidationResult {
+export function validateFurnitureDpp(data: FurnitureDppData): ValidationResult {
   const errors: ValidationError[] = [];
   const warnings: ValidationWarning[] = [];
-  const requireProof = shouldRequireCertificationProof(options);
 
   // Manufacturer
   if (!data.manufacturer?.name) {
@@ -678,7 +583,6 @@ export function validateFurnitureDpp(data: FurnitureDppData, options: Validation
   if (data.certifications && data.certifications.length > 0) {
     data.certifications.forEach((cert, index) => {
       validateCertification(cert, index, warnings);
-      validateCertificationProof(cert, index, errors, warnings, requireProof);
     });
   }
 
@@ -698,10 +602,9 @@ export function validateFurnitureDpp(data: FurnitureDppData, options: Validation
 // BATTERY VALIDATION
 // ============================================================================
 
-export function validateBatteryDpp(data: BatteryDppData, options: ValidationOptions = {}): ValidationResult {
+export function validateBatteryDpp(data: BatteryDppData): ValidationResult {
   const errors: ValidationError[] = [];
   const warnings: ValidationWarning[] = [];
-  const requireProof = shouldRequireCertificationProof(options);
 
   // Manufacturer
   if (!data.manufacturer?.name) {
@@ -796,7 +699,6 @@ export function validateBatteryDpp(data: BatteryDppData, options: ValidationOpti
   if (data.certifications && data.certifications.length > 0) {
     data.certifications.forEach((cert, index) => {
       validateCertification(cert, index, warnings);
-      validateCertificationProof(cert, index, errors, warnings, requireProof);
     });
   }
 
@@ -863,76 +765,6 @@ function validateCertification(cert: Certification, index: number, warnings: Val
   }
 }
 
-/**
- * Validates that protected certifications have documentary proof.
- *
- * For self-created DPPs (not linked to verified supplier), merchants MUST
- * provide a documentUrl for any protected certification claim. This prevents
- * merchants from making unsubstantiated claims about certifications like
- * GOTS, OEKO-TEX, FSC, etc.
- *
- * @param cert - The certification to validate
- * @param index - Index in the certifications array
- * @param errors - Array to push blocking errors to
- * @param warnings - Array to push non-blocking warnings to
- * @param requireProof - Whether proof is required (false for verified supplier links)
- */
-function validateCertificationProof(
-  cert: Certification,
-  index: number,
-  errors: ValidationError[],
-  warnings: ValidationWarning[],
-  requireProof: boolean
-) {
-  const certInfo = getProtectedCertificationInfo(cert.type);
-
-  if (!certInfo) {
-    // Not a protected certification, no proof required
-    return;
-  }
-
-  const hasProof = cert.documentUrl && cert.documentUrl.trim().length > 0;
-
-  if (requireProof && !hasProof) {
-    // BLOCKING ERROR: Protected certification without proof on self-created DPP
-    errors.push({
-      field: `certifications[${index}].documentUrl`,
-      code: 'CERT_PROOF_REQUIRED',
-      message: `"${certInfo.name}" certification requires documentary proof. Upload the certificate or provide a verification URL.`,
-    });
-  } else if (!hasProof) {
-    // NON-BLOCKING WARNING: Even for supplier-linked DPPs, recommend providing proof
-    warnings.push({
-      field: `certifications[${index}].documentUrl`,
-      code: 'CERT_PROOF_RECOMMENDED',
-      message: `Providing documentary proof for "${certInfo.name}" certification strengthens credibility`,
-      recommendation: certInfo.verificationUrl
-        ? `Verify at: ${certInfo.verificationUrl}`
-        : 'Upload certificate PDF or provide verification URL',
-    });
-  }
-
-  // Validate that documentUrl looks like a valid URL if provided
-  if (hasProof && !isValidUrl(cert.documentUrl!)) {
-    errors.push({
-      field: `certifications[${index}].documentUrl`,
-      code: 'CERT_PROOF_INVALID_URL',
-      message: `Invalid document URL for "${certInfo.name}" certification`,
-    });
-  }
-}
-
-/**
- * Simple URL validation
- */
-function isValidUrl(url: string): boolean {
-  try {
-    new URL(url);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 function isValidCountryCode(code: string): boolean {
   // ISO 3166-1 alpha-2 codes (abbreviated list - expand as needed)

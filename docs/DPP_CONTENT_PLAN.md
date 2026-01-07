@@ -1,19 +1,10 @@
-# DPP Content Strategy: How to Create Product-Specific Passport Data
+# DPP Content Strategy: How Suppliers Create Product-Specific Passport Data
+
+> **Note:** Only verified suppliers create Digital Product Passports. Merchants subscribe to supplier DPPs via the Shopify plugin. See [BUSINESS_MODEL.md](./BUSINESS_MODEL.md) for the full model.
 
 ## The Problem
 
-Currently, when a Shopify merchant clicks "Issue DPP", we create a passport with placeholder data:
-
-```typescript
-// Current (inadequate)
-{
-  manufacturerName: shopifyProduct.vendor || 'Unknown',
-  manufacturerCountry: 'EU',
-  // That's it. No real sustainability data.
-}
-```
-
-Real ESPR compliance requires **category-specific, product-specific sustainability data** that merchants don't have readily available.
+Creating ESPR-compliant Digital Product Passports requires **category-specific, product-specific sustainability data** that only suppliers (manufacturers/brands) have access to.
 
 ---
 
@@ -23,37 +14,45 @@ Real ESPR compliance requires **category-specific, product-specific sustainabili
 |-----------|-------------|
 | **Category-specific requirements** | Textiles need fiber composition; batteries need chemical composition |
 | **Mandatory vs optional fields** | Different categories have different mandatory fields |
-| **Data availability** | Most merchants don't have carbon footprint data |
+| **Data availability** | Suppliers have manufacturing data; merchants typically don't |
 | **Data verification** | Claims need to be verifiable, not just stated |
 | **Varying timelines** | Different categories have different compliance deadlines |
 
 ---
 
-## Proposed Solution Architecture
+## Solution Architecture (Supplier Portal)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                    DPP CONTENT CREATION FLOW                         │
+│              SUPPLIER DPP CONTENT CREATION FLOW                      │
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                      │
-│  1. PRODUCT CATEGORIZATION                                          │
-│     └─ User selects: Textile / Electronics / Battery / Furniture    │
+│  1. SUPPLIER VERIFICATION                                           │
+│     └─ KYB verification before publishing DPPs                      │
 │                                                                      │
-│  2. SCHEMA SELECTION                                                │
+│  2. PRODUCT CATEGORIZATION                                          │
+│     └─ Supplier selects: Textile / Electronics / Battery / Furniture│
+│                                                                      │
+│  3. SCHEMA SELECTION                                                │
 │     └─ System loads category-specific required/optional fields      │
 │                                                                      │
-│  3. DATA COLLECTION (Multiple Sources)                              │
-│     ├─ Manual Entry: Form for merchant input                        │
-│     ├─ Shopify Metafields: Pull existing product data              │
+│  4. DATA ENTRY                                                      │
+│     ├─ Manual Entry: Supplier portal form                           │
+│     ├─ CSV Import: Bulk product upload                              │
 │     ├─ Templates: Industry-standard defaults                        │
-│     ├─ Supplier Import: CSV/API from suppliers                     │
-│     └─ LCA Estimation: Calculate from product attributes           │
+│     └─ LCA Data: From supplier's LCA studies                        │
 │                                                                      │
-│  4. VALIDATION                                                       │
+│  5. PRICING                                                          │
+│     └─ Supplier sets price per product (min €0.50/month)            │
+│                                                                      │
+│  6. VALIDATION                                                       │
 │     └─ Check mandatory fields, warn on missing                      │
 │                                                                      │
-│  5. VC ISSUANCE                                                     │
+│  7. PUBLISH & VC ISSUANCE                                           │
 │     └─ Sign complete DPP data with walt.id                          │
+│                                                                      │
+│  8. MERCHANT SUBSCRIPTION                                           │
+│     └─ Merchants subscribe via Shopify plugin                       │
 │                                                                      │
 └─────────────────────────────────────────────────────────────────────┘
 ```
