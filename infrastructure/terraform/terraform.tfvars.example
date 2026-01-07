@@ -1,0 +1,52 @@
+# ===========================================
+# EuroComply Terraform Variables
+# ===========================================
+# Copy this file to terraform.tfvars and customize
+
+# -----------------------------
+# General
+# -----------------------------
+aws_region  = "eu-central-1"  # Frankfurt - GDPR compliant
+environment = "production"     # dev, staging, or production
+domain_name = "eurocomply.io"
+
+# -----------------------------
+# Database (RDS PostgreSQL)
+# -----------------------------
+db_instance_class      = "db.t3.medium"  # Start small, scale up as needed
+db_allocated_storage   = 100              # GB
+db_name                = "eurocomply"
+db_username            = "eurocomply_admin"
+db_multi_az            = true             # High availability
+db_create_read_replica = true             # For read scaling
+
+# -----------------------------
+# Cache (ElastiCache Redis)
+# -----------------------------
+redis_node_type       = "cache.t3.medium"
+redis_num_cache_nodes = 2  # For automatic failover
+
+# -----------------------------
+# ECS Fargate
+# -----------------------------
+ecs_task_cpu    = 512   # 0.5 vCPU
+ecs_task_memory = 1024  # 1 GB
+ecs_desired_count = 2   # Start with 2 tasks
+ecs_min_count   = 1     # Auto-scale minimum
+ecs_max_count   = 10    # Auto-scale maximum
+container_port  = 3000
+
+# -----------------------------
+# Logging
+# -----------------------------
+log_retention_days = 30
+
+# -----------------------------
+# SSL Certificate
+# -----------------------------
+create_ssl_certificate = true
+
+# -----------------------------
+# Route53 (optional - for DNS)
+# -----------------------------
+# route53_zone_id = "Z1234567890ABC"
