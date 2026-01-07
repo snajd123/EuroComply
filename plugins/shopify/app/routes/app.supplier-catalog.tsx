@@ -1,6 +1,6 @@
 /**
  * Supplier Catalog Browser
- * Allows merchants to browse and use supplier DPPs
+ * Allows retailers to browse and subscribe to supplier DPPs
  */
 
 import { json } from "@remix-run/node";
@@ -34,8 +34,6 @@ import { authenticate } from "../shopify.server";
 import {
   searchSupplierCatalog,
   type CatalogProduct,
-  LINK_PRICE_MONTHLY,
-  FORK_PRICE_MONTHLY,
 } from "../services/supplier-catalog.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -119,12 +117,8 @@ export default function SupplierCatalog() {
     setDetailModalOpen(true);
   }, []);
 
-  const handleUseAsIs = useCallback((product: CatalogProduct) => {
-    navigate(`/app/supplier-catalog/link/${product.id}`);
-  }, [navigate]);
-
-  const handleCustomize = useCallback((product: CatalogProduct) => {
-    navigate(`/app/supplier-catalog/fork/${product.id}`);
+  const handleSubscribe = useCallback((product: CatalogProduct) => {
+    navigate(`/app/supplier-catalog/subscribe/${product.id}`);
   }, [navigate]);
 
   return (
@@ -279,23 +273,20 @@ export default function SupplierCatalog() {
                         </Badge>
                       )}
                       <Text as="span" tone="subdued" variant="bodySm">
-                        Used by {product.timesUsed} merchants
+                        {product.timesSubscribed} retailers subscribed
                       </Text>
                     </InlineStack>
 
                     <Divider />
 
                     {/* Actions */}
-                    <InlineStack gap="200">
-                      <Button onClick={() => handleUseAsIs(product)}>
-                        Use as-is (€{LINK_PRICE_MONTHLY}/mo)
+                    <InlineStack gap="200" blockAlign="center">
+                      <Button variant="primary" onClick={() => handleSubscribe(product)}>
+                        Subscribe
                       </Button>
-                      <Button
-                        variant="plain"
-                        onClick={() => handleCustomize(product)}
-                      >
-                        Customize (€{FORK_PRICE_MONTHLY}/mo)
-                      </Button>
+                      <Text as="span" tone="subdued" variant="bodySm">
+                        €{product.price.toFixed(2)}/month
+                      </Text>
                     </InlineStack>
                   </BlockStack>
                 </Card>
@@ -322,13 +313,19 @@ export default function SupplierCatalog() {
         <Banner tone="info">
           <BlockStack gap="200">
             <Text as="p" fontWeight="semibold">
-              How supplier DPPs work:
+              How supplier DPP subscriptions work:
             </Text>
             <Text as="p">
-              • <strong>Use as-is (€{LINK_PRICE_MONTHLY}/month):</strong> Link directly to the supplier's DPP. Their Verifiable Credential is used, and they maintain responsibility for the data.
+              • <strong>Subscribe</strong> to use a verified supplier's DPP for your products
             </Text>
             <Text as="p">
-              • <strong>Customize (€{FORK_PRICE_MONTHLY}/month):</strong> Fork the DPP and modify it. You sign your own VC and take responsibility. Original supplier credited as "based on".
+              • The supplier's Verifiable Credential is displayed, showing the authentic data source
+            </Text>
+            <Text as="p">
+              • Suppliers are legally responsible for DPP accuracy under ESPR regulations
+            </Text>
+            <Text as="p">
+              • You pay a monthly subscription fee set by the supplier (min €0.50/product)
             </Text>
           </BlockStack>
         </Banner>

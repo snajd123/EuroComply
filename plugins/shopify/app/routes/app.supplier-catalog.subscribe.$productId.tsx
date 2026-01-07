@@ -1,6 +1,6 @@
 /**
- * Link Supplier Product
- * "Use as-is" flow - link supplier DPP to merchant's Shopify product
+ * Subscribe to Supplier Product
+ * Retailers subscribe to use a supplier's DPP for their products
  */
 
 import { json, redirect } from "@remix-run/node";
@@ -29,7 +29,6 @@ import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import {
   getSupplierProductById,
-  LINK_PRICE_MONTHLY,
   SUPPLIER_SHARE,
 } from "../services/supplier-catalog.server";
 
@@ -45,7 +44,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     // Get supplier product details
     const supplierProduct = await getSupplierProductById(supplierProductId, session.shop);
 
-    // Get merchant's Shopify products that don't have DPPs yet
+    // Get retailer's Shopify products that don't have DPPs yet
     const response = await admin.graphql(`
       query {
         products(first: 50) {
@@ -94,7 +93,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       shop: session.shop,
       supplierProduct,
       availableProducts,
-      linkPrice: LINK_PRICE_MONTHLY,
+      subscriptionPrice: supplierProduct.price,
       supplierShare: SUPPLIER_SHARE,
     });
   } catch (error) {
@@ -117,47 +116,47 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     // Get supplier product to get supplier info
     const supplierProduct = await getSupplierProductById(supplierProductId, session.shop);
 
-    // Create the link in our database
+    // Create the subscription in our database
     // Note: In production, this would also:
     // 1. Create a DppUsageEvent for billing
-    // 2. Increment timesLinked on SupplierProduct
+    // 2. Increment timesSubscribed on SupplierProduct
     // 3. Record usage with Shopify billing API
 
     await prisma.productSync.create({
       data: {
         shop: session.shop,
         shopifyProductId,
-        // Store supplier link info
+        // Store subscription info
         // Note: We're using JSON in eurocomplyDppId field for now
         // In production, extend the schema properly
         eurocomplyDppId: JSON.stringify({
-          type: 'SUPPLIER_LINKED',
+          type: 'SUPPLIER_SUBSCRIPTION',
           supplierProductId,
           supplierId: supplierProduct.supplier.id,
           supplierName: supplierProduct.supplier.name,
           supplierVerified: supplierProduct.supplier.verified,
           vcId: supplierProduct.vcId,
-          linkedAt: new Date().toISOString(),
+          subscribedAt: new Date().toISOString(),
         }),
         syncStatus: "synced",
       },
     });
 
-    return redirect(`/app/products?linked=${supplierProductId}`);
+    return redirect(`/app/products?subscribed=${supplierProductId}`);
   } catch (error) {
-    console.error("Failed to link supplier product:", error);
+    console.error("Failed to subscribe to supplier product:", error);
     return json({
       success: false,
-      error: error instanceof Error ? error.message : "Failed to link product",
+      error: error instanceof Error ? error.message : "Failed to subscribe",
     });
   }
 };
 
-export default function LinkSupplierProduct() {
+export default function SubscribeToSupplierProduct() {
   const {
     supplierProduct,
     availableProducts,
-    linkPrice,
+    subscriptionPrice,
     supplierShare,
   } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
@@ -179,8 +178,8 @@ export default function LinkSupplierProduct() {
 
   return (
     <Page
-      title="Link Supplier DPP"
-      subtitle="Use this supplier's DPP for your product"
+      title="Subscribe to Supplier DPP"
+      subtitle="Use this supplier's verified DPP for your product"
       backAction={{ content: "Catalog", url: "/app/supplier-catalog" }}
     >
       <BlockStack gap="500">
@@ -293,17 +292,17 @@ export default function LinkSupplierProduct() {
             {/* Pricing Info */}
             <Card>
               <BlockStack gap="400">
-                <Text as="h2" variant="headingMd">Pricing</Text>
+                <Text as="h2" variant="headingMd">Subscription</Text>
                 <Divider />
 
                 <BlockStack gap="200">
                   <InlineStack align="space-between">
                     <Text as="span">Monthly fee</Text>
-                    <Text as="span" fontWeight="bold">€{linkPrice.toFixed(2)}/month</Text>
+                    <Text as="span" fontWeight="bold">€{subscriptionPrice.toFixed(2)}/month</Text>
                   </InlineStack>
                   <InlineStack align="space-between">
                     <Text as="span" tone="subdued">Supplier receives</Text>
-                    <Text as="span" tone="subdued">€{(linkPrice * supplierShare).toFixed(2)}</Text>
+                    <Text as="span" tone="subdued">€{(subscriptionPrice * supplierShare).toFixed(2)}</Text>
                   </InlineStack>
                 </BlockStack>
 
@@ -312,19 +311,19 @@ export default function LinkSupplierProduct() {
                 <Banner tone="info">
                   <BlockStack gap="100">
                     <Text as="p" variant="bodySm">
-                      <strong>What "Use as-is" means:</strong>
+                      <strong>What subscribing means:</strong>
                     </Text>
                     <Text as="p" variant="bodySm">
-                      • Supplier's Verifiable Credential is used
+                      • Supplier's Verifiable Credential is displayed
                     </Text>
                     <Text as="p" variant="bodySm">
-                      • Your product shows "DPP by {supplierProduct.supplier.name}"
+                      • Shows "DPP by {supplierProduct.supplier.name}"
                     </Text>
                     <Text as="p" variant="bodySm">
-                      • You cannot edit the DPP data
+                      • Supplier is responsible for data accuracy (ESPR)
                     </Text>
                     <Text as="p" variant="bodySm">
-                      • Supplier updates apply to your product
+                      • Supplier updates apply automatically
                     </Text>
                   </BlockStack>
                 </Banner>
@@ -337,7 +336,7 @@ export default function LinkSupplierProduct() {
                   disabled={!selectedProduct || isSubmitting}
                   loading={isSubmitting}
                 >
-                  Link Product (€{linkPrice.toFixed(2)}/mo)
+                  Subscribe (€{subscriptionPrice.toFixed(2)}/mo)
                 </Button>
               </BlockStack>
             </Card>

@@ -10,6 +10,7 @@ export interface CatalogProduct {
   name: string;
   description?: string;
   category: string;
+  price: number;
   supplier: {
     id: string;
     name: string;
@@ -25,7 +26,7 @@ export interface CatalogProduct {
     manufacturer?: string;
   };
   vcAnchored: boolean;
-  timesUsed: number;
+  timesSubscribed: number;
   imageUrl?: string;
 }
 
@@ -60,7 +61,7 @@ export interface CatalogSearchResult {
  */
 export async function searchSupplierCatalog(
   params: CatalogSearchParams,
-  merchantShop: string
+  retailerShop: string
 ): Promise<CatalogSearchResult> {
   const queryParams = new URLSearchParams();
 
@@ -76,7 +77,7 @@ export async function searchSupplierCatalog(
     {
       headers: {
         'Content-Type': 'application/json',
-        'X-Merchant-Shop': merchantShop,
+        'X-Retailer-Shop': retailerShop,
       },
     }
   );
@@ -95,14 +96,14 @@ export async function searchSupplierCatalog(
  */
 export async function getSupplierProductById(
   productId: string,
-  merchantShop: string
+  retailerShop: string
 ): Promise<CatalogProductDetail> {
   const response = await fetch(
     `${EUROCOMPLY_API_URL}/api/suppliers/catalog/${productId}`,
     {
       headers: {
         'Content-Type': 'application/json',
-        'X-Merchant-Shop': merchantShop,
+        'X-Retailer-Shop': retailerShop,
       },
     }
   );
@@ -120,7 +121,6 @@ export async function getSupplierProductById(
 // PRICING
 // ===========================================
 
-export const LINK_PRICE_MONTHLY = 1.00;  // €1/month for linked DPPs
-export const FORK_PRICE_MONTHLY = 1.00;  // €1/month for forked DPPs (same as linked)
-export const SUPPLIER_SHARE = 0.80;      // 80% to supplier
+export const MINIMUM_PRICE = 0.50;       // €0.50 minimum per product/month
+export const SUPPLIER_SHARE = 0.80;      // 80% to supplier (before distributor cut)
 export const PLATFORM_SHARE = 0.20;      // 20% to EuroComply
