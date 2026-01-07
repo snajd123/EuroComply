@@ -510,7 +510,7 @@ model DppUsageEvent {
 
 enum DppUsageType {
   LINK_MONTHLY    // Recurring monthly for linked DPPs
-  FORK_ONETIME    // One-time for forked DPPs
+  FORK_MONTHLY    // Recurring monthly for forked DPPs
 }
 
 enum DppBillingStatus {

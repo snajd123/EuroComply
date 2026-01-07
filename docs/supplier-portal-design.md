@@ -49,11 +49,11 @@ Suppliers can create full DPPs on the EuroComply platform that merchants can use
 | Usage Type | Price | Supplier Gets | EuroComply Gets |
 |------------|-------|---------------|-----------------|
 | **Link (Use as-is)** | €1.00/DPP/month | €0.80 | €0.20 |
-| **Fork (Customize)** | €0.50 one-time | €0.40 | €0.10 |
+| **Fork (Customize)** | €1.00/DPP/month | €0.80 | €0.20 |
 
 **Rationale:**
-- **Link = recurring** because supplier maintains responsibility & VC
-- **Fork = one-time** because merchant takes over (heritage info only)
+- **Both = recurring** to prevent merchants from forking just to avoid monthly fees
+- **Same price** ensures fair treatment regardless of usage type
 - **80/20 split** incentivizes suppliers while funding platform
 
 ### Billing Mechanics
@@ -72,20 +72,20 @@ Suppliers can create full DPPs on the EuroComply platform that merchants can use
 │  │  • XYZ Fabrics - Recycled Hoodie            × 1 product         ││
 │  │                                                                  ││
 │  │ Forked DPPs this month:                                          ││
-│  │  • ABC Textiles - Denim Jacket              × 1 (one-time)      ││
+│  │  • ABC Textiles - Denim Jacket              × 1 product         ││
 │  │                                                                  ││
-│  │ Monthly total: (4 × €1.00) + (1 × €0.50) = €4.50                ││
+│  │ Monthly total: (4 × €1.00) + (1 × €1.00) = €5.00                ││
 │  └─────────────────────────────────────────────────────────────────┘│
 │                                                                     │
 │  Day 1 (next month): Merchant charged via Shopify billing           │
 │                                                                     │
 │  Revenue distribution:                                              │
 │  ┌─────────────────────────────────────────────────────────────────┐│
-│  │ ABC Textiles:  (3 × €0.80) + (1 × €0.40) = €2.80               ││
+│  │ ABC Textiles:  (3 × €0.80) + (1 × €0.80) = €3.20               ││
 │  │ XYZ Fabrics:   (1 × €0.80) = €0.80                             ││
-│  │ EuroComply:    (4 × €0.20) + (1 × €0.10) = €0.90               ││
+│  │ EuroComply:    (4 × €0.20) + (1 × €0.20) = €1.00               ││
 │  │                                            ─────────            ││
-│  │                                    Total:  €4.50                ││
+│  │                                    Total:  €5.00                ││
 │  └─────────────────────────────────────────────────────────────────┘│
 │                                                                     │
 │  Monthly payouts to suppliers (via Stripe Connect)                  │
@@ -147,7 +147,7 @@ model DppUsageEvent {
 
 enum UsageType {
   LINK_MONTHLY    // Recurring monthly for linked DPPs
-  FORK_ONETIME   // One-time for forked DPPs
+  FORK_MONTHLY    // Recurring monthly for forked DPPs
 }
 
 enum BillingStatus {

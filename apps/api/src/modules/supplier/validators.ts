@@ -137,6 +137,26 @@ export const catalogSearchSchema = z.object({
 });
 
 // ===========================================
+// VERIFICATION VALIDATORS
+// ===========================================
+
+export const submitVerificationSchema = z.object({
+  companyRegistration: z.string().min(1, 'Company registration number is required'),
+  documents: z.array(z.object({
+    type: z.enum(['BUSINESS_REGISTRATION', 'TAX_CERTIFICATE', 'CERTIFICATION', 'OTHER']),
+    name: z.string(),
+    url: z.string().url('Document URL is required'),
+    mimeType: z.string().optional(),
+  })).min(1, 'At least one verification document is required'),
+  notes: z.string().max(1000).optional(),
+});
+
+export const adminReviewVerificationSchema = z.object({
+  decision: z.enum(['VERIFIED', 'REJECTED']),
+  notes: z.string().optional(),
+});
+
+// ===========================================
 // TYPE EXPORTS
 // ===========================================
 
@@ -146,3 +166,5 @@ export type UpdateSupplierProfileInput = z.infer<typeof updateSupplierProfileSch
 export type CreateSupplierProductInput = z.infer<typeof createSupplierProductSchema>;
 export type UpdateSupplierProductInput = z.infer<typeof updateSupplierProductSchema>;
 export type CatalogSearchInput = z.infer<typeof catalogSearchSchema>;
+export type SubmitVerificationInput = z.infer<typeof submitVerificationSchema>;
+export type AdminReviewVerificationInput = z.infer<typeof adminReviewVerificationSchema>;

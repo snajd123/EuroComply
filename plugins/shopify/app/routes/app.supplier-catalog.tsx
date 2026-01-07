@@ -35,7 +35,7 @@ import {
   searchSupplierCatalog,
   type CatalogProduct,
   LINK_PRICE_MONTHLY,
-  FORK_PRICE_ONETIME,
+  FORK_PRICE_MONTHLY,
 } from "../services/supplier-catalog.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -294,7 +294,7 @@ export default function SupplierCatalog() {
                         variant="plain"
                         onClick={() => handleCustomize(product)}
                       >
-                        Customize (€{FORK_PRICE_ONETIME})
+                        Customize (€{FORK_PRICE_MONTHLY}/mo)
                       </Button>
                     </InlineStack>
                   </BlockStack>
@@ -328,7 +328,7 @@ export default function SupplierCatalog() {
               • <strong>Use as-is (€{LINK_PRICE_MONTHLY}/month):</strong> Link directly to the supplier's DPP. Their Verifiable Credential is used, and they maintain responsibility for the data.
             </Text>
             <Text as="p">
-              • <strong>Customize (€{FORK_PRICE_ONETIME} one-time):</strong> Fork the DPP and modify it. You sign your own VC and take responsibility. Original supplier credited as "based on".
+              • <strong>Customize (€{FORK_PRICE_MONTHLY}/month):</strong> Fork the DPP and modify it. You sign your own VC and take responsibility. Original supplier credited as "based on".
             </Text>
           </BlockStack>
         </Banner>

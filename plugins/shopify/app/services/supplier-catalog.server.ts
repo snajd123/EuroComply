@@ -117,10 +117,10 @@ export async function getSupplierProductById(
 }
 
 // ===========================================
-// LINKING PRICES
+// PRICING
 // ===========================================
 
 export const LINK_PRICE_MONTHLY = 1.00;  // €1/month for linked DPPs
-export const FORK_PRICE_ONETIME = 0.50;  // €0.50 one-time for forked DPPs
+export const FORK_PRICE_MONTHLY = 1.00;  // €1/month for forked DPPs (same as linked)
 export const SUPPLIER_SHARE = 0.80;      // 80% to supplier
 export const PLATFORM_SHARE = 0.20;      // 20% to EuroComply

@@ -13,6 +13,8 @@ import type {
   CreateSupplierProductInput,
   UpdateSupplierProductInput,
   CatalogSearchInput,
+  SubmitVerificationInput,
+  AdminReviewVerificationInput,
 } from './validators.js';
 
 const JWT_SECRET = process.env.SUPPLIER_JWT_SECRET || process.env.JWT_SECRET || 'supplier-secret-change-me';
@@ -174,6 +176,134 @@ export async function updateSupplierProfile(supplierId: string, input: UpdateSup
   });
 
   return supplier;
+}
+
+// ===========================================
+// VERIFICATION SERVICE
+// ===========================================
+
+export async function submitVerification(supplierId: string, input: SubmitVerificationInput) {
+  const supplier = await prisma.supplier.findUnique({
+    where: { id: supplierId },
+    select: { verificationStatus: true },
+  });
+
+  if (!supplier) {
+    throw new Error('Supplier not found');
+  }
+
+  // Only allow submission if PENDING or REJECTED
+  if (!['PENDING', 'REJECTED'].includes(supplier.verificationStatus)) {
+    throw new Error(`Cannot submit verification when status is ${supplier.verificationStatus}`);
+  }
+
+  // Update supplier with verification docs
+  const updated = await prisma.supplier.update({
+    where: { id: supplierId },
+    data: {
+      companyRegistration: input.companyRegistration,
+      verificationStatus: 'IN_REVIEW',
+      verificationDocs: {
+        documents: input.documents,
+        notes: input.notes,
+        submittedAt: new Date().toISOString(),
+      },
+    },
+    select: {
+      id: true,
+      email: true,
+      companyName: true,
+      verificationStatus: true,
+      verificationDocs: true,
+    },
+  });
+
+  return updated;
+}
+
+export async function getVerificationStatus(supplierId: string) {
+  const supplier = await prisma.supplier.findUnique({
+    where: { id: supplierId },
+    select: {
+      verificationStatus: true,
+      verifiedAt: true,
+      verifiedBy: true,
+      verificationDocs: true,
+      companyRegistration: true,
+    },
+  });
+
+  if (!supplier) {
+    throw new Error('Supplier not found');
+  }
+
+  return supplier;
+}
+
+export async function adminReviewVerification(
+  supplierId: string,
+  input: AdminReviewVerificationInput,
+  adminId: string
+) {
+  const supplier = await prisma.supplier.findUnique({
+    where: { id: supplierId },
+    select: { verificationStatus: true, verificationDocs: true },
+  });
+
+  if (!supplier) {
+    throw new Error('Supplier not found');
+  }
+
+  if (supplier.verificationStatus !== 'IN_REVIEW') {
+    throw new Error(`Cannot review supplier with status ${supplier.verificationStatus}`);
+  }
+
+  const existingDocs = supplier.verificationDocs as any || {};
+
+  const updated = await prisma.supplier.update({
+    where: { id: supplierId },
+    data: {
+      verificationStatus: input.decision,
+      verifiedAt: input.decision === 'VERIFIED' ? new Date() : null,
+      verifiedBy: input.decision === 'VERIFIED' ? adminId : null,
+      verificationDocs: {
+        ...existingDocs,
+        reviewedAt: new Date().toISOString(),
+        reviewedBy: adminId,
+        reviewNotes: input.notes,
+        decision: input.decision,
+      },
+    },
+    select: {
+      id: true,
+      email: true,
+      companyName: true,
+      verificationStatus: true,
+      verifiedAt: true,
+    },
+  });
+
+  return updated;
+}
+
+export async function getPendingVerifications() {
+  const suppliers = await prisma.supplier.findMany({
+    where: { verificationStatus: 'IN_REVIEW' },
+    orderBy: { updatedAt: 'asc' },
+    select: {
+      id: true,
+      email: true,
+      companyName: true,
+      country: true,
+      website: true,
+      companyRegistration: true,
+      verificationDocs: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+
+  return suppliers;
 }
 
 // ===========================================

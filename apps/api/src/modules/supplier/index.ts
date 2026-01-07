@@ -6,3 +6,4 @@
 export { default as supplierRoutes } from './routes.js';
 export * from './validators.js';
 export * as supplierService from './supplier.service.js';
+export * as earningsService from './earnings.service.js';
