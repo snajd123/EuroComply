@@ -284,4 +284,296 @@ enum ActorType {
   API_KEY
   SYSTEM
   WEBHOOK
+  SUPPLIER
+}
+
+// ===========================================
+// SUPPLIER MARKETPLACE
+// ===========================================
+
+model Supplier {
+  id                  String   @id @default(cuid())
+
+  // Authentication
+  email               String   @unique
+  passwordHash        String
+
+  // Company info
+  companyName         String
+  companyRegistration String?  // VAT/business registration
+  country             String   // ISO 3166-1 alpha-2
+  website             String?
+  logoUrl             String?
+  description         String?
+
+  // Verification
+  verificationStatus  SupplierVerificationStatus @default(PENDING)
+  verifiedAt          DateTime?
+  verifiedBy          String?  // Admin who verified
+  verificationDocs    Json?    // Uploaded document references
+
+  // Settings
+  catalogVisibility   CatalogVisibility @default(PUBLIC)
+
+  // Payout settings (Stripe Connect)
+  stripeConnectAccountId  String?
+  payoutEnabled           Boolean  @default(false)
+  payoutMinimum           Decimal  @default(10.00) @db.Decimal(10, 2)
+
+  // Timestamps
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  // Relations
+  products            SupplierProduct[]
+  invitations         SupplierInvitation[]
+  earnings            SupplierEarning[]
+  payouts             SupplierPayout[]
+
+  @@index([verificationStatus])
+  @@index([catalogVisibility])
+}
+
+enum SupplierVerificationStatus {
+  PENDING      // Just registered
+  IN_REVIEW    // Docs submitted, awaiting review
+  VERIFIED     // Approved
+  REJECTED     // Rejected (can resubmit)
+  SUSPENDED    // Temporarily disabled
+}
+
+enum CatalogVisibility {
+  PUBLIC       // Anyone can see and use
+  PRIVATE      // Only supplier can see (draft mode)
+  INVITE_ONLY  // Only invited merchants can see
+}
+
+model SupplierProduct {
+  id                  String   @id @default(cuid())
+  supplierId          String
+  supplier            Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  // Product info
+  name                String
+  description         String?
+  category            SupplierProductCategory @default(TEXTILE)
+  imageUrls           String[] // Array of image URLs
+
+  // Full DPP data (same schema as merchant DPPs)
+  dppData             Json     // TextileDppData | ElectronicsDppData | etc.
+
+  // VC status (supplier can optionally anchor their own VC)
+  vcStatus            SupplierVcStatus @default(NONE)
+  vcId                String?  // EuroComply VC ID if anchored
+  vcAnchoredAt        DateTime?
+
+  // Visibility
+  visibility          SupplierProductVisibility @default(DRAFT)
+  publishedAt         DateTime?
+
+  // Usage stats
+  timesLinked         Int      @default(0)
+  timesForked         Int      @default(0)
+
+  // Timestamps
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  // Relations
+  merchantLinks       MerchantSupplierLink[]
+  usageEvents         DppUsageEvent[]
+
+  @@index([supplierId])
+  @@index([category, visibility])
+  @@index([visibility])
+}
+
+enum SupplierProductCategory {
+  TEXTILE
+  ELECTRONICS
+  FURNITURE
+  BATTERY
+  OTHER
+}
+
+enum SupplierVcStatus {
+  NONE         // Supplier hasn't anchored
+  PENDING      // Anchoring in progress
+  ANCHORED     // VC issued
+  FAILED       // Anchoring failed
+}
+
+enum SupplierProductVisibility {
+  DRAFT        // Not visible to merchants
+  PUBLISHED    // Visible per catalog visibility settings
+  ARCHIVED     // Hidden but preserved
+}
+
+model SupplierInvitation {
+  id                  String   @id @default(cuid())
+  supplierId          String
+  supplier            Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  merchantEmail       String
+  merchantShop        String?  // Shopify shop domain if known
+
+  status              SupplierInvitationStatus @default(PENDING)
+  invitedAt           DateTime @default(now())
+  acceptedAt          DateTime?
+  expiresAt           DateTime?
+
+  @@unique([supplierId, merchantEmail])
+  @@index([merchantShop])
+  @@index([status])
+}
+
+enum SupplierInvitationStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  REVOKED
+}
+
+model MerchantSupplierLink {
+  id                  String   @id @default(cuid())
+
+  // Merchant side
+  merchantShop        String
+  shopifyProductId    String
+
+  // Supplier side
+  supplierProductId   String
+  supplierProduct     SupplierProduct @relation(fields: [supplierProductId], references: [id], onDelete: Cascade)
+
+  // Link type
+  linkType            MerchantLinkType @default(LINKED)
+
+  // Heritage (for forked products)
+  forkedAt            DateTime?
+
+  // Link metadata
+  linkedAt            DateTime @default(now())
+
+  // Denormalized for quick access
+  supplierName        String
+  supplierVerified    Boolean  @default(false)
+
+  @@unique([merchantShop, shopifyProductId])
+  @@index([supplierProductId])
+  @@index([merchantShop])
+}
+
+enum MerchantLinkType {
+  LINKED     // Using supplier's DPP as-is (supplier's VC)
+  FORKED     // Customized from supplier (merchant's VC, heritage tracked)
+}
+
+// ===========================================
+// SUPPLIER BILLING & PAYOUTS
+// ===========================================
+
+model DppUsageEvent {
+  id                  String   @id @default(cuid())
+
+  // Who used it
+  merchantShop        String
+  shopifyProductId    String
+
+  // What was used
+  supplierProductId   String
+  supplierProduct     SupplierProduct @relation(fields: [supplierProductId], references: [id], onDelete: Cascade)
+  supplierId          String
+
+  // Usage type
+  usageType           DppUsageType
+
+  // Pricing at time of usage
+  priceCharged        Decimal  @db.Decimal(10, 2)
+  supplierShare       Decimal  @db.Decimal(10, 2) // 80%
+  platformShare       Decimal  @db.Decimal(10, 2) // 20%
+
+  // Billing status
+  billingStatus       DppBillingStatus @default(PENDING)
+  billedAt            DateTime?
+  merchantInvoiceId   String?  // Shopify billing reference
+
+  // For recurring links
+  billingPeriodStart  DateTime?
+  billingPeriodEnd    DateTime?
+
+  createdAt           DateTime @default(now())
+
+  @@index([merchantShop, billingStatus])
+  @@index([supplierId, billingStatus])
+  @@index([supplierProductId])
+}
+
+enum DppUsageType {
+  LINK_MONTHLY    // Recurring monthly for linked DPPs
+  FORK_ONETIME    // One-time for forked DPPs
+}
+
+enum DppBillingStatus {
+  PENDING         // Usage tracked, not yet billed
+  BILLED          // Charged to merchant
+  PAID            // Merchant payment received
+  FAILED          // Payment failed
+  REFUNDED        // Refunded to merchant
+}
+
+model SupplierEarning {
+  id                  String   @id @default(cuid())
+  supplierId          String
+  supplier            Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  // Period
+  periodStart         DateTime
+  periodEnd           DateTime
+
+  // Amounts
+  grossEarnings       Decimal  @db.Decimal(10, 2)
+  platformFee         Decimal  @db.Decimal(10, 2)
+  netEarnings         Decimal  @db.Decimal(10, 2)
+
+  // Stats
+  linkUsageCount      Int      @default(0)
+  forkUsageCount      Int      @default(0)
+
+  // Payout status
+  payoutStatus        SupplierPayoutStatus @default(PENDING)
+  payoutId            String?
+
+  createdAt           DateTime @default(now())
+
+  @@unique([supplierId, periodStart])
+  @@index([supplierId, payoutStatus])
+}
+
+enum SupplierPayoutStatus {
+  PENDING           // Awaiting payout
+  PROCESSING        // Payout initiated
+  COMPLETED         // Money transferred
+  FAILED            // Payout failed
+  HELD              // Below minimum or issue
+}
+
+model SupplierPayout {
+  id                  String   @id @default(cuid())
+  supplierId          String
+  supplier            Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  amount              Decimal  @db.Decimal(10, 2)
+  currency            String   @default("EUR")
+
+  // Stripe
+  stripeTransferId    String?
+  stripePayoutId      String?
+
+  status              SupplierPayoutStatus
+  failureReason       String?
+
+  initiatedAt         DateTime @default(now())
+  completedAt         DateTime?
+
+  @@index([supplierId, status])
 }

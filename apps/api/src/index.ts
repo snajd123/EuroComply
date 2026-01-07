@@ -16,6 +16,7 @@ import didRoutes from './common/routes/did.js';
 import authRoutes from './common/auth/routes.js';
 import productTrustRoutes from './modules/product-trust/routes.js';
 import integrationsRoutes from './modules/integrations/index.js';
+import { supplierRoutes } from './modules/supplier/index.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -58,6 +59,9 @@ app.use('/v1', productTrustRoutes);
 
 // E-commerce integrations (Shopify, WooCommerce)
 app.use('/api', integrationsRoutes);
+
+// Supplier marketplace
+app.use('/api/suppliers', supplierRoutes);
 
 // 404 handler
 app.use((_req, res) => {
