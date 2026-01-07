@@ -78,16 +78,23 @@ apps/api/src/
 │   │   ├── earnings.test.ts           ✅ 27 tests
 │   │   └── supplier.service.test.ts   ✅ 40 tests
 │   └── product-trust/
-│       └── services/
-│           ├── gs1.service.test.ts    ✅ 34 tests
-│           ├── identity.test.ts       ✅ 37 tests
-│           └── qr.service.test.ts     ✅ 27 tests
+│       ├── services/
+│       │   ├── gs1.service.test.ts    ✅ 34 tests
+│       │   ├── identity.test.ts       ✅ 37 tests
+│       │   ├── qr.service.test.ts     ✅ 27 tests
+│       │   └── dpp.service.test.ts    ✅ 38 tests
+│       └── controllers/
+│           └── passport.controller.test.ts ✅ 33 tests
 ├── common/
 │   ├── middleware/
 │   │   └── errorHandler.test.ts       ✅ 25 tests
 │   ├── auth/
 │   │   └── middleware.test.ts         ✅ 31 tests
 │   └── schemas.test.ts                ✅ 52 tests
+
+plugins/shopify/app/
+└── services/
+    └── dpp-validation.test.ts         ✅ 48 tests
 ```
 
 ---
@@ -177,6 +184,10 @@ npm run test:watch
 | supplier.service.test.ts | 40 | ✅ Passing |
 | identity.test.ts | 37 | ✅ Passing |
 | qr.service.test.ts | 27 | ✅ Passing |
+| dpp.service.test.ts | 38 | ✅ Passing |
+| passport.controller.test.ts | 33 | ✅ Passing |
+| **Shopify Plugin** | | |
+| dpp-validation.test.ts | 48 | ✅ Passing |
 
-**Total Tests**: 305 tests passing ✅
+**Total Tests**: 424 tests passing ✅
 **Last Run**: 2026-01-07
