@@ -1,0 +1,39 @@
+api_version = "2024-01"
+type = "theme_app_extension"
+
+[settings]
+  [[settings.fields]]
+    key = "badge_style"
+    type = "select"
+    name = "Badge Style"
+    default = "full"
+    [[settings.fields.options]]
+      label = "Full Widget (with QR)"
+      value = "full"
+    [[settings.fields.options]]
+      label = "Compact Badge"
+      value = "compact"
+    [[settings.fields.options]]
+      label = "Minimal Icon"
+      value = "minimal"
+
+  [[settings.fields]]
+    key = "show_on_product"
+    type = "checkbox"
+    name = "Show on Product Pages"
+    default = true
+
+  [[settings.fields]]
+    key = "position"
+    type = "select"
+    name = "Badge Position"
+    default = "below_add_to_cart"
+    [[settings.fields.options]]
+      label = "Below Add to Cart"
+      value = "below_add_to_cart"
+    [[settings.fields.options]]
+      label = "Product Description"
+      value = "product_description"
+    [[settings.fields.options]]
+      label = "Custom (use App Block)"
+      value = "custom"
