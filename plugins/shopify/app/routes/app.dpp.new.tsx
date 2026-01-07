@@ -50,9 +50,9 @@ import type {
   Certification,
   CarbonFootprint,
 } from "../types/dpp-schemas";
-import { validateDppData, canIssueVC, getCompletionScore } from "../services/dpp-validation.server";
+import { validateDppData, canIssueVC } from "../services/dpp-validation.server";
 import { calculateCarbonFootprint } from "../services/higg-integration.server";
-import { getTextileTemplates, applyTemplate, type TextileTemplate } from "../data/textile-templates";
+import { TEXTILE_TEMPLATE, CARE_PRESETS, DEFAULT_CARE_INSTRUCTIONS } from "../data/textile-templates";
 
 // Country options for ISO 3166-1 alpha-2
 const COUNTRY_OPTIONS = [
@@ -209,13 +209,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   const availableProducts = products.filter((p: any) => !existingProductIds.has(p.id));
 
-  // Get templates
-  const templates = getTextileTemplates();
-
   return json({
     shop: session.shop,
     products: availableProducts,
-    templates,
   });
 };
 
@@ -405,7 +401,7 @@ function parseDppFormData(formData: FormData): TextileDppData {
 }
 
 export default function NewDpp() {
-  const { products, templates } = useLoaderData<typeof loader>();
+  const { products } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
   const submit = useSubmit();
@@ -415,12 +411,13 @@ export default function NewDpp() {
   // State
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
   const [productPickerOpen, setProductPickerOpen] = useState(false);
-  const [selectedTemplate, setSelectedTemplate] = useState<string>("");
+  const [selectedCarePreset, setSelectedCarePreset] = useState<string>("standard");
 
-  // Form state
-  const [fiberComposition, setFiberComposition] = useState<FiberComposition[]>([
-    { fiberType: "cotton", percentage: 100, origin: "conventional" },
-  ]);
+  // Form state - initialized from template defaults
+  const templateDefaults = TEXTILE_TEMPLATE.defaults;
+  const [fiberComposition, setFiberComposition] = useState<FiberComposition[]>(
+    templateDefaults.fiberComposition || [{ fiberType: "cotton", percentage: 100, origin: "conventional" }]
+  );
   const [countryOfManufacture, setCountryOfManufacture] = useState("");
   const [manufacturerName, setManufacturerName] = useState("");
   const [manufacturerCountry, setManufacturerCountry] = useState("");
@@ -428,13 +425,14 @@ export default function NewDpp() {
   const [manufacturerRegNumber, setManufacturerRegNumber] = useState("");
   const [manufacturerWebsite, setManufacturerWebsite] = useState("");
 
-  // Care instructions
-  const [maxWashTemperature, setMaxWashTemperature] = useState("40");
-  const [bleachAllowed, setBleachAllowed] = useState(false);
-  const [tumbleDryAllowed, setTumbleDryAllowed] = useState(false);
-  const [ironTemperature, setIronTemperature] = useState<string>("medium");
-  const [dryCleanAllowed, setDryCleanAllowed] = useState(false);
-  const [specialInstructions, setSpecialInstructions] = useState("");
+  // Care instructions - initialized from template defaults
+  const defaultCare = templateDefaults.careInstructions || DEFAULT_CARE_INSTRUCTIONS;
+  const [maxWashTemperature, setMaxWashTemperature] = useState(defaultCare.maxWashTemperature?.toString() || "40");
+  const [bleachAllowed, setBleachAllowed] = useState(defaultCare.bleachAllowed || false);
+  const [tumbleDryAllowed, setTumbleDryAllowed] = useState(defaultCare.tumbleDryAllowed || false);
+  const [ironTemperature, setIronTemperature] = useState<string>(defaultCare.ironTemperature || "medium");
+  const [dryCleanAllowed, setDryCleanAllowed] = useState(defaultCare.dryCleanAllowed || false);
+  const [specialInstructions, setSpecialInstructions] = useState(defaultCare.specialInstructions || "");
 
   // Hazardous substances
   const [reachCompliant, setReachCompliant] = useState(true);
@@ -463,49 +461,22 @@ export default function NewDpp() {
   const fiberTotal = fiberComposition.reduce((sum, f) => sum + f.percentage, 0);
   const fiberTotalValid = fiberTotal === 100;
 
-  // Apply template
-  const handleApplyTemplate = useCallback(
-    (templateId: string) => {
-      const template = templates.find((t: TextileTemplate) => t.id === templateId);
-      if (!template) return;
+  // Apply care preset
+  const handleApplyCarePreset = useCallback((presetKey: string) => {
+    const preset = CARE_PRESETS[presetKey as keyof typeof CARE_PRESETS];
+    if (!preset) return;
 
-      setSelectedTemplate(templateId);
-
-      // Apply fiber composition
-      if (template.defaults.fiberComposition) {
-        setFiberComposition(template.defaults.fiberComposition);
-      }
-
-      // Apply care instructions
-      if (template.defaults.careInstructions) {
-        const care = template.defaults.careInstructions;
-        setMaxWashTemperature(care.maxWashTemperature?.toString() || "40");
-        setBleachAllowed(care.bleachAllowed || false);
-        setTumbleDryAllowed(care.tumbleDryAllowed || false);
-        setIronTemperature(care.ironTemperature || "medium");
-        setDryCleanAllowed(care.dryCleanAllowed || false);
-      }
-
-      // Apply carbon benchmark if available
-      if (template.benchmarks?.carbonFootprint) {
-        setCarbonFootprint({
-          value: template.benchmarks.carbonFootprint.value,
-          unit: "kgCO2e",
-          methodology: "Higg_MSI",
-          scope: "cradle_to_gate",
-          dataSource: "lca_estimated",
-          confidence: "estimated",
-        });
-      }
-
-      // Apply recyclability
-      if (template.defaults.recyclability) {
-        setRecyclablePercentage(template.defaults.recyclability.recyclablePercentage.toString());
-        setEndOfLifeInstructions(template.defaults.recyclability.endOfLifeInstructions);
-      }
-    },
-    [templates]
-  );
+    setSelectedCarePreset(presetKey);
+    const care = preset.value;
+    setMaxWashTemperature(care.maxWashTemperature?.toString() || "40");
+    setBleachAllowed(care.bleachAllowed || false);
+    setTumbleDryAllowed(care.tumbleDryAllowed || false);
+    setIronTemperature(care.ironTemperature || "medium");
+    setDryCleanAllowed(care.dryCleanAllowed || false);
+    if ('specialInstructions' in care) {
+      setSpecialInstructions(care.specialInstructions || "");
+    }
+  }, []);
 
   // Add fiber
   const addFiber = useCallback(() => {
@@ -792,38 +763,13 @@ export default function NewDpp() {
               </BlockStack>
             </Card>
 
-            {/* Template Selection */}
-            <Card>
-              <BlockStack gap="400">
-                <Text as="h2" variant="headingMd">
-                  2. Start from Template (Optional)
-                </Text>
-                <Text as="p" tone="subdued">
-                  Templates pre-fill typical values with industry benchmarks. You can customize all fields after applying.
-                </Text>
-
-                <Select
-                  label="Product Template"
-                  options={[
-                    { label: "Start from scratch", value: "" },
-                    ...templates.map((t: TextileTemplate) => ({
-                      label: `${t.name} - ${t.description}`,
-                      value: t.id,
-                    })),
-                  ]}
-                  value={selectedTemplate}
-                  onChange={handleApplyTemplate}
-                />
-              </BlockStack>
-            </Card>
-
             {/* Fiber Composition */}
             <Card>
               <BlockStack gap="400">
                 <InlineStack align="space-between">
                   <BlockStack gap="050">
                     <Text as="h2" variant="headingMd">
-                      3. Fiber Composition
+                      2. Fiber Composition
                     </Text>
                     <Text as="span" tone="subdued">
                       MANDATORY - Must sum to exactly 100%
@@ -882,7 +828,7 @@ export default function NewDpp() {
               <BlockStack gap="400">
                 <BlockStack gap="050">
                   <Text as="h2" variant="headingMd">
-                    4. Manufacturer Information
+                    3. Manufacturer Information
                   </Text>
                   <Text as="span" tone="subdued">
                     MANDATORY - Required for product traceability
@@ -945,7 +891,7 @@ export default function NewDpp() {
               <BlockStack gap="400">
                 <BlockStack gap="050">
                   <Text as="h2" variant="headingMd">
-                    5. Care Instructions
+                    4. Care Instructions
                   </Text>
                   <Text as="span" tone="subdued">
                     MANDATORY - Required care and maintenance information
@@ -953,6 +899,17 @@ export default function NewDpp() {
                 </BlockStack>
 
                 <Divider />
+
+                <Select
+                  label="Quick Preset"
+                  helpText="Apply common care settings"
+                  options={Object.entries(CARE_PRESETS).map(([key, preset]) => ({
+                    label: preset.label,
+                    value: key,
+                  }))}
+                  value={selectedCarePreset}
+                  onChange={handleApplyCarePreset}
+                />
 
                 <FormLayout>
                   <FormLayout.Group>
@@ -1014,7 +971,7 @@ export default function NewDpp() {
               <BlockStack gap="400">
                 <BlockStack gap="050">
                   <Text as="h2" variant="headingMd">
-                    6. Hazardous Substances Declaration
+                    5. Hazardous Substances Declaration
                   </Text>
                   <Text as="span" tone="subdued">
                     MANDATORY - EU REACH compliance declaration
@@ -1054,7 +1011,7 @@ export default function NewDpp() {
               <BlockStack gap="400">
                 <BlockStack gap="050">
                   <Text as="h2" variant="headingMd">
-                    7. Certifications
+                    6. Certifications
                   </Text>
                   <Text as="span" tone="subdued">
                     RECOMMENDED - Third-party certifications strengthen your VC
