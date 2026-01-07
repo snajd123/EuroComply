@@ -358,7 +358,7 @@ export async function getSupplierProducts(supplierId: string) {
     include: {
       _count: {
         select: {
-          merchantLinks: true,
+          retailerSubscriptions: true,
           usageEvents: true,
         },
       },
@@ -385,7 +385,7 @@ export async function getSupplierProductById(supplierId: string, productId: stri
       },
       _count: {
         select: {
-          merchantLinks: true,
+          retailerSubscriptions: true,
         },
       },
     },
@@ -444,7 +444,7 @@ export async function deleteSupplierProduct(supplierId: string, productId: strin
     where: { id: productId, supplierId },
     include: {
       _count: {
-        select: { merchantLinks: true },
+        select: { retailerSubscriptions: true },
       },
     },
   });
@@ -453,9 +453,9 @@ export async function deleteSupplierProduct(supplierId: string, productId: strin
     throw new Error('Product not found');
   }
 
-  // Don't allow deletion if merchants are using it
-  if (existing._count.merchantLinks > 0) {
-    throw new Error(`Cannot delete product - ${existing._count.merchantLinks} merchant(s) are using this DPP. Archive it instead.`);
+  // Don't allow deletion if retailers are subscribed to it
+  if (existing._count.retailerSubscriptions > 0) {
+    throw new Error(`Cannot delete product - ${existing._count.retailerSubscriptions} retailer(s) are subscribed to this DPP. Archive it instead.`);
   }
 
   await prisma.supplierProduct.delete({
@@ -469,7 +469,7 @@ export async function deleteSupplierProduct(supplierId: string, productId: strin
 // CATALOG SERVICE (Public)
 // ===========================================
 
-export async function searchCatalog(input: CatalogSearchInput, merchantShop?: string) {
+export async function searchCatalog(input: CatalogSearchInput, retailerShop?: string) {
   const { category, certification, search, supplierCountry, page, limit } = input;
   const skip = (page - 1) * limit;
 
@@ -480,12 +480,12 @@ export async function searchCatalog(input: CatalogSearchInput, merchantShop?: st
       verificationStatus: 'VERIFIED',
       OR: [
         { catalogVisibility: 'PUBLIC' },
-        // Include invite-only if merchant has invitation
-        ...(merchantShop ? [{
+        // Include invite-only if retailer has invitation
+        ...(retailerShop ? [{
           catalogVisibility: 'INVITE_ONLY',
           invitations: {
             some: {
-              merchantShop,
+              retailerShop,
               status: 'ACCEPTED',
             },
           },
@@ -521,7 +521,7 @@ export async function searchCatalog(input: CatalogSearchInput, merchantShop?: st
       skip,
       take: limit,
       orderBy: [
-        { timesLinked: 'desc' },
+        { timesSubscribed: 'desc' },
         { publishedAt: 'desc' },
       ],
       include: {
@@ -545,6 +545,7 @@ export async function searchCatalog(input: CatalogSearchInput, merchantShop?: st
     name: string;
     description: string | null;
     category: string;
+    price: any;
     supplier: {
       id: string;
       companyName: string;
@@ -554,8 +555,7 @@ export async function searchCatalog(input: CatalogSearchInput, merchantShop?: st
     };
     dppData: unknown;
     vcStatus: string | null;
-    timesLinked: number;
-    timesForked: number;
+    timesSubscribed: number;
     imageUrls: string[] | null;
   };
   const catalogProducts = (products as ProductWithSupplier[]).map((product: ProductWithSupplier) => ({
@@ -563,6 +563,7 @@ export async function searchCatalog(input: CatalogSearchInput, merchantShop?: st
     name: product.name,
     description: product.description,
     category: product.category,
+    price: Number(product.price),
     supplier: {
       id: product.supplier.id,
       name: product.supplier.companyName,
@@ -572,7 +573,7 @@ export async function searchCatalog(input: CatalogSearchInput, merchantShop?: st
     },
     dppSummary: extractDppSummary(product.dppData as any),
     vcAnchored: product.vcStatus === 'ANCHORED',
-    timesUsed: product.timesLinked + product.timesForked,
+    timesSubscribed: product.timesSubscribed,
     imageUrl: product.imageUrls?.[0],
   }));
 
@@ -587,7 +588,7 @@ export async function searchCatalog(input: CatalogSearchInput, merchantShop?: st
   };
 }
 
-export async function getCatalogProductById(productId: string, merchantShop?: string) {
+export async function getCatalogProductById(productId: string, retailerShop?: string) {
   const product = await prisma.supplierProduct.findFirst({
     where: {
       id: productId,
@@ -622,11 +623,11 @@ export async function getCatalogProductById(productId: string, merchantShop?: st
       select: { catalogVisibility: true },
     });
 
-    if (supplier?.catalogVisibility === 'INVITE_ONLY' && merchantShop) {
+    if (supplier?.catalogVisibility === 'INVITE_ONLY' && retailerShop) {
       const invitation = await prisma.supplierInvitation.findFirst({
         where: {
           supplierId: product.supplierId,
-          merchantShop,
+          retailerShop,
           status: 'ACCEPTED',
         },
       });
@@ -643,6 +644,7 @@ export async function getCatalogProductById(productId: string, merchantShop?: st
     description: product.description,
     category: product.category,
     imageUrls: product.imageUrls,
+    price: Number(product.price),
     supplier: {
       id: product.supplier.id,
       name: product.supplier.companyName,
@@ -656,7 +658,7 @@ export async function getCatalogProductById(productId: string, merchantShop?: st
     dppSummary: extractDppSummary(product.dppData as any),
     vcAnchored: product.vcStatus === 'ANCHORED',
     vcId: product.vcId,
-    timesUsed: product.timesLinked + product.timesForked,
+    timesSubscribed: product.timesSubscribed,
     publishedAt: product.publishedAt,
   };
 }

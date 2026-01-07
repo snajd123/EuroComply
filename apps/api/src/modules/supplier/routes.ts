@@ -460,16 +460,16 @@ router.delete('/products/:id', supplierAuthMiddleware, async (req: Authenticated
 });
 
 // ===========================================
-// CATALOG ROUTES (Public - for merchants)
+// CATALOG ROUTES (Public - for retailers)
 // ===========================================
 
 // GET /api/catalog/products
 router.get('/catalog', async (req: Request, res: Response) => {
   try {
     const input = catalogSearchSchema.parse(req.query);
-    const merchantShop = req.headers['x-merchant-shop'] as string | undefined;
+    const retailerShop = req.headers['x-retailer-shop'] as string | undefined;
 
-    const result = await supplierService.searchCatalog(input, merchantShop);
+    const result = await supplierService.searchCatalog(input, retailerShop);
 
     res.json({
       success: true,
@@ -501,8 +501,8 @@ router.get('/catalog', async (req: Request, res: Response) => {
 router.get('/catalog/:id', async (req: Request, res: Response) => {
   try {
     const productId = req.params['id'] as string;
-    const merchantShop = req.headers['x-merchant-shop'] as string | undefined;
-    const product = await supplierService.getCatalogProductById(productId, merchantShop);
+    const retailerShop = req.headers['x-retailer-shop'] as string | undefined;
+    const product = await supplierService.getCatalogProductById(productId, retailerShop);
 
     res.json({
       success: true,

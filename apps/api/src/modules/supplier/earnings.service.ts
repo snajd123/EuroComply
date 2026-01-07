@@ -11,11 +11,13 @@ type DppUsageEvent = {
   id: string;
   supplierId: string;
   supplierProductId: string;
-  merchantShop: string;
+  retailerShop: string;
   usageType: string;
   priceCharged: Decimal;
   supplierShare: Decimal;
   platformShare: Decimal;
+  distributorId: string | null;
+  distributorShare: Decimal;
   billingStatus: string;
   billingPeriodStart: Date | null;
   billingPeriodEnd: Date | null;
@@ -28,8 +30,8 @@ type SupplierProduct = {
   name: string;
   category: string;
   visibility: string;
-  timesLinked: number;
-  timesForked: number;
+  price: Decimal;
+  timesSubscribed: number;
   usageEvents: DppUsageEvent[];
 };
 
@@ -39,10 +41,11 @@ type SupplierEarning = {
   periodStart: Date;
   periodEnd: Date;
   grossEarnings: Decimal;
+  distributorPayouts: Decimal;
   platformFee: Decimal;
   netEarnings: Decimal;
-  linkUsageCount: number;
-  forkUsageCount: number;
+  subscriptionCount: number;
+  referralCount: number;
   payoutStatus: string;
 };
 
@@ -58,10 +61,10 @@ type SupplierPayout = {
 };
 
 // Pricing constants
-const LINK_PRICE_MONTHLY = 1.00;
-const FORK_PRICE_MONTHLY = 1.00;
-const SUPPLIER_SHARE = 0.80;
-const PLATFORM_SHARE = 0.20;
+const MINIMUM_PRICE = 0.50;           // €0.50 floor per product/month
+const SUPPLIER_SHARE = 0.80;          // 80% to supplier (before distributor cut)
+const PLATFORM_SHARE = 0.20;          // 20% to EuroComply (fixed)
+const MAX_DISTRIBUTOR_SHARE = 0.30;   // Max 30% of supplier share for referrals
 const MINIMUM_PAYOUT = 10.00;
 
 // ===========================================
@@ -119,16 +122,15 @@ export async function getEarningsOverview(supplierId: string) {
     ? ((thisMonthEarnings - lastMonthEarnings) / lastMonthEarnings) * 100
     : thisMonthEarnings > 0 ? 100 : 0;
 
-  // Count usage this month
-  const thisMonthLinks = currentMonthEvents.filter((e: { usageType: string }) => e.usageType === 'LINK_MONTHLY').length;
-  const thisMonthForks = currentMonthEvents.filter((e: { usageType: string }) => e.usageType === 'FORK_MONTHLY').length;
+  // Count subscriptions this month
+  const thisMonthSubscriptions = currentMonthEvents.filter(
+    (e: { usageType: string }) => e.usageType === 'SUBSCRIPTION_MONTHLY'
+  ).length;
 
   return {
     thisMonth: {
       earnings: thisMonthEarnings,
-      links: thisMonthLinks,
-      forks: thisMonthForks,
-      total: thisMonthLinks + thisMonthForks,
+      subscriptions: thisMonthSubscriptions,
     },
     lastMonth: {
       earnings: lastMonthEarnings,
@@ -160,26 +162,29 @@ export async function getProductEarnings(supplierId: string) {
   });
 
   return (products as SupplierProduct[]).map((product: SupplierProduct) => {
-    const linkEvents = product.usageEvents.filter((e: DppUsageEvent) => e.usageType === 'LINK_MONTHLY');
-    const forkEvents = product.usageEvents.filter((e: DppUsageEvent) => e.usageType === 'FORK_MONTHLY');
-
     const totalEarnings = product.usageEvents.reduce((sum: number, event: DppUsageEvent) => {
       return sum + Number(event.supplierShare);
     }, 0);
+
+    // Count active subscriptions (unique retailerShop)
+    const activeSubscriptions = new Set(
+      product.usageEvents
+        .filter((e: DppUsageEvent) => e.billingStatus === 'PAID')
+        .map((e: DppUsageEvent) => e.retailerShop)
+    ).size;
 
     return {
       id: product.id,
       name: product.name,
       category: product.category,
       visibility: product.visibility,
+      price: Number(product.price),
       stats: {
-        timesLinked: product.timesLinked,
-        timesForked: product.timesForked,
-        totalUsage: product.timesLinked + product.timesForked,
+        activeSubscriptions,
+        timesSubscribed: product.timesSubscribed,
       },
       earnings: {
-        fromLinks: linkEvents.reduce((sum: number, e: DppUsageEvent) => sum + Number(e.supplierShare), 0),
-        fromForks: forkEvents.reduce((sum: number, e: DppUsageEvent) => sum + Number(e.supplierShare), 0),
+        monthly: activeSubscriptions * Number(product.price) * SUPPLIER_SHARE,
         total: totalEarnings,
       },
     };
@@ -213,10 +218,11 @@ export async function getEarningsHistory(
       periodStart: e.periodStart,
       periodEnd: e.periodEnd,
       grossEarnings: Number(e.grossEarnings),
+      distributorPayouts: Number(e.distributorPayouts),
       platformFee: Number(e.platformFee),
       netEarnings: Number(e.netEarnings),
-      linkUsageCount: e.linkUsageCount,
-      forkUsageCount: e.forkUsageCount,
+      subscriptionCount: e.subscriptionCount,
+      referralCount: e.referralCount,
       payoutStatus: e.payoutStatus,
     })),
     pagination: {
@@ -252,10 +258,11 @@ export async function getRecentUsageEvents(
   return (events as DppUsageEvent[]).map((event: DppUsageEvent) => ({
     id: event.id,
     type: event.usageType,
-    merchantShop: event.merchantShop,
+    retailerShop: event.retailerShop,
     productName: event.supplierProduct.name,
     priceCharged: Number(event.priceCharged),
     supplierShare: Number(event.supplierShare),
+    distributorShare: Number(event.distributorShare),
     billingStatus: event.billingStatus,
     createdAt: event.createdAt,
   }));
@@ -404,38 +411,55 @@ export async function processMonthlyBilling() {
     },
   });
 
-  // Group by supplier
+  // Group by supplier (for producers/brands)
   const supplierEarnings = new Map<string, {
     grossEarnings: number;
+    distributorPayouts: number;
     platformFee: number;
     netEarnings: number;
-    linkCount: number;
-    forkCount: number;
+    subscriptionCount: number;
+  }>();
+
+  // Track distributor referral earnings separately
+  const distributorEarnings = new Map<string, {
+    referralCount: number;
+    referralEarnings: number;
   }>();
 
   for (const event of paidEvents) {
+    // Update supplier earnings
     const existing = supplierEarnings.get(event.supplierId) || {
       grossEarnings: 0,
+      distributorPayouts: 0,
       platformFee: 0,
       netEarnings: 0,
-      linkCount: 0,
-      forkCount: 0,
+      subscriptionCount: 0,
     };
 
     existing.grossEarnings += Number(event.priceCharged);
     existing.platformFee += Number(event.platformShare);
     existing.netEarnings += Number(event.supplierShare);
+    existing.subscriptionCount++;
 
-    if (event.usageType === 'LINK_MONTHLY') {
-      existing.linkCount++;
-    } else {
-      existing.forkCount++;
+    // Track distributor payout if there was a referral
+    if (event.distributorId) {
+      const distributorShare = Number(event.distributorShare);
+      existing.distributorPayouts += distributorShare;
+
+      // Track distributor's referral earnings
+      const distEarning = distributorEarnings.get(event.distributorId) || {
+        referralCount: 0,
+        referralEarnings: 0,
+      };
+      distEarning.referralCount++;
+      distEarning.referralEarnings += distributorShare;
+      distributorEarnings.set(event.distributorId, distEarning);
     }
 
     supplierEarnings.set(event.supplierId, existing);
   }
 
-  // Create earning records
+  // Create earning records for suppliers
   for (const [supplierId, data] of supplierEarnings) {
     await prisma.supplierEarning.upsert({
       where: {
@@ -449,21 +473,55 @@ export async function processMonthlyBilling() {
         periodStart: lastMonth,
         periodEnd: endOfLastMonth,
         grossEarnings: new Decimal(data.grossEarnings),
+        distributorPayouts: new Decimal(data.distributorPayouts),
         platformFee: new Decimal(data.platformFee),
         netEarnings: new Decimal(data.netEarnings),
-        linkUsageCount: data.linkCount,
-        forkUsageCount: data.forkCount,
+        subscriptionCount: data.subscriptionCount,
+        referralCount: 0,
         payoutStatus: data.netEarnings >= MINIMUM_PAYOUT ? 'PENDING' : 'HELD',
       },
       update: {
         grossEarnings: new Decimal(data.grossEarnings),
+        distributorPayouts: new Decimal(data.distributorPayouts),
         platformFee: new Decimal(data.platformFee),
         netEarnings: new Decimal(data.netEarnings),
-        linkUsageCount: data.linkCount,
-        forkUsageCount: data.forkCount,
+        subscriptionCount: data.subscriptionCount,
       },
     });
   }
 
-  return { processedSuppliers: supplierEarnings.size };
+  // Create/update earning records for distributors (referral earnings)
+  for (const [distributorId, data] of distributorEarnings) {
+    await prisma.supplierEarning.upsert({
+      where: {
+        supplierId_periodStart: {
+          supplierId: distributorId,
+          periodStart: lastMonth,
+        },
+      },
+      create: {
+        supplierId: distributorId,
+        periodStart: lastMonth,
+        periodEnd: endOfLastMonth,
+        grossEarnings: new Decimal(data.referralEarnings),
+        distributorPayouts: new Decimal(0),
+        platformFee: new Decimal(0), // No platform fee on referral earnings
+        netEarnings: new Decimal(data.referralEarnings),
+        subscriptionCount: 0,
+        referralCount: data.referralCount,
+        payoutStatus: data.referralEarnings >= MINIMUM_PAYOUT ? 'PENDING' : 'HELD',
+      },
+      update: {
+        // Add to existing earnings if distributor also has direct products
+        grossEarnings: { increment: data.referralEarnings },
+        netEarnings: { increment: data.referralEarnings },
+        referralCount: data.referralCount,
+      },
+    });
+  }
+
+  return {
+    processedSuppliers: supplierEarnings.size,
+    processedDistributors: distributorEarnings.size,
+  };
 }
