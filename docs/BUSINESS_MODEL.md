@@ -2,28 +2,34 @@
 
 ## Overview
 
-EuroComply is a **supplier-driven marketplace** for Digital Product Passports (DPPs). Only verified suppliers can create passports, and merchants subscribe to use them.
+EuroComply is a **supplier-driven marketplace** for Digital Product Passports (DPPs). Only verified suppliers (producers, distributors, brands) can create passports, and retailers subscribe to use them.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                   THE EUROCOMPLY FLYWHEEL                   │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
-│    ┌──────────┐         enforces          ┌──────────┐     │
-│    │ SUPPLIER │ ─────────────────────────▶│ MERCHANT │     │
-│    └────┬─────┘                           └────┬─────┘     │
-│         │                                      │           │
-│         │ creates DPPs                         │ subscribes │
-│         │ sets price                           │ displays   │
-│         │ earns revenue                        │ DPPs       │
-│         │                                      │           │
-│         ▼                                      ▼           │
+│    ┌──────────┐                             ┌──────────┐   │
+│    │ PRODUCER │ ──creates DPP──────────────▶│ RETAILER │   │
+│    └────┬─────┘                             └────┬─────┘   │
+│         │                                        │         │
+│         │ sets price                             │ subscribes│
+│         │ earns 80%                              │ displays  │
+│         │                                        │ DPPs      │
+│         │      ┌─────────────┐                   │         │
+│         │      │ DISTRIBUTOR │                   │         │
+│         │      └──────┬──────┘                   │         │
+│         │             │                          │         │
+│         │             │ refers retailers         │         │
+│         │             │ earns 10-30%             │         │
+│         │             │                          │         │
+│         ▼             ▼                          ▼         │
 │    ┌─────────────────────────────────────────────┐         │
 │    │              EUROCOMPLY PLATFORM            │         │
 │    │  • Hosts passports                          │         │
 │    │  • Processes payments                       │         │
 │    │  • Issues Verifiable Credentials            │         │
-│    │  • Takes platform fee                       │         │
+│    │  • Takes 20% platform fee                   │         │
 │    └─────────────────────────────────────────────┘         │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
@@ -251,29 +257,22 @@ This creates a powerful incentive for distributors to actively promote producer 
 
 ---
 
-## Why This Model Eliminates Fraud
+## Trust & Verification
 
-### The Problem (Old Model)
+### How the Model Prevents False Claims
 
-In models where merchants can create their own passports:
-- Merchants could copy supplier data
-- Merchants could make false certification claims
-- No accountability for accuracy
-- Required complex proof verification systems
-
-### The Solution (Supplier-Only Model)
-
-| Fraud Vector | How It's Eliminated |
-|--------------|---------------------|
-| **Copying data** | Merchants can't create passports - only subscribe |
-| **False certifications** | Only verified suppliers can claim certifications |
-| **Unverified claims** | Suppliers pass KYB verification |
-| **No accountability** | Supplier is legally liable for DPP accuracy |
+| Protection | How It Works |
+|------------|--------------|
+| **KYB verification** | Suppliers must verify their business identity before creating DPPs |
+| **Retailers can't create** | Retailers only subscribe - they cannot create or modify passport data |
+| **Certification verification** | Only suppliers with valid certifications can claim them |
+| **Legal liability** | Supplier who creates DPP is legally liable for accuracy under ESPR |
+| **Cryptographic proof** | Each DPP is signed as a Verifiable Credential |
 
 ### Trust Chain
 
 ```
-Certification Body ──verifies──▶ Supplier ──creates──▶ DPP ──subscribes──▶ Merchant
+Certification Body ──verifies──▶ Supplier ──creates──▶ DPP ──subscribes──▶ Retailer
        │                            │                   │                    │
        │                            │                   │                    │
    (GOTS, FSC,                 (KYB verified,      (Signed VC,          (Display only,
@@ -385,10 +384,10 @@ For small and medium suppliers, the €1/product/month is a **bonus**, not the r
 
 | Factor | Reason |
 |--------|--------|
-| **Verified source** | Passport comes from the actual manufacturer |
+| **Verified source** | Passport comes from the actual producer or authorized distributor |
 | **Cryptographic proof** | Signed Verifiable Credential |
 | **Public verification** | Anyone can verify at eurocomply.eu |
-| **No self-declaration** | Merchants can't make unverified claims |
+| **No self-declaration** | Retailers can't create or modify claims |
 
 ---
 
@@ -443,46 +442,6 @@ Platform Revenue = Σ (Merchant Subscriptions × 20%)
 | **Platform Revenue/mo** | €5,000 | €200,000 | €2,000,000 |
 
 *Assumes €2.50 average price, 20% platform fee*
-
----
-
-## Implementation Notes
-
-### Database Schema
-
-The current schema already supports this model:
-
-```prisma
-model SupplierProduct {
-  id          String   @id
-  supplierId  String
-  price       Decimal  @db.Decimal(10, 2)  // Supplier-set price
-  // ... DPP data
-}
-
-model MerchantSupplierLink {
-  id                String   @id
-  supplierProductId String
-  merchantShop      String
-  linkType          MerchantLinkType  // LINKED only (no FORKED)
-  // ... subscription tracking
-}
-```
-
-### Validation Changes
-
-Since merchants can't create passports:
-- Remove `ValidationOptions.isSupplierLinked` logic
-- Validation always assumes supplier context
-- No need for certification proof requirements on merchant side
-
-### Shopify Plugin
-
-The plugin should:
-1. **Remove** passport creation UI for merchants
-2. **Keep** supplier catalog browsing
-3. **Keep** subscription/linking flow
-4. **Show** supplier's price before subscribing
 
 ---
 
