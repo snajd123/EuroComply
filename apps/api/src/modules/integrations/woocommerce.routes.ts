@@ -3,7 +3,7 @@
 
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
-import { prisma } from '../../common/db/client.js';
+import { prisma } from '@eurocomply/database';
 import { logger } from '../../common/utils/logger.js';
 import { authenticate } from '../../common/auth/middleware.js';
 
