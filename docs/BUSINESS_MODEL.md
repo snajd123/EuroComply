@@ -33,20 +33,54 @@ EuroComply is a **supplier-driven marketplace** for Digital Product Passports (D
 
 ## Who Creates Passports?
 
-### ✅ Suppliers (Manufacturers, Brands, Wholesalers)
+### ✅ Suppliers (Producers, Distributors, Brands)
 
 **Only verified suppliers can create Digital Product Passports.**
 
+| Supplier Type | Role | Data Source | VC Attribution |
+|---------------|------|-------------|----------------|
+| **Producer** | Manufacturer of the product | Primary (owns the data) | "Verified by [Producer]" |
+| **Distributor** | Wholesaler in supply chain | Secondary (from producer docs) | "Attested by [Distributor]" |
+| **Brand** | Brand owner (may not manufacture) | Primary or secondary | "Verified by [Brand]" |
+
+All supplier types:
 - Must pass KYB (Know Your Business) verification
-- Have actual product knowledge and certifications
+- Have product knowledge and/or certifications
 - Control the source of truth for product data
 - Set their own pricing
 
-### ❌ Merchants (Retailers, Resellers)
+### Producer vs Distributor
 
-**Merchants cannot create their own passports.**
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  SUPPLY CHAIN SCENARIOS                                              │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  SCENARIO A: Producer Creates DPP (Strongest)                        │
+│  ─────────────────────────────────────────────                       │
+│  Producer ──creates DPP──▶ Distributor ──pass-through──▶ Retailer   │
+│     │                                                        │       │
+│     └── Has primary data (manufacturing, materials, LCA)     │       │
+│                                         Retailer subscribes ─┘       │
+│                                                                      │
+│  SCENARIO B: Distributor Creates DPP (Valid)                         │
+│  ───────────────────────────────────────────                         │
+│  Producer ──spec sheets──▶ Distributor ──creates DPP──▶ Retailer    │
+│     │                           │                           │        │
+│     │                           └── Uses producer docs      │        │
+│     └── Doesn't use EuroComply      to create DPP           │        │
+│                                         Retailer subscribes ─┘       │
+│                                                                      │
+│  Both are compliant. Producer-created is more authoritative.         │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
 
-- Subscribe to supplier passports via Shopify plugin
+### ❌ Retailers (Merchants, Resellers)
+
+**Retailers cannot create their own passports.**
+
+- Subscribe to supplier passports via Shopify/WooCommerce plugin
 - Pay the supplier's price per product per month
 - Display the supplier's verified DPP on their store
 - Cannot modify the passport data
@@ -81,6 +115,44 @@ EuroComply is a **supplier-driven marketplace** for Digital Product Passports (D
 2. **Value-based pricing** - Complex DPPs with more data are worth more
 3. **Competition** - Market forces keep prices reasonable
 4. **Incentive alignment** - Suppliers earn more by creating better passports
+
+---
+
+## Value Proposition for Retailers
+
+### The Math: DPP Cost vs. Product Profit
+
+**DPP subscriptions are negligible compared to product margins.**
+
+| Scenario | Monthly Product Profit | DPP Cost | Cost as % of Profit |
+|----------|----------------------|----------|---------------------|
+| T-shirt (single SKU) | €2,000 | €1.00 | **0.05%** |
+| Small store (50 SKUs) | €10,000 | €25-50 | **0.25-0.5%** |
+| Medium store (200 SKUs) | €50,000 | €100-200 | **0.2-0.4%** |
+| Large store (1,000 SKUs) | €500,000 | €500-1,000 | **0.1-0.2%** |
+
+**Result: Always under 1% of revenue.**
+
+### What Retailers Get for €1/Product/Month
+
+| Benefit | Value |
+|---------|-------|
+| **EU Compliance** | Avoid ESPR fines (can be €thousands) |
+| **Consumer Trust** | "Verified by [Supplier]" badge |
+| **Zero Work** | Supplier maintains all data |
+| **Auto-Updates** | When supplier improves data, retailer gets it free |
+| **Competitive Edge** | Stand out from non-compliant competitors |
+
+### Alternative Costs (Without EuroComply)
+
+| Option | Estimated Cost |
+|--------|---------------|
+| Hire compliance consultant | €5,000+ one-time |
+| Build own DPP system | €50,000+ development |
+| Non-compliance fines | Variable, potentially severe |
+| Lost sales (no sustainability badge) | Unquantifiable |
+
+**€1/month is a no-brainer.**
 
 ---
 
@@ -142,15 +214,34 @@ Certification Body ──verifies──▶ Supplier ──creates──▶ DPP �
 
 ### Why Suppliers Join
 
+#### For Producers (Manufacturers)
+
 | Incentive | Description |
 |-----------|-------------|
-| **Revenue** | Earn recurring income from merchants using their DPPs |
-| **Enforcement power** | Can require merchants to use their passports |
-| **Brand trust** | "Verified Supplier" badge increases credibility |
-| **ESPR compliance** | Fulfill EU regulatory requirements |
-| **Control** | Maintain single source of truth for product data |
+| **Revenue** | Earn recurring income from all downstream retailers |
+| **Brand consistency** | Same DPP data across ALL retailers selling your products |
+| **Enforcement power** | Can require retailers to use your passports |
+| **Marketing reach** | Your brand shown on every retailer's product page |
+| **Control** | Single source of truth - no fragmented claims |
 
-### Why Merchants Join
+#### For Distributors
+
+| Incentive | Description |
+|-----------|-------------|
+| **Value-add service** | Offer DPP access as part of your distribution |
+| **Revenue** | Earn from retailers who can't get DPPs from producers |
+| **Competitive advantage** | Differentiate from distributors without DPP support |
+| **Compliance enabler** | Help your retailer network become ESPR-compliant |
+
+#### For Both
+
+| Incentive | Description |
+|-----------|-------------|
+| **ESPR compliance** | Fulfill EU regulatory requirements |
+| **Verified badge** | "Verified Supplier" increases credibility |
+| **Ecosystem access** | Reach retailers through Shopify/WooCommerce plugins |
+
+### Why Retailers Join
 
 | Incentive | Description |
 |-----------|-------------|
@@ -265,6 +356,71 @@ The plugin should:
 
 ---
 
+## Ecosystem Value
+
+### Why the Ecosystem Matters
+
+EuroComply's value isn't just the DPP data - it's the **ecosystem** that connects suppliers to retailers.
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  THE EUROCOMPLY ECOSYSTEM                                            │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  SUPPLIER SIDE                    RETAILER SIDE                      │
+│  ────────────────                 ─────────────                      │
+│  • Supplier Portal                • Shopify Plugin                   │
+│  • Bulk CSV Import                • WooCommerce Plugin               │
+│  • API Integration                • Storefront Widgets               │
+│  • Earnings Dashboard             • QR Code Generation               │
+│  • Verification System            • Public Verification Page         │
+│                                                                      │
+│                    CONNECTING LAYER                                  │
+│                    ────────────────                                  │
+│                    • Supplier Catalog                                │
+│                    • GTIN/Barcode Lookup                             │
+│                    • Subscription Billing                            │
+│                    • Verifiable Credentials                          │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### The Multi-Tier Distribution Advantage
+
+Retailers often don't buy directly from producers. They buy from distributors.
+
+**Without EuroComply:**
+```
+Producer → Distributor → Retailer → Consumer
+   │            │            │
+   │            │            └── "Where do I get DPP data?"
+   │            └── "I just resell, I don't have this data"
+   └── "I don't deal with retailers directly"
+```
+
+**With EuroComply:**
+```
+Producer → Distributor → Retailer → Consumer
+   │                         │
+   │                         └── Subscribes to Producer's DPP via platform
+   └── Creates DPP once, all retailers can access it
+```
+
+The ecosystem bridges the gap between producers and retailers, even when they don't have direct relationships.
+
+### Product Discovery (GTIN Lookup)
+
+Retailers can find DPPs by scanning product barcodes:
+
+1. Retailer receives products from distributor
+2. Scans GTIN/barcode
+3. EuroComply finds matching DPP from producer
+4. Retailer subscribes with one click
+
+This is only possible because we have the ecosystem connecting both sides.
+
+---
+
 ## Summary
 
 ```
@@ -273,10 +429,12 @@ The plugin should:
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
 │  WHO CREATES PASSPORTS?                                     │
-│  → Only verified suppliers                                  │
+│  → Producers (strongest - primary data)                     │
+│  → Distributors (valid - secondary data)                    │
+│  → Brands (depends on structure)                            │
 │                                                             │
 │  WHO USES PASSPORTS?                                        │
-│  → Merchants subscribe via Shopify                          │
+│  → Retailers subscribe via Shopify/WooCommerce              │
 │                                                             │
 │  WHO SETS PRICES?                                           │
 │  → Suppliers (minimum €0.50/product/month)                  │
@@ -285,9 +443,18 @@ The plugin should:
 │  → Suppliers: 80% of subscription price                     │
 │  → Platform: 20% of subscription price                      │
 │                                                             │
+│  WHY IS IT WORTH IT FOR RETAILERS?                          │
+│  → €1/month vs €2,000/month profit = 0.05%                  │
+│  → Compliance, trust badge, zero work                       │
+│                                                             │
 │  WHY NO FRAUD?                                              │
-│  → Merchants can't create passports                         │
+│  → Retailers can't create passports                         │
 │  → Only verified suppliers can make claims                  │
+│                                                             │
+│  WHY THE ECOSYSTEM MATTERS?                                 │
+│  → Connects producers to retailers across distribution      │
+│  → GTIN lookup enables discovery without relationships      │
+│  → Widgets, plugins, verification pages                     │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
 ```
