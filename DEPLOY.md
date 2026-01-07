@@ -1,6 +1,8 @@
-# EuroComply Deployment & Testing Guide
+# EuroComply Local Development Guide
 
-Step-by-step instructions to deploy and test EuroComply locally.
+Step-by-step instructions to run EuroComply **locally for development and testing**.
+
+> **For Production Deployment**: See [INFRASTRUCTURE.md](./INFRASTRUCTURE.md) for AWS-based production infrastructure (EU/GDPR compliant).
 
 ---
 
@@ -381,18 +383,26 @@ docker compose -f docker/docker-compose.yml up -d && \
 
 ---
 
-## Production Deployment
+## Production Deployment (AWS)
 
-For production deployment (not local testing), additional steps:
+For production deployment, we use **AWS in eu-central-1 (Frankfurt)** for GDPR/EU compliance.
 
-1. Use proper secrets (JWT_SECRET, API keys)
-2. Set up SSL/TLS certificates
-3. Configure proper domain names
-4. Set up monitoring and logging
-5. Use managed database (AWS RDS, etc.)
-6. Deploy behind load balancer
+See **[INFRASTRUCTURE.md](./INFRASTRUCTURE.md)** for:
+- Full AWS architecture diagram
+- Service configurations (ECS, RDS, ElastiCache)
+- Security setup and compliance checklist
+- Cost estimates at different scales
+- Terraform infrastructure-as-code
 
-See `docker/docker-compose.yml` with `--profile production` for containerized deployment.
+### Quick Overview
+
+| Component | Local (Dev) | Production (AWS) |
+|-----------|-------------|------------------|
+| Database | Docker PostgreSQL | RDS PostgreSQL (Multi-AZ) |
+| Cache | Docker Redis | ElastiCache Redis |
+| API | `npm run dev` | ECS Fargate (auto-scaling) |
+| CDN | None | CloudFront |
+| SSL | None | ACM (auto-renewal) |
 
 ---
 

@@ -66,10 +66,12 @@ eurocomply/
 
 ### Prerequisites
 - Node.js 20+
-- PostgreSQL 16+
-- Docker (optional, for walt.id)
+- Docker & Docker Compose
+- Git
 
-### Development Setup
+### Local Development Setup
+
+> **Production Deployment**: For AWS-based production infrastructure (EU/GDPR compliant), see [INFRASTRUCTURE.md](./INFRASTRUCTURE.md)
 
 1. **Clone and install dependencies**
 ```bash
@@ -180,6 +182,20 @@ curl -X POST https://api.eurocomply.io/v1/products/prod_xxx/events \
 ```bash
 curl https://api.eurocomply.io/v1/passports/pass_xxx/verify
 ```
+
+## ☁️ Infrastructure
+
+EuroComply runs on **AWS (eu-central-1 Frankfurt)** for EU/GDPR compliance.
+
+| Component | Service |
+|-----------|---------|
+| Compute | ECS Fargate (auto-scaling) |
+| Database | RDS PostgreSQL (Multi-AZ) |
+| Cache | ElastiCache Redis |
+| CDN | CloudFront |
+| Storage | S3 |
+
+See [INFRASTRUCTURE.md](./INFRASTRUCTURE.md) for full architecture and deployment guide.
 
 ## 🔐 Identity & Credentials
 
