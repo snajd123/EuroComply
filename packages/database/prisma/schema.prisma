@@ -306,6 +306,9 @@ model Supplier {
   logoUrl             String?
   description         String?
 
+  // Supplier type determines VC attribution strength
+  supplierType        SupplierType @default(PRODUCER)
+
   // Verification
   verificationStatus  SupplierVerificationStatus @default(PENDING)
   verifiedAt          DateTime?
@@ -330,7 +333,11 @@ model Supplier {
   earnings            SupplierEarning[]
   payouts             SupplierPayout[]
 
+  // Distributor referrals (only for DISTRIBUTOR type suppliers)
+  distributorReferrals RetailerSubscription[] @relation("DistributorReferrals")
+
   @@index([verificationStatus])
+  @@index([supplierType])
   @@index([catalogVisibility])
 }
 
@@ -343,9 +350,15 @@ enum SupplierVerificationStatus {
 }
 
 enum CatalogVisibility {
-  PUBLIC       // Anyone can see and use
+  PUBLIC       // Any retailer can see and subscribe
   PRIVATE      // Only supplier can see (draft mode)
-  INVITE_ONLY  // Only invited merchants can see
+  INVITE_ONLY  // Only invited retailers can subscribe
+}
+
+enum SupplierType {
+  PRODUCER     // Manufacturer - has primary data, strongest VC attribution
+  DISTRIBUTOR  // Wholesaler - secondary data from producer docs
+  BRAND        // Brand owner - may or may not manufacture
 }
 
 model SupplierProduct {
@@ -358,9 +371,16 @@ model SupplierProduct {
   description         String?
   category            SupplierProductCategory @default(TEXTILE)
   imageUrls           String[] // Array of image URLs
+  gtin                String?  // Global Trade Item Number for product lookup
 
-  // Full DPP data (same schema as merchant DPPs)
+  // Full DPP data (same schema as retailer DPPs)
   dppData             Json     // TextileDppData | ElectronicsDppData | etc.
+
+  // Pricing (supplier sets their own price, €0.50 minimum)
+  price               Decimal  @default(1.00) @db.Decimal(10, 2)
+
+  // Distributor referral: % of supplier share given to referring distributor (0-30%)
+  defaultReferralRate Decimal  @default(0) @db.Decimal(5, 2)
 
   // VC status (supplier can optionally anchor their own VC)
   vcStatus            SupplierVcStatus @default(NONE)
@@ -372,20 +392,20 @@ model SupplierProduct {
   publishedAt         DateTime?
 
   // Usage stats
-  timesLinked         Int      @default(0)
-  timesForked         Int      @default(0)
+  timesSubscribed     Int      @default(0)
 
   // Timestamps
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
   // Relations
-  merchantLinks       MerchantSupplierLink[]
-  usageEvents         DppUsageEvent[]
+  retailerSubscriptions RetailerSubscription[]
+  usageEvents           DppUsageEvent[]
 
   @@index([supplierId])
   @@index([category, visibility])
   @@index([visibility])
+  @@index([gtin])
 }
 
 enum SupplierProductCategory {
@@ -404,7 +424,7 @@ enum SupplierVcStatus {
 }
 
 enum SupplierProductVisibility {
-  DRAFT        // Not visible to merchants
+  DRAFT        // Not visible to retailers
   PUBLISHED    // Visible per catalog visibility settings
   ARCHIVED     // Hidden but preserved
 }
@@ -414,16 +434,16 @@ model SupplierInvitation {
   supplierId          String
   supplier            Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
 
-  merchantEmail       String
-  merchantShop        String?  // Shopify shop domain if known
+  retailerEmail       String
+  retailerShop        String?  // Shopify shop domain if known
 
   status              SupplierInvitationStatus @default(PENDING)
   invitedAt           DateTime @default(now())
   acceptedAt          DateTime?
   expiresAt           DateTime?
 
-  @@unique([supplierId, merchantEmail])
-  @@index([merchantShop])
+  @@unique([supplierId, retailerEmail])
+  @@index([retailerShop])
   @@index([status])
 }
 
@@ -434,38 +454,33 @@ enum SupplierInvitationStatus {
   REVOKED
 }
 
-model MerchantSupplierLink {
+model RetailerSubscription {
   id                  String   @id @default(cuid())
 
-  // Merchant side
-  merchantShop        String
+  // Retailer side
+  retailerShop        String   // e.g., fashion-store.myshopify.com
   shopifyProductId    String
 
   // Supplier side
   supplierProductId   String
   supplierProduct     SupplierProduct @relation(fields: [supplierProductId], references: [id], onDelete: Cascade)
 
-  // Link type
-  linkType            MerchantLinkType @default(LINKED)
+  // Distributor referral (if retailer came via distributor)
+  referringDistributorId String?
+  referringDistributor   Supplier? @relation("DistributorReferrals", fields: [referringDistributorId], references: [id])
+  referralRate           Decimal?  @db.Decimal(5, 2) // Rate locked at subscription time
 
-  // Heritage (for forked products)
-  forkedAt            DateTime?
-
-  // Link metadata
-  linkedAt            DateTime @default(now())
+  // Subscription metadata
+  subscribedAt        DateTime @default(now())
 
   // Denormalized for quick access
   supplierName        String
   supplierVerified    Boolean  @default(false)
 
-  @@unique([merchantShop, shopifyProductId])
+  @@unique([retailerShop, shopifyProductId])
   @@index([supplierProductId])
-  @@index([merchantShop])
-}
-
-enum MerchantLinkType {
-  LINKED     // Using supplier's DPP as-is (supplier's VC)
-  FORKED     // Customized from supplier (merchant's VC, heritage tracked)
+  @@index([retailerShop])
+  @@index([referringDistributorId])
 }
 
 // ===========================================
@@ -475,8 +490,8 @@ enum MerchantLinkType {
 model DppUsageEvent {
   id                  String   @id @default(cuid())
 
-  // Who used it
-  merchantShop        String
+  // Who used it (retailer)
+  retailerShop        String
   shopifyProductId    String
 
   // What was used
@@ -484,41 +499,45 @@ model DppUsageEvent {
   supplierProduct     SupplierProduct @relation(fields: [supplierProductId], references: [id], onDelete: Cascade)
   supplierId          String
 
+  // Distributor referral (if applicable)
+  distributorId       String?
+  distributorShare    Decimal  @default(0) @db.Decimal(10, 2) // 0-30% of supplier share
+
   // Usage type
   usageType           DppUsageType
 
-  // Pricing at time of usage
-  priceCharged        Decimal  @db.Decimal(10, 2)
-  supplierShare       Decimal  @db.Decimal(10, 2) // 80%
-  platformShare       Decimal  @db.Decimal(10, 2) // 20%
+  // 3-way revenue split at time of billing
+  priceCharged        Decimal  @db.Decimal(10, 2)  // Total charged to retailer
+  supplierShare       Decimal  @db.Decimal(10, 2)  // Producer/Brand share (50-80%)
+  platformShare       Decimal  @db.Decimal(10, 2)  // EuroComply share (fixed 20%)
 
   // Billing status
   billingStatus       DppBillingStatus @default(PENDING)
   billedAt            DateTime?
-  merchantInvoiceId   String?  // Shopify billing reference
+  retailerInvoiceId   String?  // Shopify billing reference
 
-  // For recurring links
+  // For recurring subscriptions
   billingPeriodStart  DateTime?
   billingPeriodEnd    DateTime?
 
   createdAt           DateTime @default(now())
 
-  @@index([merchantShop, billingStatus])
+  @@index([retailerShop, billingStatus])
   @@index([supplierId, billingStatus])
+  @@index([distributorId, billingStatus])
   @@index([supplierProductId])
 }
 
 enum DppUsageType {
-  LINK_MONTHLY    // Recurring monthly for linked DPPs
-  FORK_MONTHLY    // Recurring monthly for forked DPPs
+  SUBSCRIPTION_MONTHLY  // Recurring monthly for subscribed DPPs
 }
 
 enum DppBillingStatus {
   PENDING         // Usage tracked, not yet billed
-  BILLED          // Charged to merchant
-  PAID            // Merchant payment received
+  BILLED          // Charged to retailer
+  PAID            // Retailer payment received
   FAILED          // Payment failed
-  REFUNDED        // Refunded to merchant
+  REFUNDED        // Refunded to retailer
 }
 
 model SupplierEarning {
@@ -530,14 +549,15 @@ model SupplierEarning {
   periodStart         DateTime
   periodEnd           DateTime
 
-  // Amounts
+  // Amounts (net after distributor referrals, before platform fee)
   grossEarnings       Decimal  @db.Decimal(10, 2)
+  distributorPayouts  Decimal  @default(0) @db.Decimal(10, 2) // Sum of referral payouts
   platformFee         Decimal  @db.Decimal(10, 2)
   netEarnings         Decimal  @db.Decimal(10, 2)
 
   // Stats
-  linkUsageCount      Int      @default(0)
-  forkUsageCount      Int      @default(0)
+  subscriptionCount   Int      @default(0)
+  referralCount       Int      @default(0)  // If this supplier is a distributor
 
   // Payout status
   payoutStatus        SupplierPayoutStatus @default(PENDING)
