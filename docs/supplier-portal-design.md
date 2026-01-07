@@ -10,6 +10,335 @@ Suppliers can create full DPPs on the EuroComply platform that merchants can use
 2. **Merchant modifies = Merchant responsible** - Forked DPPs require merchant's signature
 3. **Link, don't copy** - "Use as-is" creates a reference, not a duplicate
 4. **Verified suppliers only** - Suppliers must complete verification before publishing
+5. **Suppliers earn per usage** - Incentivize quality DPP data with revenue sharing
+
+---
+
+## Monetization Model
+
+### Revenue Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  MERCHANT USES SUPPLIER DPP                                         │
+│                                                                     │
+│  ┌─────────────────┐      ┌─────────────────┐                       │
+│  │ "Use as-is"     │  OR  │ "Customize"     │                       │
+│  │ (Link)          │      │ (Fork)          │                       │
+│  └────────┬────────┘      └────────┬────────┘                       │
+│           │                        │                                │
+│           └──────────┬─────────────┘                                │
+│                      ▼                                              │
+│           ┌─────────────────────┐                                   │
+│           │  USAGE FEE CHARGED  │                                   │
+│           │  €X per DPP/month   │                                   │
+│           └──────────┬──────────┘                                   │
+│                      │                                              │
+│           ┌──────────┴──────────┐                                   │
+│           ▼                     ▼                                   │
+│  ┌─────────────────┐   ┌─────────────────┐                          │
+│  │ SUPPLIER: 80%   │   │ EUROCOMPLY: 20% │                          │
+│  │ (€0.80/DPP)     │   │ (€0.20/DPP)     │                          │
+│  └─────────────────┘   └─────────────────┘                          │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Pricing Structure
+
+| Usage Type | Price | Supplier Gets | EuroComply Gets |
+|------------|-------|---------------|-----------------|
+| **Link (Use as-is)** | €1.00/DPP/month | €0.80 | €0.20 |
+| **Fork (Customize)** | €0.50 one-time | €0.40 | €0.10 |
+
+**Rationale:**
+- **Link = recurring** because supplier maintains responsibility & VC
+- **Fork = one-time** because merchant takes over (heritage info only)
+- **80/20 split** incentivizes suppliers while funding platform
+
+### Billing Mechanics
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  MONTHLY BILLING CYCLE                                              │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  Day 1-30: Usage tracked                                            │
+│  ┌─────────────────────────────────────────────────────────────────┐│
+│  │ Merchant: fashion-store.myshopify.com                           ││
+│  │                                                                  ││
+│  │ Linked DPPs this month:                                          ││
+│  │  • ABC Textiles - Organic T-Shirt Base      × 3 products        ││
+│  │  • XYZ Fabrics - Recycled Hoodie            × 1 product         ││
+│  │                                                                  ││
+│  │ Forked DPPs this month:                                          ││
+│  │  • ABC Textiles - Denim Jacket              × 1 (one-time)      ││
+│  │                                                                  ││
+│  │ Monthly total: (4 × €1.00) + (1 × €0.50) = €4.50                ││
+│  └─────────────────────────────────────────────────────────────────┘│
+│                                                                     │
+│  Day 1 (next month): Merchant charged via Shopify billing           │
+│                                                                     │
+│  Revenue distribution:                                              │
+│  ┌─────────────────────────────────────────────────────────────────┐│
+│  │ ABC Textiles:  (3 × €0.80) + (1 × €0.40) = €2.80               ││
+│  │ XYZ Fabrics:   (1 × €0.80) = €0.80                             ││
+│  │ EuroComply:    (4 × €0.20) + (1 × €0.10) = €0.90               ││
+│  │                                            ─────────            ││
+│  │                                    Total:  €4.50                ││
+│  └─────────────────────────────────────────────────────────────────┘│
+│                                                                     │
+│  Monthly payouts to suppliers (via Stripe Connect)                  │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Database Schema (Billing)
+
+```prisma
+// Add to Supplier model
+model Supplier {
+  // ... existing fields ...
+
+  // Payout settings
+  stripeConnectAccountId  String?   // For receiving payouts
+  payoutEnabled           Boolean   @default(false)
+  payoutMinimum           Decimal   @default(10.00) // Min balance for payout
+
+  // Relations
+  earnings                SupplierEarning[]
+  payouts                 SupplierPayout[]
+}
+
+// Track individual usage events
+model DppUsageEvent {
+  id                  String   @id @default(cuid())
+
+  // Who used it
+  merchantShop        String
+  shopifyProductId    String
+
+  // What was used
+  supplierProductId   String
+  supplierId          String
+
+  // Usage type
+  usageType           UsageType
+
+  // Pricing at time of usage
+  priceCharged        Decimal  // Total price
+  supplierShare       Decimal  // 80%
+  platformShare       Decimal  // 20%
+
+  // Billing status
+  billingStatus       BillingStatus @default(PENDING)
+  billedAt            DateTime?
+  merchantInvoiceId   String?  // Shopify billing reference
+
+  // For recurring links
+  billingPeriodStart  DateTime?
+  billingPeriodEnd    DateTime?
+
+  createdAt           DateTime @default(now())
+
+  @@index([merchantShop, billingStatus])
+  @@index([supplierId, billingStatus])
+}
+
+enum UsageType {
+  LINK_MONTHLY    // Recurring monthly for linked DPPs
+  FORK_ONETIME   // One-time for forked DPPs
+}
+
+enum BillingStatus {
+  PENDING         // Usage tracked, not yet billed
+  BILLED          // Charged to merchant
+  PAID            // Merchant payment received
+  FAILED          // Payment failed
+  REFUNDED        // Refunded to merchant
+}
+
+// Aggregate supplier earnings
+model SupplierEarning {
+  id                  String   @id @default(cuid())
+  supplierId          String
+  supplier            Supplier @relation(fields: [supplierId], references: [id])
+
+  // Period
+  periodStart         DateTime
+  periodEnd           DateTime
+
+  // Amounts
+  grossEarnings       Decimal  // Total before platform fee
+  platformFee         Decimal  // 20% taken by EuroComply
+  netEarnings         Decimal  // Amount to pay supplier
+
+  // Stats
+  linkUsageCount      Int
+  forkUsageCount      Int
+
+  // Payout status
+  payoutStatus        PayoutStatus @default(PENDING)
+  payoutId            String?
+
+  createdAt           DateTime @default(now())
+
+  @@unique([supplierId, periodStart])
+  @@index([supplierId, payoutStatus])
+}
+
+enum PayoutStatus {
+  PENDING           // Awaiting payout
+  PROCESSING        // Payout initiated
+  COMPLETED         // Money transferred
+  FAILED            // Payout failed
+  HELD              // Below minimum or issue
+}
+
+// Actual payouts to suppliers
+model SupplierPayout {
+  id                  String   @id @default(cuid())
+  supplierId          String
+  supplier            Supplier @relation(fields: [supplierId], references: [id])
+
+  amount              Decimal
+  currency            String   @default("EUR")
+
+  // Stripe
+  stripeTransferId    String?
+  stripePayoutId      String?
+
+  status              PayoutStatus
+  failureReason       String?
+
+  initiatedAt         DateTime @default(now())
+  completedAt         DateTime?
+
+  @@index([supplierId, status])
+}
+```
+
+### Merchant Billing Integration
+
+```typescript
+// Integration with Shopify App Billing API
+
+interface MerchantUsageBilling {
+  // Use Shopify's Usage-based billing
+  // https://shopify.dev/docs/apps/billing/usage-based
+
+  // 1. Create usage subscription on app install
+  createUsageSubscription(): Promise<{
+    confirmationUrl: string;
+    subscriptionId: string;
+  }>;
+
+  // 2. Record usage when merchant links/forks
+  recordUsage(params: {
+    subscriptionId: string;
+    amount: number;
+    description: string;
+  }): Promise<void>;
+
+  // 3. Shopify bills merchant automatically
+  // 4. We receive webhook when payment succeeds
+}
+
+// Example usage recording
+async function onDppLinked(merchantShop: string, supplierProductId: string) {
+  // Record in our DB
+  await prisma.dppUsageEvent.create({
+    data: {
+      merchantShop,
+      supplierProductId,
+      usageType: 'LINK_MONTHLY',
+      priceCharged: 1.00,
+      supplierShare: 0.80,
+      platformShare: 0.20,
+      billingStatus: 'PENDING',
+      billingPeriodStart: startOfMonth(new Date()),
+      billingPeriodEnd: endOfMonth(new Date()),
+    }
+  });
+
+  // Record with Shopify
+  await shopifyBilling.recordUsage({
+    subscriptionId: merchantSubscriptionId,
+    amount: 1.00,
+    description: `DPP usage: ${supplierProductName}`,
+  });
+}
+```
+
+### Supplier Dashboard (Earnings)
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  supplier.eurocomply.com > Earnings                                 │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  💰 Earnings Overview                                               │
+│  ┌─────────────────────────────────────────────────────────────────┐│
+│  │                                                                  ││
+│  │  This Month          All Time           Pending Payout           ││
+│  │  ┌──────────┐       ┌──────────┐       ┌──────────┐             ││
+│  │  │  €124.80 │       │ €1,847.20│       │  €89.60  │             ││
+│  │  │  ↑ 12%   │       │          │       │  [Request Payout]      ││
+│  │  └──────────┘       └──────────┘       └──────────┘             ││
+│  │                                                                  ││
+│  └─────────────────────────────────────────────────────────────────┘│
+│                                                                     │
+│  📊 Usage by Product                                                │
+│  ┌─────────────────────────────────────────────────────────────────┐│
+│  │ Product                  Links   Forks   Earnings               ││
+│  │ ─────────────────────────────────────────────────────────────── ││
+│  │ Organic Cotton T-Shirt    47      12     €45.20                 ││
+│  │ Recycled Hoodie           23       5     €20.40                 ││
+│  │ Linen Summer Dress        18       3     €15.60                 ││
+│  │ Denim Jacket              12       8     €12.80                 ││
+│  │                                                                  ││
+│  └─────────────────────────────────────────────────────────────────┘│
+│                                                                     │
+│  💳 Payout Settings                                                 │
+│  ┌─────────────────────────────────────────────────────────────────┐│
+│  │ Status: ✓ Connected via Stripe                                  ││
+│  │ Account: ****4242 (ABC Textiles Ltd)                            ││
+│  │ Minimum payout: €10.00                                          ││
+│  │ Payout schedule: Monthly (1st of month)                         ││
+│  │                                                                  ││
+│  │ [Update Bank Details]  [View Payout History]                    ││
+│  └─────────────────────────────────────────────────────────────────┘│
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Pricing Tiers (Optional Future)
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  SUPPLIER TIER SYSTEM                                               │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  Standard (Free)              Premium (€49/mo)                      │
+│  ─────────────────            ─────────────────                     │
+│  • Up to 10 products          • Unlimited products                  │
+│  • 80% revenue share          • 85% revenue share                   │
+│  • Public catalog only        • Invite-only catalogs                │
+│  • Basic analytics            • Advanced analytics                  │
+│  • Email support              • Priority support                    │
+│                               • Featured in catalog                 │
+│                               • Bulk import tools                   │
+│                                                                     │
+│  Verified Partner (Apply)                                           │
+│  ─────────────────────────                                          │
+│  • 90% revenue share                                                │
+│  • Verified badge in catalog                                        │
+│  • API access for automation                                        │
+│  • Dedicated account manager                                        │
+│  • Co-marketing opportunities                                       │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
