@@ -345,3 +345,4 @@ EBSI integration planned when business traction achieved.
 - **[README.md](./README.md)** - Quick start and API usage
 - **[E-commerce Integrations](./docs/ECOMMERCE_INTEGRATIONS.md)** - Shopify & WooCommerce setup
 - **[Verifiable Credentials](./docs/VERIFIABLE_CREDENTIALS.md)** - How DPPs become cryptographically verifiable
+- **[Testing Guide](./docs/TESTING_GUIDE.md)** - Local testing instructions
