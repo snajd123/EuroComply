@@ -158,24 +158,96 @@ All supplier types:
 
 ## Revenue Flow
 
+### Basic Model (No Distributor Involved)
+
+When a retailer subscribes directly to a producer's DPP:
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                      MONTHLY BILLING                        │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
-│  Merchant pays: €2.00/product/month                         │
+│  Retailer pays: €1.00/product/month                         │
 │                                                             │
 │       ┌────────────────┬────────────────┐                   │
 │       │                │                │                   │
-│       ▼                ▼                │                   │
-│   ┌────────┐      ┌────────┐            │                   │
-│   │ €1.60  │      │ €0.40  │            │                   │
-│   │Supplier│      │Platform│            │                   │
-│   │  (80%) │      │  (20%) │            │                   │
-│   └────────┘      └────────┘            │                   │
+│       ▼                ▼                                    │
+│   ┌────────┐      ┌────────┐                                │
+│   │ €0.80  │      │ €0.20  │                                │
+│   │Producer│      │Platform│                                │
+│   │  (80%) │      │  (20%) │                                │
+│   └────────┘      └────────┘                                │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+### Distributor Referral Model
+
+When a distributor brings retailers to a producer's DPP, the producer can share revenue with the distributor.
+
+**How it works:**
+1. Producer creates DPP and sets a **referral rate** (0-30%)
+2. Distributor registers as authorized distributor for that producer
+3. Distributor's retailers subscribe to the producer's DPP
+4. Revenue is split three ways: Producer + Distributor + Platform
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│              DISTRIBUTOR REFERRAL BILLING (Example: 20% referral)   │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  Retailer pays: €1.00/product/month                                 │
+│                                                                     │
+│       ┌────────────────┬────────────────┬────────────────┐          │
+│       │                │                │                │          │
+│       ▼                ▼                ▼                           │
+│   ┌────────┐      ┌────────┐      ┌────────┐                        │
+│   │ €0.60  │      │ €0.20  │      │ €0.20  │                        │
+│   │Producer│      │Distrib.│      │Platform│                        │
+│   │  (60%) │      │  (20%) │      │  (20%) │                        │
+│   └────────┘      └────────┘      └────────┘                        │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Referral Rate Examples
+
+Producer sets the referral rate. Platform fee (20%) is always fixed.
+
+| Referral Rate | Producer Gets | Distributor Gets | Platform Gets |
+|---------------|---------------|------------------|---------------|
+| 0% (no referral) | 80% | 0% | 20% |
+| 10% | 70% | 10% | 20% |
+| 20% | 60% | 20% | 20% |
+| 30% (max) | 50% | 30% | 20% |
+
+### Why Producers Offer Referral Rates
+
+| Benefit | Description |
+|---------|-------------|
+| **Access to retailers** | Distributors have relationships with 100s of retailers |
+| **Volume** | Distributors can onboard entire retailer networks |
+| **No sales effort** | Distributor does the selling, producer just creates DPP |
+| **Competitive advantage** | Higher referral rates attract more distributor partners |
+
+### Why Distributors Participate
+
+| Benefit | Description |
+|---------|-------------|
+| **Recurring revenue** | Earn 10-30% of every subscription, every month |
+| **No DPP creation work** | Producer maintains the data |
+| **Value-add to retailers** | Offer DPP access as part of distribution package |
+| **Scale economics** | 1000 retailers × 100 SKUs × €0.20 = €20,000/month |
+
+### Example: Large Distributor
+
+A distributor with 500 retailers, averaging 50 SKUs each, with 20% referral rate:
+
+```
+500 retailers × 50 SKUs × €1.00 × 20% = €5,000/month passive income
+```
+
+This creates a powerful incentive for distributors to actively promote producer DPPs to their retailer networks.
 
 ---
 
@@ -496,14 +568,20 @@ This is only possible because we have the ecosystem connecting both sides.
 │                                                             │
 │  WHO SETS PRICES?                                           │
 │  → Suppliers (minimum €0.50/product/month)                  │
+│  → Producers also set distributor referral rate (0-30%)     │
 │                                                             │
 │  WHO EARNS WHAT?                                            │
-│  → Suppliers: 80% of subscription price                     │
-│  → Platform: 20% of subscription price                      │
+│  → Direct: Producer 80%, Platform 20%                       │
+│  → Via Distributor: Producer 50-70%, Distributor 10-30%,    │
+│                     Platform 20%                            │
 │                                                             │
 │  WHY IS IT WORTH IT FOR RETAILERS?                          │
 │  → €1/month vs €2,000/month profit = 0.05%                  │
 │  → Compliance, trust badge, zero work                       │
+│                                                             │
+│  WHY IS IT WORTH IT FOR DISTRIBUTORS?                       │
+│  → 500 retailers × 50 SKUs × €0.20 = €5,000/month passive   │
+│  → Value-add service for retailer network                   │
 │                                                             │
 │  WHY NO FRAUD?                                              │
 │  → Retailers can't create passports                         │
