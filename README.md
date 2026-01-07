@@ -18,6 +18,17 @@ Complete DPP lifecycle management for ESPR compliance:
 - **Unsold Goods Reporting** - ESPR Article 20 compliance
 - **Public Verification** - Anyone can verify a product's passport
 
+### Supplier DPP Marketplace
+
+Enable supply chain collaboration with ready-to-use DPPs:
+
+- **Supplier Portal** - Suppliers create and publish DPPs for their products
+- **Verified Suppliers** - Document-based verification before publishing
+- **Catalog Browse** - Merchants discover supplier DPPs by category
+- **Use as-is (Link)** - Link directly to supplier's Verifiable Credential
+- **Customize (Fork)** - Fork and modify supplier data, sign your own VC
+- **Revenue Sharing** - Suppliers earn 80% of usage fees (€1/month per DPP)
+
 ## 🛒 E-commerce Integrations
 
 Automatically sync products from your existing store:
@@ -35,6 +46,10 @@ See [E-commerce Integrations Guide](docs/ECOMMERCE_INTEGRATIONS.md) for setup in
 eurocomply/
 ├── apps/
 │   ├── api/           # Express.js API server
+│   │   └── modules/
+│   │       ├── product-trust/   # DPP management
+│   │       ├── integrations/    # E-commerce sync
+│   │       └── supplier/        # Supplier marketplace
 │   └── dashboard/     # Next.js admin dashboard
 ├── packages/
 │   ├── database/      # Prisma schema & migrations
@@ -42,6 +57,8 @@ eurocomply/
 │   ├── integrations/  # Shopify & WooCommerce sync
 │   ├── sdk/           # Client SDK
 │   └── shared/        # Shared types & utilities
+├── plugins/
+│   └── shopify/       # Shopify embedded app (Remix)
 └── docker/            # Docker configuration
 ```
 
@@ -211,17 +228,29 @@ WOOCOMMERCE_WEBHOOK_SECRET=your_webhook_secret
 
 ## 🗺️ Roadmap
 
+### Completed
 - [x] Core API infrastructure
 - [x] Product & Passport management
 - [x] QR code generation (GS1 Digital Link)
-- [x] Verifiable Credential issuance
+- [x] Verifiable Credential issuance (walt.id)
 - [x] Lifecycle event tracking
-- [x] Shopify integration
+- [x] Shopify integration (OAuth + embedded app)
 - [x] WooCommerce integration
+- [x] Textile DPP schema & validation
+- [x] DPP data collection UI (Shopify app)
+- [x] Higg MSI carbon footprint calculation
+- [x] Supplier marketplace (portal, verification, catalog)
+- [x] Link & fork DPP workflows
+- [x] Supplier earnings & payouts
+
+### In Progress
 - [ ] React Dashboard
-- [ ] EBSI integration (when mature)
+- [ ] Furniture & Electronics schemas
+
+### Future
+- [ ] EBSI integration (when regulatory traction)
 - [ ] Batch passport generation
-- [ ] Supply chain integration
+- [ ] Item-level tracking (serial numbers)
 
 ## 📄 License
 

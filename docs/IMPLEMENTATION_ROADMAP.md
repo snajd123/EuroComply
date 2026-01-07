@@ -11,7 +11,7 @@ However, we're missing the **data collection layer** that makes VCs meaningful. 
 
 ---
 
-## Phase 1: Textile MVP (Q1-Q2 2025)
+## Phase 1: Textile MVP (Q1-Q2 2025) ✅ COMPLETE
 **Goal: Compliant DPPs for 544,000+ apparel merchants**
 
 ### 1.1 Textile-Specific Schema
@@ -138,7 +138,7 @@ function validateTextileDpp(data: TextileDppData): ValidationResult {
 
 ---
 
-## Phase 2: Third-Party Data Integration (Q2-Q3 2025)
+## Phase 2: Third-Party Data Integration (Q2-Q3 2025) ✅ COMPLETE
 **Goal: Auto-populate data from industry databases**
 
 ### 2.1 Higg Index (Worldly) Integration
@@ -217,6 +217,74 @@ async function verifyCertification(
   }
 }
 ```
+
+---
+
+## Phase 2.5: Supplier DPP Marketplace ✅ COMPLETE
+**Goal: Enable suppliers to publish DPPs that merchants can use**
+
+### 2.5.1 Supplier Portal
+
+Standalone supplier authentication and management:
+
+```typescript
+// Supplier Portal Features
+- Email/password registration with JWT auth
+- Company verification workflow
+- Product DPP creation with textile schema
+- Verifiable Credential anchoring
+- Catalog visibility controls (public/private/invite-only)
+```
+
+**API Endpoints:**
+- `POST /api/suppliers/register` - Register new supplier
+- `POST /api/suppliers/login` - Authenticate supplier
+- `GET/PATCH /api/suppliers/me` - Profile management
+- `POST /api/suppliers/verification` - Submit verification docs
+- `GET/POST/PATCH/DELETE /api/suppliers/products` - Product CRUD
+
+### 2.5.2 Merchant Catalog Access
+
+Shopify merchants can browse and use supplier DPPs:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  SUPPLIER CATALOG IN SHOPIFY APP                                    │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  Browse verified supplier products:                                 │
+│  ┌─────────────────────────────────────────────────────────────────┐│
+│  │ ABC Textiles (Verified ✓)                                       ││
+│  │ "Organic Cotton T-Shirt Base"                                   ││
+│  │ 100% Organic Cotton | Made in PT | 3.2 kgCO2e                  ││
+│  │ GOTS Certified | Used by 45 merchants                          ││
+│  │                                                                  ││
+│  │ [Use as-is €1/mo]  [Customize €1/mo]                           ││
+│  └─────────────────────────────────────────────────────────────────┘│
+│                                                                     │
+│  Usage Options:                                                     │
+│  • Link (Use as-is): Supplier's VC, supplier maintains data        │
+│  • Fork (Customize): Pre-fill form, merchant signs own VC          │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### 2.5.3 Revenue Sharing
+
+```typescript
+// Pricing Model
+const LINK_PRICE_MONTHLY = 1.00;  // €1/month for linked DPPs
+const FORK_PRICE_MONTHLY = 1.00;  // €1/month for forked DPPs
+const SUPPLIER_SHARE = 0.80;      // 80% to supplier
+const PLATFORM_SHARE = 0.20;      // 20% to EuroComply
+const MINIMUM_PAYOUT = 10.00;     // Minimum €10 for withdrawal
+```
+
+**Earnings Dashboard:**
+- `GET /api/suppliers/earnings` - Overview & stats
+- `GET /api/suppliers/earnings/products` - Per-product breakdown
+- `GET /api/suppliers/earnings/history` - Monthly records
+- `POST /api/suppliers/payouts/request` - Request payout (Stripe Connect)
 
 ---
 
@@ -367,13 +435,14 @@ interface ElectronicsDppData {
 
 ## Resource Estimates
 
-| Phase | Effort | Priority | Deadline Driver |
-|-------|--------|----------|-----------------|
-| Phase 1: Textile MVP | 4-6 weeks | **CRITICAL** | 2027 mandate |
-| Phase 2: Data APIs | 3-4 weeks | HIGH | Data quality |
-| Phase 3: Metaobjects | 2-3 weeks | MEDIUM | UX improvement |
-| Phase 4: Furniture/Electronics | 4-6 weeks | HIGH | 2029/2030 mandates |
-| Phase 5: Advanced | Ongoing | MEDIUM | Market differentiation |
+| Phase | Effort | Priority | Status |
+|-------|--------|----------|--------|
+| Phase 1: Textile MVP | 4-6 weeks | **CRITICAL** | ✅ Complete |
+| Phase 2: Data APIs | 3-4 weeks | HIGH | ✅ Complete |
+| Phase 2.5: Supplier Marketplace | 3-4 weeks | HIGH | ✅ Complete |
+| Phase 3: Metaobjects | 2-3 weeks | MEDIUM | Planned |
+| Phase 4: Furniture/Electronics | 4-6 weeks | HIGH | Planned |
+| Phase 5: Advanced | Ongoing | MEDIUM | Future |
 
 ---
 
@@ -385,11 +454,12 @@ interface ElectronicsDppData {
 - ✅ Cryptographic signature verification
 - ✅ Public verification endpoint
 
-### What We're Adding
-- 📋 Category-specific data schemas
-- 📋 Compliance validation engine
-- 📋 Third-party data integration (Higg, certifications)
-- 📋 Shopify Metaobject sync
+### What We've Added ✅
+- ✅ Category-specific data schemas (Textile complete)
+- ✅ Compliance validation engine
+- ✅ Third-party data integration (Higg MSI)
+- ✅ Supplier DPP Marketplace
+- 📋 Shopify Metaobject sync (planned)
 
 ### Competitor Comparison (Post-Implementation)
 
@@ -398,8 +468,10 @@ interface ElectronicsDppData {
 | Textile schema | ❓ | ❓ | ❌ | ✅ |
 | Mandatory field validation | ❌ | ❌ | ❌ | ✅ |
 | Higg data integration | ❌ | ❌ | ❌ | ✅ |
+| Supplier DPP marketplace | ❌ | ❌ | ❌ | ✅ |
+| Revenue sharing for suppliers | ❌ | ❌ | ❌ | ✅ |
 | Verifiable Credentials | ❌ | ❌ | NFT | **W3C VC** |
 | Public verification | ❌ | ❌ | Wallet | **URL/QR** |
 | EBSI-ready | ❌ | ❌ | ❌ | ✅ |
 
-**Our moat: Cryptographic verification + Regulatory-aligned data schemas**
+**Our moat: Cryptographic verification + Regulatory-aligned data schemas + Supply chain collaboration**

@@ -17,6 +17,7 @@ EuroComply provides native integrations for Shopify and WooCommerce to automatic
 2. **DPP Generation** - Create Digital Product Passports for each product
 3. **QR Code Integration** - Push DPP QR codes back to product pages
 4. **Lifecycle Tracking** - Track product events through orders
+5. **Supplier Catalog** - Browse and use supplier DPPs for your products
 
 ---
 
@@ -282,6 +283,55 @@ if ($qr_url) {
 **"Permission denied"**
 - API keys need read access to products
 - Check WooCommerce user permissions
+
+---
+
+---
+
+## Using Supplier DPPs
+
+Merchants can browse a catalog of ready-to-use DPPs created by verified suppliers.
+
+### Accessing the Supplier Catalog
+
+In the Shopify app:
+1. Navigate to **Products** → **Browse Supplier Catalog**
+2. Search by product type, certification, or supplier
+3. Filter by category (Textiles, Electronics, etc.)
+
+### Usage Options
+
+| Option | Price | What Happens |
+|--------|-------|--------------|
+| **Use as-is (Link)** | €1/month | Link directly to supplier's DPP. Supplier's Verifiable Credential is used. You cannot modify the data. |
+| **Customize (Fork)** | €1/month | Fork the DPP into your own. Form is pre-filled with supplier data. You modify and sign your own VC. |
+
+### Link Flow (Use as-is)
+
+```
+1. Browse catalog → Select supplier product
+2. Select your Shopify product to link
+3. Confirm → DPP is linked
+4. Your product shows "DPP by [Supplier Name]"
+5. Supplier updates automatically apply
+```
+
+### Fork Flow (Customize)
+
+```
+1. Browse catalog → Select supplier product
+2. Click "Customize" → Form pre-filled with supplier data
+3. Modify any fields (composition, manufacturer, etc.)
+4. Save → Your own Verifiable Credential is issued
+5. Heritage shows "Based on [Supplier Name]"
+```
+
+### Pricing & Revenue
+
+- Both link and fork cost **€1/month per DPP**
+- Suppliers receive **80%** of the fee (€0.80)
+- EuroComply receives **20%** (€0.20)
+- Billed monthly via Shopify usage-based billing
 
 ---
 
