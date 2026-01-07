@@ -74,30 +74,20 @@ These tests require mocking Prisma client operations.
 apps/api/src/
 ├── modules/
 │   ├── supplier/
-│   │   ├── validators.test.ts      ✅ EXISTS (32 tests)
-│   │   ├── earnings.test.ts        ✅ EXISTS (27 tests)
-│   │   ├── supplier.service.test.ts   NEW
-│   │   └── routes.test.ts          NEW
+│   │   ├── validators.test.ts         ✅ 32 tests
+│   │   ├── earnings.test.ts           ✅ 27 tests
+│   │   └── supplier.service.test.ts   ✅ 40 tests
 │   └── product-trust/
-│       ├── services/
-│       │   ├── gs1.service.test.ts    NEW
-│       │   ├── dpp.service.test.ts    NEW
-│       │   └── qr.service.test.ts     NEW
-│       └── controllers/
-│           ├── product.controller.test.ts  NEW
-│           └── passport.controller.test.ts NEW
+│       └── services/
+│           ├── gs1.service.test.ts    ✅ 34 tests
+│           ├── identity.test.ts       ✅ 37 tests
+│           └── qr.service.test.ts     ✅ 27 tests
 ├── common/
 │   ├── middleware/
-│   │   └── errorHandler.test.ts    NEW
-│   └── auth/
-│       └── middleware.test.ts      NEW
-packages/
-├── shared/src/
-│   └── index.test.ts               NEW
-└── identity/src/
-    └── services/
-        ├── did.service.test.ts     NEW
-        └── vc.service.test.ts      NEW
+│   │   └── errorHandler.test.ts       ✅ 25 tests
+│   ├── auth/
+│   │   └── middleware.test.ts         ✅ 31 tests
+│   └── schemas.test.ts                ✅ 52 tests
 ```
 
 ---
@@ -180,12 +170,13 @@ npm run test:watch
 |-----------|-------|--------|
 | validators.test.ts | 32 | ✅ Passing |
 | earnings.test.ts | 27 | ✅ Passing |
-| gs1.service.test.ts | - | 🔄 Pending |
-| shared/index.test.ts | - | 🔄 Pending |
-| errorHandler.test.ts | - | 🔄 Pending |
-| supplier.service.test.ts | - | 🔄 Pending |
-| did.service.test.ts | - | 🔄 Pending |
-| vc.service.test.ts | - | 🔄 Pending |
+| gs1.service.test.ts | 34 | ✅ Passing |
+| schemas.test.ts | 52 | ✅ Passing |
+| errorHandler.test.ts | 25 | ✅ Passing |
+| middleware.test.ts | 31 | ✅ Passing |
+| supplier.service.test.ts | 40 | ✅ Passing |
+| identity.test.ts | 37 | ✅ Passing |
+| qr.service.test.ts | 27 | ✅ Passing |
 
-**Total Existing**: 59 tests passing
-**Target Total**: 400+ tests
+**Total Tests**: 305 tests passing ✅
+**Last Run**: 2026-01-07
