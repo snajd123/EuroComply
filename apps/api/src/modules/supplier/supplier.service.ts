@@ -17,7 +17,7 @@ import type {
   AdminReviewVerificationInput,
 } from './validators.js';
 
-const JWT_SECRET = process.env.SUPPLIER_JWT_SECRET || process.env.JWT_SECRET || 'supplier-secret-change-me';
+const JWT_SECRET = process.env['SUPPLIER_JWT_SECRET'] || process.env['JWT_SECRET'] || 'supplier-secret-change-me';
 const JWT_EXPIRES_IN = '7d';
 
 // ===========================================
@@ -540,7 +540,25 @@ export async function searchCatalog(input: CatalogSearchInput, merchantShop?: st
   ]);
 
   // Transform for catalog display
-  const catalogProducts = products.map(product => ({
+  type ProductWithSupplier = {
+    id: string;
+    name: string;
+    description: string | null;
+    category: string;
+    supplier: {
+      id: string;
+      companyName: string;
+      country: string | null;
+      logoUrl: string | null;
+      verificationStatus: string;
+    };
+    dppData: unknown;
+    vcStatus: string | null;
+    timesLinked: number;
+    timesForked: number;
+    imageUrls: string[] | null;
+  };
+  const catalogProducts = (products as ProductWithSupplier[]).map((product: ProductWithSupplier) => ({
     id: product.id,
     name: product.name,
     description: product.description,

@@ -244,7 +244,7 @@ router.get('/admin/pending-verifications', async (req: Request, res: Response) =
   try {
     // TODO: Add admin authentication
     const adminKey = req.headers['x-admin-key'];
-    if (adminKey !== process.env.ADMIN_API_KEY) {
+    if (adminKey !== process.env['ADMIN_API_KEY']) {
       return res.status(401).json({
         success: false,
         error: { code: 'UNAUTHORIZED', message: 'Invalid admin key' },
@@ -273,7 +273,7 @@ router.post('/admin/review/:supplierId', async (req: Request, res: Response) => 
   try {
     // TODO: Add admin authentication
     const adminKey = req.headers['x-admin-key'];
-    if (adminKey !== process.env.ADMIN_API_KEY) {
+    if (adminKey !== process.env['ADMIN_API_KEY']) {
       return res.status(401).json({
         success: false,
         error: { code: 'UNAUTHORIZED', message: 'Invalid admin key' },
@@ -281,14 +281,15 @@ router.post('/admin/review/:supplierId', async (req: Request, res: Response) => 
     }
 
     const adminId = req.headers['x-admin-id'] as string || 'system';
+    const supplierId = req.params['supplierId'] as string;
     const input = adminReviewVerificationSchema.parse(req.body);
     const result = await supplierService.adminReviewVerification(
-      req.params.supplierId,
+      supplierId,
       input,
       adminId
     );
 
-    logger.info(`Supplier ${req.params.supplierId} verification ${input.decision} by ${adminId}`);
+    logger.info(`Supplier ${supplierId} verification ${input.decision} by ${adminId}`);
 
     res.json({
       success: true,
@@ -379,9 +380,10 @@ router.post('/products', supplierAuthMiddleware, async (req: AuthenticatedReques
 // GET /api/suppliers/products/:id
 router.get('/products/:id', supplierAuthMiddleware, async (req: AuthenticatedRequest, res: Response) => {
   try {
+    const productId = req.params['id'] as string;
     const product = await supplierService.getSupplierProductById(
       req.supplier!.supplierId,
-      req.params.id
+      productId
     );
 
     res.json({
@@ -402,10 +404,11 @@ router.get('/products/:id', supplierAuthMiddleware, async (req: AuthenticatedReq
 // PATCH /api/suppliers/products/:id
 router.patch('/products/:id', supplierAuthMiddleware, async (req: AuthenticatedRequest, res: Response) => {
   try {
+    const productId = req.params['id'] as string;
     const input = updateSupplierProductSchema.parse(req.body);
     const product = await supplierService.updateSupplierProduct(
       req.supplier!.supplierId,
-      req.params.id,
+      productId,
       input
     );
 
@@ -438,7 +441,8 @@ router.patch('/products/:id', supplierAuthMiddleware, async (req: AuthenticatedR
 // DELETE /api/suppliers/products/:id
 router.delete('/products/:id', supplierAuthMiddleware, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    await supplierService.deleteSupplierProduct(req.supplier!.supplierId, req.params.id);
+    const productId = req.params['id'] as string;
+    await supplierService.deleteSupplierProduct(req.supplier!.supplierId, productId);
 
     res.json({
       success: true,
@@ -496,8 +500,9 @@ router.get('/catalog', async (req: Request, res: Response) => {
 // GET /api/catalog/products/:id
 router.get('/catalog/:id', async (req: Request, res: Response) => {
   try {
+    const productId = req.params['id'] as string;
     const merchantShop = req.headers['x-merchant-shop'] as string | undefined;
-    const product = await supplierService.getCatalogProductById(req.params.id, merchantShop);
+    const product = await supplierService.getCatalogProductById(productId, merchantShop);
 
     res.json({
       success: true,
@@ -561,8 +566,8 @@ router.get('/earnings/products', supplierAuthMiddleware, async (req: Authenticat
 // GET /api/suppliers/earnings/history
 router.get('/earnings/history', supplierAuthMiddleware, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 12;
+    const page = parseInt(req.query['page'] as string) || 1;
+    const limit = parseInt(req.query['limit'] as string) || 12;
 
     const history = await earningsService.getEarningsHistory(req.supplier!.supplierId, { page, limit });
 
@@ -584,7 +589,7 @@ router.get('/earnings/history', supplierAuthMiddleware, async (req: Authenticate
 // GET /api/suppliers/earnings/recent
 router.get('/earnings/recent', supplierAuthMiddleware, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const limit = parseInt(req.query.limit as string) || 20;
+    const limit = parseInt(req.query['limit'] as string) || 20;
 
     const events = await earningsService.getRecentUsageEvents(req.supplier!.supplierId, { limit });
 
@@ -626,8 +631,8 @@ router.get('/payouts/settings', supplierAuthMiddleware, async (req: Authenticate
 // GET /api/suppliers/payouts/history
 router.get('/payouts/history', supplierAuthMiddleware, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 20;
+    const page = parseInt(req.query['page'] as string) || 1;
+    const limit = parseInt(req.query['limit'] as string) || 20;
 
     const history = await earningsService.getPayoutHistory(req.supplier!.supplierId, { page, limit });
 

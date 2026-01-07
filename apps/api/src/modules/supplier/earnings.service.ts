@@ -6,6 +6,57 @@
 import { prisma } from '@eurocomply/database';
 import { Decimal } from '@prisma/client/runtime/library';
 
+// Type definitions for Prisma models (when types unavailable)
+type DppUsageEvent = {
+  id: string;
+  supplierId: string;
+  supplierProductId: string;
+  merchantShop: string;
+  usageType: string;
+  priceCharged: Decimal;
+  supplierShare: Decimal;
+  platformShare: Decimal;
+  billingStatus: string;
+  billingPeriodStart: Date | null;
+  billingPeriodEnd: Date | null;
+  createdAt: Date;
+  supplierProduct: { name: string };
+};
+
+type SupplierProduct = {
+  id: string;
+  name: string;
+  category: string;
+  visibility: string;
+  timesLinked: number;
+  timesForked: number;
+  usageEvents: DppUsageEvent[];
+};
+
+type SupplierEarning = {
+  id: string;
+  supplierId: string;
+  periodStart: Date;
+  periodEnd: Date;
+  grossEarnings: Decimal;
+  platformFee: Decimal;
+  netEarnings: Decimal;
+  linkUsageCount: number;
+  forkUsageCount: number;
+  payoutStatus: string;
+};
+
+type SupplierPayout = {
+  id: string;
+  supplierId: string;
+  amount: Decimal;
+  currency: string;
+  status: string;
+  failureReason: string | null;
+  initiatedAt: Date;
+  completedAt: Date | null;
+};
+
 // Pricing constants
 const LINK_PRICE_MONTHLY = 1.00;
 const FORK_PRICE_MONTHLY = 1.00;
@@ -55,11 +106,11 @@ export async function getEarningsOverview(supplierId: string) {
   });
 
   // Calculate this month's earnings
-  const thisMonthEarnings = currentMonthEvents.reduce((sum, event) => {
+  const thisMonthEarnings = currentMonthEvents.reduce((sum: number, event: { supplierShare: Decimal }) => {
     return sum + Number(event.supplierShare);
   }, 0);
 
-  const lastMonthEarnings = lastMonthEvents.reduce((sum, event) => {
+  const lastMonthEarnings = lastMonthEvents.reduce((sum: number, event: { supplierShare: Decimal }) => {
     return sum + Number(event.supplierShare);
   }, 0);
 
@@ -69,8 +120,8 @@ export async function getEarningsOverview(supplierId: string) {
     : thisMonthEarnings > 0 ? 100 : 0;
 
   // Count usage this month
-  const thisMonthLinks = currentMonthEvents.filter(e => e.usageType === 'LINK_MONTHLY').length;
-  const thisMonthForks = currentMonthEvents.filter(e => e.usageType === 'FORK_MONTHLY').length;
+  const thisMonthLinks = currentMonthEvents.filter((e: { usageType: string }) => e.usageType === 'LINK_MONTHLY').length;
+  const thisMonthForks = currentMonthEvents.filter((e: { usageType: string }) => e.usageType === 'FORK_MONTHLY').length;
 
   return {
     thisMonth: {
@@ -108,11 +159,11 @@ export async function getProductEarnings(supplierId: string) {
     },
   });
 
-  return products.map(product => {
-    const linkEvents = product.usageEvents.filter(e => e.usageType === 'LINK_MONTHLY');
-    const forkEvents = product.usageEvents.filter(e => e.usageType === 'FORK_MONTHLY');
+  return (products as SupplierProduct[]).map((product: SupplierProduct) => {
+    const linkEvents = product.usageEvents.filter((e: DppUsageEvent) => e.usageType === 'LINK_MONTHLY');
+    const forkEvents = product.usageEvents.filter((e: DppUsageEvent) => e.usageType === 'FORK_MONTHLY');
 
-    const totalEarnings = product.usageEvents.reduce((sum, event) => {
+    const totalEarnings = product.usageEvents.reduce((sum: number, event: DppUsageEvent) => {
       return sum + Number(event.supplierShare);
     }, 0);
 
@@ -127,12 +178,12 @@ export async function getProductEarnings(supplierId: string) {
         totalUsage: product.timesLinked + product.timesForked,
       },
       earnings: {
-        fromLinks: linkEvents.reduce((sum, e) => sum + Number(e.supplierShare), 0),
-        fromForks: forkEvents.reduce((sum, e) => sum + Number(e.supplierShare), 0),
+        fromLinks: linkEvents.reduce((sum: number, e: DppUsageEvent) => sum + Number(e.supplierShare), 0),
+        fromForks: forkEvents.reduce((sum: number, e: DppUsageEvent) => sum + Number(e.supplierShare), 0),
         total: totalEarnings,
       },
     };
-  }).sort((a, b) => b.earnings.total - a.earnings.total);
+  }).sort((a: { earnings: { total: number } }, b: { earnings: { total: number } }) => b.earnings.total - a.earnings.total);
 }
 
 // ===========================================
@@ -157,7 +208,7 @@ export async function getEarningsHistory(
   ]);
 
   return {
-    earnings: earnings.map(e => ({
+    earnings: (earnings as SupplierEarning[]).map((e: SupplierEarning) => ({
       id: e.id,
       periodStart: e.periodStart,
       periodEnd: e.periodEnd,
@@ -198,7 +249,7 @@ export async function getRecentUsageEvents(
     },
   });
 
-  return events.map(event => ({
+  return (events as DppUsageEvent[]).map((event: DppUsageEvent) => ({
     id: event.id,
     type: event.usageType,
     merchantShop: event.merchantShop,
@@ -253,7 +304,7 @@ export async function getPayoutHistory(
   ]);
 
   return {
-    payouts: payouts.map(p => ({
+    payouts: (payouts as SupplierPayout[]).map((p: SupplierPayout) => ({
       id: p.id,
       amount: Number(p.amount),
       currency: p.currency,
