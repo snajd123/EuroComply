@@ -434,11 +434,18 @@ export default function Products() {
     <Page
       title="Products & Digital Product Passports"
       primaryAction={{
-        content: "Create All DPPs",
-        onAction: handleSyncAll,
-        loading: isLoading,
+        content: "Create Full DPP",
+        url: "/app/dpp/new",
         disabled: !isConfigured,
       }}
+      secondaryActions={[
+        {
+          content: "Quick DPP (All Products)",
+          onAction: handleSyncAll,
+          loading: isLoading,
+          disabled: !isConfigured,
+        },
+      ]}
     >
       <BlockStack gap="500">
         {!isConfigured && (

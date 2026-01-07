@@ -7,6 +7,15 @@
  * - Retrieve DPP status and verification results
  */
 
+import type {
+  TextileDppData,
+  ElectronicsDppData,
+  FurnitureDppData,
+  BatteryDppData,
+  DppData as FullDppData,
+  ProductCategory,
+} from '../types/dpp-schemas';
+
 interface EuroComplyConfig {
   apiUrl: string;
   apiKey: string;
@@ -67,6 +76,16 @@ interface DppData {
     validUntil?: string;
   }>;
   customAttributes?: Record<string, unknown>;
+}
+
+/**
+ * Full DPP creation request with category-specific data
+ */
+interface FullDppRequest {
+  productName: string;
+  category: ProductCategory;
+  data: FullDppData;
+  shopifyProductId?: string;
 }
 
 interface DppResponse {
@@ -276,6 +295,140 @@ export class EuroComplyClient {
     const dpp = await this.createAndAnchorDpp(product.id, dppData);
 
     return { product, dpp };
+  }
+
+  /**
+   * Create a full DPP with category-specific data and issue Verifiable Credential
+   * This is the main method for creating complete, ESPR-compliant DPPs
+   */
+  async createFullDpp(request: FullDppRequest): Promise<{ product: EuroComplyProduct; dpp: DppResponse }> {
+    // Step 1: Create or get product
+    const product = await this.request<EuroComplyProduct>('POST', '/v1/products', {
+      name: request.productName,
+      attributes: {
+        category: request.category,
+        shopifyProductId: request.shopifyProductId,
+      },
+    });
+
+    // Step 2: Transform category-specific data to API format
+    const dppPayload = this.transformDppDataForApi(request);
+
+    // Step 3: Create the passport with full data
+    const passport = await this.request<DppResponse>('POST', '/v1/passports', {
+      productId: product.id,
+      category: request.category,
+      data: dppPayload,
+    });
+
+    // Step 4: Anchor (issue Verifiable Credential)
+    const dpp = await this.anchorDpp(passport.id);
+
+    return { product, dpp };
+  }
+
+  /**
+   * Transform category-specific DPP data to API format
+   */
+  private transformDppDataForApi(request: FullDppRequest): Record<string, unknown> {
+    const { data, productName, category } = request;
+
+    // Base fields present in all DPPs
+    const basePayload: Record<string, unknown> = {
+      productName,
+      category,
+    };
+
+    if (category === 'textile') {
+      const textileData = data as TextileDppData;
+      return {
+        ...basePayload,
+        manufacturerName: textileData.manufacturer.name,
+        manufacturerCountry: textileData.manufacturer.country,
+        manufacturerAddress: textileData.manufacturer.address,
+        manufacturerRegistration: textileData.manufacturer.registrationNumber,
+        manufacturerWebsite: textileData.manufacturer.website,
+        countryOfManufacture: textileData.countryOfManufacture,
+        fiberComposition: textileData.fiberComposition.map(fiber => ({
+          fiberType: fiber.fiberType,
+          percentage: fiber.percentage,
+          origin: fiber.origin,
+          countryOfOrigin: fiber.countryOfOrigin,
+          supplierName: fiber.supplierName,
+          certificationId: fiber.certificationId,
+        })),
+        careInstructions: {
+          maxWashTemperature: textileData.careInstructions.maxWashTemperature,
+          bleachAllowed: textileData.careInstructions.bleachAllowed,
+          tumbleDryAllowed: textileData.careInstructions.tumbleDryAllowed,
+          ironTemperature: textileData.careInstructions.ironTemperature,
+          dryCleanAllowed: textileData.careInstructions.dryCleanAllowed,
+          specialInstructions: textileData.careInstructions.specialInstructions,
+        },
+        hazardousSubstances: {
+          reachCompliant: textileData.hazardousSubstances.reachCompliant,
+          substancesOfConcern: textileData.hazardousSubstances.substancesOfConcern,
+          scipNotificationId: textileData.hazardousSubstances.scipNotificationId,
+        },
+        carbonFootprint: textileData.carbonFootprint ? {
+          value: textileData.carbonFootprint.value,
+          unit: textileData.carbonFootprint.unit,
+          methodology: textileData.carbonFootprint.methodology,
+          scope: textileData.carbonFootprint.scope,
+          dataSource: textileData.carbonFootprint.dataSource,
+          confidence: textileData.carbonFootprint.confidence,
+        } : undefined,
+        certifications: textileData.certifications?.map(cert => ({
+          type: cert.type,
+          certificateNumber: cert.certificateNumber,
+          issuingBody: cert.issuingBody,
+          validFrom: cert.validFrom,
+          validUntil: cert.validUntil,
+          scope: cert.scope,
+          documentUrl: cert.documentUrl,
+        })),
+        recyclability: textileData.recyclability ? {
+          percentage: textileData.recyclability.recyclablePercentage,
+          components: textileData.recyclability.recyclableComponents,
+          endOfLifeInstructions: textileData.recyclability.endOfLifeInstructions,
+          takeBackProgram: textileData.recyclability.takeBackProgram,
+        } : undefined,
+        durability: textileData.durability ? {
+          expectedLifespan: textileData.durability.expectedLifespanYears,
+          unit: 'years',
+          warrantyYears: textileData.durability.warrantyYears,
+        } : undefined,
+        waterFootprint: textileData.waterFootprint,
+        supplyChain: textileData.supplyChain,
+        socialCompliance: textileData.socialCompliance,
+      };
+    }
+
+    // For other categories, pass through the data
+    // (Electronics, Furniture, Battery schemas to be implemented)
+    return {
+      ...basePayload,
+      ...data,
+    };
+  }
+
+  /**
+   * Update an existing DPP with new data
+   */
+  async updateDpp(passportId: string, data: Partial<Record<string, unknown>>): Promise<DppResponse> {
+    return this.request<DppResponse>('PATCH', `/v1/passports/${passportId}`, {
+      data,
+    });
+  }
+
+  /**
+   * Revoke a DPP's Verifiable Credential
+   * Used when a product is deleted or DPP data is found to be inaccurate
+   */
+  async revokeDpp(passportId: string, reason: string): Promise<DppResponse> {
+    return this.request<DppResponse>('POST', `/v1/passports/${passportId}/revoke`, {
+      reason,
+    });
   }
 }
 
