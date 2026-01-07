@@ -109,7 +109,7 @@ Benefits:
 Every organization on EuroComply gets a **DID** - a globally unique, cryptographically verifiable identifier.
 
 ```
-Organization DID: did:web:api.eurocomply.io:org:acme-corp
+Organization DID: did:web:api.eurocomply.eu:org:acme-corp
                   ─────── ─────────────────── ─────────
                      │            │              │
                      │            │              └── Organization slug
@@ -117,15 +117,15 @@ Organization DID: did:web:api.eurocomply.io:org:acme-corp
                      └── DID method (web-based resolution)
 ```
 
-**DID Document** (hosted at `https://api.eurocomply.io/org/acme-corp/did.json`):
+**DID Document** (hosted at `https://api.eurocomply.eu/org/acme-corp/did.json`):
 ```json
 {
   "@context": ["https://www.w3.org/ns/did/v1"],
-  "id": "did:web:api.eurocomply.io:org:acme-corp",
+  "id": "did:web:api.eurocomply.eu:org:acme-corp",
   "verificationMethod": [{
-    "id": "did:web:api.eurocomply.io:org:acme-corp#key-1",
+    "id": "did:web:api.eurocomply.eu:org:acme-corp#key-1",
     "type": "JsonWebKey2020",
-    "controller": "did:web:api.eurocomply.io:org:acme-corp",
+    "controller": "did:web:api.eurocomply.eu:org:acme-corp",
     "publicKeyJwk": {
       "kty": "EC",
       "crv": "P-256",
@@ -133,8 +133,8 @@ Organization DID: did:web:api.eurocomply.io:org:acme-corp
       "y": "..."
     }
   }],
-  "authentication": ["did:web:api.eurocomply.io:org:acme-corp#key-1"],
-  "assertionMethod": ["did:web:api.eurocomply.io:org:acme-corp#key-1"]
+  "authentication": ["did:web:api.eurocomply.eu:org:acme-corp#key-1"],
+  "assertionMethod": ["did:web:api.eurocomply.eu:org:acme-corp#key-1"]
 }
 ```
 
@@ -148,10 +148,10 @@ When a passport is created and anchored, it becomes a signed JWT:
 {
   "@context": [
     "https://www.w3.org/2018/credentials/v1",
-    "https://eurocomply.io/contexts/dpp/v1"
+    "https://eurocomply.eu/contexts/dpp/v1"
   ],
   "type": ["VerifiableCredential", "DigitalProductPassport"],
-  "issuer": "did:web:api.eurocomply.io:org:acme-corp",
+  "issuer": "did:web:api.eurocomply.eu:org:acme-corp",
   "issuanceDate": "2026-01-07T10:30:00Z",
   "credentialSubject": {
     "id": "urn:gtin:5901234123457",
@@ -161,7 +161,7 @@ When a passport is created and anchored, it becomes a signed JWT:
     "manufacturer": {
       "name": "ACME Textiles GmbH",
       "country": "DE",
-      "did": "did:web:api.eurocomply.io:org:acme-corp"
+      "did": "did:web:api.eurocomply.eu:org:acme-corp"
     },
     "sustainability": {
       "carbonFootprint": {
@@ -187,7 +187,7 @@ When a passport is created and anchored, it becomes a signed JWT:
   "proof": {
     "type": "JsonWebSignature2020",
     "created": "2026-01-07T10:30:00Z",
-    "verificationMethod": "did:web:api.eurocomply.io:org:acme-corp#key-1",
+    "verificationMethod": "did:web:api.eurocomply.eu:org:acme-corp#key-1",
     "proofPurpose": "assertionMethod",
     "jws": "eyJhbGciOiJFUzI1NiIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il19...[signature]"
   }
@@ -247,7 +247,7 @@ When a passport is created and anchored, it becomes a signed JWT:
 
 ```bash
 # Anyone can verify a DPP - no authentication required
-curl https://api.eurocomply.io/v1/passports/pass_abc123/verify
+curl https://api.eurocomply.eu/v1/passports/pass_abc123/verify
 ```
 
 Response:
@@ -258,7 +258,7 @@ Response:
     "valid": true,
     "credential": {
       "issuer": {
-        "did": "did:web:api.eurocomply.io:org:acme-corp",
+        "did": "did:web:api.eurocomply.eu:org:acme-corp",
         "name": "ACME Textiles GmbH",
         "country": "DE"
       },
@@ -407,7 +407,7 @@ export const defaultConfig: IdentityConfig = {
   },
   did: {
     method: 'web',  // 'web' now, 'ebsi' later
-    domain: process.env.API_HOST || 'api.eurocomply.io',
+    domain: process.env.API_HOST || 'api.eurocomply.eu',
   },
   features: {
     ebsiAnchoring: false,  // Enable when EBSI access obtained

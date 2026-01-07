@@ -5,7 +5,7 @@ API endpoints for the EuroComply Supplier Marketplace. Suppliers can register, c
 ## Base URL
 
 ```
-https://api.eurocomply.io/api/suppliers
+https://api.eurocomply.eu/api/suppliers
 ```
 
 ## Authentication
@@ -13,7 +13,7 @@ https://api.eurocomply.io/api/suppliers
 Most endpoints require a Bearer token obtained from login:
 
 ```bash
-curl https://api.eurocomply.io/api/suppliers/me \
+curl https://api.eurocomply.eu/api/suppliers/me \
   -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIs..."
 ```
 

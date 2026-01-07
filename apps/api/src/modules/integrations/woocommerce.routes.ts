@@ -11,7 +11,7 @@ const router = Router();
 
 // Configuration
 const WOOCOMMERCE_WEBHOOK_SECRET = process.env.WOOCOMMERCE_WEBHOOK_SECRET || '';
-const API_HOST = process.env.API_HOST || 'api.eurocomply.io';
+const API_HOST = process.env.API_HOST || 'api.eurocomply.eu';
 
 // ============================================
 // Store Connection

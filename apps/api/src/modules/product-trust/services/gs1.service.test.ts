@@ -238,7 +238,7 @@ describe('gs1Service.parseDigitalLink', () => {
 describe('gs1Service.generateDppQrPayload', () => {
   it('should generate verification URL with default base', () => {
     const payload = gs1Service.generateDppQrPayload('pass_abc123');
-    expect(payload).toBe('https://api.eurocomply.io/v1/passports/pass_abc123/verify');
+    expect(payload).toBe('https://api.eurocomply.eu/v1/passports/pass_abc123/verify');
   });
 
   it('should use custom base URL', () => {

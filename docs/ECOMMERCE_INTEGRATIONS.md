@@ -65,8 +65,8 @@ GET /api/shopify/auth?shop=mystore.myshopify.com
 ```env
 SHOPIFY_API_KEY=your_api_key
 SHOPIFY_API_SECRET=your_api_secret
-API_HOST=api.eurocomply.io
-DASHBOARD_URL=https://dashboard.eurocomply.io
+API_HOST=api.eurocomply.eu
+DASHBOARD_URL=https://dashboard.eurocomply.eu
 ```
 
 #### Required Scopes
@@ -162,7 +162,7 @@ Once products are synced, create Digital Product Passports:
 
 ```bash
 # Create passport for a product
-curl -X POST https://api.eurocomply.io/v1/passports \
+curl -X POST https://api.eurocomply.eu/v1/passports \
   -H "Authorization: Bearer ec_live_xxxxx" \
   -H "Content-Type: application/json" \
   -d '{
@@ -180,7 +180,7 @@ curl -X POST https://api.eurocomply.io/v1/passports \
   }'
 
 # Generate QR code
-curl -X POST https://api.eurocomply.io/v1/passports/pass_xxx/qr \
+curl -X POST https://api.eurocomply.eu/v1/passports/pass_xxx/qr \
   -H "Authorization: Bearer ec_live_xxxxx"
 ```
 

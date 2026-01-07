@@ -20,23 +20,23 @@ describe('DID Format', () => {
     }
 
     it('should build platform DID', () => {
-      const did = buildDidWeb('eurocomply.io');
-      expect(did).toBe('did:web:eurocomply.io');
+      const did = buildDidWeb('eurocomply.eu');
+      expect(did).toBe('did:web:eurocomply.eu');
     });
 
     it('should build merchant DID with path', () => {
-      const did = buildDidWeb('eurocomply.io', 'm/acme-corp');
-      expect(did).toBe('did:web:eurocomply.io:m:acme-corp');
+      const did = buildDidWeb('eurocomply.eu', 'm/acme-corp');
+      expect(did).toBe('did:web:eurocomply.eu:m:acme-corp');
     });
 
     it('should convert slashes to colons in path', () => {
-      const did = buildDidWeb('eurocomply.io', 'organizations/123/merchants/456');
-      expect(did).toBe('did:web:eurocomply.io:organizations:123:merchants:456');
+      const did = buildDidWeb('eurocomply.eu', 'organizations/123/merchants/456');
+      expect(did).toBe('did:web:eurocomply.eu:organizations:123:merchants:456');
     });
 
     it('should handle subdomain', () => {
-      const did = buildDidWeb('api.eurocomply.io');
-      expect(did).toBe('did:web:api.eurocomply.io');
+      const did = buildDidWeb('api.eurocomply.eu');
+      expect(did).toBe('did:web:api.eurocomply.eu');
     });
   });
 
@@ -53,18 +53,18 @@ describe('DID Format', () => {
     }
 
     it('should resolve platform DID to .well-known', () => {
-      const url = didToUrl('did:web:eurocomply.io');
-      expect(url).toBe('https://eurocomply.io/.well-known/did.json');
+      const url = didToUrl('did:web:eurocomply.eu');
+      expect(url).toBe('https://eurocomply.eu/.well-known/did.json');
     });
 
     it('should resolve merchant DID to path', () => {
-      const url = didToUrl('did:web:eurocomply.io:m:acme-corp');
-      expect(url).toBe('https://eurocomply.io/m/acme-corp/did.json');
+      const url = didToUrl('did:web:eurocomply.eu:m:acme-corp');
+      expect(url).toBe('https://eurocomply.eu/m/acme-corp/did.json');
     });
 
     it('should handle deep paths', () => {
-      const url = didToUrl('did:web:eurocomply.io:organizations:123');
-      expect(url).toBe('https://eurocomply.io/organizations/123/did.json');
+      const url = didToUrl('did:web:eurocomply.eu:organizations:123');
+      expect(url).toBe('https://eurocomply.eu/organizations/123/did.json');
     });
   });
 
@@ -129,30 +129,30 @@ describe('DID Document Structure', () => {
   }
 
   it('should create valid DID document', () => {
-    const doc = createDidDocument('did:web:eurocomply.io', 'key-1');
+    const doc = createDidDocument('did:web:eurocomply.eu', 'key-1');
 
-    expect(doc.id).toBe('did:web:eurocomply.io');
+    expect(doc.id).toBe('did:web:eurocomply.eu');
     expect(doc['@context']).toContain('https://www.w3.org/ns/did/v1');
   });
 
   it('should reference key in verification methods', () => {
-    const doc = createDidDocument('did:web:eurocomply.io', 'key-1');
+    const doc = createDidDocument('did:web:eurocomply.eu', 'key-1');
 
-    expect(doc.verificationMethod?.[0]?.id).toBe('did:web:eurocomply.io#key-1');
-    expect(doc.authentication).toContain('did:web:eurocomply.io#key-1');
-    expect(doc.assertionMethod).toContain('did:web:eurocomply.io#key-1');
+    expect(doc.verificationMethod?.[0]?.id).toBe('did:web:eurocomply.eu#key-1');
+    expect(doc.authentication).toContain('did:web:eurocomply.eu#key-1');
+    expect(doc.assertionMethod).toContain('did:web:eurocomply.eu#key-1');
   });
 
   it('should use JsonWebKey2020 type', () => {
-    const doc = createDidDocument('did:web:eurocomply.io', 'key-1');
+    const doc = createDidDocument('did:web:eurocomply.eu', 'key-1');
 
     expect(doc.verificationMethod?.[0]?.type).toBe('JsonWebKey2020');
   });
 
   it('should set controller to the DID', () => {
-    const doc = createDidDocument('did:web:eurocomply.io', 'key-1');
+    const doc = createDidDocument('did:web:eurocomply.eu', 'key-1');
 
-    expect(doc.verificationMethod?.[0]?.controller).toBe('did:web:eurocomply.io');
+    expect(doc.verificationMethod?.[0]?.controller).toBe('did:web:eurocomply.eu');
   });
 });
 
@@ -196,7 +196,7 @@ describe('Verifiable Credential Structure', () => {
 
   it('should create valid credential structure', () => {
     const cred = createCredential(
-      'did:web:eurocomply.io',
+      'did:web:eurocomply.eu',
       'urn:gtin:8076800195057',
       'DigitalProductPassport',
       { productName: 'Test Product' }
@@ -204,12 +204,12 @@ describe('Verifiable Credential Structure', () => {
 
     expect(cred.type).toContain('VerifiableCredential');
     expect(cred.type).toContain('DigitalProductPassport');
-    expect(cred.issuer).toBe('did:web:eurocomply.io');
+    expect(cred.issuer).toBe('did:web:eurocomply.eu');
   });
 
   it('should include W3C context', () => {
     const cred = createCredential(
-      'did:web:eurocomply.io',
+      'did:web:eurocomply.eu',
       'did:web:merchant.com',
       'KYBVerification',
       {}
@@ -220,7 +220,7 @@ describe('Verifiable Credential Structure', () => {
 
   it('should set credential subject ID', () => {
     const cred = createCredential(
-      'did:web:eurocomply.io',
+      'did:web:eurocomply.eu',
       'urn:gtin:12345678901234',
       'DigitalProductPassport',
       { productName: 'Widget' }
@@ -231,7 +231,7 @@ describe('Verifiable Credential Structure', () => {
 
   it('should include claims in subject', () => {
     const cred = createCredential(
-      'did:web:eurocomply.io',
+      'did:web:eurocomply.eu',
       'urn:gtin:12345678901234',
       'DigitalProductPassport',
       {
@@ -247,7 +247,7 @@ describe('Verifiable Credential Structure', () => {
 
   it('should handle optional expiration date', () => {
     const withExpiry = createCredential(
-      'did:web:eurocomply.io',
+      'did:web:eurocomply.eu',
       'did:web:merchant.com',
       'KYBVerification',
       {},
@@ -255,7 +255,7 @@ describe('Verifiable Credential Structure', () => {
     );
 
     const withoutExpiry = createCredential(
-      'did:web:eurocomply.io',
+      'did:web:eurocomply.eu',
       'did:web:merchant.com',
       'KYBVerification',
       {}

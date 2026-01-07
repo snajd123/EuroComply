@@ -12,8 +12,8 @@ const router = Router();
 // Configuration
 const SHOPIFY_API_KEY = process.env.SHOPIFY_API_KEY || '';
 const SHOPIFY_API_SECRET = process.env.SHOPIFY_API_SECRET || '';
-const API_HOST = process.env.API_HOST || 'api.eurocomply.io';
-const DASHBOARD_URL = process.env.DASHBOARD_URL || 'https://dashboard.eurocomply.io';
+const API_HOST = process.env.API_HOST || 'api.eurocomply.eu';
+const DASHBOARD_URL = process.env.DASHBOARD_URL || 'https://dashboard.eurocomply.eu';
 const SHOPIFY_API_VERSION = '2024-01';
 
 // Scopes needed for product sync

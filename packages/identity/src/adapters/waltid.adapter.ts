@@ -101,7 +101,7 @@ export class WaltIdAdapter {
 
   async createDidWeb(domain: string, path: string, keyId: string): Promise<DidDocument> {
     // Construct did:web identifier
-    // did:web:eurocomply.io:m:merchant-slug
+    // did:web:eurocomply.eu:m:merchant-slug
     const didPath = path ? `:${path.replace(/\//g, ':')}` : '';
     const did = `did:web:${domain}${didPath}`;
 

@@ -137,7 +137,7 @@ export default function Settings() {
                 <Text as="p" tone="subdued">
                   Connect your EuroComply account to generate Digital Product Passports for your products.
                   Get your API credentials from your{" "}
-                  <Link url="https://eurocomply.io/dashboard/api-keys" external>
+                  <Link url="https://eurocomply.eu/dashboard/api-keys" external>
                     EuroComply dashboard
                   </Link>
                   .

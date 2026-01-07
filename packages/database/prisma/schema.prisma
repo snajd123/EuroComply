@@ -21,7 +21,7 @@ model Organization {
   domain      String?  @unique
 
   // Identity (walt.id)
-  did         String?  @unique // did:web:eurocomply.io:o:{slug}
+  did         String?  @unique // did:web:eurocomply.eu:o:{slug}
   keyId       String?  // walt.id key reference for signing
   didDocument Json?    // Cached DID document for hosting
 

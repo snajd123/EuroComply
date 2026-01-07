@@ -53,13 +53,13 @@ export default function SettingsPage() {
             <div className="flex items-center gap-2">
               <input
                 type="text"
-                value="did:web:eurocomply.io:m:my-organization"
+                value="did:web:eurocomply.eu:m:my-organization"
                 readOnly
                 className="flex-1 px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-gray-600"
               />
               <button
                 onClick={() =>
-                  copyToClipboard('did:web:eurocomply.io:m:my-organization')
+                  copyToClipboard('did:web:eurocomply.eu:m:my-organization')
                 }
                 className="p-2 hover:bg-gray-100 rounded-lg"
               >

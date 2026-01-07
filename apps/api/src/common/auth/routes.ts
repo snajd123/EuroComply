@@ -40,7 +40,7 @@ router.post('/organizations', async (req, res, next) => {
         name: data.name,
         slug: data.slug,
         domain: data.domain,
-        did: `did:web:eurocomply.io:m:${data.slug}`,
+        did: `did:web:eurocomply.eu:m:${data.slug}`,
         apiKeys: {
           create: {
             name: 'Default API Key',

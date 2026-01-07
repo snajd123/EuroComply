@@ -26,7 +26,7 @@ variable "environment" {
 variable "domain_name" {
   description = "Primary domain name for the application"
   type        = string
-  default     = "eurocomply.io"
+  default     = "eurocomply.eu"
 }
 
 # -----------------------------

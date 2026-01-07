@@ -7,7 +7,7 @@
 
 import axios, { AxiosInstance } from 'axios';
 
-const API_BASE_URL = process.env.EUROCOMPLY_API_URL || 'https://api.eurocomply.io';
+const API_BASE_URL = process.env.EUROCOMPLY_API_URL || 'https://api.eurocomply.eu';
 
 export interface Product {
   id: string;

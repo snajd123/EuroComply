@@ -8,7 +8,7 @@
 # -----------------------------
 aws_region  = "eu-central-1"  # Frankfurt - GDPR compliant
 environment = "production"     # dev, staging, or production
-domain_name = "eurocomply.io"
+domain_name = "eurocomply.eu"
 
 # -----------------------------
 # Database (RDS PostgreSQL)

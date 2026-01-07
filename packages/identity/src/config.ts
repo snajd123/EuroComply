@@ -14,7 +14,7 @@ export interface IdentityConfig {
   // DID configuration
   did: {
     method: 'web' | 'ebsi';
-    domain: string; // e.g., "eurocomply.io"
+    domain: string; // e.g., "eurocomply.eu"
   };
 
   // Feature flags
@@ -32,7 +32,7 @@ export const defaultConfig: IdentityConfig = {
   },
   did: {
     method: (process.env.DID_METHOD as 'web' | 'ebsi') || 'web',
-    domain: process.env.PLATFORM_DOMAIN || 'eurocomply.io',
+    domain: process.env.PLATFORM_DOMAIN || 'eurocomply.eu',
   },
   features: {
     fallbackToSimulation: process.env.NODE_ENV !== 'production',

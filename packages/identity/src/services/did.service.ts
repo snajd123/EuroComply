@@ -61,7 +61,7 @@ export class DidService {
   /**
    * Create a did:web identifier
    *
-   * Format: did:web:eurocomply.io:m:{merchant-slug}
+   * Format: did:web:eurocomply.eu:m:{merchant-slug}
    */
   private async createDidWeb(identifier: string, keyId: string): Promise<DidCreationResult> {
     const domain = this.config.did.domain;
@@ -136,7 +136,7 @@ export class DidService {
   private async resolveDidWeb(did: string): Promise<DidDocument | null> {
     try {
       // Parse did:web
-      // did:web:eurocomply.io:m:acme-corp -> https://eurocomply.io/m/acme-corp/did.json
+      // did:web:eurocomply.eu:m:acme-corp -> https://eurocomply.eu/m/acme-corp/did.json
       const parts = did.replace('did:web:', '').split(':');
       const domain = parts[0];
       const path = parts.slice(1).join('/');
@@ -213,7 +213,7 @@ export class DidService {
   }
 
   /**
-   * Create platform DID (did:web:eurocomply.io)
+   * Create platform DID (did:web:eurocomply.eu)
    */
   async createPlatformDid(keyId?: string): Promise<DidCreationResult> {
     const domain = this.config.did.domain;

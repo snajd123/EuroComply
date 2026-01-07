@@ -117,13 +117,13 @@ docker-compose up -d  # Starts all services including walt.id stack
 ### Authentication
 All API requests require an API key:
 ```bash
-curl https://api.eurocomply.io/v1/products \
+curl https://api.eurocomply.eu/v1/products \
   -H "Authorization: Bearer ec_live_xxxxx"
 ```
 
 ### Create a Product
 ```bash
-curl -X POST https://api.eurocomply.io/v1/products \
+curl -X POST https://api.eurocomply.eu/v1/products \
   -H "Authorization: Bearer ec_live_xxxxx" \
   -H "Content-Type: application/json" \
   -d '{
@@ -135,7 +135,7 @@ curl -X POST https://api.eurocomply.io/v1/products \
 
 ### Create a Digital Product Passport
 ```bash
-curl -X POST https://api.eurocomply.io/v1/passports \
+curl -X POST https://api.eurocomply.eu/v1/passports \
   -H "Authorization: Bearer ec_live_xxxxx" \
   -H "Content-Type: application/json" \
   -d '{
@@ -161,13 +161,13 @@ curl -X POST https://api.eurocomply.io/v1/passports \
 
 ### Generate QR Code
 ```bash
-curl -X POST https://api.eurocomply.io/v1/passports/pass_xxx/qr \
+curl -X POST https://api.eurocomply.eu/v1/passports/pass_xxx/qr \
   -H "Authorization: Bearer ec_live_xxxxx"
 ```
 
 ### Record Lifecycle Event
 ```bash
-curl -X POST https://api.eurocomply.io/v1/products/prod_xxx/events \
+curl -X POST https://api.eurocomply.eu/v1/products/prod_xxx/events \
   -H "Authorization: Bearer ec_live_xxxxx" \
   -H "Content-Type: application/json" \
   -d '{
@@ -180,7 +180,7 @@ curl -X POST https://api.eurocomply.io/v1/products/prod_xxx/events \
 
 ### Public Verification (No Auth)
 ```bash
-curl https://api.eurocomply.io/v1/passports/pass_xxx/verify
+curl https://api.eurocomply.eu/v1/passports/pass_xxx/verify
 ```
 
 ## ☁️ Infrastructure
@@ -201,7 +201,7 @@ See [INFRASTRUCTURE.md](./INFRASTRUCTURE.md) for full architecture and deploymen
 
 EuroComply uses **walt.id Community Stack** for W3C Verifiable Credentials:
 
-- **DID Method**: `did:web` (e.g., `did:web:eurocomply.io:p:product-id`)
+- **DID Method**: `did:web` (e.g., `did:web:eurocomply.eu:p:product-id`)
 - **Credential Format**: W3C Verifiable Credentials, JWT
 - **Future**: EBSI integration when regulatory traction exists
 
@@ -215,8 +215,8 @@ DATABASE_URL=postgresql://user:pass@localhost:5432/eurocomply
 
 # API
 PORT=3000
-API_HOST=api.eurocomply.io
-DASHBOARD_URL=https://dashboard.eurocomply.io
+API_HOST=api.eurocomply.eu
+DASHBOARD_URL=https://dashboard.eurocomply.eu
 
 # walt.id (Verifiable Credentials)
 WALTID_CORE_API=http://localhost:7000
@@ -274,5 +274,5 @@ Proprietary - All rights reserved
 
 ## 🤝 Support
 
-- Documentation: https://docs.eurocomply.io
-- Support: support@eurocomply.io
+- Documentation: https://docs.eurocomply.eu
+- Support: support@eurocomply.eu

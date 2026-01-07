@@ -403,8 +403,8 @@ describe('Organization DID Logic', () => {
 
   describe('buildOrgDid', () => {
     it('should build correct DID format', () => {
-      const did = buildOrgDid('eurocomply.io', 'acme-corp');
-      expect(did).toBe('did:web:eurocomply.io:m:acme-corp');
+      const did = buildOrgDid('eurocomply.eu', 'acme-corp');
+      expect(did).toBe('did:web:eurocomply.eu:m:acme-corp');
     });
 
     it('should handle different domains', () => {
@@ -415,15 +415,15 @@ describe('Organization DID Logic', () => {
 
   describe('buildKeyId', () => {
     it('should build correct key ID', () => {
-      const did = 'did:web:eurocomply.io:m:acme-corp';
+      const did = 'did:web:eurocomply.eu:m:acme-corp';
       const keyId = buildKeyId(did);
-      expect(keyId).toBe('did:web:eurocomply.io:m:acme-corp#key-1');
+      expect(keyId).toBe('did:web:eurocomply.eu:m:acme-corp#key-1');
     });
 
     it('should support custom key index', () => {
-      const did = 'did:web:eurocomply.io:m:acme-corp';
+      const did = 'did:web:eurocomply.eu:m:acme-corp';
       const keyId = buildKeyId(did, 2);
-      expect(keyId).toBe('did:web:eurocomply.io:m:acme-corp#key-2');
+      expect(keyId).toBe('did:web:eurocomply.eu:m:acme-corp#key-2');
     });
   });
 });
@@ -433,7 +433,7 @@ describe('Organization DID Logic', () => {
 // ===========================================
 
 describe('Verification URL Generation', () => {
-  function generateVerificationUrl(passportId: string, baseUrl: string = 'https://api.eurocomply.io'): string {
+  function generateVerificationUrl(passportId: string, baseUrl: string = 'https://api.eurocomply.eu'): string {
     return `${baseUrl}/v1/passports/${passportId}/verify`;
   }
 
@@ -446,7 +446,7 @@ describe('Verification URL Generation', () => {
   describe('generateVerificationUrl', () => {
     it('should generate correct URL', () => {
       const url = generateVerificationUrl('pass_abc123');
-      expect(url).toBe('https://api.eurocomply.io/v1/passports/pass_abc123/verify');
+      expect(url).toBe('https://api.eurocomply.eu/v1/passports/pass_abc123/verify');
     });
 
     it('should support custom base URL', () => {
@@ -457,7 +457,7 @@ describe('Verification URL Generation', () => {
 
   describe('parseVerificationUrl', () => {
     it('should extract passport ID', () => {
-      const result = parseVerificationUrl('https://api.eurocomply.io/v1/passports/pass_abc123/verify');
+      const result = parseVerificationUrl('https://api.eurocomply.eu/v1/passports/pass_abc123/verify');
       expect(result?.passportId).toBe('pass_abc123');
     });
 

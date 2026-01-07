@@ -44,7 +44,7 @@ export interface JsonWebKey {
 
 export interface CreateDidOptions {
   method: DidMethod;
-  identifier: string; // e.g., "acme-corp" for did:web:eurocomply.io:m:acme-corp
+  identifier: string; // e.g., "acme-corp" for did:web:eurocomply.eu:m:acme-corp
   keyAlgorithm?: 'ES256' | 'EdDSA';
 }
 

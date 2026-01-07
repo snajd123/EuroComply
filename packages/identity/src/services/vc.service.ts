@@ -177,7 +177,7 @@ export class VcService {
       subjectDid: subjectId,
       type: CredentialTypes.DIGITAL_PRODUCT_PASSPORT,
       claims: productData,
-      additionalContexts: ['https://eurocomply.io/contexts/dpp/v1'],
+      additionalContexts: ['https://eurocomply.eu/contexts/dpp/v1'],
     });
   }
 

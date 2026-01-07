@@ -29,7 +29,7 @@ AWS-based infrastructure for EU/GDPR-compliant Digital Product Passport platform
 │                         AWS eu-central-1 (Frankfurt)                         │
 │  ┌───────────────────────────────────────────────────────────────────────┐  │
 │  │                           Route 53 (DNS)                               │  │
-│  │                     api.eurocomply.io → ALB                            │  │
+│  │                     api.eurocomply.eu → ALB                            │  │
 │  └───────────────────────────────┬───────────────────────────────────────┘  │
 │                                  │                                           │
 │  ┌───────────────────────────────▼───────────────────────────────────────┐  │
@@ -202,7 +202,7 @@ AWS_ACCOUNT_ID=123456789012
 # ===========================================
 NODE_ENV=production
 PORT=3000
-API_URL=https://api.eurocomply.io
+API_URL=https://api.eurocomply.eu
 LOG_LEVEL=info
 
 # ===========================================
@@ -232,8 +232,8 @@ SHOPIFY_API_SECRET=<from-secrets-manager>
 # DID Configuration
 # ===========================================
 DID_METHOD=web
-PLATFORM_DID=did:web:api.eurocomply.io
-PLATFORM_DOMAIN=api.eurocomply.io
+PLATFORM_DID=did:web:api.eurocomply.eu
+PLATFORM_DOMAIN=api.eurocomply.eu
 
 # ===========================================
 # S3 Storage
@@ -358,15 +358,15 @@ Target Memory utilization: 80%
 
 1. **Development** (dev branch)
    - Auto-deploy on push
-   - dev.api.eurocomply.io
+   - dev.api.eurocomply.eu
 
 2. **Staging** (staging branch)
    - Auto-deploy on push
-   - staging.api.eurocomply.io
+   - staging.api.eurocomply.eu
 
 3. **Production** (main branch)
    - Manual approval required
-   - api.eurocomply.io
+   - api.eurocomply.eu
 
 ---
 

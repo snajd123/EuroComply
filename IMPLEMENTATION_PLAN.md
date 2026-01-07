@@ -153,7 +153,7 @@ AuditLog
 ### Authentication
 ```bash
 # API Key in header (Stripe-style)
-curl https://api.eurocomply.io/v1/products \
+curl https://api.eurocomply.eu/v1/products \
   -H "Authorization: Bearer ec_live_xxxxx"
 ```
 

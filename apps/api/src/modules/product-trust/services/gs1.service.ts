@@ -128,7 +128,7 @@ export const gs1Service = {
    * This creates a URL that resolves to the product passport
    */
   generateDppQrPayload(passportId: string, baseUrl?: string): string {
-    const base = baseUrl || process.env.API_URL || 'https://api.eurocomply.io';
+    const base = baseUrl || process.env.API_URL || 'https://api.eurocomply.eu';
     return `${base}/v1/passports/${passportId}/verify`;
   },
 };

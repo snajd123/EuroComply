@@ -21,13 +21,13 @@ const prisma = new PrismaClient();
  * Platform DID Document
  * GET /.well-known/did.json
  *
- * Returns the DID document for did:web:eurocomply.io
+ * Returns the DID document for did:web:eurocomply.eu
  * This is the issuer identity for KYB credentials.
  */
 router.get('/.well-known/did.json', async (_req: Request, res: Response) => {
   try {
     // Get platform organization (first org with domain matching platform)
-    const platformDomain = process.env.PLATFORM_DOMAIN || 'eurocomply.io';
+    const platformDomain = process.env.PLATFORM_DOMAIN || 'eurocomply.eu';
 
     // Try to find platform organization
     const platformOrg = await prisma.organization.findFirst({
@@ -68,7 +68,7 @@ router.get('/.well-known/did.json', async (_req: Request, res: Response) => {
  * Merchant DID Document
  * GET /m/:slug/did.json
  *
- * Returns the DID document for did:web:eurocomply.io:m:{slug}
+ * Returns the DID document for did:web:eurocomply.eu:m:{slug}
  * This is the merchant's identity for issuing DPP credentials.
  */
 router.get('/m/:slug/did.json', async (req: Request, res: Response) => {

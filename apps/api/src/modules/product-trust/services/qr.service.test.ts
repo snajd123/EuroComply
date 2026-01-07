@@ -12,7 +12,7 @@ import { qrService } from './qr.service.js';
 
 describe('qrService.generate (Data URL)', () => {
   it('should generate a data URL QR code', async () => {
-    const data = 'https://eurocomply.io/verify/pass_123';
+    const data = 'https://eurocomply.eu/verify/pass_123';
     const result = await qrService.generate(data);
 
     expect(result).toMatch(/^data:image\/png;base64,/);
@@ -35,7 +35,7 @@ describe('qrService.generate (Data URL)', () => {
   });
 
   it('should generate same QR code for same data', async () => {
-    const data = 'https://eurocomply.io/verify/pass_123';
+    const data = 'https://eurocomply.eu/verify/pass_123';
     const result1 = await qrService.generate(data);
     const result2 = await qrService.generate(data);
 
@@ -43,7 +43,7 @@ describe('qrService.generate (Data URL)', () => {
   });
 
   it('should handle URL data', async () => {
-    const url = 'https://api.eurocomply.io/v1/passports/pass_abc123/verify';
+    const url = 'https://api.eurocomply.eu/v1/passports/pass_abc123/verify';
     const result = await qrService.generate(url);
 
     expect(result).toMatch(/^data:image\/png;base64,/);
@@ -70,7 +70,7 @@ describe('qrService.generate (Data URL)', () => {
 
 describe('qrService.generateBuffer (PNG)', () => {
   it('should generate a PNG buffer', async () => {
-    const data = 'https://eurocomply.io/verify/pass_123';
+    const data = 'https://eurocomply.eu/verify/pass_123';
     const result = await qrService.generateBuffer(data);
 
     expect(Buffer.isBuffer(result)).toBe(true);
@@ -103,7 +103,7 @@ describe('qrService.generateBuffer (PNG)', () => {
   });
 
   it('should handle long URLs', async () => {
-    const longUrl = 'https://api.eurocomply.io/v1/passports/' + 'a'.repeat(100) + '/verify';
+    const longUrl = 'https://api.eurocomply.eu/v1/passports/' + 'a'.repeat(100) + '/verify';
     const result = await qrService.generateBuffer(longUrl);
 
     expect(Buffer.isBuffer(result)).toBe(true);
@@ -117,7 +117,7 @@ describe('qrService.generateBuffer (PNG)', () => {
 
 describe('qrService.generateSvg', () => {
   it('should generate SVG string', async () => {
-    const data = 'https://eurocomply.io/verify/pass_123';
+    const data = 'https://eurocomply.eu/verify/pass_123';
     const result = await qrService.generateSvg(data);
 
     expect(result).toContain('<svg');
