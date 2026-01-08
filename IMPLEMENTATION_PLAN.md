@@ -43,10 +43,13 @@ EuroComply is an API-first Digital Product Passport (DPP) platform targeting man
 ### DID Strategy
 | Phase | Method | Status |
 |-------|--------|--------|
-| Current | `did:key` | Active - self-contained, portable, no hosting dependency |
+| Current | `did:web` | Active - works with walt.id, requires domain hosting |
+| Next | `did:key` | 🔄 PLANNED - self-contained, portable, offline verification |
 | Future | `did:ebsi` | When institutional trust needed (enterprise customers) |
 
-**Why did:key?** The public key IS the identifier. Verification works offline, forever, without any server. Suppliers truly own their identity.
+**Why move to did:key?** The public key IS the identifier. Verification works offline, forever, without any server. Required for true data sovereignty.
+
+> ⚠️ **Current limitation**: We use `did:web` which requires server resolution. Migration to `did:key` is planned to enable offline verification and true data portability.
 
 ### Standards
 - **GS1 Digital Link** - Product identification URLs
@@ -347,14 +350,31 @@ interface TextileDppData {
 - Higg MSI integration (carbon footprint calculation)
 - Certification registry (GOTS, OEKO-TEX, GRS)
 
-### Phase 3: Supplier SaaS Platform ✅ COMPLETE
+### Phase 3: Supplier SaaS Platform ⚠️ PARTIAL
 
 **Goal:** Self-service supplier onboarding
 
-- Supplier portal (registration, verification, dashboard)
-- SaaS subscription billing (€49/149/399)
-- Free retailer catalog access (ESPR Article 31)
-- Data portability (export VCs + keys)
+**Implemented:**
+- ✅ Supplier portal (registration, verification, dashboard)
+- ✅ SaaS subscription billing (€49/149/399) - schema + services ready
+- ✅ Free retailer catalog access (ESPR Article 31)
+- ✅ Email verification service
+- ✅ VIES VAT verification service
+
+**Not Yet Implemented:**
+- ❌ Data export (VCs + keys + images)
+- ❌ Self-contained VCs (all data embedded)
+- ❌ Offline viewer
+- ❌ did:key migration (currently did:web)
+
+### Phase 3.5: Data Sovereignty 📋 PLANNED
+
+**Goal:** True data portability and ownership
+
+- did:key implementation (offline verification)
+- Self-contained VCs (all DPP data embedded)
+- One-click export (VC + images + offline viewer)
+- Public DPP viewer app
 
 ### Phase 4: Shopify Metaobject Sync 📋 PLANNED
 
@@ -418,11 +438,16 @@ EBSI integration planned when business traction achieved.
 - "Powered by EBSI" marketing
 
 ### Current State
-- Using: did:key via walt.id (self-contained, portable)
-- Credentials: W3C VCs with ALL data embedded (self-contained)
-- Verifiable: Yes (offline, forever, without any server)
-- Data Sovereignty: Full (one-click export, no lock-in)
+- Using: did:web via walt.id (requires domain hosting)
+- Credentials: W3C VCs (data stored in DB, referenced in VC)
+- Verifiable: Yes (requires server resolution for did:web)
+- Data Sovereignty: Partial (export not yet implemented)
 - EBSI-ready: Yes (architecture supports upgrade)
+
+### Target State (Phase 3.5)
+- did:key (self-contained, offline verification)
+- Self-contained VCs (all data embedded)
+- Full data sovereignty (one-click export, no lock-in)
 
 ---
 

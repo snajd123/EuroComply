@@ -2,6 +2,13 @@
 
 ## How EuroComply Uses walt.id for Portable, Verifiable DPPs
 
+> ⚠️ **Implementation Status**
+> - DID Method: Currently `did:web` (target: `did:key` for offline verification)
+> - VC Content: Currently references DB (target: all data embedded)
+> - Export: Not yet implemented (target: one-click export with offline viewer)
+>
+> See [DATA_SOVEREIGNTY.md](./DATA_SOVEREIGNTY.md) for target architecture.
+
 ---
 
 ## 1. The Problem with Traditional DPPs

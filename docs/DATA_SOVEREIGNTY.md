@@ -1,5 +1,17 @@
 # Data Sovereignty Architecture
 
+> ⚠️ **Implementation Status**: This document describes the TARGET architecture. See "Current vs Target State" below for what's implemented.
+
+## Current vs Target State
+
+| Feature | Current State | Target State |
+|---------|---------------|--------------|
+| DID Method | `did:web` (server resolution) | `did:key` (self-contained) |
+| VC Content | Data referenced from DB | All data embedded in VC |
+| Verification | Requires server | Works offline |
+| Export | ❌ Not implemented | One-click ZIP with viewer |
+| Offline Viewer | ❌ Not implemented | Self-contained HTML |
+
 ## Executive Summary
 
 **The Decision**: Sovereignty through **portable data**, not portable infrastructure.
@@ -10,7 +22,7 @@ SMEs don't want to manage AWS accounts, Kubernetes clusters, or IPFS nodes. They
 - Data ownership ("I own my data")
 - Survival guarantee ("works if you disappear")
 
-**Our Solution**: We host everything (simple), but the Verifiable Credential IS the sovereign asset. It's self-contained, cryptographically signed, and works forever without us.
+**Target Solution**: We host everything (simple), but the Verifiable Credential IS the sovereign asset. It's self-contained, cryptographically signed, and works forever without us.
 
 ---
 

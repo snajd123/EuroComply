@@ -236,26 +236,24 @@ See [INFRASTRUCTURE.md](./INFRASTRUCTURE.md) for full architecture and deploymen
 
 EuroComply uses **walt.id Community Stack** for W3C Verifiable Credentials:
 
-- **DID Method**: `did:key` (self-contained, portable, no hosting dependency)
+- **DID Method**: `did:web` (current) → `did:key` (planned for data sovereignty)
 - **Credential Format**: W3C Verifiable Credentials, JWT
-- **Self-Contained VCs**: All DPP data is embedded in the credential (not references)
-- **Offline Verification**: VCs verify anywhere, forever, without EuroComply
-- **Export**: Suppliers own their data and can export VCs + keys anytime
+- **Export**: Suppliers own their data (export feature in development)
 
-Each product passport is issued as a cryptographically signed Verifiable Credential that can be independently verified - even offline.
+Each product passport is issued as a cryptographically signed Verifiable Credential.
 
-## 🔓 Data Sovereignty
+## 🔓 Data Sovereignty (Roadmap)
 
-**Your data, your rules, our tools.** See [DATA_SOVEREIGNTY.md](docs/DATA_SOVEREIGNTY.md) for details.
+**Your data, your rules, our tools.** See [DATA_SOVEREIGNTY.md](docs/DATA_SOVEREIGNTY.md) for target architecture.
 
-| Guarantee | How We Deliver |
+| Guarantee | Current Status |
 |-----------|----------------|
-| **You own your data** | VC contains all data, signed to your DID |
-| **No lock-in** | Open standards (W3C VC, JSON), any viewer works |
-| **Works forever** | Offline verification, no EuroComply dependency |
-| **One-click export** | Download VC + images + offline viewer anytime |
+| **You own your data** | ✅ Open standards (W3C VC, JSON) |
+| **No lock-in** | ✅ Portable credential format |
+| **Offline verification** | 🔄 Planned (requires did:key migration) |
+| **One-click export** | 🔄 Planned (Phase 3.5) |
 
-**What if EuroComply disappears?** Your VCs continue to work. They're self-contained, cryptographically signed, and verify offline without any server.
+> ⚠️ **Current state**: VCs use `did:web` which requires server resolution. Full data sovereignty (offline verification, self-contained VCs, one-click export) is planned for Phase 3.5.
 
 ## 📋 Environment Variables
 
