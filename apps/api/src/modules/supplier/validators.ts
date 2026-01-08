@@ -140,8 +140,8 @@ export const catalogSearchSchema = z.object({
 // VERIFICATION VALIDATORS
 // ===========================================
 
+// Manual verification (document upload path - for non-EU or no VAT)
 export const submitVerificationSchema = z.object({
-  companyRegistration: z.string().min(1, 'Company registration number is required'),
   documents: z.array(z.object({
     type: z.enum(['BUSINESS_REGISTRATION', 'TAX_CERTIFICATE', 'CERTIFICATION', 'OTHER']),
     name: z.string(),
@@ -149,6 +149,11 @@ export const submitVerificationSchema = z.object({
     mimeType: z.string().optional(),
   })).min(1, 'At least one verification document is required'),
   notes: z.string().max(1000).optional(),
+});
+
+// VAT verification (instant path - EU only)
+export const verifyVatSchema = z.object({
+  vatNumber: z.string().min(5, 'VAT number is required').max(20),
 });
 
 export const adminReviewVerificationSchema = z.object({

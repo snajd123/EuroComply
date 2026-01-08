@@ -16,6 +16,8 @@ import type {
   SubmitVerificationInput,
   AdminReviewVerificationInput,
 } from './validators.js';
+import * as emailService from './email.service.js';
+import * as subscriptionService from './subscription.service.js';
 
 const JWT_SECRET = process.env['SUPPLIER_JWT_SECRET'] || process.env['JWT_SECRET'] || 'supplier-secret-change-me';
 const JWT_EXPIRES_IN = '7d';
@@ -65,6 +67,11 @@ export async function registerSupplier(input: RegisterSupplierInput) {
     JWT_SECRET,
     { expiresIn: JWT_EXPIRES_IN }
   );
+
+  // Send verification email (async, don't await to not block response)
+  emailService.sendVerificationEmail(supplier.id, supplier.email).catch((err) => {
+    console.error('Failed to send verification email:', err);
+  });
 
   return { supplier, token };
 }
@@ -124,19 +131,29 @@ export async function getSupplierById(supplierId: string) {
     select: {
       id: true,
       email: true,
+      emailVerified: true,
       companyName: true,
-      companyRegistration: true,
+      vatNumber: true,
       country: true,
       website: true,
       logoUrl: true,
       description: true,
+      supplierType: true,
       verificationStatus: true,
+      verificationMethod: true,
       verifiedAt: true,
       catalogVisibility: true,
-      stripeConnectAccountId: true,
-      payoutEnabled: true,
+      did: true,
       createdAt: true,
       updatedAt: true,
+      subscription: {
+        select: {
+          plan: true,
+          status: true,
+          dppLimit: true,
+          currentPeriodEnd: true,
+        },
+      },
       _count: {
         select: {
           products: true,
@@ -197,12 +214,12 @@ export async function submitVerification(supplierId: string, input: SubmitVerifi
     throw new Error(`Cannot submit verification when status is ${supplier.verificationStatus}`);
   }
 
-  // Update supplier with verification docs
+  // Update supplier with verification docs (manual review path)
   const updated = await prisma.supplier.update({
     where: { id: supplierId },
     data: {
-      companyRegistration: input.companyRegistration,
       verificationStatus: 'IN_REVIEW',
+      verificationMethod: 'MANUAL_REVIEW',
       verificationDocs: {
         documents: input.documents,
         notes: input.notes,
@@ -226,10 +243,11 @@ export async function getVerificationStatus(supplierId: string) {
     where: { id: supplierId },
     select: {
       verificationStatus: true,
+      verificationMethod: true,
       verifiedAt: true,
       verifiedBy: true,
       verificationDocs: true,
-      companyRegistration: true,
+      vatNumber: true,
     },
   });
 
@@ -264,6 +282,7 @@ export async function adminReviewVerification(
     where: { id: supplierId },
     data: {
       verificationStatus: input.decision,
+      verificationMethod: input.decision === 'VERIFIED' ? 'MANUAL_REVIEW' : undefined,
       verifiedAt: input.decision === 'VERIFIED' ? new Date() : null,
       verifiedBy: input.decision === 'VERIFIED' ? adminId : null,
       verificationDocs: {
@@ -279,6 +298,7 @@ export async function adminReviewVerification(
       email: true,
       companyName: true,
       verificationStatus: true,
+      verificationMethod: true,
       verifiedAt: true,
     },
   });
@@ -296,7 +316,7 @@ export async function getPendingVerifications() {
       companyName: true,
       country: true,
       website: true,
-      companyRegistration: true,
+      vatNumber: true,
       verificationDocs: true,
       createdAt: true,
       updatedAt: true,
@@ -319,6 +339,12 @@ export async function createSupplierProduct(supplierId: string, input: CreateSup
 
   if (!supplier) {
     throw new Error('Supplier not found');
+  }
+
+  // Check subscription quota (plan enforcement)
+  const quotaCheck = await subscriptionService.checkDppQuota(supplierId);
+  if (!quotaCheck.allowed) {
+    throw new Error(quotaCheck.reason || 'DPP quota exceeded');
   }
 
   // Can create drafts without verification, but can't publish
@@ -358,8 +384,7 @@ export async function getSupplierProducts(supplierId: string) {
     include: {
       _count: {
         select: {
-          retailerSubscriptions: true,
-          usageEvents: true,
+          retailerLinks: true,
         },
       },
     },
@@ -385,7 +410,7 @@ export async function getSupplierProductById(supplierId: string, productId: stri
       },
       _count: {
         select: {
-          retailerSubscriptions: true,
+          retailerLinks: true,
         },
       },
     },
@@ -444,7 +469,7 @@ export async function deleteSupplierProduct(supplierId: string, productId: strin
     where: { id: productId, supplierId },
     include: {
       _count: {
-        select: { retailerSubscriptions: true },
+        select: { retailerLinks: true },
       },
     },
   });
@@ -453,9 +478,9 @@ export async function deleteSupplierProduct(supplierId: string, productId: strin
     throw new Error('Product not found');
   }
 
-  // Don't allow deletion if retailers are subscribed to it
-  if (existing._count.retailerSubscriptions > 0) {
-    throw new Error(`Cannot delete product - ${existing._count.retailerSubscriptions} retailer(s) are subscribed to this DPP. Archive it instead.`);
+  // Don't allow deletion if retailers have linked this DPP
+  if (existing._count.retailerLinks > 0) {
+    throw new Error(`Cannot delete product - ${existing._count.retailerLinks} retailer(s) have linked this DPP. Archive it instead.`);
   }
 
   await prisma.supplierProduct.delete({
@@ -521,7 +546,7 @@ export async function searchCatalog(input: CatalogSearchInput, retailerShop?: st
       skip,
       take: limit,
       orderBy: [
-        { timesSubscribed: 'desc' },
+        { timesLinked: 'desc' },
         { publishedAt: 'desc' },
       ],
       include: {
@@ -539,13 +564,12 @@ export async function searchCatalog(input: CatalogSearchInput, retailerShop?: st
     prisma.supplierProduct.count({ where }),
   ]);
 
-  // Transform for catalog display
+  // Transform for catalog display (free access per ESPR Article 31)
   type ProductWithSupplier = {
     id: string;
     name: string;
     description: string | null;
     category: string;
-    price: any;
     supplier: {
       id: string;
       companyName: string;
@@ -555,7 +579,7 @@ export async function searchCatalog(input: CatalogSearchInput, retailerShop?: st
     };
     dppData: unknown;
     vcStatus: string | null;
-    timesSubscribed: number;
+    timesLinked: number;
     imageUrls: string[] | null;
   };
   const catalogProducts = (products as ProductWithSupplier[]).map((product: ProductWithSupplier) => ({
@@ -563,7 +587,6 @@ export async function searchCatalog(input: CatalogSearchInput, retailerShop?: st
     name: product.name,
     description: product.description,
     category: product.category,
-    price: Number(product.price),
     supplier: {
       id: product.supplier.id,
       name: product.supplier.companyName,
@@ -573,7 +596,7 @@ export async function searchCatalog(input: CatalogSearchInput, retailerShop?: st
     },
     dppSummary: extractDppSummary(product.dppData as any),
     vcAnchored: product.vcStatus === 'ANCHORED',
-    timesSubscribed: product.timesSubscribed,
+    timesLinked: product.timesLinked,
     imageUrl: product.imageUrls?.[0],
   }));
 
@@ -644,7 +667,7 @@ export async function getCatalogProductById(productId: string, retailerShop?: st
     description: product.description,
     category: product.category,
     imageUrls: product.imageUrls,
-    price: Number(product.price),
+    // Free access per ESPR Article 31
     supplier: {
       id: product.supplier.id,
       name: product.supplier.companyName,
@@ -658,7 +681,7 @@ export async function getCatalogProductById(productId: string, retailerShop?: st
     dppSummary: extractDppSummary(product.dppData as any),
     vcAnchored: product.vcStatus === 'ANCHORED',
     vcId: product.vcId,
-    timesSubscribed: product.timesSubscribed,
+    timesLinked: product.timesLinked,
     publishedAt: product.publishedAt,
   };
 }

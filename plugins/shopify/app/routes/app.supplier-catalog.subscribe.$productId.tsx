@@ -27,10 +27,7 @@ import {
 } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
-import {
-  getSupplierProductById,
-  SUPPLIER_SHARE,
-} from "../services/supplier-catalog.server";
+import { getSupplierProductById } from "../services/supplier-catalog.server";
 
 export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
@@ -93,8 +90,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       shop: session.shop,
       supplierProduct,
       availableProducts,
-      subscriptionPrice: supplierProduct.price,
-      supplierShare: SUPPLIER_SHARE,
+      // Free access per ESPR Article 31
     });
   } catch (error) {
     console.error("Failed to load supplier product:", error);
@@ -116,33 +112,26 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     // Get supplier product to get supplier info
     const supplierProduct = await getSupplierProductById(supplierProductId, session.shop);
 
-    // Create the subscription in our database
-    // Note: In production, this would also:
-    // 1. Create a DppUsageEvent for billing
-    // 2. Increment timesSubscribed on SupplierProduct
-    // 3. Record usage with Shopify billing API
-
+    // Link the DPP to retailer's product (FREE per ESPR Article 31)
     await prisma.productSync.create({
       data: {
         shop: session.shop,
         shopifyProductId,
-        // Store subscription info
-        // Note: We're using JSON in eurocomplyDppId field for now
-        // In production, extend the schema properly
+        // Store link info
         eurocomplyDppId: JSON.stringify({
-          type: 'SUPPLIER_SUBSCRIPTION',
+          type: 'SUPPLIER_DPP_LINK',
           supplierProductId,
           supplierId: supplierProduct.supplier.id,
           supplierName: supplierProduct.supplier.name,
           supplierVerified: supplierProduct.supplier.verified,
           vcId: supplierProduct.vcId,
-          subscribedAt: new Date().toISOString(),
+          linkedAt: new Date().toISOString(),
         }),
         syncStatus: "synced",
       },
     });
 
-    return redirect(`/app/products?subscribed=${supplierProductId}`);
+    return redirect(`/app/products?linked=${supplierProductId}`);
   } catch (error) {
     console.error("Failed to subscribe to supplier product:", error);
     return json({
@@ -152,12 +141,10 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
   }
 };
 
-export default function SubscribeToSupplierProduct() {
+export default function LinkSupplierDpp() {
   const {
     supplierProduct,
     availableProducts,
-    subscriptionPrice,
-    supplierShare,
   } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
@@ -178,8 +165,8 @@ export default function SubscribeToSupplierProduct() {
 
   return (
     <Page
-      title="Subscribe to Supplier DPP"
-      subtitle="Use this supplier's verified DPP for your product"
+      title="Link Supplier DPP"
+      subtitle="Use this supplier's verified DPP for your product (free)"
       backAction={{ content: "Catalog", url: "/app/supplier-catalog" }}
     >
       <BlockStack gap="500">
@@ -289,29 +276,27 @@ export default function SubscribeToSupplierProduct() {
           </Layout.Section>
 
           <Layout.Section variant="oneThird">
-            {/* Pricing Info */}
+            {/* Link Info - Free per ESPR Article 31 */}
             <Card>
               <BlockStack gap="400">
-                <Text as="h2" variant="headingMd">Subscription</Text>
+                <Text as="h2" variant="headingMd">Link DPP</Text>
                 <Divider />
 
-                <BlockStack gap="200">
-                  <InlineStack align="space-between">
-                    <Text as="span">Monthly fee</Text>
-                    <Text as="span" fontWeight="bold">€{subscriptionPrice.toFixed(2)}/month</Text>
-                  </InlineStack>
-                  <InlineStack align="space-between">
-                    <Text as="span" tone="subdued">Supplier receives</Text>
-                    <Text as="span" tone="subdued">€{(subscriptionPrice * supplierShare).toFixed(2)}</Text>
-                  </InlineStack>
-                </BlockStack>
-
-                <Divider />
+                <Banner tone="success">
+                  <BlockStack gap="100">
+                    <Text as="p" variant="bodySm" fontWeight="bold">
+                      Free Access (ESPR Article 31)
+                    </Text>
+                    <Text as="p" variant="bodySm">
+                      EU regulation mandates free DPP access for all economic operators.
+                    </Text>
+                  </BlockStack>
+                </Banner>
 
                 <Banner tone="info">
                   <BlockStack gap="100">
                     <Text as="p" variant="bodySm">
-                      <strong>What subscribing means:</strong>
+                      <strong>What linking means:</strong>
                     </Text>
                     <Text as="p" variant="bodySm">
                       • Supplier's Verifiable Credential is displayed
@@ -336,7 +321,7 @@ export default function SubscribeToSupplierProduct() {
                   disabled={!selectedProduct || isSubmitting}
                   loading={isSubmitting}
                 >
-                  Subscribe (€{subscriptionPrice.toFixed(2)}/mo)
+                  Link DPP - Free
                 </Button>
               </BlockStack>
             </Card>

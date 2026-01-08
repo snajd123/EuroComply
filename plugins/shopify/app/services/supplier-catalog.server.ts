@@ -10,7 +10,7 @@ export interface CatalogProduct {
   name: string;
   description?: string;
   category: string;
-  price: number;
+  // Free access per ESPR Article 31 - no pricing
   supplier: {
     id: string;
     name: string;
@@ -26,7 +26,7 @@ export interface CatalogProduct {
     manufacturer?: string;
   };
   vcAnchored: boolean;
-  timesSubscribed: number;
+  timesLinked: number;  // How many retailers have linked this DPP
   imageUrl?: string;
 }
 
@@ -118,9 +118,7 @@ export async function getSupplierProductById(
 }
 
 // ===========================================
-// PRICING
+// NOTE: DPP access is FREE for retailers
+// Per ESPR Article 31, retailers cannot be charged
+// Suppliers pay SaaS subscription directly to EuroComply
 // ===========================================
-
-export const MINIMUM_PRICE = 0.50;       // €0.50 minimum per product/month
-export const SUPPLIER_SHARE = 0.80;      // 80% to supplier (before distributor cut)
-export const PLATFORM_SHARE = 0.20;      // 20% to EuroComply

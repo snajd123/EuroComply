@@ -273,20 +273,18 @@ export default function SupplierCatalog() {
                         </Badge>
                       )}
                       <Text as="span" tone="subdued" variant="bodySm">
-                        {product.timesSubscribed} retailers subscribed
+                        {product.timesLinked} retailers linked
                       </Text>
                     </InlineStack>
 
                     <Divider />
 
-                    {/* Actions */}
+                    {/* Actions - Free per ESPR Article 31 */}
                     <InlineStack gap="200" blockAlign="center">
                       <Button variant="primary" onClick={() => handleSubscribe(product)}>
-                        Subscribe
+                        Link DPP
                       </Button>
-                      <Text as="span" tone="subdued" variant="bodySm">
-                        €{product.price.toFixed(2)}/month
-                      </Text>
+                      <Badge tone="success" size="small">Free</Badge>
                     </InlineStack>
                   </BlockStack>
                 </Card>

@@ -15,7 +15,9 @@ import {
   adminReviewVerificationSchema,
 } from './validators.js';
 import * as supplierService from './supplier.service.js';
-import * as earningsService from './earnings.service.js';
+import * as subscriptionService from './subscription.service.js';
+import * as emailService from './email.service.js';
+import * as viesService from './vies.service.js';
 import { logger } from '../../common/utils/logger.js';
 
 const router = Router();
@@ -520,17 +522,17 @@ router.get('/catalog/:id', async (req: Request, res: Response) => {
 });
 
 // ===========================================
-// EARNINGS ROUTES (Authenticated)
+// SUBSCRIPTION ROUTES (Authenticated)
 // ===========================================
 
-// GET /api/suppliers/earnings
-router.get('/earnings', supplierAuthMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+// GET /api/suppliers/subscription
+router.get('/subscription', supplierAuthMiddleware, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const overview = await earningsService.getEarningsOverview(req.supplier!.supplierId);
+    const subscription = await subscriptionService.getSubscription(req.supplier!.supplierId);
 
     res.json({
       success: true,
-      data: overview,
+      data: subscription,
     });
   } catch (error: any) {
     res.status(500).json({
@@ -543,14 +545,14 @@ router.get('/earnings', supplierAuthMiddleware, async (req: AuthenticatedRequest
   }
 });
 
-// GET /api/suppliers/earnings/products
-router.get('/earnings/products', supplierAuthMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+// GET /api/suppliers/subscription/usage
+router.get('/subscription/usage', supplierAuthMiddleware, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const products = await earningsService.getProductEarnings(req.supplier!.supplierId);
+    const usage = await subscriptionService.getSubscriptionUsage(req.supplier!.supplierId);
 
     res.json({
       success: true,
-      data: products,
+      data: usage,
     });
   } catch (error: any) {
     res.status(500).json({
@@ -563,115 +565,237 @@ router.get('/earnings/products', supplierAuthMiddleware, async (req: Authenticat
   }
 });
 
-// GET /api/suppliers/earnings/history
-router.get('/earnings/history', supplierAuthMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+// POST /api/suppliers/checkout
+router.post('/checkout', supplierAuthMiddleware, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const page = parseInt(req.query['page'] as string) || 1;
-    const limit = parseInt(req.query['limit'] as string) || 12;
+    const { plan } = req.body;
 
-    const history = await earningsService.getEarningsHistory(req.supplier!.supplierId, { page, limit });
+    if (!plan || !['STARTER', 'GROWTH', 'PRO'].includes(plan)) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'INVALID_PLAN',
+          message: 'Invalid plan. Choose from: STARTER, GROWTH, PRO',
+        },
+      });
+    }
 
-    res.json({
-      success: true,
-      data: history,
-    });
-  } catch (error: any) {
-    res.status(500).json({
-      success: false,
-      error: {
-        code: 'FETCH_FAILED',
-        message: error.message,
-      },
-    });
-  }
-});
+    const result = await subscriptionService.createCheckoutSession(
+      req.supplier!.supplierId,
+      plan
+    );
 
-// GET /api/suppliers/earnings/recent
-router.get('/earnings/recent', supplierAuthMiddleware, async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const limit = parseInt(req.query['limit'] as string) || 20;
-
-    const events = await earningsService.getRecentUsageEvents(req.supplier!.supplierId, { limit });
-
-    res.json({
-      success: true,
-      data: events,
-    });
-  } catch (error: any) {
-    res.status(500).json({
-      success: false,
-      error: {
-        code: 'FETCH_FAILED',
-        message: error.message,
-      },
-    });
-  }
-});
-
-// GET /api/suppliers/payouts/settings
-router.get('/payouts/settings', supplierAuthMiddleware, async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const settings = await earningsService.getPayoutSettings(req.supplier!.supplierId);
-
-    res.json({
-      success: true,
-      data: settings,
-    });
-  } catch (error: any) {
-    res.status(500).json({
-      success: false,
-      error: {
-        code: 'FETCH_FAILED',
-        message: error.message,
-      },
-    });
-  }
-});
-
-// GET /api/suppliers/payouts/history
-router.get('/payouts/history', supplierAuthMiddleware, async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const page = parseInt(req.query['page'] as string) || 1;
-    const limit = parseInt(req.query['limit'] as string) || 20;
-
-    const history = await earningsService.getPayoutHistory(req.supplier!.supplierId, { page, limit });
-
-    res.json({
-      success: true,
-      data: history,
-    });
-  } catch (error: any) {
-    res.status(500).json({
-      success: false,
-      error: {
-        code: 'FETCH_FAILED',
-        message: error.message,
-      },
-    });
-  }
-});
-
-// POST /api/suppliers/payouts/request
-router.post('/payouts/request', supplierAuthMiddleware, async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const result = await earningsService.requestPayout(req.supplier!.supplierId);
-
-    logger.info(`Payout requested by ${req.supplier!.email}: €${result.amount.toFixed(2)}`);
+    logger.info(`Checkout session created for ${req.supplier!.email}, plan: ${plan}`);
 
     res.json({
       success: true,
       data: result,
     });
   } catch (error: any) {
-    logger.warn(`Payout request failed for ${req.supplier!.email}: ${error.message}`);
+    logger.error(`Checkout failed for ${req.supplier!.email}: ${error.message}`);
 
     res.status(400).json({
       success: false,
       error: {
-        code: 'PAYOUT_FAILED',
+        code: 'CHECKOUT_FAILED',
         message: error.message,
       },
     });
+  }
+});
+
+// POST /api/suppliers/billing-portal
+router.post('/billing-portal', supplierAuthMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const result = await subscriptionService.createBillingPortalSession(req.supplier!.supplierId);
+
+    res.json({
+      success: true,
+      data: result,
+    });
+  } catch (error: any) {
+    res.status(400).json({
+      success: false,
+      error: {
+        code: 'PORTAL_FAILED',
+        message: error.message,
+      },
+    });
+  }
+});
+
+// ===========================================
+// EMAIL VERIFICATION ROUTES
+// ===========================================
+
+// POST /api/suppliers/verify-email
+router.post('/verify-email', async (req: Request, res: Response) => {
+  try {
+    const { token } = req.body;
+
+    if (!token) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'MISSING_TOKEN',
+          message: 'Verification token is required',
+        },
+      });
+    }
+
+    const result = await emailService.verifyEmail(token);
+
+    logger.info(`Email verified: ${result.email}`);
+
+    res.json({
+      success: true,
+      data: result,
+    });
+  } catch (error: any) {
+    res.status(400).json({
+      success: false,
+      error: {
+        code: 'VERIFICATION_FAILED',
+        message: error.message,
+      },
+    });
+  }
+});
+
+// POST /api/suppliers/resend-verification
+router.post('/resend-verification', supplierAuthMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    await emailService.resendVerificationEmail(req.supplier!.supplierId);
+
+    res.json({
+      success: true,
+      message: 'Verification email sent',
+    });
+  } catch (error: any) {
+    res.status(400).json({
+      success: false,
+      error: {
+        code: 'SEND_FAILED',
+        message: error.message,
+      },
+    });
+  }
+});
+
+// ===========================================
+// VAT VERIFICATION ROUTES
+// ===========================================
+
+// POST /api/suppliers/verify-vat
+router.post('/verify-vat', supplierAuthMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { vatNumber } = req.body;
+
+    if (!vatNumber) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'MISSING_VAT',
+          message: 'VAT number is required',
+        },
+      });
+    }
+
+    const result = await viesService.verifySupplierVat(req.supplier!.supplierId, vatNumber);
+
+    if (result.verified) {
+      logger.info(`VAT verified for ${req.supplier!.email}: ${vatNumber}`);
+    }
+
+    res.json({
+      success: true,
+      data: result,
+    });
+  } catch (error: any) {
+    res.status(400).json({
+      success: false,
+      error: {
+        code: 'VAT_VERIFICATION_FAILED',
+        message: error.message,
+      },
+    });
+  }
+});
+
+// GET /api/suppliers/vies/check/:vatNumber
+router.get('/vies/check/:vatNumber', async (req: Request, res: Response) => {
+  try {
+    const vatNumber = req.params['vatNumber'] as string;
+    const result = await viesService.verifyVatNumber(vatNumber);
+
+    res.json({
+      success: true,
+      data: result,
+    });
+  } catch (error: any) {
+    res.status(400).json({
+      success: false,
+      error: {
+        code: 'CHECK_FAILED',
+        message: error.message,
+      },
+    });
+  }
+});
+
+// ===========================================
+// STRIPE WEBHOOK (Public)
+// ===========================================
+
+// POST /api/suppliers/webhooks/stripe
+router.post('/webhooks/stripe', async (req: Request, res: Response) => {
+  try {
+    const sig = req.headers['stripe-signature'] as string;
+    const webhookSecret = process.env['STRIPE_WEBHOOK_SECRET'];
+
+    if (!webhookSecret) {
+      logger.warn('Stripe webhook secret not configured');
+      return res.status(400).send('Webhook secret not configured');
+    }
+
+    // Verify signature (requires raw body)
+    const Stripe = (await import('stripe')).default;
+    const stripe = new Stripe(process.env['STRIPE_SECRET_KEY']!);
+
+    let event;
+    try {
+      event = stripe.webhooks.constructEvent(
+        req.body,
+        sig,
+        webhookSecret
+      );
+    } catch (err: any) {
+      logger.error(`Stripe webhook signature verification failed: ${err.message}`);
+      return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    // Handle the event
+    switch (event.type) {
+      case 'checkout.session.completed':
+        await subscriptionService.handleCheckoutCompleted(event.data.object);
+        break;
+      case 'customer.subscription.updated':
+        await subscriptionService.handleSubscriptionUpdated(event.data.object);
+        break;
+      case 'customer.subscription.deleted':
+        await subscriptionService.handleSubscriptionDeleted(event.data.object);
+        break;
+      case 'invoice.payment_failed':
+        await subscriptionService.handleInvoicePaymentFailed(event.data.object);
+        break;
+      default:
+        logger.debug(`Unhandled Stripe event type: ${event.type}`);
+    }
+
+    res.json({ received: true });
+  } catch (error: any) {
+    logger.error(`Stripe webhook error: ${error.message}`);
+    res.status(500).json({ error: error.message });
   }
 });
 

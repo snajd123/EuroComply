@@ -298,9 +298,13 @@ model Supplier {
   email               String   @unique
   passwordHash        String
 
+  // Email verification
+  emailVerified       Boolean  @default(false)
+  emailVerifiedAt     DateTime?
+
   // Company info
   companyName         String
-  companyRegistration String?  // VAT/business registration
+  vatNumber           String?  // EU VAT number for VIES verification
   country             String   // ISO 3166-1 alpha-2
   website             String?
   logoUrl             String?
@@ -311,17 +315,17 @@ model Supplier {
 
   // Verification
   verificationStatus  SupplierVerificationStatus @default(PENDING)
+  verificationMethod  VerificationMethod?  // How verification was done
   verifiedAt          DateTime?
-  verifiedBy          String?  // Admin who verified
+  verifiedBy          String?  // Admin who verified (for manual review)
   verificationDocs    Json?    // Uploaded document references
+
+  // DID Identity (did:key for portability)
+  did                 String?  @unique
+  didKeyId            String?  // Key ID for signing
 
   // Settings
   catalogVisibility   CatalogVisibility @default(PUBLIC)
-
-  // Payout settings (Stripe Connect)
-  stripeConnectAccountId  String?
-  payoutEnabled           Boolean  @default(false)
-  payoutMinimum           Decimal  @default(10.00) @db.Decimal(10, 2)
 
   // Timestamps
   createdAt           DateTime @default(now())
@@ -330,11 +334,7 @@ model Supplier {
   // Relations
   products            SupplierProduct[]
   invitations         SupplierInvitation[]
-  earnings            SupplierEarning[]
-  payouts             SupplierPayout[]
-
-  // Distributor referrals (only for DISTRIBUTOR type suppliers)
-  distributorReferrals RetailerSubscription[] @relation("DistributorReferrals")
+  subscription        SupplierSubscription?
 
   @@index([verificationStatus])
   @@index([supplierType])
@@ -349,6 +349,11 @@ enum SupplierVerificationStatus {
   SUSPENDED    // Temporarily disabled
 }
 
+enum VerificationMethod {
+  VIES_AUTO       // Instant EU VAT verification
+  MANUAL_REVIEW   // Admin reviewed documents
+}
+
 enum CatalogVisibility {
   PUBLIC       // Any retailer can see and subscribe
   PRIVATE      // Only supplier can see (draft mode)
@@ -359,6 +364,54 @@ enum SupplierType {
   PRODUCER     // Manufacturer - has primary data, strongest VC attribution
   DISTRIBUTOR  // Wholesaler - secondary data from producer docs
   BRAND        // Brand owner - may or may not manufacture
+}
+
+// ===========================================
+// SUPPLIER SaaS SUBSCRIPTION
+// ===========================================
+
+model SupplierSubscription {
+  id                    String   @id @default(cuid())
+  supplierId            String   @unique
+  supplier              Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  // Stripe data
+  stripeCustomerId      String   @unique
+  stripeSubscriptionId  String?  @unique
+
+  // Plan info
+  plan                  SupplierPlan       @default(STARTER)
+  status                SubscriptionStatus @default(INCOMPLETE)
+  dppLimit              Int                @default(50)
+
+  // Billing period
+  currentPeriodStart    DateTime?
+  currentPeriodEnd      DateTime?
+  cancelAtPeriodEnd     Boolean  @default(false)
+
+  // Trial (optional)
+  trialEndsAt           DateTime?
+
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([status])
+}
+
+enum SupplierPlan {
+  STARTER   // €49/mo, 50 DPPs
+  GROWTH    // €149/mo, 500 DPPs
+  PRO       // €399/mo, 2000 DPPs
+}
+
+enum SubscriptionStatus {
+  INCOMPLETE        // Checkout started but not completed
+  INCOMPLETE_EXPIRED // Checkout expired
+  TRIALING          // In trial period
+  ACTIVE            // Paying customer
+  PAST_DUE          // Payment failed, retrying
+  CANCELED          // Subscription canceled
+  UNPAID            // Invoice unpaid after retries
 }
 
 model SupplierProduct {
@@ -376,12 +429,6 @@ model SupplierProduct {
   // Full DPP data (same schema as retailer DPPs)
   dppData             Json     // TextileDppData | ElectronicsDppData | etc.
 
-  // Pricing (supplier sets their own price, €0.50 minimum)
-  price               Decimal  @default(1.00) @db.Decimal(10, 2)
-
-  // Distributor referral: % of supplier share given to referring distributor (0-30%)
-  defaultReferralRate Decimal  @default(0) @db.Decimal(5, 2)
-
   // VC status (supplier can optionally anchor their own VC)
   vcStatus            SupplierVcStatus @default(NONE)
   vcId                String?  // EuroComply VC ID if anchored
@@ -391,16 +438,15 @@ model SupplierProduct {
   visibility          SupplierProductVisibility @default(DRAFT)
   publishedAt         DateTime?
 
-  // Usage stats
-  timesSubscribed     Int      @default(0)
+  // Usage stats (free access per ESPR Article 31)
+  timesLinked         Int      @default(0)  // How many retailers linked this DPP
 
   // Timestamps
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
   // Relations
-  retailerSubscriptions RetailerSubscription[]
-  usageEvents           DppUsageEvent[]
+  retailerLinks       RetailerDppLink[]
 
   @@index([supplierId])
   @@index([category, visibility])
@@ -454,7 +500,8 @@ enum SupplierInvitationStatus {
   REVOKED
 }
 
-model RetailerSubscription {
+// Retailer links to supplier DPPs (free access per ESPR Article 31)
+model RetailerDppLink {
   id                  String   @id @default(cuid())
 
   // Retailer side
@@ -465,13 +512,8 @@ model RetailerSubscription {
   supplierProductId   String
   supplierProduct     SupplierProduct @relation(fields: [supplierProductId], references: [id], onDelete: Cascade)
 
-  // Distributor referral (if retailer came via distributor)
-  referringDistributorId String?
-  referringDistributor   Supplier? @relation("DistributorReferrals", fields: [referringDistributorId], references: [id])
-  referralRate           Decimal?  @db.Decimal(5, 2) // Rate locked at subscription time
-
-  // Subscription metadata
-  subscribedAt        DateTime @default(now())
+  // Link metadata
+  linkedAt            DateTime @default(now())
 
   // Denormalized for quick access
   supplierName        String
@@ -480,120 +522,10 @@ model RetailerSubscription {
   @@unique([retailerShop, shopifyProductId])
   @@index([supplierProductId])
   @@index([retailerShop])
-  @@index([referringDistributorId])
 }
 
 // ===========================================
-// SUPPLIER BILLING & PAYOUTS
+// NOTE: Old revenue sharing models removed
+// Suppliers now pay SaaS subscription (see SupplierSubscription)
+// Retailers get free DPP access (ESPR Article 31)
 // ===========================================
-
-model DppUsageEvent {
-  id                  String   @id @default(cuid())
-
-  // Who used it (retailer)
-  retailerShop        String
-  shopifyProductId    String
-
-  // What was used
-  supplierProductId   String
-  supplierProduct     SupplierProduct @relation(fields: [supplierProductId], references: [id], onDelete: Cascade)
-  supplierId          String
-
-  // Distributor referral (if applicable)
-  distributorId       String?
-  distributorShare    Decimal  @default(0) @db.Decimal(10, 2) // 0-30% of supplier share
-
-  // Usage type
-  usageType           DppUsageType
-
-  // 3-way revenue split at time of billing
-  priceCharged        Decimal  @db.Decimal(10, 2)  // Total charged to retailer
-  supplierShare       Decimal  @db.Decimal(10, 2)  // Producer/Brand share (50-80%)
-  platformShare       Decimal  @db.Decimal(10, 2)  // EuroComply share (fixed 20%)
-
-  // Billing status
-  billingStatus       DppBillingStatus @default(PENDING)
-  billedAt            DateTime?
-  retailerInvoiceId   String?  // Shopify billing reference
-
-  // For recurring subscriptions
-  billingPeriodStart  DateTime?
-  billingPeriodEnd    DateTime?
-
-  createdAt           DateTime @default(now())
-
-  @@index([retailerShop, billingStatus])
-  @@index([supplierId, billingStatus])
-  @@index([distributorId, billingStatus])
-  @@index([supplierProductId])
-}
-
-enum DppUsageType {
-  SUBSCRIPTION_MONTHLY  // Recurring monthly for subscribed DPPs
-}
-
-enum DppBillingStatus {
-  PENDING         // Usage tracked, not yet billed
-  BILLED          // Charged to retailer
-  PAID            // Retailer payment received
-  FAILED          // Payment failed
-  REFUNDED        // Refunded to retailer
-}
-
-model SupplierEarning {
-  id                  String   @id @default(cuid())
-  supplierId          String
-  supplier            Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
-
-  // Period
-  periodStart         DateTime
-  periodEnd           DateTime
-
-  // Amounts (net after distributor referrals, before platform fee)
-  grossEarnings       Decimal  @db.Decimal(10, 2)
-  distributorPayouts  Decimal  @default(0) @db.Decimal(10, 2) // Sum of referral payouts
-  platformFee         Decimal  @db.Decimal(10, 2)
-  netEarnings         Decimal  @db.Decimal(10, 2)
-
-  // Stats
-  subscriptionCount   Int      @default(0)
-  referralCount       Int      @default(0)  // If this supplier is a distributor
-
-  // Payout status
-  payoutStatus        SupplierPayoutStatus @default(PENDING)
-  payoutId            String?
-
-  createdAt           DateTime @default(now())
-
-  @@unique([supplierId, periodStart])
-  @@index([supplierId, payoutStatus])
-}
-
-enum SupplierPayoutStatus {
-  PENDING           // Awaiting payout
-  PROCESSING        // Payout initiated
-  COMPLETED         // Money transferred
-  FAILED            // Payout failed
-  HELD              // Below minimum or issue
-}
-
-model SupplierPayout {
-  id                  String   @id @default(cuid())
-  supplierId          String
-  supplier            Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
-
-  amount              Decimal  @db.Decimal(10, 2)
-  currency            String   @default("EUR")
-
-  // Stripe
-  stripeTransferId    String?
-  stripePayoutId      String?
-
-  status              SupplierPayoutStatus
-  failureReason       String?
-
-  initiatedAt         DateTime @default(now())
-  completedAt         DateTime?
-
-  @@index([supplierId, status])
-}
