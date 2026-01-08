@@ -313,7 +313,77 @@ See [DATA_SOVEREIGNTY.md](docs/DATA_SOVEREIGNTY.md) for architecture details.
 
 ---
 
-## 10. ESPR Timeline & Market
+## 10. Product Roadmap
+
+### Phase 1: Textile MVP ✅ COMPLETE
+
+**Goal:** Compliant DPPs for textile/apparel SMEs
+
+```typescript
+interface TextileDppData {
+  // MANDATORY (2027)
+  fiberComposition: FiberEntry[];
+  countryOfOrigin: string;
+  manufacturerIdentification: { name: string; did?: string; };
+  careInstructions: { maxWashTemp: number; bleachAllowed: boolean; tumbleDry: boolean; };
+  hazardousSubstances: { reachCompliant: boolean; };
+
+  // RECOMMENDED
+  carbonFootprint?: { value: number; unit: 'kgCO2e'; methodology: string; };
+  certifications?: Certification[];
+}
+```
+
+**Delivered:**
+- Textile-specific schema and validation
+- Data collection UI in Shopify app
+- Template library (t-shirt, jeans, jacket benchmarks)
+- Compliance validation engine
+
+### Phase 2: Third-Party Data Integration ✅ COMPLETE
+
+**Goal:** Auto-populate from industry databases
+
+- Higg MSI integration (carbon footprint calculation)
+- Certification registry (GOTS, OEKO-TEX, GRS)
+
+### Phase 3: Supplier SaaS Platform ✅ COMPLETE
+
+**Goal:** Self-service supplier onboarding
+
+- Supplier portal (registration, verification, dashboard)
+- SaaS subscription billing (€49/149/399)
+- Free retailer catalog access (ESPR Article 31)
+- Data portability (export VCs + keys)
+
+### Phase 4: Shopify Metaobject Sync 📋 PLANNED
+
+**Goal:** Native Shopify data storage
+
+- DPP metaobject definitions
+- Bi-directional sync with EuroComply
+
+### Phase 5: Furniture & Electronics (2026)
+
+**Goal:** Expand to next product categories
+
+Aligned with regulatory deadlines:
+| Category | ESPR Deadline | Our Timeline |
+|----------|---------------|--------------|
+| Textiles | 2027 | ✅ Ready |
+| Furniture | 2029 | 2026 |
+| Electronics | 2030 | 2027 |
+
+### Phase 6: Advanced Features (2026+)
+
+- Item-level tracking (serial numbers)
+- Supply chain VCs
+- GS1 Digital Link resolver
+- Basic AAS export
+
+---
+
+## 11. ESPR Timeline & Market
 
 | Milestone | Date | Implication |
 |-----------|------|-------------|
@@ -333,7 +403,7 @@ See [DATA_SOVEREIGNTY.md](docs/DATA_SOVEREIGNTY.md) for architecture details.
 
 ---
 
-## 11. EBSI Roadmap (Future)
+## 12. EBSI Roadmap (Future)
 
 EBSI integration planned when business traction achieved.
 
@@ -356,7 +426,7 @@ EBSI integration planned when business traction achieved.
 
 ---
 
-## 12. Success Metrics
+## 13. Success Metrics
 
 ### Technical KPIs
 - API latency < 200ms (p95)
@@ -371,7 +441,7 @@ EBSI integration planned when business traction achieved.
 
 ---
 
-## 13. Related Documentation
+## 14. Related Documentation
 
 - **[README.md](./README.md)** - Quick start and API usage
 - **[Business Model](./docs/BUSINESS_MODEL.md)** - Pricing and supplier-pays model
