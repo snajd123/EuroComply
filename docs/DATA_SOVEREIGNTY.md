@@ -1,409 +1,505 @@
 # Data Sovereignty Architecture
 
-## The Problem
+## Executive Summary
 
-EuroComply promises portability, but storing all DPP data centrally creates:
-- Perceived vendor lock-in ("what if you go out of business?")
-- Data residency concerns ("I need data in my country")
-- Control anxiety ("can I keep a copy on my own servers?")
+**The Decision**: Sovereignty through **portable data**, not portable infrastructure.
 
-## The Good News: We Already Solve This
+SMEs don't want to manage AWS accounts, Kubernetes clusters, or IPFS nodes. They want:
+- Simple SaaS ("it just works")
+- No lock-in ("I can leave anytime")
+- Data ownership ("I own my data")
+- Survival guarantee ("works if you disappear")
 
-Our existing architecture (W3C VCs + did:key) **already enables complete data sovereignty**:
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│  WHAT CUSTOMERS GET TODAY (but don't realize)                       │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│  ✅ Verifiable Credentials (W3C standard)                          │
-│     → Signed, tamper-evident, works anywhere                        │
-│                                                                     │
-│  ✅ did:key Identity (self-contained)                               │
-│     → No EuroComply dependency for verification                     │
-│     → Public key IS the identifier                                  │
-│                                                                     │
-│  ✅ Full Export                                                     │
-│     → Download VCs + private keys anytime                           │
-│     → Host anywhere, verify anywhere                                │
-│                                                                     │
-│  ✅ Offline Verification                                            │
-│     → VCs work forever without EuroComply                           │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-**The opportunity**: Make this visible and easy.
+**Our Solution**: We host everything (simple), but the Verifiable Credential IS the sovereign asset. It's self-contained, cryptographically signed, and works forever without us.
 
 ---
 
-## Options Analyzed
+## The Problem
 
-### ❌ Option 1: Container-per-Customer
+EuroComply stores DPP data centrally. This creates concerns:
+- Perceived vendor lock-in ("what if you go out of business?")
+- Data residency concerns ("I need data in my country")
+- Control anxiety ("can I keep a copy?")
 
-Deploy dedicated infrastructure for each paying customer.
+## The Solution: Self-Contained Verifiable Credentials
+
+The VC contains ALL the DPP data (not references to it). The cryptographic signature proves authenticity. Verification works offline, forever, without EuroComply.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  WHAT THE CUSTOMER GETS                                         │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ✅ Self-Contained VC                                           │
+│     → ALL product data embedded inside                          │
+│     → Not references, the actual data                           │
+│     → Images as URLs or base64 (customer's choice)              │
+│                                                                 │
+│  ✅ Cryptographic Signature                                     │
+│     → Proves data wasn't tampered with                          │
+│     → Verifiable offline without EuroComply                     │
+│     → Works forever                                             │
+│                                                                 │
+│  ✅ Open Standards                                              │
+│     → W3C Verifiable Credentials                                │
+│     → JSON format                                               │
+│     → Any compatible viewer works                               │
+│                                                                 │
+│  ✅ One-Click Export                                            │
+│     → Download VC + images + offline viewer                     │
+│     → Always available, no restrictions                         │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Architecture: Managed Hosting + Portable Data
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                                                                 │
+│  EUROCOMPLY PLATFORM                                            │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  DPP Creator  →  Compliance  →  VC Issuer  →  Viewer    │   │
+│  │  (Forms/UI)      Validator      (Signing)     (HTML)    │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                              │                                  │
+│                              ▼                                  │
+│              ┌───────────────────────────────┐                  │
+│              │  Self-Contained VC            │                  │
+│              │  {                            │                  │
+│              │    "issuer": "did:key:...",   │                  │
+│              │    "credentialSubject": {     │                  │
+│              │      // ALL DPP DATA HERE     │                  │
+│              │      "product": {...},        │                  │
+│              │      "fiberComposition": [...],│                 │
+│              │      "carbonFootprint": {...}, │                 │
+│              │      "certifications": [...]  │                  │
+│              │    },                         │                  │
+│              │    "proof": {...}  // Signature                  │
+│              │  }                            │                  │
+│              └───────────────────────────────┘                  │
+│                              │                                  │
+│           ┌──────────────────┼──────────────────┐               │
+│           ▼                  ▼                  ▼               │
+│    ┌────────────┐    ┌────────────┐    ┌────────────┐          │
+│    │ EuroComply │    │  Customer  │    │   Any      │          │
+│    │ Viewer     │    │  Export    │    │   Viewer   │          │
+│    │ (hosted)   │    │  (download)│    │   (open)   │          │
+│    └────────────┘    └────────────┘    └────────────┘          │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+
+WHAT EACH COMPONENT DOES:
+├── EuroComply Viewer: We host, renders the VC nicely
+├── Customer Export: They download everything, host anywhere
+└── Any Viewer: Open standards mean any compatible app works
+```
+
+---
+
+## The VC Contains Everything
+
+This is the key architectural decision. The VC is NOT a reference to data stored elsewhere. It contains ALL the DPP data:
+
+```json
+{
+  "@context": [
+    "https://www.w3.org/2018/credentials/v1",
+    "https://eurocomply.eu/schemas/dpp/v1"
+  ],
+  "type": ["VerifiableCredential", "DigitalProductPassport"],
+  "issuer": "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK",
+  "issuanceDate": "2026-01-08T12:00:00Z",
+
+  "credentialSubject": {
+    "id": "did:key:z6MkpTHR8VNsBxYAAWHut2Geadd9jSwuBV8xRoAnwWsdvktH",
+
+    "product": {
+      "name": "Organic Cotton T-Shirt",
+      "gtin": "4012345678901",
+      "category": "textile",
+      "description": "100% organic cotton t-shirt"
+    },
+
+    "fiberComposition": [
+      {
+        "fiberType": "Cotton",
+        "percentage": 100,
+        "origin": "Organic",
+        "country": "EG"
+      }
+    ],
+
+    "manufacturer": {
+      "name": "EcoTextile GmbH",
+      "country": "DE",
+      "address": "Berlin, Germany",
+      "registrationNumber": "HRB 12345"
+    },
+
+    "carbonFootprint": {
+      "value": 8.5,
+      "unit": "kgCO2e",
+      "methodology": "PEF",
+      "scope": "Cradle-to-gate"
+    },
+
+    "certifications": [
+      {
+        "type": "GOTS",
+        "certificateNumber": "GOTS-12345",
+        "issuingBody": "Control Union",
+        "validFrom": "2025-01-01",
+        "validUntil": "2027-01-01"
+      }
+    ],
+
+    "careInstructions": {
+      "maxWashTemperature": 30,
+      "bleachAllowed": false,
+      "tumbleDryAllowed": false,
+      "ironTemperature": "low"
+    },
+
+    "images": [
+      {
+        "type": "product",
+        "url": "https://cdn.eurocomply.eu/images/abc123.jpg",
+        "hash": "sha256:e3b0c44298fc1c149afbf4c8996fb..."
+      }
+    ]
+  },
+
+  "proof": {
+    "type": "Ed25519Signature2020",
+    "created": "2026-01-08T12:00:00Z",
+    "verificationMethod": "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK#key-1",
+    "proofPurpose": "assertionMethod",
+    "proofValue": "z58DAdFfa9SkqZMVPxAQpic7ndTeel..."
+  }
+}
+```
+
+**Key points:**
+- All data is in `credentialSubject` - embedded, not referenced
+- `proof` is the cryptographic signature - verifiable offline
+- `issuer` is EuroComply's DID - proves we signed it
+- `credentialSubject.id` is customer's DID - proves they own it
+
+---
+
+## Sovereignty Guarantees
+
+| What SMEs Want | How We Deliver It |
+|----------------|-------------------|
+| "I own my data" | VC contains all data, customer's DID owns it |
+| "No lock-in" | Open standards (W3C VC, JSON), any viewer works |
+| "What if you die?" | One-click export + offline verification |
+| "No IT skills needed" | We host everything, export is just a download |
+
+---
+
+## One-Click Export
+
+What the customer downloads:
+
+```
+dpp-export-12345.zip
+├── credential.jwt              # The signed Verifiable Credential
+├── passport.json               # Human-readable JSON (same data)
+├── images/
+│   ├── product-hero.jpg
+│   ├── cert-gots.png
+│   └── cert-oeko-tex.png
+├── viewer.html                 # Self-contained offline viewer
+├── qr-code.svg                 # For printing
+└── README.md                   # How to use/verify
+```
+
+**The `viewer.html` is self-contained:**
+- All CSS/JS embedded (no external dependencies)
+- Loads the VC from same folder
+- Verifies signature offline
+- Renders beautiful DPP page
+- Works forever without internet
+
+---
+
+## Options Analyzed (And Why We Rejected Them)
+
+### Container-per-Customer
 
 ```
 Customer pays → We spin up container → Customer owns infrastructure
 ```
 
-**Why NOT for SMEs:**
-- Requires DevOps knowledge (defeats "no IT team" promise)
-- Hidden costs: Customer manages updates, backups, scaling
-- Support burden exceeds revenue at SME price points
-- Typical cost: €50-110/month + customer labor ≈ same as SaaS
+**Why NOT:**
+- SMEs don't have DevOps skills
+- Support burden exceeds revenue
+- €50-110/month infrastructure + customer labor
+- Defeats "no IT team needed" promise
 
-**Verdict**: Only viable for Enterprise (€599/mo minimum)
-
----
-
-### ⚠️ Option 2: Decentralized Storage (IPFS/Arweave)
-
-Store VCs on decentralized networks instead of EuroComply servers.
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│  IPFS Model                                                         │
-├─────────────────────────────────────────────────────────────────────┤
-│  • VCs pinned to IPFS via Pinata/Web3.storage                       │
-│  • Content-addressed (cryptographic hash = identifier)              │
-│  • Requires ongoing pinning ($20-50/month)                          │
-│  • Data survives if EuroComply disappears                           │
-│                                                                     │
-│  Cost: EuroComply €149/mo + Pinning $50/mo = €199/mo total          │
-└─────────────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────────────┐
-│  Arweave Model                                                      │
-├─────────────────────────────────────────────────────────────────────┤
-│  • One-time permanent storage (~$0.007/KB)                          │
-│  • 200-year guarantee                                               │
-│  • No recurring costs                                               │
-│  • CANNOT delete (GDPR conflict)                                    │
-│                                                                     │
-│  Cost for 500 DPPs: ~$350 one-time                                  │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-**Verdict**: Good as **add-on** for backup/archival, not primary storage
+**Verdict**: Only for Enterprise tier (€599+/month)
 
 ---
 
-### ✅ Option 3: Sovereign Tier (VC-Only Model) - RECOMMENDED
-
-EuroComply handles VC issuance only. Customer hosts their own DPP data.
+### Create AWS Accounts for Customers
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│  SOVEREIGN TIER ARCHITECTURE                                        │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│  ┌─────────────────┐      ┌─────────────────┐                       │
-│  │  EuroComply     │      │  Customer's     │                       │
-│  │  (VC Issuer)    │      │  Storage        │                       │
-│  │                 │      │  (S3/GitHub)    │                       │
-│  │  • did:key mgmt │      │                 │                       │
-│  │  • VC signing   │      │  • DPP JSON     │                       │
-│  │  • Templates    │      │  • Images       │                       │
-│  │  • Compliance   │      │  • Metadata     │                       │
-│  └────────┬────────┘      └────────┬────────┘                       │
-│           │                        │                                │
-│           └────────────┬───────────┘                                │
-│                        │                                            │
-│                        ▼                                            │
-│               ┌─────────────────┐                                   │
-│               │   QR Code       │                                   │
-│               │   Points to     │                                   │
-│               │   Customer URL  │                                   │
-│               └─────────────────┘                                   │
-│                                                                     │
-│  Customer controls:                                                 │
-│  • Where data is hosted (S3, GitHub Pages, Netlify)                │
-│  • Data residency (any region)                                      │
-│  • Backup policy                                                    │
-│  • Access logs                                                      │
-│                                                                     │
-│  EuroComply provides:                                               │
-│  • VC issuance (cryptographic signing)                              │
-│  • DPP templates & compliance validation                            │
-│  • Export in standard formats                                       │
-│  • Verification endpoint (optional)                                 │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
+Customer signs up → We create AWS account → Deploy to their account
 ```
 
-**Why this works for SMEs:**
-- Simple: Upload JSON to S3/GitHub Pages (no DevOps)
-- Cheap: S3 static hosting ~$5-15/month
-- Portable: Customer owns data, can switch hosts anytime
-- Compliant: ESPR-ready (customer controls retention)
+**Why NOT:**
+- AWS doesn't support easy account transfer
+- Consolidated billing is complex
+- Ownership is legally murky
+- Managing 1000s of AWS accounts is operational nightmare
+
+**Verdict**: Not feasible
 
 ---
 
-### ✅ Option 4: Hybrid Model (BYOS) - RECOMMENDED
-
-Customer brings their own storage (S3 bucket). We manage the app.
+### IPFS as Primary Storage
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│  BYOS (Bring Your Own Storage) ARCHITECTURE                         │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│  ┌─────────────────────────────────────────────────────────┐        │
-│  │                    EuroComply SaaS                       │        │
-│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐      │        │
-│  │  │   Creator   │  │   VC        │  │   Export    │      │        │
-│  │  │   Studio    │  │   Issuer    │  │   Engine    │      │        │
-│  │  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘      │        │
-│  │         │                │                │              │        │
-│  │         └────────────────┼────────────────┘              │        │
-│  │                          │                               │        │
-│  │                          ▼                               │        │
-│  │               ┌─────────────────┐                        │        │
-│  │               │ Storage Adapter │                        │        │
-│  │               │ (pluggable)     │                        │        │
-│  │               └────────┬────────┘                        │        │
-│  └────────────────────────┼─────────────────────────────────┘        │
-│                           │                                          │
-│           ┌───────────────┼───────────────┐                          │
-│           ▼               ▼               ▼                          │
-│    ┌──────────┐    ┌──────────┐    ┌──────────┐                      │
-│    │ Managed  │    │ Customer │    │ IPFS     │                      │
-│    │ (default)│    │ S3 Bucket│    │ Pinning  │                      │
-│    └──────────┘    └──────────┘    └──────────┘                      │
-│                                                                      │
-│  Customer chooses where data lives:                                  │
-│  • Managed (EuroComply servers) - default                            │
-│  • BYOS (their S3/Azure/GCS) - full control                         │
-│  • Decentralized (IPFS) - permanence                                │
-│                                                                      │
-└─────────────────────────────────────────────────────────────────────┘
+All VCs stored on IPFS → Decentralized, survives if we die
 ```
+
+**Why NOT:**
+- SMEs don't know what IPFS is
+- Gateways can be slow/unreliable
+- Pinning costs money (~€20-50/month)
+- Overkill for the problem
+
+**Verdict**: Good as optional add-on, not primary
 
 ---
 
-## Recommended Pricing Structure
+### Self-Hosted Open Source
 
 ```
-┌────────────────────────────────────┬─────────┬────────────────────────┐
-│ Tier                               │ Price   │ Data Location          │
-├────────────────────────────────────┼─────────┼────────────────────────┤
-│ MANAGED TIERS                      │         │                        │
-├────────────────────────────────────┼─────────┼────────────────────────┤
-│ Starter                            │ €49/mo  │ EuroComply (managed)   │
-│ Growth                             │ €149/mo │ EuroComply (managed)   │
-│ Pro                                │ €399/mo │ EuroComply (managed)   │
-├────────────────────────────────────┼─────────┼────────────────────────┤
-│ SOVEREIGN TIERS                    │         │                        │
-├────────────────────────────────────┼─────────┼────────────────────────┤
-│ Sovereign (VC-only)                │ €99/mo  │ Customer (S3/GitHub)   │
-│ Sovereign BYOS (S3 adapter)        │ €149/mo │ Customer S3 bucket     │
-│ Sovereign Pro (multi-cloud)        │ €249/mo │ Customer choice        │
-├────────────────────────────────────┼─────────┼────────────────────────┤
-│ ADD-ONS                            │         │                        │
-├────────────────────────────────────┼─────────┼────────────────────────┤
-│ IPFS Backup (daily pinning)        │ +€29/mo │ Decentralized backup   │
-│ Arweave Archive (per batch)        │ €99     │ Permanent (one-time)   │
-│ Multi-region sync                  │ +€49/mo │ 3+ geographic replicas │
-└────────────────────────────────────┴─────────┴────────────────────────┘
+Customer downloads our software → Runs on their servers
 ```
+
+**Why NOT:**
+- Requires technical skills
+- Customer handles updates, security, backups
+- Support burden shifts to them
+- Defeats "no IT team needed" promise
+
+**Verdict**: Only for technical customers who specifically want it
 
 ---
 
-## Implementation Phases
+## What We're Building
 
-### Phase 1: Marketing (Now)
-**Effort**: 40 hours | **Revenue impact**: Immediate
-
-1. Create "Data Sovereignty" landing page
-2. Add export flow prominence in dashboard
-3. FAQ: "What happens if EuroComply disappears?"
-4. Trust badge: "Your data, your ownership"
-
-### Phase 2: Sovereign Tier (Q1)
-**Effort**: 60 hours | **Revenue**: €99/mo tier
+### Phase 1: Self-Contained VC Export (Priority)
 
 ```typescript
-// New tier: VC issuance only, no managed hosting
-interface SovereignTierFeatures {
-  vcIssuance: true;           // Sign VCs with did:key
-  dppTemplates: true;         // Use our compliance templates
-  managedHosting: false;      // Customer hosts data
-  exportFormats: ['json', 'vc-jwt', 'pdf'];
-  verificationEndpoint: true; // Optional: use our verifier
+interface DppExport {
+  // The signed VC with ALL data embedded
+  credential: VerifiableCredential;
+
+  // Same data as JSON (for non-VC tools)
+  passportJson: DppData;
+
+  // All images
+  images: Array<{ name: string; data: Buffer }>;
+
+  // Self-contained HTML viewer
+  viewerHtml: string;
+
+  // QR code SVG
+  qrCode: string;
 }
 
-// Customer workflow:
-// 1. Create DPP in EuroComply studio
-// 2. We sign VC with their did:key
-// 3. Customer downloads signed VC + DPP JSON
-// 4. Customer uploads to their S3/GitHub Pages
-// 5. QR code points to customer's URL
-```
+async function exportDpp(passportId: string): Promise<Buffer> {
+  const passport = await getPassport(passportId);
 
-### Phase 3: BYOS Storage Adapter (Q2)
-**Effort**: 80 hours | **Revenue**: €149/mo tier
+  // Build self-contained VC with embedded data
+  const credential = await buildSelfContainedVC(passport);
 
-```typescript
-// Storage adapter interface
-interface StorageAdapter {
-  provider: 'managed' | 's3' | 'azure' | 'gcs' | 'ipfs';
+  // Generate offline viewer
+  const viewer = generateOfflineViewer(credential);
 
-  // CRUD operations
-  store(dppId: string, data: DppData): Promise<string>;
-  retrieve(dppId: string): Promise<DppData>;
-  delete(dppId: string): Promise<void>;
-
-  // Sync
-  sync(localData: DppData[], remoteUrl: string): Promise<SyncResult>;
-}
-
-// S3 adapter example
-class S3StorageAdapter implements StorageAdapter {
-  constructor(
-    private bucket: string,
-    private region: string,
-    private credentials: AWSCredentials // encrypted, customer-provided
-  ) {}
-
-  async store(dppId: string, data: DppData): Promise<string> {
-    await this.s3.putObject({
-      Bucket: this.bucket,
-      Key: `dpps/${dppId}.json`,
-      Body: JSON.stringify(data),
-      ContentType: 'application/json',
-    });
-    return `https://${this.bucket}.s3.${this.region}.amazonaws.com/dpps/${dppId}.json`;
-  }
+  // Package as ZIP
+  return createExportZip({
+    credential,
+    passportJson: passport.data,
+    images: await downloadImages(passport.imageUrls),
+    viewerHtml: viewer,
+    qrCode: await generateQrSvg(passport.verificationUrl),
+  });
 }
 ```
 
-### Phase 4: IPFS Add-on (Q2)
-**Effort**: 40 hours | **Revenue**: +€29/mo add-on
+### Phase 2: Public DPP Viewer
 
-```typescript
-// IPFS backup service
-class IPFSBackupService {
-  private pinata: PinataClient;
+A hosted viewer that renders any DPP beautifully:
 
-  async backupDpp(dppId: string, vcJwt: string, dppData: DppData) {
-    // Pin VC to IPFS
-    const vcCid = await this.pinata.pinJSON({
-      pinataContent: {
-        '@context': ['https://www.w3.org/2018/credentials/v1'],
-        type: 'VerifiableCredential',
-        proof: vcJwt,
-        credentialSubject: dppData,
-      },
-      pinataMetadata: { name: `dpp-${dppId}` },
-    });
-
-    return {
-      ipfsCid: vcCid,
-      ipfsUrl: `ipfs://${vcCid}`,
-      gatewayUrl: `https://gateway.pinata.cloud/ipfs/${vcCid}`,
-    };
-  }
-}
+```
+https://dpp.eurocomply.eu/view/{passportId}
 ```
 
-### Phase 5: Arweave Archive (Q3)
-**Effort**: 30 hours | **Revenue**: €99 one-time
+- Mobile-friendly
+- Shows all DPP data
+- Displays verification status
+- Links to download export
 
-```typescript
-// Arweave permanent archive
-async function archiveToArweave(dpps: DppData[]): Promise<ArweaveResult> {
-  const arweave = Arweave.init({ host: 'arweave.net' });
+### Phase 3: Offline Viewer (included in export)
 
-  // Bundle all DPPs into single transaction
-  const bundle = {
-    version: '1.0',
-    archived: new Date().toISOString(),
-    dpps: dpps.map(dpp => ({
-      id: dpp.id,
-      vc: dpp.vcJwt,
-      data: dpp.dppData,
-    })),
-  };
-
-  const tx = await arweave.createTransaction({ data: JSON.stringify(bundle) });
-  tx.addTag('App-Name', 'EuroComply');
-  tx.addTag('Content-Type', 'application/json');
-
-  await arweave.transactions.sign(tx);
-  await arweave.transactions.post(tx);
-
-  return {
-    txId: tx.id,
-    permanentUrl: `https://arweave.net/${tx.id}`,
-    cost: tx.reward, // in Winston
-  };
-}
-```
+Single HTML file with:
+- Embedded CSS/JS
+- VC verification library
+- Beautiful rendering
+- Works without internet
 
 ---
 
-## Why NOT Container-per-Customer
+## Pricing (Simplified)
 
-The user asked about spinning up containers when payment is successful. Here's why this doesn't work for SMEs:
+```
+┌────────────────────────────┬─────────┬─────────────────────────────┐
+│ Tier                       │ Price   │ Sovereignty Features        │
+├────────────────────────────┼─────────┼─────────────────────────────┤
+│ Starter                    │ €49/mo  │ ✅ Self-contained VCs       │
+│                            │         │ ✅ One-click export         │
+│                            │         │ ✅ Offline verification     │
+├────────────────────────────┼─────────┼─────────────────────────────┤
+│ Growth                     │ €149/mo │ All Starter features        │
+│                            │         │ ✅ API access               │
+│                            │         │ ✅ Bulk export              │
+├────────────────────────────┼─────────┼─────────────────────────────┤
+│ Pro                        │ €399/mo │ All Growth features         │
+│                            │         │ ✅ White-label viewer       │
+│                            │         │ ✅ Custom domain option     │
+├────────────────────────────┼─────────┼─────────────────────────────┤
+│ Enterprise                 │ €599+   │ All Pro features            │
+│                            │         │ ✅ Dedicated infrastructure │
+│                            │         │ ✅ Deploy to your cloud     │
+│                            │         │ ✅ SLA guarantees           │
+└────────────────────────────┴─────────┴─────────────────────────────┘
+```
 
-| Factor | Container-per-Customer | Our Recommendation |
-|--------|------------------------|-------------------|
-| Setup time | 4-8 hours | 5 minutes |
-| Monthly cost | €50-110 + labor | €99-149 |
-| IT knowledge required | DevOps | None |
-| Support burden | Very high | Low |
-| Margin | Negative at SME prices | Positive |
-| Customer satisfaction | Low (complexity) | High (simplicity) |
-
-**Container-per-customer makes sense ONLY for:**
-- Enterprise customers (€599+ tier)
-- Regulated industries requiring physical isolation
-- Customers with dedicated IT teams
-
-For SMEs, the **Sovereign tier** achieves the same data ownership goal with 10x less complexity.
-
----
-
-## Data Sovereignty Comparison
-
-| Approach | Ownership | Complexity | SME Fit |
-|----------|-----------|------------|---------|
-| Managed SaaS | Portable (VCs) | None | ✅ Best |
-| Sovereign Tier | Full | Low | ✅ Great |
-| BYOS (S3) | Full | Medium | ✅ Good |
-| IPFS Backup | Full + Permanent | Low | ✅ Good |
-| Container per customer | Full | High | ❌ Poor |
-| Self-hosted open source | Complete | Very High | ❌ Poor |
+**Note**: All tiers get the same sovereignty guarantees. Enterprise just adds dedicated infrastructure for customers who want physical isolation.
 
 ---
 
 ## Marketing the Sovereignty Story
 
-### Current messaging:
-> "Digital Product Passport SaaS for SME Suppliers"
+### Messaging
 
-### New messaging:
-> "Your DPPs, Your Rules, Our Tools"
+> "Your Data, Your Rules, Our Tools"
 
-Key points:
-1. **Export anytime** - Download VCs + keys, host anywhere
-2. **No lock-in** - VCs verify without EuroComply
-3. **Your choice** - Managed, self-hosted, or decentralized
-4. **ESPR compliant** - You control the 10-year retention
+### Key Points
 
-### Trust badges to add:
+1. **You own it** - VCs contain all data, signed to your DID
+2. **No lock-in** - Open standards, any viewer works
+3. **Works forever** - Offline verification, no EuroComply dependency
+4. **Simple** - We host everything, one-click export
+
+### FAQ: "What happens if EuroComply disappears?"
+
+> Your Digital Product Passports continue to work. Here's why:
+>
+> 1. **Your VCs are self-contained** - All data is inside the credential, not stored on our servers
+> 2. **Cryptographic signatures verify offline** - No server check needed
+> 3. **Export anytime** - Download everything with one click
+> 4. **Open standards** - Any W3C VC-compatible viewer works
+>
+> We recommend downloading your export periodically as a backup. But even if you don't, the VCs you've shared (via QR codes, etc.) will continue to verify forever.
+
+### Trust Badges
+
 - "Data Portable" - Export your data anytime
-- "No Lock-in" - VCs work forever without us
-- "Your Infrastructure" - Host where you want
+- "No Lock-in" - Works without us
+- "Open Standards" - W3C Verifiable Credentials
+- "Offline Verification" - No server dependency
+
+---
+
+## Technical Implementation
+
+### Self-Contained VC Builder
+
+```typescript
+async function buildSelfContainedVC(passport: Passport): Promise<VerifiableCredential> {
+  const issuerDid = await getEuroComplyDid();
+  const subjectDid = await getSupplierDid(passport.supplierId);
+
+  // Build credential with ALL data embedded
+  const credential: VerifiableCredential = {
+    '@context': [
+      'https://www.w3.org/2018/credentials/v1',
+      'https://eurocomply.eu/schemas/dpp/v1'
+    ],
+    type: ['VerifiableCredential', 'DigitalProductPassport'],
+    issuer: issuerDid,
+    issuanceDate: new Date().toISOString(),
+    credentialSubject: {
+      id: subjectDid,
+      // Embed ALL the passport data
+      ...passport.data,
+    },
+  };
+
+  // Sign the credential
+  const signedCredential = await signCredential(credential, issuerDid);
+
+  return signedCredential;
+}
+```
+
+### Offline Verification Library
+
+```typescript
+// Embedded in viewer.html
+async function verifyCredential(credential: VerifiableCredential): Promise<VerificationResult> {
+  // 1. Check structure
+  if (!credential.proof) {
+    return { valid: false, error: 'No proof found' };
+  }
+
+  // 2. Resolve issuer DID (did:key is self-contained - no network needed!)
+  const issuerPublicKey = resolveDidKey(credential.issuer);
+
+  // 3. Verify signature
+  const signatureValid = await verifySignature(
+    credential,
+    credential.proof,
+    issuerPublicKey
+  );
+
+  if (!signatureValid) {
+    return { valid: false, error: 'Invalid signature' };
+  }
+
+  // 4. Check expiration if present
+  if (credential.expirationDate && new Date(credential.expirationDate) < new Date()) {
+    return { valid: false, error: 'Credential expired' };
+  }
+
+  return { valid: true, issuer: credential.issuer };
+}
+
+// did:key is self-contained - public key IS the identifier
+function resolveDidKey(did: string): PublicKey {
+  // did:key:z6Mk... contains the public key in the identifier itself
+  // No network request needed!
+  const multibase = did.replace('did:key:', '');
+  return decodeMultibase(multibase);
+}
+```
 
 ---
 
 ## Related Documentation
 
 - [Self-Service Onboarding](./SELF_SERVICE_ONBOARDING.md) - How suppliers sign up
-- [Architecture Portability](./ARCHITECTURE_PORTABILITY.md) - Technical portability details
 - [Business Model](./BUSINESS_MODEL.md) - Pricing tiers
+- [Implementation Roadmap](./IMPLEMENTATION_ROADMAP.md) - Development phases
 
 ---
 
