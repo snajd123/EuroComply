@@ -6,6 +6,41 @@ EuroComply is built on the principle that **suppliers own their data**. Digital 
 
 ---
 
+## SME-First Architecture
+
+Our architecture is deliberately simple. We target SMEs (99% of EU businesses) who need compliance without complexity.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    SME ARCHITECTURE PRINCIPLES                   │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  WHAT WE BUILD (SME-Critical)                                   │
+│  ─────────────────────────────                                  │
+│  • W3C Verifiable Credentials (standard format)                 │
+│  • did:key identity (self-contained, no infrastructure)         │
+│  • GS1 Digital Link QR codes (interoperable)                    │
+│  • JSON-LD data format (web standard)                           │
+│  • REST API (simple, well-documented)                           │
+│  • Shopify/WooCommerce plugins (where SMEs sell)                │
+│                                                                  │
+│  WHAT WE SKIP (Enterprise-Only)                                 │
+│  ─────────────────────────────                                  │
+│  • Eclipse Dataspace Connector (B2B data spaces)                │
+│  • Full AAS/AASX (industrial digital twins)                     │
+│  • ODRL usage policies (complex access control)                 │
+│  • Catena-X/Gaia-X integration (consortium protocols)           │
+│  • EBSI blockchain anchoring (institutional trust)              │
+│  • SAP/Oracle ERP connectors                                    │
+│                                                                  │
+│  WHY: Enterprise has SAP, Siemens, Catena-X. SMEs have nothing. │
+│       We fill the SME gap with simple, affordable tooling.      │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
 ## Core Principles
 
 ```
@@ -478,6 +513,9 @@ ESPR requires DPP data to remain accessible for the product's lifetime.
 │                    PORTABILITY SUMMARY                           │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
+│  TARGET: SMEs (99% of EU businesses)                            │
+│  APPROACH: Simple standards, no enterprise complexity           │
+│                                                                  │
 │  WHAT YOU OWN                                                   │
 │  → All Verifiable Credentials (signed DPPs)                     │
 │  → Your identity (did:key + private key)                        │
@@ -497,9 +535,10 @@ ESPR requires DPP data to remain accessible for the product's lifetime.
 │  → ESPR compliance (data remains accessible)                    │
 │                                                                  │
 │  OUR VALUE PROPOSITION                                          │
-│  → Easy creation tools                                          │
+│  → Easy creation tools (no IT team required)                    │
 │  → Managed hosting (while subscribed)                           │
 │  → Retailer distribution network                                │
+│  → Simple standards (W3C VC, did:key, GS1)                     │
 │  → NOT lock-in                                                  │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘

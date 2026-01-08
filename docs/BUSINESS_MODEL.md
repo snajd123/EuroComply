@@ -129,7 +129,8 @@ Retailers use DPPs but don't pay for them. This is mandated by ESPR Article 31.
 | **Starter** | €49 | 50 DPPs | Creator studio, VC issuance, managed hosting, QR codes |
 | **Growth** | €149 | 500 DPPs | + Bulk CSV import, templates library, priority support |
 | **Pro** | €399 | 2,000 DPPs | + API access, white-label verification, dedicated support |
-| **Enterprise** | Custom | Unlimited | + Self-hosting support, SLA, custom integrations |
+
+*Note: We deliberately do not offer an Enterprise tier. SMEs needing more than 2,000 DPPs can contact us, but large enterprises are better served by SAP, Siemens, or Catena-X solutions.*
 
 ### What's Included
 
@@ -365,10 +366,11 @@ Even though access is free, retailers choose EuroComply because:
 │  MARKET POSITIONING                                              │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  ENTERPRISE                                                      │
+│  ENTERPRISE (NOT OUR MARKET)                                     │
 │  (BMW, Siemens, H&M)         SAP / Siemens / Circulor           │
 │  €100k+ budgets              Deep ERP integration               │
 │                              Custom implementations              │
+│                              Eclipse Dataspace / Catena-X        │
 │                                                                  │
 │  ─────────────────────────────────────────────────────────────  │
 │                                                                  │
@@ -378,7 +380,7 @@ Even though access is free, retailers choose EuroComply because:
 │                                                                  │
 │  ─────────────────────────────────────────────────────────────  │
 │                                                                  │
-│  SME                         ┌─────────────────────────────┐    │
+│  SME (OUR FOCUS)             ┌─────────────────────────────┐    │
 │  (99% of EU businesses)      │      EUROCOMPLY            │    │
 │  €49-399/month budgets       │                             │    │
 │                              │  "The WordPress of DPPs"   │    │
@@ -387,7 +389,80 @@ Even though access is free, retailers choose EuroComply because:
 │                              │  • Easy to use              │    │
 │                              │  • No lock-in               │    │
 │                              │  • Portable VCs             │    │
+│                              │  • Quick onboarding         │    │
+│                              │  • No IT team required      │    │
 │                              └─────────────────────────────┘    │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## SME-First Strategy
+
+### Why SME Only?
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    SME FOCUS RATIONALE                           │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  99% of EU businesses are SMEs                                  │
+│  0 affordable DPP solutions exist for them                      │
+│  Enterprise has SAP, Siemens, Catena-X - they don't need us     │
+│                                                                  │
+│  We cannot compete on:                                           │
+│  ✗ ERP integration depth                                        │
+│  ✗ Complex supply chain orchestration                           │
+│  ✗ Industry consortium membership (Catena-X, etc.)              │
+│  ✗ B2B data space protocols (Eclipse EDC)                       │
+│                                                                  │
+│  We compete on:                                                  │
+│  ✓ Price (€149/mo vs €100k+)                                    │
+│  ✓ Simplicity (hours to compliant, not months)                  │
+│  ✓ No IT team required (self-service SaaS)                      │
+│  ✓ Portability (no lock-in)                                     │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### What We Build vs. What We Skip
+
+| Category | SME-Critical (Build) | Enterprise-Only (Skip) |
+|----------|---------------------|------------------------|
+| **QR Codes** | GS1 Digital Link (interoperable QR) | Custom resolver infrastructure |
+| **Trust** | did:key + W3C VCs | EBSI blockchain anchoring |
+| **Data Format** | JSON-LD, basic AAS export | Full AAS/AASX industrial twin |
+| **Interop** | Standard REST API | Eclipse Dataspace Connector |
+| **Access Control** | Simple public/private | ODRL usage policies |
+| **Integration** | Shopify/WooCommerce plugins | SAP/Oracle ERP connectors |
+| **Onboarding** | Self-service, same-day | Months of implementation |
+
+### SME User Profile
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    TYPICAL SME CUSTOMER                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Company: Small textile manufacturer or importer                │
+│  Employees: 5-50                                                │
+│  IT Staff: 0-1 (not dedicated)                                  │
+│  Products: 50-500 SKUs                                          │
+│  Tech literacy: Can use web apps, not developers                │
+│  Budget: €100-500/month for compliance tools                    │
+│                                                                  │
+│  Their needs:                                                   │
+│  • "I need DPP to sell in EU, make it easy"                    │
+│  • "I don't have 6 months for implementation"                  │
+│  • "I don't have an IT team"                                   │
+│  • "I can't afford €50k for SAP"                               │
+│                                                                  │
+│  Our promise:                                                   │
+│  • Sign up today, compliant DPP by end of week                 │
+│  • Forms guide you through required fields                     │
+│  • No developer needed                                          │
+│  • €149/month, cancel anytime                                   │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -435,6 +510,9 @@ These are **value-add analytics**, not DPP access (which must remain free).
 │                    EUROCOMPLY MODEL                              │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
+│  TARGET MARKET: SMEs (99% of EU businesses)                    │
+│  NOT: Enterprise (they have SAP, Catena-X)                      │
+│                                                                  │
 │  WHO CREATES DPPs?                                              │
 │  → Producers (manufacturers - primary data)                     │
 │  → Importers (must ensure DPP exists for EU market)            │
@@ -459,9 +537,10 @@ These are **value-add analytics**, not DPP access (which must remain free).
 │  → Host elsewhere or self-host                                  │
 │  → VCs still verify (did:key is portable)                      │
 │                                                                  │
-│  WHY US?                                                        │
-│  → 97% cheaper than building yourself                           │
-│  → 99% cheaper than enterprise vendors                          │
+│  WHY US? (SME VALUE PROP)                                       │
+│  → €149/mo vs €100k+ for enterprise solutions                  │
+│  → Sign up today, compliant by end of week                     │
+│  → No IT team required                                          │
 │  → No lock-in - you own your data                              │
 │  → Cryptographic proof - not just a database                   │
 │                                                                  │
