@@ -220,8 +220,8 @@ async function verifyCertification(
 
 ---
 
-## Phase 2.5: Supplier DPP Marketplace ✅ COMPLETE
-**Goal: Enable suppliers to publish DPPs that retailers can subscribe to**
+## Phase 2.5: Supplier SaaS Platform ✅ COMPLETE
+**Goal: Enable SME suppliers to create DPPs via SaaS subscription**
 
 ### 2.5.1 Supplier Portal
 
@@ -230,10 +230,12 @@ Standalone supplier authentication and management:
 ```typescript
 // Supplier Portal Features
 - Email/password registration with JWT auth
+- SaaS subscription (€49/149/399 per month)
 - Company verification workflow
 - Product DPP creation with textile schema
-- Verifiable Credential anchoring
+- Verifiable Credential issuance (did:key)
 - Catalog visibility controls (public/private/invite-only)
+- Data portability (export VCs + keys)
 ```
 
 **API Endpoints:**
@@ -242,14 +244,16 @@ Standalone supplier authentication and management:
 - `GET/PATCH /api/suppliers/me` - Profile management
 - `POST /api/suppliers/verification` - Submit verification docs
 - `GET/POST/PATCH/DELETE /api/suppliers/products` - Product CRUD
+- `GET /api/suppliers/plan` - SaaS subscription status
+- `POST /api/suppliers/export` - Export all VCs and data
 
-### 2.5.2 Retailer Catalog Access
+### 2.5.2 Retailer Catalog Access (Free - ESPR Article 31)
 
-Retailers (via Shopify/WooCommerce plugins) can browse and subscribe to supplier DPPs:
+Retailers (via Shopify/WooCommerce plugins) access supplier DPPs for FREE:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│  SUPPLIER CATALOG IN SHOPIFY APP                                    │
+│  SUPPLIER CATALOG IN SHOPIFY APP (Free Access)                      │
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                     │
 │  Browse verified supplier products:                                 │
@@ -257,35 +261,35 @@ Retailers (via Shopify/WooCommerce plugins) can browse and subscribe to supplier
 │  │ ABC Textiles (Verified ✓)                                       ││
 │  │ "Organic Cotton T-Shirt Base"                                   ││
 │  │ 100% Organic Cotton | Made in PT | 3.2 kgCO2e                  ││
-│  │ GOTS Certified | Used by 45 retailers                          ││
+│  │ GOTS Certified | did:key verified | Used by 45 retailers        ││
 │  │                                                                  ││
-│  │ [Subscribe €2.00/mo]  [View Details]                           ││
+│  │ [Link DPP - Free]  [View Details]                               ││
 │  └─────────────────────────────────────────────────────────────────┘│
 │                                                                     │
-│  IMPORTANT: Retailers can ONLY subscribe - they cannot create,      │
-│  copy, or modify DPP data. This eliminates fraud by design.         │
+│  IMPORTANT: Retailers access DPPs for FREE (ESPR Article 31).       │
+│  They cannot create, copy, or modify DPP data.                      │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-### 2.5.3 Revenue Sharing
+### 2.5.3 Pricing Model (Supplier-Pays SaaS)
 
 ```typescript
-// Pricing Model - DYNAMIC PRICING
-const MINIMUM_PRICE = 0.50;       // €0.50 floor per product/month
-const SUPPLIER_SHARE = 0.80;      // 80% to supplier
-const PLATFORM_SHARE = 0.20;      // 20% to EuroComply
-const MINIMUM_PAYOUT = 10.00;     // Minimum €10 for withdrawal
+// SaaS Pricing Tiers (Suppliers Pay, Retailers Free)
+const PRICING_TIERS = {
+  starter: { monthly: 49, dppLimit: 50 },
+  growth: { monthly: 149, dppLimit: 500 },
+  pro: { monthly: 399, dppLimit: 2000 },
+};
 
-// Suppliers set their own price (no ceiling)
-// Price examples: €0.50, €1.00, €2.50, €5.00, €10.00, etc.
+// ESPR Article 31: Retailers access DPPs for free
+// We cannot charge for DPP access - it's EU law
 ```
 
-**Earnings Dashboard:**
-- `GET /api/suppliers/earnings` - Overview & stats
-- `GET /api/suppliers/earnings/products` - Per-product breakdown
-- `GET /api/suppliers/earnings/history` - Monthly records
-- `POST /api/suppliers/payouts/request` - Request payout (Stripe Connect)
+**Supplier Dashboard:**
+- `GET /api/suppliers/plan` - Current SaaS tier and usage
+- `GET /api/suppliers/products` - Products and retailer adoption
+- `POST /api/suppliers/export` - Export all data (portability)
 
 ---
 
@@ -424,13 +428,13 @@ interface ElectronicsDppData {
 
 ### 5.2 Supply Chain VCs
 - Supplier issues VC for their materials
-- Retailer subscribes to supplier's DPP with embedded VCs
+- Retailers access supplier's DPP (free - ESPR Article 31)
 - Chain of custody verification
 
-### 5.3 EBSI Integration
-- Migrate from did:web to did:ebsi
-- Register as Trusted Issuer
-- Government-recognized credentials
+### 5.3 Interoperability (SME-Focused)
+- GS1 Digital Link resolver (QR code interoperability)
+- Basic AAS export (compliance format for regulators)
+- EBSI optional (if institutional trust needed - not SME priority)
 
 ---
 
@@ -447,32 +451,33 @@ interface ElectronicsDppData {
 
 ---
 
-## Competitive Positioning
+## Competitive Positioning (SME Focus)
 
 ### What We Have (Unique)
 - ✅ W3C Verifiable Credentials (walt.id)
-- ✅ DID infrastructure (did:web, EBSI-ready)
+- ✅ did:key identity (portable, self-verifying, no lock-in)
 - ✅ Cryptographic signature verification
-- ✅ Public verification endpoint
+- ✅ Public verification endpoint (works offline)
+- ✅ Data portability (export VCs + keys anytime)
 
 ### What We've Added ✅
 - ✅ Category-specific data schemas (Textile complete)
 - ✅ Compliance validation engine
 - ✅ Third-party data integration (Higg MSI)
-- ✅ Supplier DPP Marketplace
+- ✅ Supplier SaaS Platform (€49-399/month)
+- ✅ Free retailer access (ESPR Article 31)
 - 📋 Shopify Metaobject sync (planned)
 
-### Competitor Comparison (Post-Implementation)
+### SME-Focused Competitor Comparison
 
-| Capability | SmartDPP | Tracehub | Arianee | **EuroComply** |
-|------------|----------|----------|---------|----------------|
-| Textile schema | ❓ | ❓ | ❌ | ✅ |
-| Mandatory field validation | ❌ | ❌ | ❌ | ✅ |
-| Higg data integration | ❌ | ❌ | ❌ | ✅ |
-| Supplier DPP marketplace | ❌ | ❌ | ❌ | ✅ |
-| Revenue sharing for suppliers | ❌ | ❌ | ❌ | ✅ |
-| Verifiable Credentials | ❌ | ❌ | NFT | **W3C VC** |
-| Public verification | ❌ | ❌ | Wallet | **URL/QR** |
-| EBSI-ready | ❌ | ❌ | ❌ | ✅ |
+| Capability | Enterprise (SAP/Siemens) | **EuroComply (SME)** |
+|------------|--------------------------|---------------------|
+| Target market | Large enterprises | **SMEs (99% of EU)** |
+| Price | €100k+ | **€49-399/month** |
+| Setup time | Months | **Same day** |
+| IT team required | Yes | **No** |
+| Verifiable Credentials | Varies | **W3C VC (did:key)** |
+| Data portability | Limited | **Full export** |
+| Lock-in | High | **None** |
 
-**Our moat: Cryptographic verification + Regulatory-aligned data schemas + Supply chain collaboration**
+**Our moat: Affordable + Simple + Portable + ESPR Compliant**

@@ -30,7 +30,7 @@ Creating ESPR-compliant Digital Product Passports requires **category-specific, 
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                      │
 │  1. SUPPLIER ONBOARDING                                             │
-│     ├─ Sign up for SaaS plan (Starter/Growth/Pro/Enterprise)       │
+│     ├─ Sign up for SaaS plan (Starter €49/Growth €149/Pro €399)   │
 │     └─ Complete KYB verification                                    │
 │                                                                      │
 │  2. IDENTITY CREATION                                               │

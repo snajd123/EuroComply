@@ -290,7 +290,7 @@ if ($qr_url) {
 
 ## Using Supplier DPPs
 
-**Retailers subscribe to DPPs created by verified suppliers.** Retailers cannot create their own passports.
+**Retailers access DPPs created by verified suppliers for FREE.** ESPR Article 31 mandates free access for all economic operators.
 
 ### Accessing the Supplier Catalog
 
@@ -299,27 +299,25 @@ In the Shopify app:
 2. Search by product type, certification, or supplier
 3. Filter by category (Textiles, Electronics, etc.)
 
-### Subscription Flow
+### Free Access Flow
 
 ```
 1. Browse catalog → Find your supplier's product
-2. View price, DPP preview, supplier verification badge
+2. View DPP preview, supplier verification badge
 3. Select your Shopify product to link
-4. Subscribe → DPP is linked to your product
+4. Link DPP (FREE) → DPP is associated with your product
 5. Your product shows "Verified by [Supplier Name]"
 6. Supplier updates automatically apply
 ```
 
 ### Pricing
 
-| Parameter | Value |
-|-----------|-------|
-| **Minimum Price** | €0.50/product/month (floor) |
-| **Maximum Price** | Set by supplier (no ceiling) |
-| **Platform Fee** | 20% of subscription price |
-| **Supplier Revenue** | 80% of subscription price |
+| Who | What | Cost |
+|-----|------|------|
+| **Suppliers** | Create DPPs via SaaS platform | €49-399/month |
+| **Retailers** | Access and display DPPs | **FREE** |
 
-Suppliers set their own prices. Billed monthly via Shopify usage-based billing.
+**Why free for retailers?** ESPR Article 31 mandates that DPP data must be accessible "free of charge" to all economic operators in the supply chain.
 
 ---
 

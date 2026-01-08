@@ -2,330 +2,100 @@
 
 ## Overview
 
-EuroComply uses a **supplier-only model** for Digital Product Passports. Only verified suppliers can create passports - retailers can only subscribe to use them. This eliminates fraud by design.
+EuroComply uses a **supplier-only model** for Digital Product Passports. Only verified suppliers can create passports - retailers access them for free (ESPR Article 31 mandate). This eliminates fraud by design.
 
 ## Core Principles
 
-1. **Suppliers create, retailers subscribe** - Only verified suppliers can create DPPs
+1. **Suppliers create, retailers access free** - Only verified suppliers can create DPPs
 2. **No retailer-created passports** - Retailers cannot create, copy, or modify DPPs
 3. **Single source of truth** - Each DPP is maintained by its supplier
 4. **Verified suppliers only** - Suppliers must complete KYB verification before publishing
-5. **Dynamic pricing** - Suppliers set their own prices (minimum €0.50/product/month)
+5. **SME-focused SaaS** - Simple pricing tiers for small businesses (€49-399/month)
 
 ---
 
-## Monetization Model
+## Business Model: Supplier-Pays SaaS
 
-### Revenue Flow
+### Revenue Flow (ESPR Article 31 Compliant)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│  RETAILER SUBSCRIBES TO SUPPLIER DPP                                │
+│  SUPPLIER-PAYS SAAS MODEL                                           │
 │                                                                     │
 │  ┌─────────────────────────────────────────────────────────────────┐│
-│  │ Supplier sets price: €X/product/month (minimum €0.50)           ││
+│  │ Supplier pays SaaS fee: €49/149/399 per month                   ││
+│  │ (based on DPP volume: 50/500/2000 DPPs)                         ││
 │  └─────────────────────────────────────────────────────────────────┘│
 │                      │                                              │
 │                      ▼                                              │
 │           ┌─────────────────────┐                                   │
-│           │  MONTHLY BILLING    │                                   │
-│           │  Charged via Stripe │                                   │
+│           │  EUROCOMPLY         │                                   │
+│           │  Provides:          │                                   │
+│           │  • DPP Creator      │                                   │
+│           │  • VC Issuance      │                                   │
+│           │  • Managed Hosting  │                                   │
+│           │  • Retailer Catalog │                                   │
 │           └──────────┬──────────┘                                   │
 │                      │                                              │
-│           ┌──────────┴──────────┐                                   │
-│           ▼                     ▼                                   │
-│  ┌─────────────────┐   ┌─────────────────┐                          │
-│  │ SUPPLIER: 80%   │   │ EUROCOMPLY: 20% │                          │
-│  └─────────────────┘   └─────────────────┘                          │
+│                      ▼                                              │
+│  ┌─────────────────────────────────────────────────────────────────┐│
+│  │ RETAILERS ACCESS FREE (ESPR Article 31 mandate)                 ││
+│  │ Browse catalog, link DPPs, display on storefront                ││
+│  └─────────────────────────────────────────────────────────────────┘│
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-### Pricing Structure
+### Pricing Tiers
 
-| Parameter | Value |
-|-----------|-------|
-| **Floor Price** | €0.50/product/month (minimum) |
-| **Ceiling** | None (suppliers set their own price) |
-| **Platform Fee** | 20% of supplier's price |
-| **Supplier Revenue** | 80% of subscription price |
+| Tier | Monthly | DPPs Included | Features |
+|------|---------|---------------|----------|
+| **Starter** | €49 | 50 | Creator studio, VCs, hosting, QR codes |
+| **Growth** | €149 | 500 | + CSV import, templates, priority support |
+| **Pro** | €399 | 2,000 | + API access, white-label, dedicated support |
 
-**Rationale:**
-- **Dynamic pricing** lets suppliers price according to product value and market
-- **Floor ensures revenue** - no free passports that devalue the marketplace
-- **80/20 split** incentivizes suppliers while funding platform
+**Why no Enterprise tier?** SMEs are our focus. Large enterprises use SAP/Siemens.
 
-### Billing Mechanics
+**Why free for retailers?** ESPR Article 31 mandates free DPP access for all economic operators.
+
+### Supplier Dashboard
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│  MONTHLY BILLING CYCLE                                              │
+│  supplier.eurocomply.com > Dashboard                                │
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                     │
-│  Day 1-30: Active subscriptions tracked                             │
-│  ┌─────────────────────────────────────────────────────────────────┐│
-│  │ Retailer: fashion-store.myshopify.com                           ││
-│  │                                                                  ││
-│  │ Active DPP subscriptions:                                        ││
-│  │  • ABC Textiles - Organic T-Shirt    €2.00 × 3 products = €6.00 ││
-│  │  • XYZ Fabrics - Recycled Hoodie     €1.50 × 1 product  = €1.50 ││
-│  │                                                                  ││
-│  │ Monthly total: €7.50                                            ││
-│  └─────────────────────────────────────────────────────────────────┘│
-│                                                                     │
-│  Day 1 (next month): Retailer charged via Stripe                    │
-│                                                                     │
-│  Revenue distribution:                                              │
-│  ┌─────────────────────────────────────────────────────────────────┐│
-│  │ ABC Textiles:  €6.00 × 80% = €4.80                              ││
-│  │ XYZ Fabrics:   €1.50 × 80% = €1.20                              ││
-│  │ EuroComply:    €7.50 × 20% = €1.50                              ││
-│  │                               ─────────                          ││
-│  │                       Total:  €7.50                              ││
-│  └─────────────────────────────────────────────────────────────────┘│
-│                                                                     │
-│  Monthly payouts to suppliers (via Stripe Connect)                  │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-### Database Schema (Billing)
-
-```prisma
-// Add to Supplier model
-model Supplier {
-  // ... existing fields ...
-
-  // Payout settings
-  stripeConnectAccountId  String?   // For receiving payouts
-  payoutEnabled           Boolean   @default(false)
-  payoutMinimum           Decimal   @default(10.00) // Min balance for payout
-
-  // Relations
-  earnings                SupplierEarning[]
-  payouts                 SupplierPayout[]
-}
-
-// Track individual subscription events
-model DppSubscriptionEvent {
-  id                  String   @id @default(cuid())
-
-  // Who subscribed
-  retailerShop        String
-  shopifyProductId    String
-
-  // What was subscribed to
-  supplierProductId   String
-  supplierId          String
-
-  // Pricing at time of subscription (supplier-set price)
-  priceCharged        Decimal  // Total price (supplier's price)
-  supplierShare       Decimal  // 80%
-  platformShare       Decimal  // 20%
-
-  // Billing status
-  billingStatus       BillingStatus @default(PENDING)
-  billedAt            DateTime?
-  retailerInvoiceId   String?  // Stripe reference
-
-  // For recurring subscriptions
-  billingPeriodStart  DateTime?
-  billingPeriodEnd    DateTime?
-
-  createdAt           DateTime @default(now())
-
-  @@index([retailerShop, billingStatus])
-  @@index([supplierId, billingStatus])
-}
-
-enum BillingStatus {
-  PENDING         // Usage tracked, not yet billed
-  BILLED          // Charged to retailer
-  PAID            // Retailer payment received
-  FAILED          // Payment failed
-  REFUNDED        // Refunded to retailer
-}
-
-// Aggregate supplier earnings
-model SupplierEarning {
-  id                  String   @id @default(cuid())
-  supplierId          String
-  supplier            Supplier @relation(fields: [supplierId], references: [id])
-
-  // Period
-  periodStart         DateTime
-  periodEnd           DateTime
-
-  // Amounts
-  grossEarnings       Decimal  // Total before platform fee
-  platformFee         Decimal  // 20% taken by EuroComply
-  netEarnings         Decimal  // Amount to pay supplier
-
-  // Stats
-  subscriptionCount   Int      // Number of active subscriptions
-
-  // Payout status
-  payoutStatus        PayoutStatus @default(PENDING)
-  payoutId            String?
-
-  createdAt           DateTime @default(now())
-
-  @@unique([supplierId, periodStart])
-  @@index([supplierId, payoutStatus])
-}
-
-enum PayoutStatus {
-  PENDING           // Awaiting payout
-  PROCESSING        // Payout initiated
-  COMPLETED         // Money transferred
-  FAILED            // Payout failed
-  HELD              // Below minimum or issue
-}
-
-// Actual payouts to suppliers
-model SupplierPayout {
-  id                  String   @id @default(cuid())
-  supplierId          String
-  supplier            Supplier @relation(fields: [supplierId], references: [id])
-
-  amount              Decimal
-  currency            String   @default("EUR")
-
-  // Stripe
-  stripeTransferId    String?
-  stripePayoutId      String?
-
-  status              PayoutStatus
-  failureReason       String?
-
-  initiatedAt         DateTime @default(now())
-  completedAt         DateTime?
-
-  @@index([supplierId, status])
-}
-```
-
-### Retailer Billing Integration
-
-```typescript
-// Integration with Stripe Billing
-
-interface RetailerSubscriptionBilling {
-  // 1. Create subscription when retailer subscribes to DPP
-  createSubscription(params: {
-    retailerId: string;
-    supplierProductId: string;
-    price: number;  // Supplier's price
-  }): Promise<{
-    subscriptionId: string;
-    clientSecret: string;
-  }>;
-
-  // 2. Stripe handles recurring billing automatically
-  // 3. We receive webhook when payment succeeds
-}
-
-// Example subscription creation
-async function onDppSubscribed(
-  retailerShop: string,
-  supplierProductId: string,
-  supplierPrice: number
-) {
-  const supplierShare = supplierPrice * 0.80;
-  const platformShare = supplierPrice * 0.20;
-
-  // Record in our DB
-  await prisma.dppSubscriptionEvent.create({
-    data: {
-      retailerShop,
-      supplierProductId,
-      priceCharged: supplierPrice,
-      supplierShare,
-      platformShare,
-      billingStatus: 'PENDING',
-      billingPeriodStart: startOfMonth(new Date()),
-      billingPeriodEnd: endOfMonth(new Date()),
-    }
-  });
-
-  // Create Stripe subscription
-  await stripe.subscriptions.create({
-    customer: retailerStripeCustomerId,
-    items: [{ price: supplierPriceId }],
-    metadata: {
-      supplierProductId,
-      retailerShop,
-    },
-  });
-}
-```
-
-### Supplier Dashboard (Earnings)
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│  supplier.eurocomply.com > Earnings                                 │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│  💰 Earnings Overview                                               │
+│  📊 Subscription Overview                                           │
 │  ┌─────────────────────────────────────────────────────────────────┐│
 │  │                                                                  ││
-│  │  This Month          All Time           Pending Payout           ││
-│  │  ┌──────────┐       ┌──────────┐       ┌──────────┐             ││
-│  │  │  €124.80 │       │ €1,847.20│       │  €89.60  │             ││
-│  │  │  ↑ 12%   │       │          │       │  [Request Payout]      ││
-│  │  └──────────┘       └──────────┘       └──────────┘             ││
+│  │  Current Plan           DPPs Used          Retailers Using       ││
+│  │  ┌──────────┐          ┌──────────┐       ┌──────────┐          ││
+│  │  │  Growth  │          │  127/500 │       │    47    │          ││
+│  │  │  €149/mo │          │          │       │          │          ││
+│  │  └──────────┘          └──────────┘       └──────────┘          ││
+│  │                                                                  ││
+│  │  [Upgrade Plan]  [Manage Subscription]                          ││
 │  │                                                                  ││
 │  └─────────────────────────────────────────────────────────────────┘│
 │                                                                     │
-│  📊 Subscriptions by Product                                        │
+│  📦 Your Products                                                   │
 │  ┌─────────────────────────────────────────────────────────────────┐│
-│  │ Product                  Price    Subs    Monthly Earnings      ││
+│  │ Product                  Status    Retailers    Last Updated    ││
 │  │ ─────────────────────────────────────────────────────────────── ││
-│  │ Organic Cotton T-Shirt   €2.00     47     €75.20                ││
-│  │ Recycled Hoodie          €1.50     23     €27.60                ││
-│  │ Linen Summer Dress       €2.50     18     €36.00                ││
-│  │ Denim Jacket             €1.00     12     € 9.60                ││
+│  │ Organic Cotton T-Shirt   Published    23        2 days ago      ││
+│  │ Recycled Hoodie          Published    18        1 week ago      ││
+│  │ Linen Summer Dress       Draft         0        Today           ││
 │  │                                                                  ││
+│  │ [+ Create New Product]                                          ││
 │  └─────────────────────────────────────────────────────────────────┘│
 │                                                                     │
-│  💳 Payout Settings                                                 │
+│  📤 Data Portability                                                │
 │  ┌─────────────────────────────────────────────────────────────────┐│
-│  │ Status: ✓ Connected via Stripe                                  ││
-│  │ Account: ****4242 (ABC Textiles Ltd)                            ││
-│  │ Minimum payout: €10.00                                          ││
-│  │ Payout schedule: Monthly (1st of month)                         ││
+│  │ Export all your DPPs and Verifiable Credentials anytime.        ││
+│  │ Your data is portable - take it to any platform.                ││
 │  │                                                                  ││
-│  │ [Update Bank Details]  [View Payout History]                    ││
+│  │ [Export All Data]  [View Export History]                        ││
 │  └─────────────────────────────────────────────────────────────────┘│
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-### Pricing Tiers (Optional Future)
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│  SUPPLIER TIER SYSTEM                                               │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│  Standard (Free)              Premium (€49/mo)                      │
-│  ─────────────────            ─────────────────                     │
-│  • Up to 10 products          • Unlimited products                  │
-│  • 80% revenue share          • 85% revenue share                   │
-│  • Public catalog only        • Invite-only catalogs                │
-│  • Basic analytics            • Advanced analytics                  │
-│  • Email support              • Priority support                    │
-│                               • Featured in catalog                 │
-│                               • Bulk import tools                   │
-│                                                                     │
-│  Verified Partner (Apply)                                           │
-│  ─────────────────────────                                          │
-│  • 90% revenue share                                                │
-│  • Verified badge in catalog                                        │
-│  • API access for automation                                        │
-│  • Dedicated account manager                                        │
-│  • Co-marketing opportunities                                       │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -339,47 +109,48 @@ async function onDppSubscribed(
 │  SUPPLIER PORTAL (supplier.eurocomply.com)                          │
 │                                                                     │
 │  1. Register (email/password)                                       │
-│  2. Complete KYB verification (business docs, manual review)        │
-│  3. Create Products with full DPP data                              │
-│  4. Set price (minimum €0.50/product/month)                         │
-│  5. Publish to catalog                                              │
+│  2. Subscribe to SaaS plan (€49/149/399 per month)                  │
+│  3. Complete KYB verification (business docs, manual review)        │
+│  4. Create Products with full DPP data                              │
+│  5. Issue Verifiable Credentials (did:key)                          │
+│  6. Publish to catalog (retailers access free)                      │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
                               │
                               │ EuroComply API
                               ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│  SUPPLIER CATALOG                                                   │
+│  SUPPLIER CATALOG (Free Access for Retailers)                       │
 │                                                                     │
 │  ┌───────────────────┐  ┌───────────────────┐  ┌─────────────────┐ │
 │  │ ABC Textiles      │  │ XYZ Fabrics       │  │ 123 Mills       │ │
 │  │ ✓ Verified        │  │ ✓ Verified        │  │ ⏳ Pending      │ │
 │  │ 12 products       │  │ 8 products        │  │ (not visible)   │ │
-│  │ €0.50-€3.00/mo    │  │ €1.00-€5.00/mo    │  │                 │ │
+│  │ Growth Plan       │  │ Pro Plan          │  │                 │ │
 │  └───────────────────┘  └───────────────────┘  └─────────────────┘ │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
                               │
-                              │ Browse / Search / Filter
+                              │ Browse / Search / Filter (FREE)
                               ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│  SHOPIFY PLUGIN (Retailer View)                                     │
+│  SHOPIFY PLUGIN (Retailer View - Free Access)                       │
 │                                                                     │
 │  "Browse Supplier Products"                                         │
 │  ┌─────────────────────────────────────────────────────────────────┐│
 │  │ Organic Cotton T-Shirt Base                by ABC Textiles      ││
 │  │ ✓ GOTS Certified  ✓ 2.1 kgCO2e  ✓ REACH Compliant               ││
-│  │ Price: €2.00/product/month                                      ││
+│  │ ✓ Verifiable Credential (did:key)                               ││
 │  │                                                                  ││
-│  │  [Subscribe]  [View Details]                                    ││
+│  │  [Link to My Product - FREE]  [View Details]                    ││
 │  └─────────────────────────────────────────────────────────────────┘│
 │                                                                     │
-│  Subscribe:                                                         │
-│  → Link supplier DPP to your product                                │
+│  Link DPP (Free - ESPR Article 31):                                 │
+│  → Associate supplier DPP with your product                         │
 │  → Supplier's VC displayed on your store                            │
 │  → "Verified by ABC Textiles"                                       │
 │  → Retailer cannot modify DPP data                                  │
-│  → Unsubscribe anytime (stops displaying)                           │
+│  → Unlink anytime (stops displaying)                                │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -749,11 +520,11 @@ interface DppSubscription {
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-### Shopify Plugin (Retailer View)
+### Shopify Plugin (Retailer View - Free Access)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│  EuroComply > Browse Supplier Products                              │
+│  EuroComply > Browse Supplier Products (Free Access)                │
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                     │
 │  [Search products...                    ] [Category ▼] [Filter ▼]  │
@@ -765,9 +536,9 @@ interface DppSubscription {
 │  │ 100% GOTS Organic Cotton • Made in India                         ││
 │  │ 2.1 kgCO2e • GOTS, OEKO-TEX certified                            ││
 │  │                                                                  ││
-│  │ 💰 €2.00/product/month            Used by 47 retailers           ││
+│  │ ✓ Verifiable Credential (did:key)     Used by 47 retailers       ││
 │  │                                                                  ││
-│  │              [Subscribe]  [View Details]                         ││
+│  │              [Link DPP - Free]  [View Details]                   ││
 │  └─────────────────────────────────────────────────────────────────┘│
 │                                                                     │
 │  ┌─────────────────────────────────────────────────────────────────┐│
@@ -777,24 +548,24 @@ interface DppSubscription {
 │  │ 80% Recycled Polyester, 20% Organic Cotton • Made in Portugal    ││
 │  │ 3.4 kgCO2e • GRS certified                                       ││
 │  │                                                                  ││
-│  │ 💰 €1.50/product/month            Used by 23 retailers           ││
+│  │ ✓ Verifiable Credential (did:key)     Used by 23 retailers       ││
 │  │                                                                  ││
-│  │              [Subscribe]  [View Details]                         ││
+│  │              [Link DPP - Free]  [View Details]                   ││
 │  └─────────────────────────────────────────────────────────────────┘│
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
 
 ─────────────────────────────────────────────────────────────────────────
-Subscribe Modal:
+Link DPP Modal:
 ┌─────────────────────────────────────────────────────────────────────┐
-│  Subscribe to Supplier DPP                                          │
+│  Link Supplier DPP (Free - ESPR Article 31)                         │
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                     │
-│  You're subscribing to this supplier's Digital Product Passport:    │
+│  You're linking this supplier's Digital Product Passport:           │
 │                                                                     │
 │  Supplier: ABC Textiles (Verified ✓)                                │
 │  Product:  Organic Cotton T-Shirt Base                              │
-│  Price:    €2.00/product/month                                      │
+│  Cost:     FREE (required by EU regulation)                         │
 │                                                                     │
 │  ┌─────────────────────────────────────────────────────────────────┐│
 │  │ ℹ️ What this means:                                             ││
@@ -803,13 +574,13 @@ Subscribe Modal:
 │  │ • Your product shows "Verified by ABC Textiles"                  ││
 │  │ • You cannot modify the DPP data (supplier controls it)          ││
 │  │ • If supplier updates data, your product updates too             ││
-│  │ • You can unsubscribe at any time                                ││
+│  │ • You can unlink at any time                                     ││
 │  └─────────────────────────────────────────────────────────────────┘│
 │                                                                     │
 │  Select your Shopify product to link:                               │
 │  [Select Product...                                            ▼]  │
 │                                                                     │
-│                              [Cancel]  [Subscribe - €2.00/mo]       │
+│                              [Cancel]  [Link DPP - Free]            │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -854,27 +625,27 @@ Can publish products to catalog
 - [x] Supplier registration & login (email/password)
 - [x] Basic verification workflow (document upload, manual review)
 - [x] Create/edit supplier products (textile category only)
-- [x] Set dynamic pricing (minimum €0.50/product/month)
+- [x] SaaS subscription tiers (€49/149/399)
 - [x] Publish to public catalog
 
-### Phase 2: Shopify Integration ✅
-- [x] Browse supplier catalog in Shopify plugin
-- [x] Subscribe to supplier DPPs flow
+### Phase 2: Shopify/Retailer Integration ✅
+- [x] Browse supplier catalog in Shopify plugin (free access)
+- [x] Link DPPs to products (free - ESPR Article 31)
 - [x] Display supplier attribution on product DPP view
-- [x] Unsubscribe flow
+- [x] Unlink flow
 
-### Phase 3: Billing & Payouts (In Progress)
-- [ ] Stripe Connect integration for suppliers
-- [ ] Retailer subscription billing
-- [ ] Revenue sharing (80% supplier, 20% platform)
-- [ ] Supplier earnings dashboard
-- [ ] Payout requests
+### Phase 3: Verifiable Credentials ✅
+- [x] did:key identity for suppliers
+- [x] VC issuance via walt.id
+- [x] Data portability (export VCs + keys)
+- [x] Offline verification
 
 ### Phase 4: Advanced Features
-- [ ] Supplier VC anchoring
 - [ ] Invite-only catalogs
 - [ ] Usage analytics for suppliers
 - [ ] Bulk product import (CSV/API)
+- [ ] GS1 Digital Link resolver
+- [ ] Basic AAS export (compliance format)
 
 ---
 

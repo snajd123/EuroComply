@@ -1,33 +1,67 @@
 # EuroComply
 
-**Digital Product Passport Infrastructure for ESPR Compliance**
+**Digital Product Passport SaaS for SME Suppliers**
 
-EuroComply provides API-first Digital Product Passport (DPP) infrastructure for manufacturers and brands preparing for the EU Ecodesign for Sustainable Products Regulation (ESPR).
+EuroComply provides affordable DPP (Digital Product Passport) infrastructure for SME manufacturers, importers, and brands preparing for the EU Ecodesign for Sustainable Products Regulation (ESPR).
+
+## 🎯 Our Focus: SMEs
+
+**99% of EU businesses are SMEs. Zero affordable DPP solutions exist for them.**
+
+Enterprise has SAP, Siemens, Catena-X. SMEs have nothing. We fill that gap.
+
+| What We Offer | What We Don't |
+|---------------|---------------|
+| €49-399/month SaaS | €100k+ enterprise solutions |
+| Self-service, same-day setup | Months of implementation |
+| No IT team required | Complex ERP integration |
+| Portable data (did:key) | Platform lock-in |
+
+## 💼 Business Model
+
+### Supplier-Pays SaaS (ESPR Article 31 Compliant)
+
+**Suppliers pay** for DPP creation tools. **Retailers access free** (EU law mandates free access).
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  SUPPLIERS PAY                          RETAILERS ACCESS FREE   │
+│  ─────────────                          ────────────────────    │
+│  Producers, Importers, Brands           Shopify, WooCommerce    │
+│  €49-399/month SaaS                     €0 (ESPR Article 31)    │
+│                                                                  │
+│  Create DPPs → Managed hosting → Retailers display on stores   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Pricing Tiers
+
+| Tier | Monthly | DPPs | Features |
+|------|---------|------|----------|
+| **Starter** | €49 | 50 | Creator studio, VCs, hosting, QR codes |
+| **Growth** | €149 | 500 | + CSV import, templates, priority support |
+| **Pro** | €399 | 2,000 | + API access, white-label, dedicated support |
+
+*No Enterprise tier. Large companies use SAP/Siemens.*
 
 ## 🎯 What We Do
 
 ### Digital Product Passports (DPPs)
 
-Complete DPP lifecycle management for ESPR compliance:
-
-- **Product Registration** - Create and manage product records
-- **Passport Generation** - Issue W3C Verifiable Credentials for products
-- **QR Code Generation** - GS1 Digital Link compliant QR codes
-- **Sustainability Claims** - Track and verify environmental claims
-- **Lifecycle Events** - Manufacturing, shipping, recycling, destruction
-- **Unsold Goods Reporting** - ESPR Article 20 compliance
+- **DPP Creator Studio** - Category-specific forms for textiles, electronics, batteries
+- **Verifiable Credentials** - W3C VCs with did:key (portable, self-verifying)
+- **QR Code Generation** - GS1 Digital Link compliant
+- **Managed Hosting** - EU data residency (while subscribed)
+- **Data Portability** - Export VCs anytime, host anywhere
 - **Public Verification** - Anyone can verify a product's passport
 
-### Supplier DPP Marketplace
+### Free Retailer Access
 
-**Only verified suppliers create passports. Retailers subscribe.**
+ESPR Article 31 mandates free DPP access for economic operators.
 
-- **Supplier Portal** - Suppliers create and publish DPPs for their products
-- **Verified Suppliers** - KYB verification before publishing
-- **Dynamic Pricing** - Suppliers set their own prices (min €0.50/product/month)
-- **Catalog Browse** - Retailers discover and subscribe to supplier DPPs
-- **Revenue Sharing** - Suppliers earn 80%, platform takes 20%
-- **No Fraud** - Retailers can't create passports, only subscribe
+- **Shopify/WooCommerce plugins** - Browse supplier catalog, link DPPs
+- **No subscription fees** - Retailers never pay for DPP access
+- **Display on storefront** - Embedded widget, QR codes
 
 ## 🛒 E-commerce Integrations
 
@@ -201,11 +235,12 @@ See [INFRASTRUCTURE.md](./INFRASTRUCTURE.md) for full architecture and deploymen
 
 EuroComply uses **walt.id Community Stack** for W3C Verifiable Credentials:
 
-- **DID Method**: `did:web` (e.g., `did:web:eurocomply.eu:p:product-id`)
+- **DID Method**: `did:key` (self-contained, portable, no hosting dependency)
 - **Credential Format**: W3C Verifiable Credentials, JWT
-- **Future**: EBSI integration when regulatory traction exists
+- **Portability**: VCs can be verified anywhere, forever, without EuroComply
+- **Export**: Suppliers own their data and can export VCs + keys anytime
 
-Each product passport is issued as a cryptographically signed Verifiable Credential that can be independently verified.
+Each product passport is issued as a cryptographically signed Verifiable Credential that can be independently verified - even offline.
 
 ## 📋 Environment Variables
 
@@ -248,23 +283,24 @@ WOOCOMMERCE_WEBHOOK_SECRET=your_webhook_secret
 - [x] Core API infrastructure
 - [x] Product & Passport management
 - [x] QR code generation (GS1 Digital Link)
-- [x] Verifiable Credential issuance (walt.id)
+- [x] Verifiable Credential issuance (walt.id, did:key)
 - [x] Lifecycle event tracking
 - [x] Shopify integration (OAuth + embedded app)
 - [x] WooCommerce integration
 - [x] Textile DPP schema & validation
 - [x] DPP data collection UI (Shopify app)
 - [x] Higg MSI carbon footprint calculation
-- [x] Supplier marketplace (portal, verification, catalog)
-- [x] Retailer subscription to supplier DPPs
-- [x] Supplier earnings & payouts (dynamic pricing)
+- [x] Supplier SaaS portal (registration, verification, catalog)
+- [x] Free retailer access (ESPR Article 31 compliant)
+- [x] Data portability (export VCs + keys)
 
 ### In Progress
 - [ ] React Dashboard
 - [ ] Furniture & Electronics schemas
 
 ### Future
-- [ ] EBSI integration (when regulatory traction)
+- [ ] GS1 Digital Link resolver
+- [ ] Basic AAS export (compliance format)
 - [ ] Batch passport generation
 - [ ] Item-level tracking (serial numbers)
 
