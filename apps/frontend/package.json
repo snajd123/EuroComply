@@ -1,8 +1,8 @@
 {
-  "name": "@eurocomply/dashboard",
+  "name": "@eurocomply/frontend",
   "version": "0.1.0",
   "private": true,
-  "description": "EuroComply Dashboard",
+  "description": "EuroComply Frontend - Landing, Auth & Supplier Portal",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
