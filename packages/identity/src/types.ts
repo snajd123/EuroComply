@@ -6,7 +6,7 @@
 // DID Types
 // ===========================================
 
-export type DidMethod = 'web' | 'ebsi';
+export type DidMethod = 'web' | 'key' | 'ebsi';
 
 export interface DidDocument {
   '@context': string[];
@@ -35,6 +35,7 @@ export interface JsonWebKey {
   crv?: string;
   x?: string;
   y?: string;
+  d?: string; // Private key component (for key export)
   n?: string;
   e?: string;
   use?: string;
