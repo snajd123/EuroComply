@@ -279,6 +279,22 @@ All API responses MUST follow this structure:
 
 ## 9. Documentation Rules
 
+### Documentation After Implementation
+
+**MANDATORY: All documentation MUST be updated immediately after completing any implementation.**
+
+After completing a feature, bug fix, or architectural change:
+
+1. **Update implementation status** in relevant docs (IMPLEMENTATION_PLAN.md, etc.)
+2. **Update architectural docs** if design changed (DATA_SOVEREIGNTY.md, ARCHITECTURE_PORTABILITY.md)
+3. **Update README.md** if user-facing features changed
+4. **Mark completion status** with clear indicators (✅ Complete, ⚠️ Partial, 📋 Planned)
+
+```
+Implementation complete → Documentation updated → Commit
+                         ↑ NEVER skip this step
+```
+
 ### Code Comments
 
 - **Don't comment WHAT** - code should be self-explanatory
@@ -407,7 +423,8 @@ These rules are enforced through:
 │  1. All tests pass                                  │
 │  2. No TypeScript errors                            │
 │  3. Code is documented                              │
-│  4. Commit message follows format                   │
+│  4. UPDATE DOCS (implementation status, README)     │
+│  5. Commit message follows format                   │
 └─────────────────────────────────────────────────────┘
 ```
 

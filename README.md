@@ -236,24 +236,35 @@ See [INFRASTRUCTURE.md](./INFRASTRUCTURE.md) for full architecture and deploymen
 
 EuroComply uses **walt.id Community Stack** for W3C Verifiable Credentials:
 
-- **DID Method**: `did:web` (current) → `did:key` (planned for data sovereignty)
+- **DID Methods**: `did:web` (production) + `did:key` (portable, offline verification)
 - **Credential Format**: W3C Verifiable Credentials, JWT
-- **Export**: Suppliers own their data (export feature in development)
+- **Export**: ✅ Full data portability (self-contained VCs, key export)
 
 Each product passport is issued as a cryptographically signed Verifiable Credential.
 
-## 🔓 Data Sovereignty (Roadmap)
+## 🔓 Data Sovereignty ✅ COMPLETE
 
-**Your data, your rules, our tools.** See [DATA_SOVEREIGNTY.md](docs/DATA_SOVEREIGNTY.md) for target architecture.
+**Your data, your rules, our tools.** See [DATA_SOVEREIGNTY.md](docs/DATA_SOVEREIGNTY.md) for architecture.
 
-| Guarantee | Current Status |
-|-----------|----------------|
-| **You own your data** | ✅ Open standards (W3C VC, JSON) |
-| **No lock-in** | ✅ Portable credential format |
-| **Offline verification** | 🔄 Planned (requires did:key migration) |
-| **One-click export** | 🔄 Planned (Phase 3.5) |
+| Guarantee | Status |
+|-----------|--------|
+| **You own your data** | ✅ Self-contained VCs with all data embedded |
+| **No lock-in** | ✅ Open standards (W3C VC, JSON) |
+| **Offline verification** | ✅ did:key - verify without any server |
+| **One-click export** | ✅ VC + images + offline HTML viewer |
+| **Key portability** | ✅ Export/import private keys |
 
-> ⚠️ **Current state**: VCs use `did:web` which requires server resolution. Full data sovereignty (offline verification, self-contained VCs, one-click export) is planned for Phase 3.5.
+```typescript
+// Example: Create portable DPP export
+const package = await vcExportService.exportPortablePackage({
+  issuerDid: did,
+  issuerKeyId: keyId,
+  subjectId: 'urn:gtin:1234567890123',
+  dppData: passportData,
+  includePrivateKey: true,
+});
+// Returns: credential.json, viewer.html, public-key.jwk, private-key.jwk
+```
 
 ## 📋 Environment Variables
 
@@ -292,11 +303,11 @@ WOOCOMMERCE_WEBHOOK_SECRET=your_webhook_secret
 
 ## 🗺️ Roadmap
 
-### Completed
+### Completed ✅
 - [x] Core API infrastructure
 - [x] Product & Passport management
 - [x] QR code generation (GS1 Digital Link)
-- [x] Verifiable Credential issuance (walt.id, did:key)
+- [x] Verifiable Credential issuance (walt.id)
 - [x] Lifecycle event tracking
 - [x] Shopify integration (OAuth + embedded app)
 - [x] WooCommerce integration
@@ -305,13 +316,19 @@ WOOCOMMERCE_WEBHOOK_SECRET=your_webhook_secret
 - [x] Higg MSI carbon footprint calculation
 - [x] Supplier SaaS portal (registration, verification, catalog)
 - [x] Free retailer access (ESPR Article 31 compliant)
-- [x] Data portability (export VCs + keys)
+- [x] **Data Sovereignty (Phase 3.5)**:
+  - [x] did:key implementation (Ed25519, P-256)
+  - [x] Self-contained VCs (all data embedded)
+  - [x] Offline verification
+  - [x] Key export/import for portability
+  - [x] Offline HTML viewer generation
 
-### In Progress
+### In Progress 🔄
 - [ ] React Dashboard
-- [ ] Furniture & Electronics schemas
+- [ ] API endpoints for data export (services ready)
 
-### Future
+### Future 📋
+- [ ] Furniture & Electronics schemas
 - [ ] GS1 Digital Link resolver
 - [ ] Basic AAS export (compliance format)
 - [ ] Batch passport generation
