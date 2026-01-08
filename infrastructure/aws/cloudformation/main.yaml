@@ -464,7 +464,7 @@ Resources:
               Value: https://eurocomply.eu,https://www.eurocomply.eu
           Secrets:
             - Name: JWT_SECRET
-              ValueFrom: !Sub ${AppSecrets}:JWT_SECRET::
+              ValueFrom: !Sub "${AppSecrets}:JWT_SECRET::"
           LogConfiguration:
             LogDriver: awslogs
             Options:
