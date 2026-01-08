@@ -270,7 +270,7 @@ Resources:
       DBInstanceIdentifier: !Sub eurocomply-${Environment}
       DBInstanceClass: db.t3.medium
       Engine: postgres
-      EngineVersion: '16.1'
+      EngineVersion: '16.4'
       MasterUsername: eurocomply
       MasterUserPassword: !Ref DBPassword
       DBName: eurocomply
