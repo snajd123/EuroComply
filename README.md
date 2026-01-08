@@ -85,7 +85,7 @@ eurocomply/
 │   │       ├── product-trust/   # DPP management
 │   │       ├── integrations/    # E-commerce sync
 │   │       └── supplier/        # Supplier marketplace
-│   └── dashboard/     # Next.js admin dashboard
+│   └── frontend/      # Next.js landing & supplier portal
 ├── packages/
 │   ├── database/      # Prisma schema & migrations
 │   ├── identity/      # walt.id integration (VCs)
@@ -94,7 +94,9 @@ eurocomply/
 │   └── shared/        # Shared types & utilities
 ├── plugins/
 │   └── shopify/       # Shopify embedded app (Remix)
-└── docker/            # Docker configuration
+├── docker/            # Docker configuration
+└── infrastructure/
+    └── aws/           # AWS CloudFormation & deployment
 ```
 
 ## 🚀 Quick Start
@@ -238,17 +240,33 @@ curl https://api.eurocomply.eu/v1/suppliers/export/viewer/prod_xxx \
 
 ## ☁️ Infrastructure
 
-EuroComply runs on **AWS (eu-central-1 Frankfurt)** for EU/GDPR compliance.
+EuroComply uses a **hybrid deployment**:
+- **Frontend**: Vercel (CDN, instant deploys)
+- **Backend**: AWS eu-central-1 (Frankfurt) for EU/GDPR compliance
 
-| Component | Service |
-|-----------|---------|
-| Compute | ECS Fargate (auto-scaling) |
-| Database | RDS PostgreSQL (Multi-AZ) |
-| Cache | ElastiCache Redis |
-| CDN | CloudFront |
-| Storage | S3 |
+### Backend Stack (AWS)
 
-See [INFRASTRUCTURE.md](./INFRASTRUCTURE.md) for full architecture and deployment guide.
+| Component | Service | Configuration |
+|-----------|---------|---------------|
+| Compute | ECS Fargate | Auto-scaling 2-10 tasks |
+| Database | RDS PostgreSQL 16 | Multi-AZ, encrypted |
+| Cache | ElastiCache Redis 7 | Session & DPP cache |
+| Load Balancer | ALB | HTTPS termination |
+| Secrets | Secrets Manager | JWT, DB credentials |
+
+### Quick Deploy
+
+```bash
+# Set secrets
+export DB_PASSWORD="secure-password"
+export JWT_SECRET="32-char-minimum-secret"
+
+# Deploy to AWS
+cd infrastructure/aws/scripts
+./deploy.sh production
+```
+
+See [infrastructure/aws/README.md](./infrastructure/aws/README.md) for full deployment guide.
 
 ## 🔐 Identity & Credentials
 
