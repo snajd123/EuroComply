@@ -52,7 +52,8 @@ Enterprise has SAP, Siemens, Catena-X. SMEs have nothing. We fill that gap.
 - **Verifiable Credentials** - W3C VCs with did:key (portable, self-verifying)
 - **QR Code Generation** - GS1 Digital Link compliant
 - **Managed Hosting** - EU data residency (while subscribed)
-- **Data Portability** - Export VCs anytime, host anywhere
+- **Data Sovereignty** - Self-contained VCs with all data embedded, export anytime
+- **No Lock-in** - VCs verify offline, forever, without EuroComply
 - **Public Verification** - Anyone can verify a product's passport
 
 ### Free Retailer Access
@@ -237,10 +238,24 @@ EuroComply uses **walt.id Community Stack** for W3C Verifiable Credentials:
 
 - **DID Method**: `did:key` (self-contained, portable, no hosting dependency)
 - **Credential Format**: W3C Verifiable Credentials, JWT
-- **Portability**: VCs can be verified anywhere, forever, without EuroComply
+- **Self-Contained VCs**: All DPP data is embedded in the credential (not references)
+- **Offline Verification**: VCs verify anywhere, forever, without EuroComply
 - **Export**: Suppliers own their data and can export VCs + keys anytime
 
 Each product passport is issued as a cryptographically signed Verifiable Credential that can be independently verified - even offline.
+
+## 🔓 Data Sovereignty
+
+**Your data, your rules, our tools.** See [DATA_SOVEREIGNTY.md](docs/DATA_SOVEREIGNTY.md) for details.
+
+| Guarantee | How We Deliver |
+|-----------|----------------|
+| **You own your data** | VC contains all data, signed to your DID |
+| **No lock-in** | Open standards (W3C VC, JSON), any viewer works |
+| **Works forever** | Offline verification, no EuroComply dependency |
+| **One-click export** | Download VC + images + offline viewer anytime |
+
+**What if EuroComply disappears?** Your VCs continue to work. They're self-contained, cryptographically signed, and verify offline without any server.
 
 ## 📋 Environment Variables
 

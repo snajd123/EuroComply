@@ -243,47 +243,72 @@ When a DPP is created and signed, it becomes a portable VC:
 
 ---
 
-## 5. Portability & Ownership
+## 5. Self-Contained VCs & Data Sovereignty
 
-### Suppliers Own Their Data
+### The Key Architectural Decision
 
-The Verifiable Credential belongs to the supplier, not EuroComply.
+**The VC contains ALL the DPP data** - not references to data stored elsewhere. This is a critical design choice for data sovereignty.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    DATA OWNERSHIP                                │
+│                    SELF-CONTAINED VCs                            │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  The VC file contains EVERYTHING needed:                        │
+│  The VC file contains EVERYTHING:                               │
 │                                                                  │
-│  1. The DPP data (credentialSubject)                           │
+│  1. ALL DPP data (embedded in credentialSubject)               │
+│     • Product info, fiber composition, carbon footprint         │
+│     • Manufacturer details, certifications, care instructions   │
+│     • NOT references to external databases                      │
+│                                                                  │
 │  2. The issuer identity (did:key)                              │
-│  3. The signature (proof)                                       │
+│     • Public key IS the identifier                              │
+│     • No server needed to resolve                               │
 │                                                                  │
-│  This file:                                                     │
-│  • Can be verified by ANYONE                                   │
-│  • Can be hosted ANYWHERE                                      │
-│  • Is OWNED by the supplier                                    │
-│  • Works FOREVER (no expiring dependency)                      │
+│  3. The cryptographic signature (proof)                         │
+│     • Proves data wasn't tampered                               │
+│     • Works offline, forever                                    │
+│                                                                  │
+│  This means:                                                    │
+│  • The VC IS the DPP (not a pointer to it)                     │
+│  • Can be verified by ANYONE, ANYWHERE, OFFLINE                │
+│  • Works FOREVER without any server                            │
+│  • Supplier truly OWNS their data                              │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### Export Package
+See [DATA_SOVEREIGNTY.md](./DATA_SOVEREIGNTY.md) for full architecture details.
+
+### One-Click Export Package
 
 When a supplier exports their data (or cancels subscription):
 
 ```
-export/
+dpp-export-{supplier-id}.zip
 ├── credentials/
-│   ├── dpp-001.vc.json     (signed Verifiable Credential)
+│   ├── dpp-001.vc.json     (signed VC with ALL data embedded)
 │   ├── dpp-002.vc.json
 │   └── ...
 ├── identity/
 │   ├── did.json            (DID document)
 │   └── private-key.jwk     (for future VC signing)
+├── images/
+│   ├── product-001-hero.jpg
+│   └── cert-gots.png
+├── viewer.html             (self-contained offline viewer)
+├── qr-codes/
+│   ├── dpp-001.svg
+│   └── ...
 └── manifest.json           (GTIN → VC mapping)
 ```
+
+**The `viewer.html` is self-contained:**
+- All CSS/JS embedded (no external dependencies)
+- Loads the VC from same folder
+- Verifies signature offline
+- Renders beautiful DPP page
+- Works forever without internet
 
 ### What Suppliers Can Do After Export
 

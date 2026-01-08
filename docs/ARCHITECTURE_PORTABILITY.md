@@ -52,23 +52,31 @@ Our architecture is deliberately simple. We target SMEs (99% of EU businesses) w
 │     • DPPs and VCs belong to the supplier                       │
 │     • EuroComply is a tool, not a data custodian                │
 │                                                                  │
-│  2. NO LOCK-IN                                                  │
+│  2. SELF-CONTAINED VCs (KEY ARCHITECTURAL DECISION)             │
+│     • All DPP data is EMBEDDED in the VC (not references)       │
+│     • The VC IS the sovereign asset                             │
+│     • No external data dependencies                             │
+│                                                                  │
+│  3. NO LOCK-IN                                                  │
 │     • Export all data at any time                               │
 │     • Take VCs to any other platform                            │
 │     • Continue signing with exported keys                       │
+│     • One-click export includes VC + images + offline viewer    │
 │                                                                  │
-│  3. VERIFICATION WITHOUT EUROCOMPLY                             │
-│     • did:key is self-contained                                 │
-│     • VCs can be verified by anyone, anywhere                   │
-│     • Works even if EuroComply shuts down                       │
+│  4. VERIFICATION WITHOUT EUROCOMPLY                             │
+│     • did:key is self-contained (public key IS the identifier)  │
+│     • VCs can be verified by anyone, anywhere, offline          │
+│     • Works forever, even if EuroComply shuts down              │
 │                                                                  │
-│  4. ESPR COMPLIANCE                                             │
+│  5. ESPR COMPLIANCE                                             │
 │     • DPPs must be accessible for product lifetime              │
 │     • Portability ensures this obligation can be met            │
 │     • Supplier controls where data lives                        │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+See [DATA_SOVEREIGNTY.md](./DATA_SOVEREIGNTY.md) for detailed architecture and rejected alternatives.
 
 ---
 

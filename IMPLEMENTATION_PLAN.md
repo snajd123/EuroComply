@@ -11,10 +11,10 @@ EuroComply is an API-first Digital Product Passport (DPP) platform targeting man
 **ProductTrust API** - Digital Product Passport engine for ESPR compliance
 
 ### Target Market
-- Mid-market manufacturers (€10M-€100M revenue)
-- Brands selling in the EU market
+- **SME suppliers** (99% of EU businesses) - producers, importers, brands
 - E-commerce merchants on Shopify/WooCommerce
 - First movers in textiles, batteries, electronics, furniture
+- NOT enterprise (they have SAP, Siemens, Catena-X)
 
 ---
 
@@ -43,8 +43,10 @@ EuroComply is an API-first Digital Product Passport (DPP) platform targeting man
 ### DID Strategy
 | Phase | Method | Status |
 |-------|--------|--------|
-| MVP | `did:web` | Active - no EBSI registration needed |
-| Future | `did:ebsi` | When business traction achieved |
+| Current | `did:key` | Active - self-contained, portable, no hosting dependency |
+| Future | `did:ebsi` | When institutional trust needed (enterprise customers) |
+
+**Why did:key?** The public key IS the identifier. Verification works offline, forever, without any server. Suppliers truly own their identity.
 
 ### Standards
 - **GS1 Digital Link** - Product identification URLs
@@ -280,12 +282,38 @@ eurocomply/
 | API Style | REST | Stripe-like simplicity |
 | Multi-tenancy | Shared DB, row-level | Cost-effective for SME pricing |
 | Identity | walt.id (free) | W3C VCs, EBSI-ready |
-| DID Method | did:web | Works immediately, no registration |
+| DID Method | did:key | Self-contained, portable, offline verification |
 | E-commerce | Shopify + WooCommerce | Largest SME platforms |
 
 ---
 
-## 9. ESPR Timeline & Market
+## 9. Business Model
+
+### Supplier-Pays SaaS (ESPR Article 31 Compliant)
+
+**Suppliers pay** for DPP creation tools. **Retailers access free** (EU law mandates free access).
+
+| Tier | Monthly | DPPs | Features |
+|------|---------|------|----------|
+| Starter | €49 | 50 | Creator studio, VCs, hosting, QR codes |
+| Growth | €149 | 500 | + CSV import, templates, priority support |
+| Pro | €399 | 2,000 | + API access, white-label, dedicated support |
+
+See [BUSINESS_MODEL.md](docs/BUSINESS_MODEL.md) for details.
+
+### Data Sovereignty
+
+All tiers include full data sovereignty:
+- Self-contained VCs (all data embedded)
+- Offline verification (works forever without us)
+- One-click export (VC + images + offline viewer)
+- No lock-in (open standards, any viewer works)
+
+See [DATA_SOVEREIGNTY.md](docs/DATA_SOVEREIGNTY.md) for architecture details.
+
+---
+
+## 10. ESPR Timeline & Market
 
 | Milestone | Date | Implication |
 |-----------|------|-------------|
@@ -295,15 +323,17 @@ eurocomply/
 
 **First product categories**: Textiles, batteries, electronics, furniture
 
-### Target Customer Profile
-- Revenue: €10M-€100M
+### Target Customer Profile (SME Suppliers)
+- Company size: 5-200 employees
+- Revenue: €1M-€50M (SME range)
 - Products: Physical goods sold in EU
-- Tech: Using Shopify/WooCommerce or has dev team
-- Pain: Upcoming ESPR compliance, no internal expertise
+- IT staff: 0-2 (not dedicated)
+- Tech: Using Shopify/WooCommerce, can use web apps
+- Pain: Upcoming ESPR compliance, no internal expertise, can't afford enterprise solutions
 
 ---
 
-## 10. EBSI Roadmap (Future)
+## 11. EBSI Roadmap (Future)
 
 EBSI integration planned when business traction achieved.
 
@@ -318,14 +348,15 @@ EBSI integration planned when business traction achieved.
 - "Powered by EBSI" marketing
 
 ### Current State
-- Using: did:web via walt.id
-- Credentials: W3C standard, cryptographically signed
-- Verifiable: Yes (anyone can verify)
+- Using: did:key via walt.id (self-contained, portable)
+- Credentials: W3C VCs with ALL data embedded (self-contained)
+- Verifiable: Yes (offline, forever, without any server)
+- Data Sovereignty: Full (one-click export, no lock-in)
 - EBSI-ready: Yes (architecture supports upgrade)
 
 ---
 
-## 11. Success Metrics
+## 12. Success Metrics
 
 ### Technical KPIs
 - API latency < 200ms (p95)
@@ -340,9 +371,11 @@ EBSI integration planned when business traction achieved.
 
 ---
 
-## 12. Related Documentation
+## 13. Related Documentation
 
 - **[README.md](./README.md)** - Quick start and API usage
+- **[Business Model](./docs/BUSINESS_MODEL.md)** - Pricing and supplier-pays model
+- **[Data Sovereignty](./docs/DATA_SOVEREIGNTY.md)** - Self-contained VCs and no lock-in
 - **[E-commerce Integrations](./docs/ECOMMERCE_INTEGRATIONS.md)** - Shopify & WooCommerce setup
 - **[Verifiable Credentials](./docs/VERIFIABLE_CREDENTIALS.md)** - How DPPs become cryptographically verifiable
 - **[Testing Guide](./docs/TESTING_GUIDE.md)** - Local testing instructions
