@@ -516,6 +516,21 @@ Resources:
       Matcher:
         HttpCode: '200'
 
+  # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  # !!! IMPORTANT: ENABLE HTTPS BEFORE PRODUCTION !!!
+  # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  #
+  # Steps to enable HTTPS:
+  # 1. Request ACM certificate:
+  #    aws acm request-certificate --domain-name api.eurocomply.eu --validation-method DNS --region eu-central-1
+  # 2. Add DNS validation record (CNAME) to your domain
+  # 3. Wait for certificate to be issued (check status in ACM console)
+  # 4. Uncomment ALBListenerHTTPS below and add CertificateArn
+  # 5. Update stack: aws cloudformation update-stack ...
+  #
+  # Current HTTP listener is FOR TESTING ONLY - not secure for production!
+  # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
   ALBListenerHTTP:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
