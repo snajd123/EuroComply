@@ -18,6 +18,7 @@ import * as supplierService from './supplier.service.js';
 import * as subscriptionService from './subscription.service.js';
 import * as emailService from './email.service.js';
 import * as viesService from './vies.service.js';
+import * as exportService from './export.service.js';
 import { logger } from '../../common/utils/logger.js';
 
 const router = Router();
@@ -737,6 +738,166 @@ router.get('/vies/check/:vatNumber', async (req: Request, res: Response) => {
       success: false,
       error: {
         code: 'CHECK_FAILED',
+        message: error.message,
+      },
+    });
+  }
+});
+
+// ===========================================
+// EXPORT ROUTES (Data Sovereignty)
+// ===========================================
+
+// GET /api/suppliers/export/did - Get or create supplier's DID
+router.get('/export/did', supplierAuthMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const result = await exportService.getOrCreateSupplierDid(req.supplier!.supplierId);
+
+    res.json({
+      success: true,
+      data: {
+        did: result.did,
+        keyId: result.keyId,
+        isNew: result.isNew,
+      },
+    });
+  } catch (error: any) {
+    logger.error('Failed to get/create supplier DID:', error);
+
+    res.status(500).json({
+      success: false,
+      error: {
+        code: 'DID_FAILED',
+        message: error.message,
+      },
+    });
+  }
+});
+
+// POST /api/suppliers/export/dpp/:productId - Export DPP as portable package
+router.post('/export/dpp/:productId', supplierAuthMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const productId = req.params['productId'] as string;
+    const { includePrivateKey } = req.body || {};
+
+    // Get product data
+    const product = await supplierService.getSupplierProductById(
+      req.supplier!.supplierId,
+      productId
+    );
+
+    // Export DPP as portable package
+    const exportPackage = await exportService.exportProductDpp(
+      req.supplier!.supplierId,
+      productId,
+      product.dppData as Record<string, unknown>,
+      { includePrivateKey }
+    );
+
+    logger.info(`DPP exported for product ${productId} by supplier ${req.supplier!.supplierId}`);
+
+    res.json({
+      success: true,
+      data: exportPackage,
+    });
+  } catch (error: any) {
+    logger.error('DPP export failed:', error);
+
+    if (error.message?.includes('not found')) {
+      return res.status(404).json({
+        success: false,
+        error: {
+          code: 'NOT_FOUND',
+          message: error.message,
+        },
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      error: {
+        code: 'EXPORT_FAILED',
+        message: error.message,
+      },
+    });
+  }
+});
+
+// POST /api/suppliers/export/keys - Export signing keys (SENSITIVE)
+router.post('/export/keys', supplierAuthMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    // Extra confirmation required for key export
+    const { confirmKeyExport } = req.body || {};
+    if (!confirmKeyExport) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'CONFIRMATION_REQUIRED',
+          message: 'Key export requires explicit confirmation. Set confirmKeyExport: true to proceed.',
+        },
+      });
+    }
+
+    const result = await exportService.exportSupplierKeys(req.supplier!.supplierId);
+
+    logger.warn(`Private key exported for supplier ${req.supplier!.supplierId} - security audit event`);
+
+    res.json({
+      success: true,
+      data: result,
+    });
+  } catch (error: any) {
+    logger.error('Key export failed:', error);
+
+    res.status(500).json({
+      success: false,
+      error: {
+        code: 'KEY_EXPORT_FAILED',
+        message: error.message,
+      },
+    });
+  }
+});
+
+// GET /api/suppliers/export/viewer/:productId - Generate offline HTML viewer
+router.get('/export/viewer/:productId', supplierAuthMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const productId = req.params['productId'] as string;
+
+    // Get product data
+    const product = await supplierService.getSupplierProductById(
+      req.supplier!.supplierId,
+      productId
+    );
+
+    // Generate offline viewer
+    const html = await exportService.generateProductViewer(
+      req.supplier!.supplierId,
+      productId,
+      product.dppData as Record<string, unknown>
+    );
+
+    // Return as HTML file
+    res.setHeader('Content-Type', 'text/html');
+    res.setHeader('Content-Disposition', `attachment; filename="dpp-viewer-${productId}.html"`);
+    res.send(html);
+  } catch (error: any) {
+    logger.error('Viewer generation failed:', error);
+
+    if (error.message?.includes('not found')) {
+      return res.status(404).json({
+        success: false,
+        error: {
+          code: 'NOT_FOUND',
+          message: error.message,
+        },
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      error: {
+        code: 'VIEWER_FAILED',
         message: error.message,
       },
     });

@@ -36,6 +36,20 @@ export type { IssueCredentialOptions, IssuedCredential, RevocationEntry } from '
 export { KeyService, getKeyService, resetKeyService } from './services/key.service.js';
 export type { KeyPair, SignatureResult } from './services/key.service.js';
 
+// Data Sovereignty Services (Phase 3.5)
+export { DidKeyService, getDidKeyService, resetDidKeyService } from './services/did-key.service.js';
+export type { DidKeyCreationOptions, DidKeyCreationResult } from './services/did-key.service.js';
+
+export { VcExportService, getVcExportService, resetVcExportService } from './services/vc-export.service.js';
+export type {
+  EmbeddedImage,
+  CreateSelfContainedVCOptions,
+  ExportPackageOptions,
+  ExportPackage,
+  ExportPackageFile,
+  OfflineVerificationResult,
+} from './services/vc-export.service.js';
+
 // Adapter (for advanced use cases)
 export {
   WaltIdAdapter,

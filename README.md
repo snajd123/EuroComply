@@ -218,6 +218,24 @@ curl -X POST https://api.eurocomply.eu/v1/products/prod_xxx/events \
 curl https://api.eurocomply.eu/v1/passports/pass_xxx/verify
 ```
 
+### Export DPP (Data Sovereignty)
+```bash
+# Get supplier's DID
+curl https://api.eurocomply.eu/v1/suppliers/export/did \
+  -H "Authorization: Bearer ec_live_xxxxx"
+
+# Export DPP as portable package
+curl -X POST https://api.eurocomply.eu/v1/suppliers/export/dpp/prod_xxx \
+  -H "Authorization: Bearer ec_live_xxxxx" \
+  -H "Content-Type: application/json" \
+  -d '{"includePrivateKey": false}'
+
+# Download offline HTML viewer
+curl https://api.eurocomply.eu/v1/suppliers/export/viewer/prod_xxx \
+  -H "Authorization: Bearer ec_live_xxxxx" \
+  -o dpp-viewer.html
+```
+
 ## ☁️ Infrastructure
 
 EuroComply runs on **AWS (eu-central-1 Frankfurt)** for EU/GDPR compliance.
@@ -322,10 +340,10 @@ WOOCOMMERCE_WEBHOOK_SECRET=your_webhook_secret
   - [x] Offline verification
   - [x] Key export/import for portability
   - [x] Offline HTML viewer generation
+  - [x] API endpoints for data export
 
 ### In Progress 🔄
-- [ ] React Dashboard
-- [ ] API endpoints for data export (services ready)
+- [ ] React Dashboard (Supplier Portal UI)
 
 ### Future 📋
 - [ ] Furniture & Electronics schemas

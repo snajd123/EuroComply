@@ -11,8 +11,9 @@
 | Verification | ✅ Works offline | `did-key.service.ts` - `verifySignatureOffline()` |
 | Export | ✅ Implemented | `vc-export.service.ts` - `exportPortablePackage()` |
 | Offline Viewer | ✅ Implemented | `vc-export.service.ts` - `generateOfflineViewer()` |
+| API Endpoints | ✅ Implemented | `apps/api/src/modules/supplier/routes.ts` |
 
-**Test Coverage:** 27 tests (16 did:key + 11 vc-export) - all passing
+**Test Coverage:** 34 tests (16 did:key + 11 vc-export + 7 export service) - all passing
 
 ## Executive Summary
 
@@ -363,11 +364,41 @@ const privateKey = await didKeyService.exportPrivateKey(keyId);
 const newKeyId = await didKeyService.importPrivateKey(privateKey);
 ```
 
-### Next: API Endpoints 📋 PLANNED
+### API Endpoints ✅ COMPLETE
 
-Wire up the services to API routes:
-- `POST /api/supplier/export/dpp/:id` - Export DPP as portable package
-- `POST /api/supplier/export/keys` - Export signing keys
+**Location:** `apps/api/src/modules/supplier/routes.ts`
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/suppliers/export/did` | GET | Get or create supplier's did:key |
+| `/api/suppliers/export/dpp/:productId` | POST | Export DPP as portable package |
+| `/api/suppliers/export/keys` | POST | Export signing keys (requires confirmation) |
+| `/api/suppliers/export/viewer/:productId` | GET | Download offline HTML viewer |
+
+**Usage Examples:**
+
+```bash
+# Get supplier's DID
+curl -X GET https://api.eurocomply.eu/v1/suppliers/export/did \
+  -H "Authorization: Bearer <token>"
+
+# Export DPP as portable package
+curl -X POST https://api.eurocomply.eu/v1/suppliers/export/dpp/prod_123 \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"includePrivateKey": false}'
+
+# Export signing keys (requires explicit confirmation)
+curl -X POST https://api.eurocomply.eu/v1/suppliers/export/keys \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"confirmKeyExport": true}'
+
+# Download offline HTML viewer
+curl -X GET https://api.eurocomply.eu/v1/suppliers/export/viewer/prod_123 \
+  -H "Authorization: Bearer <token>" \
+  -o dpp-viewer.html
+```
 
 ---
 

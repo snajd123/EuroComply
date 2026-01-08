@@ -362,7 +362,6 @@ interface TextileDppData {
 - ✅ VIES VAT verification service
 
 **Not Yet Implemented:**
-- ❌ API endpoints for data export (services exist, need routes)
 - ❌ Migration tooling for existing did:web to did:key
 
 ### Phase 3.5: Data Sovereignty ✅ COMPLETE
@@ -377,8 +376,9 @@ interface TextileDppData {
 | Key export/import | ✅ | `did-key.service.ts` - `exportPrivateKey()`, `importPrivateKey()` |
 | Offline HTML viewer | ✅ | `vc-export.service.ts` - `generateOfflineViewer()` |
 | Portable export package | ✅ | `vc-export.service.ts` - `exportPortablePackage()` |
+| API endpoints | ✅ | `apps/api/src/modules/supplier/routes.ts` + `export.service.ts` |
 
-**Test Coverage:** 27 tests (16 did:key + 11 vc-export)
+**Test Coverage:** 34 tests (16 did:key + 11 vc-export + 7 export service)
 
 ### Phase 4: Shopify Metaobject Sync 📋 PLANNED
 
