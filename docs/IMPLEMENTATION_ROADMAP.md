@@ -9,6 +9,8 @@ EuroComply has a **significant competitive advantage**: we already have W3C Veri
 
 However, we're missing the **data collection layer** that makes VCs meaningful. This roadmap addresses that gap while leveraging our cryptographic moat.
 
+**Market opportunity**: 99% of EU businesses are SMEs with zero affordable DPP solutions. See [MARKET_ANALYSIS.md](./MARKET_ANALYSIS.md) for TAM, competitive landscape, and revenue projections.
+
 ---
 
 ## Phase 1: Textile MVP (Q1-Q2 2025) ✅ COMPLETE
@@ -353,8 +355,10 @@ mutation CreateDppMetaobjectDefinition {
 
 ---
 
-## Phase 4: Furniture & Electronics (Q4 2025 - Q1 2026)
-**Goal: Expand to next priority categories**
+## Phase 4: Furniture & Electronics (2026)
+**Goal: Expand to next priority categories ahead of regulatory deadlines**
+
+*Note: Timing aligned with ESPR deadlines - Furniture (2029), Electronics (2030). Being ready 2-3 years early captures the "evaluation" and "panic buy" phases.*
 
 ### 4.1 Furniture Schema (2029 deadline)
 
@@ -438,15 +442,52 @@ interface ElectronicsDppData {
 
 ---
 
+## Market Timing & ESPR Deadlines
+
+See [MARKET_ANALYSIS.md](./MARKET_ANALYSIS.md) for full market opportunity analysis.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  ESPR COMPLIANCE TIMELINE                                        │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  2024: ESPR enters into force                                   │
+│  2025: First delegated acts (product-specific rules)            │
+│  2026: Battery DPP requirements active                          │
+│  2027: Textile DPP requirements active ← KEY DEADLINE           │
+│  2028-2030: Electronics, furniture, construction                │
+│                                                                  │
+│  SME behavior pattern:                                          │
+│  • 2024-2025: "What is DPP?" (awareness)                        │
+│  • 2026: "We need to figure this out" (evaluation)              │
+│  • 2027: "Deadline is here, we need a solution NOW" (panic buy) │
+│                                                                  │
+│  Our opportunity: Be the obvious choice when panic hits         │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Vertical Expansion Strategy
+
+Aligned with regulatory deadlines (focus beats breadth):
+
+| Phase | Category | Regulatory Deadline | Our Timeline |
+|-------|----------|---------------------|--------------|
+| **Current** | Textiles | 2027 | ✅ Ready |
+| **Next** | Furniture | 2029 | 2026 (early) |
+| **Future** | Electronics, Batteries | 2030 | 2027 |
+
+---
+
 ## Resource Estimates
 
 | Phase | Effort | Priority | Status |
 |-------|--------|----------|--------|
 | Phase 1: Textile MVP | 4-6 weeks | **CRITICAL** | ✅ Complete |
 | Phase 2: Data APIs | 3-4 weeks | HIGH | ✅ Complete |
-| Phase 2.5: Supplier Marketplace | 3-4 weeks | HIGH | ✅ Complete |
+| Phase 2.5: Supplier SaaS Platform | 3-4 weeks | HIGH | ✅ Complete |
 | Phase 3: Metaobjects | 2-3 weeks | MEDIUM | Planned |
-| Phase 4: Furniture/Electronics | 4-6 weeks | HIGH | Planned |
+| Phase 4: Furniture/Electronics | 4-6 weeks | HIGH | 2026 (aligned with deadlines) |
 | Phase 5: Advanced | Ongoing | MEDIUM | Future |
 
 ---

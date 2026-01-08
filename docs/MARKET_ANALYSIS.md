@@ -236,6 +236,14 @@ Phase 3 (2027): + Electronics, Batteries
 
 ---
 
+## Related Documentation
+
+- [Implementation Roadmap](./IMPLEMENTATION_ROADMAP.md) - Technical phases and timelines
+- [Business Model](./BUSINESS_MODEL.md) - SME-first SaaS pricing
+- [Supplier Portal Design](./supplier-portal-design.md) - Supplier-pays model details
+
+---
+
 ## References
 
 - EU ESPR Regulation 2024/1781
