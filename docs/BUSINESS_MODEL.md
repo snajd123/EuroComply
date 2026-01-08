@@ -2,558 +2,472 @@
 
 ## Overview
 
-EuroComply is a **supplier-driven marketplace** for Digital Product Passports (DPPs). Only verified suppliers (producers, distributors, brands) can create passports, and retailers subscribe to use them.
+EuroComply is a **SaaS platform for SME suppliers** to create, host, and distribute ESPR-compliant Digital Product Passports. We provide the tools that make DPP compliance accessible and affordable.
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                   THE EUROCOMPLY FLYWHEEL                   │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│    ┌──────────┐                             ┌──────────┐   │
-│    │ PRODUCER │ ──creates DPP──────────────▶│ RETAILER │   │
-│    └────┬─────┘                             └────┬─────┘   │
-│         │                                        │         │
-│         │ sets price                             │ subscribes│
-│         │ earns 80%                              │ displays  │
-│         │                                        │ DPPs      │
-│         │      ┌─────────────┐                   │         │
-│         │      │ DISTRIBUTOR │                   │         │
-│         │      └──────┬──────┘                   │         │
-│         │             │                          │         │
-│         │             │ refers retailers         │         │
-│         │             │ earns 10-30%             │         │
-│         │             │                          │         │
-│         ▼             ▼                          ▼         │
-│    ┌─────────────────────────────────────────────┐         │
-│    │              EUROCOMPLY PLATFORM            │         │
-│    │  • Hosts passports                          │         │
-│    │  • Processes payments                       │         │
-│    │  • Issues Verifiable Credentials            │         │
-│    │  • Takes 20% platform fee                   │         │
-│    └─────────────────────────────────────────────┘         │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                    EUROCOMPLY MODEL                              │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│   SUPPLIERS PAY                         RETAILERS ACCESS FREE   │
+│   ─────────────                         ────────────────────    │
+│                                                                  │
+│   ┌──────────────┐                      ┌──────────────┐        │
+│   │  Producers   │                      │  Retailers   │        │
+│   │  Importers   │ ──── SaaS Fee ────►  │  (Shopify,   │        │
+│   │  Brands      │                      │  WooCommerce)│        │
+│   └──────────────┘                      └──────────────┘        │
+│         │                                      │                 │
+│         │ Create DPPs                          │ Display DPPs   │
+│         │ using our tools                      │ on storefronts │
+│         │                                      │                 │
+│         ▼                                      ▼                 │
+│   ┌─────────────────────────────────────────────────────────┐   │
+│   │                 EUROCOMPLY PLATFORM                      │   │
+│   │                                                          │   │
+│   │  • DPP Creator Studio (forms, templates, CSV import)    │   │
+│   │  • Verifiable Credential issuance (walt.id)             │   │
+│   │  • Managed hosting (while subscribed)                   │   │
+│   │  • Retailer plugins (Shopify, WooCommerce)              │   │
+│   │  • QR code generation (GS1 Digital Link)                │   │
+│   │  • Public verification pages                            │   │
+│   │                                                          │   │
+│   └─────────────────────────────────────────────────────────┘   │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Who Creates Passports?
+## Why This Model?
 
-### ✅ Suppliers (Producers, Distributors, Brands)
+### Legal Requirement: ESPR Article 31
 
-**Only verified suppliers can create Digital Product Passports.**
+The EU Ecodesign for Sustainable Products Regulation (ESPR) mandates that DPP data must be accessible **"free of charge"** to all economic operators in the supply chain - including retailers, importers, repairers, and recyclers.
 
-| Supplier Type | Role | Data Source | VC Attribution |
-|---------------|------|-------------|----------------|
-| **Producer** | Manufacturer of the product | Primary (owns the data) | "Verified by [Producer]" |
-| **Distributor** | Wholesaler in supply chain | Secondary (from producer docs) | "Attested by [Distributor]" |
-| **Brand** | Brand owner (may not manufacture) | Primary or secondary | "Verified by [Brand]" |
+**We cannot charge retailers for DPP access. It's illegal.**
 
-All supplier types:
-- Must pass KYB (Know Your Business) verification
-- Have product knowledge and/or certifications
-- Control the source of truth for product data
-- Set their own pricing
+### Market Reality: SME Gap
 
-### Producer vs Distributor
+| Segment | DPP Solution | Cost |
+|---------|--------------|------|
+| **Enterprise** (BMW, H&M) | SAP, Siemens, custom build | €50,000 - €500,000+ |
+| **SME** (99% of EU businesses) | ??? | Can't afford enterprise solutions |
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│  SUPPLY CHAIN SCENARIOS                                              │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│  SCENARIO A: Producer Creates DPP (Strongest)                        │
-│  ─────────────────────────────────────────────                       │
-│  Producer ──creates DPP──▶ Distributor ──pass-through──▶ Retailer   │
-│     │                                                        │       │
-│     └── Has primary data (manufacturing, materials, LCA)     │       │
-│                                         Retailer subscribes ─┘       │
-│                                                                      │
-│  SCENARIO B: Distributor Creates DPP (Valid)                         │
-│  ───────────────────────────────────────────                         │
-│  Producer ──spec sheets──▶ Distributor ──creates DPP──▶ Retailer    │
-│     │                           │                           │        │
-│     │                           └── Uses producer docs      │        │
-│     └── Doesn't use EuroComply      to create DPP           │        │
-│                                         Retailer subscribes ─┘       │
-│                                                                      │
-│  Both are compliant. Producer-created is more authoritative.         │
-│                                                                      │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-### ❌ Retailers (Merchants, Resellers)
-
-**Retailers cannot create their own passports.**
-
-- Subscribe to supplier passports via Shopify/WooCommerce plugin
-- Pay the supplier's price per product per month
-- Display the supplier's verified DPP on their store
-- Cannot modify the passport data
+EuroComply fills this gap with affordable SaaS pricing.
 
 ---
 
-## Pricing Model
+## Who Are Our Customers?
 
-### Supplier-Set Dynamic Pricing
+### Suppliers (Paying Customers)
 
-**Suppliers choose their own price.** EuroComply does not dictate pricing.
+Only verified suppliers can create Digital Product Passports. They have the product data and the legal obligation.
 
-| Parameter | Value |
-|-----------|-------|
-| **Floor Price** | €0.50/product/month (minimum) |
-| **Ceiling** | None (suppliers can charge what they want) |
-| **Platform Fee** | 20% of supplier's price |
+| Supplier Type | Role | ESPR Obligation |
+|---------------|------|-----------------|
+| **Producer** | Manufactures the product | Create DPP with primary manufacturing data |
+| **Importer** | Brings non-EU products into EU | Must ensure DPP exists before placing on market |
+| **Brand** | Owns the product identity | Create DPPs for branded product lines |
 
-### Examples
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    IMPORTER USE CASE                             │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Chinese Factory ─────────────────────────────► EU Importer     │
+│       │                                              │           │
+│       │ Ships product                                │           │
+│       │ (no DPP - factory doesn't use EuroComply)    │           │
+│       │                                              │           │
+│       │                                              ▼           │
+│       │                               ┌─────────────────────────┐│
+│       │                               │ ESPR Obligation:        ││
+│       │                               │ "Cannot place on EU     ││
+│       │                               │  market without DPP"    ││
+│       │                               └─────────────────────────┘│
+│       │                                              │           │
+│       │                                              ▼           │
+│       │                               ┌─────────────────────────┐│
+│       │                               │ Importer creates DPP    ││
+│       │                               │ using EuroComply SaaS   ││
+│       │                               │                         ││
+│       │                               │ • Uses factory spec     ││
+│       │                               │   sheets as data source ││
+│       │                               │ • VC: "Attested by      ││
+│       │                               │   [Importer Name]"      ││
+│       │                               └─────────────────────────┘│
+│       │                                              │           │
+│       │                                              ▼           │
+│       │                                       EU Retailers      │
+│       │                                       (free access)     │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
 
-| Supplier Price | Platform Fee (20%) | Supplier Receives |
-|---------------|-------------------|-------------------|
-| €0.50 (floor) | €0.10 | €0.40 |
-| €1.00 | €0.20 | €0.80 |
-| €2.50 | €0.50 | €2.00 |
-| €5.00 | €1.00 | €4.00 |
-| €10.00 | €2.00 | €8.00 |
+### Retailers (Free Access)
 
-### Why Dynamic Pricing?
+Retailers use DPPs but don't pay for them. This is mandated by ESPR Article 31.
 
-1. **Suppliers know their market** - A luxury brand may charge €10, a commodity supplier €0.50
-2. **Value-based pricing** - Complex DPPs with more data are worth more
-3. **Competition** - Market forces keep prices reasonable
-4. **Incentive alignment** - Suppliers earn more by creating better passports
+| What Retailers Get (Free) |
+|---------------------------|
+| Browse supplier DPP catalog |
+| Link DPPs to their products |
+| Display DPPs on storefront (widget) |
+| QR codes for products |
+| Public verification page |
+| Shopify/WooCommerce plugins |
 
 ---
 
-## Value Proposition for Retailers
+## Pricing
 
-### The Math: DPP Cost vs. Product Profit
+### Supplier SaaS Tiers
 
-**DPP subscriptions are negligible compared to product margins.**
+| Tier | Monthly | DPPs Included | Features |
+|------|---------|---------------|----------|
+| **Starter** | €49 | 50 DPPs | Creator studio, VC issuance, managed hosting, QR codes |
+| **Growth** | €149 | 500 DPPs | + Bulk CSV import, templates library, priority support |
+| **Pro** | €399 | 2,000 DPPs | + API access, white-label verification, dedicated support |
+| **Enterprise** | Custom | Unlimited | + Self-hosting support, SLA, custom integrations |
 
-| Scenario | Monthly Product Profit | DPP Cost | Cost as % of Profit |
-|----------|----------------------|----------|---------------------|
-| T-shirt (single SKU) | €2,000 | €1.00 | **0.05%** |
-| Small store (50 SKUs) | €10,000 | €25-50 | **0.25-0.5%** |
-| Medium store (200 SKUs) | €50,000 | €100-200 | **0.2-0.4%** |
-| Large store (1,000 SKUs) | €500,000 | €500-1,000 | **0.1-0.2%** |
+### What's Included
 
-**Result: Always under 1% of revenue.**
+Every tier includes:
+- **DPP Creator Studio** - Category-specific forms, validation, templates
+- **Verifiable Credential Issuance** - walt.id integration, did:key signing
+- **Managed Hosting** - EU data residency, high availability
+- **QR Code Generation** - GS1 Digital Link compliant
+- **Retailer Distribution** - Catalog listing, Shopify/WooCommerce plugins
+- **Public Verification** - Branded verification pages
 
-### What Retailers Get for €1/Product/Month
+### No Per-Retailer Fees
 
-| Benefit | Value |
-|---------|-------|
-| **EU Compliance** | Avoid ESPR fines (can be €thousands) |
-| **Consumer Trust** | "Verified by [Supplier]" badge |
-| **Zero Work** | Supplier maintains all data |
-| **Auto-Updates** | When supplier improves data, retailer gets it free |
-| **Competitive Edge** | Stand out from non-compliant competitors |
+```
+OLD MODEL (Illegal):
+  Supplier creates DPP → Retailer pays €0.50/month → Revenue split
 
-### Alternative Costs (Without EuroComply)
-
-| Option | Estimated Cost |
-|--------|---------------|
-| Hire compliance consultant | €5,000+ one-time |
-| Build own DPP system | €50,000+ development |
-| Non-compliance fines | Variable, potentially severe |
-| Lost sales (no sustainability badge) | Unquantifiable |
-
-**€1/month is a no-brainer.**
+NEW MODEL (Legal):
+  Supplier pays €149/month → Creates 500 DPPs → Unlimited retailers access free
+```
 
 ---
 
-## Revenue Flow
+## What We Sell
 
-### Basic Model (No Distributor Involved)
+### 1. DPP Creator Studio
 
-When a retailer subscribes directly to a producer's DPP:
+The tools to create ESPR-compliant Digital Product Passports.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      MONTHLY BILLING                        │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  Retailer pays: €1.00/product/month                         │
-│                                                             │
-│       ┌────────────────┬────────────────┐                   │
-│       │                │                │                   │
-│       ▼                ▼                                    │
-│   ┌────────┐      ┌────────┐                                │
-│   │ €0.80  │      │ €0.20  │                                │
-│   │Producer│      │Platform│                                │
-│   │  (80%) │      │  (20%) │                                │
-│   └────────┘      └────────┘                                │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Distributor Referral Model
-
-When a distributor brings retailers to a producer's DPP, the producer can share revenue with the distributor.
-
-**How it works:**
-1. Producer creates DPP and sets a **referral rate** (0-30%)
-2. Distributor registers as authorized distributor for that producer
-3. Distributor's retailers subscribe to the producer's DPP
-4. Revenue is split three ways: Producer + Distributor + Platform
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│              DISTRIBUTOR REFERRAL BILLING (Example: 20% referral)   │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│  Retailer pays: €1.00/product/month                                 │
-│                                                                     │
-│       ┌────────────────┬────────────────┬────────────────┐          │
-│       │                │                │                │          │
-│       ▼                ▼                ▼                           │
-│   ┌────────┐      ┌────────┐      ┌────────┐                        │
-│   │ €0.60  │      │ €0.20  │      │ €0.20  │                        │
-│   │Producer│      │Distrib.│      │Platform│                        │
-│   │  (60%) │      │  (20%) │      │  (20%) │                        │
-│   └────────┘      └────────┘      └────────┘                        │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-### Referral Rate Examples
-
-Producer sets the referral rate. Platform fee (20%) is always fixed.
-
-| Referral Rate | Producer Gets | Distributor Gets | Platform Gets |
-|---------------|---------------|------------------|---------------|
-| 0% (no referral) | 80% | 0% | 20% |
-| 10% | 70% | 10% | 20% |
-| 20% | 60% | 20% | 20% |
-| 30% (max) | 50% | 30% | 20% |
-
-### Why Producers Offer Referral Rates
-
-| Benefit | Description |
+| Feature | Description |
 |---------|-------------|
-| **Access to retailers** | Distributors have relationships with 100s of retailers |
-| **Volume** | Distributors can onboard entire retailer networks |
-| **No sales effort** | Distributor does the selling, producer just creates DPP |
-| **Competitive advantage** | Higher referral rates attract more distributor partners |
+| **Category-specific forms** | Textile, electronics, battery, furniture schemas |
+| **CIRPASS/ESPR validation** | "Your DPP is 85% complete" |
+| **Templates** | Pre-built defaults for common products |
+| **Bulk CSV import** | Upload hundreds of products at once |
+| **LCA estimation** | Calculate carbon footprint from materials |
+| **Certification upload** | GOTS, FSC, OEKO-TEX document storage |
 
-### Why Distributors Participate
+### 2. Verifiable Credential Issuance
 
-| Benefit | Description |
+Cryptographic proof that the DPP is authentic and untampered.
+
+| Feature | Description |
 |---------|-------------|
-| **Recurring revenue** | Earn 10-30% of every subscription, every month |
-| **No DPP creation work** | Producer maintains the data |
-| **Value-add to retailers** | Offer DPP access as part of distribution package |
-| **Scale economics** | 1000 retailers × 100 SKUs × €0.20 = €20,000/month |
+| **did:key identity** | Portable, self-contained supplier identity |
+| **W3C VC signing** | Industry-standard Verifiable Credentials |
+| **Tamper evidence** | Any change breaks the signature |
+| **Offline verification** | No server needed to verify |
+| **EUDI wallet ready** | Compatible with EU Digital Identity wallets |
 
-### Example: Large Distributor
+### 3. Managed Hosting
 
-A distributor with 500 retailers, averaging 50 SKUs each, with 20% referral rate:
+Reliable hosting while the subscription is active.
+
+| Feature | Description |
+|---------|-------------|
+| **EU data residency** | Data stays in EU |
+| **High availability** | Fast response for QR scans |
+| **Automatic backups** | Data protection |
+| **CDN delivery** | Global performance |
+
+### 4. Retailer Distribution
+
+Tools for retailers to access and display DPPs.
+
+| Feature | Description |
+|---------|-------------|
+| **Supplier catalog** | Retailers browse and find DPPs |
+| **Shopify plugin** | One-click DPP display |
+| **WooCommerce plugin** | WordPress integration |
+| **Storefront widget** | Embedded DPP viewer |
+| **QR codes** | Print-ready for products |
+
+---
+
+## Data Portability & Ownership
+
+### Suppliers Own Their Data
+
+The DPPs and Verifiable Credentials belong to the supplier, not EuroComply.
 
 ```
-500 retailers × 50 SKUs × €1.00 × 20% = €5,000/month passive income
+┌─────────────────────────────────────────────────────────────────┐
+│  THE VC IS THE ASSET - HOSTING IS JUST STORAGE                  │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  The Verifiable Credential contains:                            │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │  {                                                         │  │
+│  │    "issuer": "did:key:z6MkhaXgBZD...",  ← Portable DID    │  │
+│  │    "credentialSubject": {                                  │  │
+│  │      ... all DPP data ...                                  │  │
+│  │    },                                                      │  │
+│  │    "proof": { "jws": "..." }            ← Signature       │  │
+│  │  }                                                         │  │
+│  └───────────────────────────────────────────────────────────┘  │
+│                                                                  │
+│  This JSON file:                                                │
+│  • Can be verified by ANYONE (did:key = self-contained)        │
+│  • Can be hosted ANYWHERE                                       │
+│  • Is OWNED by the supplier                                    │
+│  • Is TRANSFERABLE to any other host                           │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-This creates a powerful incentive for distributors to actively promote producer DPPs to their retailer networks.
+### When Subscription Ends
+
+If a supplier cancels their subscription:
+
+1. **Export package provided** containing all VCs and keys
+2. **30-day grace period** to migrate data
+3. **Customer options:**
+   - Self-host the data
+   - Move to another DPP provider
+   - Upload to decentralized storage (IPFS/Arweave)
+   - Give to distributor/retailer to host
+4. **VCs still verify** - did:key is self-contained, no EuroComply dependency
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  EXPORT PACKAGE                                                  │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  export/                                                        │
+│  ├── credentials/                                               │
+│  │   ├── dpp-001.vc.json   (signed Verifiable Credential)      │
+│  │   ├── dpp-002.vc.json                                       │
+│  │   └── ...                                                   │
+│  ├── identity/                                                  │
+│  │   ├── did-document.json                                     │
+│  │   └── private-key.jwk   (for future VC signing)             │
+│  └── manifest.json         (GTIN → VC mapping)                 │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### No Lock-In
+
+| Concern | Our Approach |
+|---------|--------------|
+| **Data ownership** | Supplier owns all VCs and keys |
+| **Portability** | Standard W3C format, works anywhere |
+| **Verification** | did:key works forever without EuroComply |
+| **Export** | Full data export on cancellation |
+
+This is NOT a lock-in business. We earn customers by being the best tool, not by holding data hostage.
 
 ---
 
 ## Trust & Verification
 
-### How the Model Prevents False Claims
+### How We Ensure Authenticity
 
-| Protection | How It Works |
-|------------|--------------|
-| **KYB verification** | Suppliers must verify their business identity before creating DPPs |
-| **Retailers can't create** | Retailers only subscribe - they cannot create or modify passport data |
-| **Certification verification** | Only suppliers with valid certifications can claim them |
-| **Legal liability** | Supplier who creates DPP is legally liable for accuracy under ESPR |
-| **Cryptographic proof** | Each DPP is signed as a Verifiable Credential |
+| Layer | Protection |
+|-------|------------|
+| **KYB verification** | Suppliers must verify business identity before creating DPPs |
+| **did:key identity** | Cryptographic proof of issuer |
+| **VC signature** | Tamper-evident - any change breaks signature |
+| **Public verification** | Anyone can verify at eurocomply.eu/verify |
 
-### Trust Chain
+### VC Attribution by Supplier Type
+
+| Supplier Type | VC Attribution | Trust Level |
+|---------------|----------------|-------------|
+| **Producer** | "Verified by [Producer Name]" | Highest - primary data source |
+| **Importer** | "Attested by [Importer Name]" | High - from supplier documentation |
+| **Brand** | "Verified by [Brand Name]" | Depends on data source |
+
+---
+
+## Why Suppliers Pay
+
+### The Real Value
+
+| Value | Description |
+|-------|-------------|
+| **Avoid €50k+ alternatives** | Enterprise solutions are unaffordable for SMEs |
+| **ESPR compliance** | Meet legal requirements to sell in EU |
+| **Market access** | No DPP = no EU market access (starting 2027) |
+| **Easy creation** | Forms, templates, validation - not Excel hell |
+| **Cryptographic proof** | Verifiable Credentials differentiate from competitors |
+| **Retailer reach** | Shopify/WooCommerce plugins distribute your DPPs |
+
+### The Math
 
 ```
-Certification Body ──verifies──▶ Supplier ──creates──▶ DPP ──subscribes──▶ Retailer
-       │                            │                   │                    │
-       │                            │                   │                    │
-   (GOTS, FSC,                 (KYB verified,      (Signed VC,          (Display only,
-    OEKO-TEX)                   liable)            immutable)            no edit)
+┌─────────────────────────────────────────────────────────────────┐
+│  COST COMPARISON                                                 │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Option A: Build your own DPP system                            │
+│  • Development: €50,000+                                        │
+│  • Hosting: €500/month                                          │
+│  • Maintenance: €10,000/year                                    │
+│  • Total Year 1: €66,000+                                       │
+│                                                                  │
+│  Option B: Enterprise vendor (SAP, Siemens)                     │
+│  • Implementation: €100,000+                                    │
+│  • Annual license: €50,000+                                     │
+│  • Total Year 1: €150,000+                                      │
+│                                                                  │
+│  Option C: EuroComply                                           │
+│  • Monthly SaaS: €149                                           │
+│  • Total Year 1: €1,788                                         │
+│                                                                  │
+│  EuroComply is 97% cheaper than building, 99% cheaper than SAP. │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Supplier Legal Liability Under ESPR
+## Why Retailers Use Us
 
-### "It's Not My Problem" is Wrong
+Even though access is free, retailers choose EuroComply because:
 
-Suppliers sometimes claim: *"DPPs are the retailer's responsibility, not mine."*
-
-**This is incorrect.** Under ESPR (Ecodesign for Sustainable Products Regulation), ALL economic operators have obligations:
-
-| Economic Operator | ESPR Obligation |
-|-------------------|-----------------|
-| **Manufacturer** | Create DPP, ensure product compliance, maintain technical documentation |
-| **Importer** | Verify DPP exists before placing product on EU market |
-| **Distributor** | Verify DPP exists before supplying to retailers |
-| **Retailer** | Display DPP, don't sell non-compliant products |
-
-### Consequences of Non-Compliance
-
-| Risk | Impact |
-|------|--------|
-| **Market access denied** | Products without DPPs cannot be sold in EU |
-| **Retailer rejection** | Retailers won't stock products from non-compliant suppliers |
-| **Regulatory fines** | Member state enforcement varies, but penalties exist |
-| **Liability chain** | If retailer is fined, they'll pursue supplier for damages |
-| **Competitive loss** | Compliant competitors take your market share |
-
-### The Bottom Line
-
-> "I don't have liability" is factually wrong. Distributors and producers ARE liable under ESPR. The regulation requires verification at every step of the supply chain.
-
----
-
-## Incentives
-
-### Why Suppliers Join
-
-#### The Honest Truth About Revenue
-
-**Revenue from subscriptions is NOT the primary value for most suppliers.**
-
-| Supplier Size | Products | Retailers | Monthly Revenue (80%) |
-|---------------|----------|-----------|----------------------|
-| Small | 10 SKUs | 5 | **€40** ← peanuts |
-| Medium | 100 SKUs | 20 | **€1,600** ← decent |
-| Large | 500 SKUs | 100 | **€40,000** ← significant |
-
-For small and medium suppliers, the €1/product/month is a **bonus**, not the reason to join.
-
-#### The Real Value Proposition
-
-| Value | Why It Matters |
-|-------|----------------|
-| **Avoid building own DPP system** | Building compliant DPP infrastructure costs €50-100k+ |
-| **Avoid compliance fines** | ESPR violations carry penalties |
-| **Market access** | Retailers WILL require DPPs - no DPP = no shelf space |
-| **Brand control** | Same sustainability message across ALL retailers |
-| **Retailer reach** | Access to thousands of stores via our plugins |
-| **Passive income at scale** | Revenue grows as more retailers subscribe |
-
-> You need DPPs anyway. We make it easy AND you get paid when retailers use them.
-
-#### For Producers (Manufacturers)
-
-| Incentive | Description |
-|-----------|-------------|
-| **Primary data authority** | You own the manufacturing data - strongest VC attribution |
-| **Brand consistency** | Same DPP data across ALL retailers selling your products |
-| **Enforcement power** | Can require retailers to use your passports |
-| **Marketing reach** | Your brand shown on every retailer's product page |
-| **Single source of truth** | No fragmented or incorrect sustainability claims |
-
-#### For Distributors
-
-| Incentive | Description |
-|-----------|-------------|
-| **Value-add service** | Offer DPP access as part of your distribution package |
-| **Fill the gap** | Create DPPs when producers don't (many won't) |
-| **Competitive moat** | Differentiate from distributors without DPP support |
-| **Compliance enabler** | Help your retailer network become ESPR-compliant |
-| **Revenue opportunity** | Earn from retailers who can't get DPPs directly |
-
-#### For Both
-
-| Incentive | Description |
-|-----------|-------------|
-| **Legal compliance** | Meet your ESPR obligations as economic operator |
-| **Verified badge** | "Verified Supplier" increases credibility |
-| **Ecosystem access** | Reach retailers through Shopify/WooCommerce plugins |
-| **Future-proofing** | Be ready as DPP requirements expand to more product categories |
-
-### Why Retailers Join
-
-| Incentive | Description |
-|-----------|-------------|
-| **Supplier requirement** | Suppliers enforce DPP usage for their products |
-| **Consumer trust** | Verified passports increase conversions |
-| **No work** | Just subscribe - supplier maintains the data |
+| Benefit | Description |
+|---------|-------------|
+| **Supplier catalog** | Easy to find DPPs from verified suppliers |
+| **One-click integration** | Shopify/WooCommerce plugins |
+| **Verified data** | Cryptographically signed by suppliers |
+| **Zero work** | Supplier maintains the data |
 | **Compliance** | Meet ESPR requirements without expertise |
-| **Competitive advantage** | Stand out from non-compliant competitors |
-
-### Why Consumers Trust It
-
-| Factor | Reason |
-|--------|--------|
-| **Verified source** | Passport comes from the actual producer or authorized distributor |
-| **Cryptographic proof** | Signed Verifiable Credential |
-| **Public verification** | Anyone can verify at eurocomply.eu |
-| **No self-declaration** | Retailers can't create or modify claims |
+| **Consumer trust** | "Verified by [Supplier]" badge |
 
 ---
 
-## Pricing Strategy for Suppliers
+## Competitive Positioning
 
-### Factors to Consider
-
-1. **Product value** - Higher-value products can support higher DPP prices
-2. **Data complexity** - More detailed passports justify higher prices
-3. **Certification value** - Certified products (GOTS, FSC) can charge premium
-4. **Market competition** - Other suppliers' prices for similar products
-5. **Merchant volume** - High-volume merchants may negotiate bulk rates
-
-### Suggested Pricing Tiers
-
-| Product Category | Suggested Price Range |
-|-----------------|----------------------|
-| **Commodity textiles** | €0.50 - €1.00 |
-| **Certified textiles** | €1.00 - €3.00 |
-| **Premium/luxury** | €3.00 - €10.00 |
-| **Electronics** | €1.00 - €5.00 |
-| **Furniture** | €1.00 - €5.00 |
-| **Batteries (industrial)** | €5.00 - €20.00 |
-
-*These are suggestions only. Suppliers set their own prices.*
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  MARKET POSITIONING                                              │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ENTERPRISE                                                      │
+│  (BMW, Siemens, H&M)         SAP / Siemens / Circulor           │
+│  €100k+ budgets              Deep ERP integration               │
+│                              Custom implementations              │
+│                                                                  │
+│  ─────────────────────────────────────────────────────────────  │
+│                                                                  │
+│  MID-MARKET                                                      │
+│  (€10k-50k budgets)          Kezzler / Avery Dennison           │
+│                              Specialized traceability            │
+│                                                                  │
+│  ─────────────────────────────────────────────────────────────  │
+│                                                                  │
+│  SME                         ┌─────────────────────────────┐    │
+│  (99% of EU businesses)      │      EUROCOMPLY            │    │
+│  €49-399/month budgets       │                             │    │
+│                              │  "The WordPress of DPPs"   │    │
+│                              │                             │    │
+│                              │  • Affordable SaaS          │    │
+│                              │  • Easy to use              │    │
+│                              │  • No lock-in               │    │
+│                              │  • Portable VCs             │    │
+│                              └─────────────────────────────┘    │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
-## Platform Economics
+## Revenue Model
 
-### Revenue Model
-
-```
-Platform Revenue = Σ (Merchant Subscriptions × 20%)
-```
-
-### Example: 10,000 Active Subscriptions
-
-| Average Price | Monthly Platform Revenue |
-|--------------|-------------------------|
-| €1.00 | €2,000 |
-| €2.00 | €4,000 |
-| €3.00 | €6,000 |
-
-### Scaling
-
-| Metric | 1 Year | 3 Years | 5 Years |
-|--------|--------|---------|---------|
-| **Suppliers** | 100 | 1,000 | 5,000 |
-| **Merchants** | 1,000 | 20,000 | 100,000 |
-| **Active Subscriptions** | 5,000 | 200,000 | 2,000,000 |
-| **Platform Revenue/mo** | €5,000 | €200,000 | €2,000,000 |
-
-*Assumes €2.50 average price, 20% platform fee*
-
----
-
-## Ecosystem Value
-
-### Why the Ecosystem Matters
-
-EuroComply's value isn't just the DPP data - it's the **ecosystem** that connects suppliers to retailers.
+### Simple SaaS
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│  THE EUROCOMPLY ECOSYSTEM                                            │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│  SUPPLIER SIDE                    RETAILER SIDE                      │
-│  ────────────────                 ─────────────                      │
-│  • Supplier Portal                • Shopify Plugin                   │
-│  • Bulk CSV Import                • WooCommerce Plugin               │
-│  • API Integration                • Storefront Widgets               │
-│  • Earnings Dashboard             • QR Code Generation               │
-│  • Verification System            • Public Verification Page         │
-│                                                                      │
-│                    CONNECTING LAYER                                  │
-│                    ────────────────                                  │
-│                    • Supplier Catalog                                │
-│                    • GTIN/Barcode Lookup                             │
-│                    • Subscription Billing                            │
-│                    • Verifiable Credentials                          │
-│                                                                      │
-└─────────────────────────────────────────────────────────────────────┘
+Revenue = Number of Paying Suppliers × Average Monthly Fee
+
+Example at scale:
+1,000 suppliers × €149/month average = €149,000 MRR
 ```
 
-### The Multi-Tier Distribution Advantage
+### No Complex Splits
 
-Retailers often don't buy directly from producers. They buy from distributors.
+| Old Model (Removed) | New Model |
+|---------------------|-----------|
+| Retailer pays per DPP | Retailers free |
+| 3-way revenue split | Simple SaaS |
+| Distributor referral % | Not applicable |
+| Usage tracking/billing | Subscription only |
 
-**Without EuroComply:**
-```
-Producer → Distributor → Retailer → Consumer
-   │            │            │
-   │            │            └── "Where do I get DPP data?"
-   │            └── "I just resell, I don't have this data"
-   └── "I don't deal with retailers directly"
-```
+### Future Premium (Optional)
 
-**With EuroComply:**
-```
-Producer → Distributor → Retailer → Consumer
-   │                         │
-   │                         └── Subscribes to Producer's DPP via platform
-   └── Creates DPP once, all retailers can access it
-```
+For retailers who want more than free access:
 
-The ecosystem bridges the gap between producers and retailers, even when they don't have direct relationships.
+| Premium Feature | Price | Description |
+|-----------------|-------|-------------|
+| Bulk API access | €99/mo | 1000+ product sync |
+| CSRD reporting | €199/mo | Sustainability reports |
+| Supply chain analytics | €299/mo | Insights dashboard |
 
-### Product Discovery (GTIN Lookup)
-
-Retailers can find DPPs by scanning product barcodes:
-
-1. Retailer receives products from distributor
-2. Scans GTIN/barcode
-3. EuroComply finds matching DPP from producer
-4. Retailer subscribes with one click
-
-This is only possible because we have the ecosystem connecting both sides.
+These are **value-add analytics**, not DPP access (which must remain free).
 
 ---
 
 ## Summary
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    EUROCOMPLY MODEL                         │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  WHO CREATES PASSPORTS?                                     │
-│  → Producers (strongest - primary data)                     │
-│  → Distributors (valid - secondary data)                    │
-│  → Brands (depends on structure)                            │
-│                                                             │
-│  WHO USES PASSPORTS?                                        │
-│  → Retailers subscribe via Shopify/WooCommerce              │
-│                                                             │
-│  WHO SETS PRICES?                                           │
-│  → Suppliers (minimum €0.50/product/month)                  │
-│  → Producers also set distributor referral rate (0-30%)     │
-│                                                             │
-│  WHO EARNS WHAT?                                            │
-│  → Direct: Producer 80%, Platform 20%                       │
-│  → Via Distributor: Producer 50-70%, Distributor 10-30%,    │
-│                     Platform 20%                            │
-│                                                             │
-│  WHY IS IT WORTH IT FOR RETAILERS?                          │
-│  → €1/month vs €2,000/month profit = 0.05%                  │
-│  → Compliance, trust badge, zero work                       │
-│                                                             │
-│  WHY IS IT WORTH IT FOR DISTRIBUTORS?                       │
-│  → 500 retailers × 50 SKUs × €0.20 = €5,000/month passive   │
-│  → Value-add service for retailer network                   │
-│                                                             │
-│  WHY NO FRAUD?                                              │
-│  → Retailers can't create passports                         │
-│  → Only verified suppliers can make claims                  │
-│                                                             │
-│  WHY THE ECOSYSTEM MATTERS?                                 │
-│  → Connects producers to retailers across distribution      │
-│  → GTIN lookup enables discovery without relationships      │
-│  → Widgets, plugins, verification pages                     │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                    EUROCOMPLY MODEL                              │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  WHO CREATES DPPs?                                              │
+│  → Producers (manufacturers - primary data)                     │
+│  → Importers (must ensure DPP exists for EU market)            │
+│  → Brands (product identity owners)                             │
+│                                                                  │
+│  WHO PAYS?                                                      │
+│  → Suppliers pay SaaS fee (€49-399/month)                      │
+│                                                                  │
+│  WHO ACCESSES FREE?                                             │
+│  → Retailers (ESPR Article 31 mandate)                         │
+│  → Consumers (public verification)                              │
+│                                                                  │
+│  WHAT DO SUPPLIERS GET?                                         │
+│  → DPP Creator Studio                                           │
+│  → Verifiable Credential issuance                               │
+│  → Managed hosting                                              │
+│  → Retailer distribution                                        │
+│  → Data portability                                             │
+│                                                                  │
+│  WHAT HAPPENS ON CANCELLATION?                                  │
+│  → Export all VCs and keys                                      │
+│  → Host elsewhere or self-host                                  │
+│  → VCs still verify (did:key is portable)                      │
+│                                                                  │
+│  WHY US?                                                        │
+│  → 97% cheaper than building yourself                           │
+│  → 99% cheaper than enterprise vendors                          │
+│  → No lock-in - you own your data                              │
+│  → Cryptographic proof - not just a database                   │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-*Last Updated: 2026-01-07*
+*Last Updated: 2026-01-08*

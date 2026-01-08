@@ -1,14 +1,16 @@
 # DPP Content Strategy: How Suppliers Create Product-Specific Passport Data
 
-> **Note:** Only verified suppliers create Digital Product Passports. Retailers subscribe to supplier DPPs via e-commerce plugins (Shopify, WooCommerce). See [BUSINESS_MODEL.md](./BUSINESS_MODEL.md) for the full model.
+## Overview
 
-## The Problem
+Only verified suppliers (producers, importers, brands) create Digital Product Passports using EuroComply's SaaS platform. Retailers access these DPPs for free via our e-commerce plugins.
 
-Creating ESPR-compliant Digital Product Passports requires **category-specific, product-specific sustainability data** that only suppliers (manufacturers/brands) have access to.
+See [BUSINESS_MODEL.md](./BUSINESS_MODEL.md) for the full SaaS model.
 
 ---
 
-## Key Challenges
+## The Challenge
+
+Creating ESPR-compliant Digital Product Passports requires **category-specific, product-specific sustainability data** that only suppliers have access to.
 
 | Challenge | Description |
 |-----------|-------------|
@@ -20,66 +22,73 @@ Creating ESPR-compliant Digital Product Passports requires **category-specific, 
 
 ---
 
-## Solution Architecture (Supplier Portal)
+## Supplier Portal: DPP Creation Flow
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│              SUPPLIER DPP CONTENT CREATION FLOW                      │
+│              SUPPLIER DPP CREATION FLOW                              │
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                      │
-│  1. SUPPLIER VERIFICATION                                           │
-│     └─ KYB verification before publishing DPPs                      │
+│  1. SUPPLIER ONBOARDING                                             │
+│     ├─ Sign up for SaaS plan (Starter/Growth/Pro/Enterprise)       │
+│     └─ Complete KYB verification                                    │
 │                                                                      │
-│  2. PRODUCT CATEGORIZATION                                          │
-│     └─ Supplier selects: Textile / Electronics / Battery / Furniture│
+│  2. IDENTITY CREATION                                               │
+│     ├─ Generate did:key (portable, self-contained identity)        │
+│     └─ Private key stored securely (exportable on request)         │
 │                                                                      │
-│  3. SCHEMA SELECTION                                                │
-│     └─ System loads category-specific required/optional fields      │
+│  3. PRODUCT CATEGORIZATION                                          │
+│     └─ Select: Textile / Electronics / Battery / Furniture / Other │
 │                                                                      │
-│  4. DATA ENTRY                                                      │
-│     ├─ Manual Entry: Supplier portal form                           │
+│  4. SCHEMA SELECTION                                                │
+│     └─ System loads category-specific required/optional fields     │
+│                                                                      │
+│  5. DATA ENTRY                                                      │
+│     ├─ Manual Entry: Supplier portal forms                         │
 │     ├─ CSV Import: Bulk product upload                              │
 │     ├─ Templates: Industry-standard defaults                        │
-│     └─ LCA Data: From supplier's LCA studies                        │
-│                                                                      │
-│  5. PRICING                                                          │
-│     └─ Supplier sets price per product (min €0.50/month)            │
+│     └─ LCA Data: From supplier's LCA studies                       │
 │                                                                      │
 │  6. VALIDATION                                                       │
-│     └─ Check mandatory fields, warn on missing                      │
+│     └─ Check mandatory fields, compliance score                     │
 │                                                                      │
-│  7. PUBLISH & VC ISSUANCE                                           │
-│     └─ Sign complete DPP data with walt.id                          │
+│  7. VC ISSUANCE                                                     │
+│     ├─ Sign DPP data with did:key                                  │
+│     └─ Generate Verifiable Credential (portable, tamper-evident)   │
 │                                                                      │
-│  8. RETAILER SUBSCRIPTION                                           │
-│     └─ Retailers subscribe via e-commerce plugins                   │
+│  8. PUBLISH                                                         │
+│     ├─ DPP appears in supplier catalog                             │
+│     └─ Retailers can find and link to their products               │
 │                                                                      │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Solution 1: Category-Specific Data Entry Forms
+## Data Entry Methods
 
-### Implementation: Add "Edit DPP Data" page in Shopify app
+### Method 1: Category-Specific Forms
+
+Guided forms tailored to each product category.
 
 ```
-/app/dpp/:id/edit
+/supplier/products/new
 ├── Product Category Selector
 │   └─ [Textile] [Electronics] [Battery] [Furniture] [Other]
 │
 ├── Dynamic Form (based on category)
 │   ├── Core Fields (all categories)
+│   │   ├─ Product Name*
+│   │   ├─ GTIN/Barcode
 │   │   ├─ Manufacturer Name*
-│   │   ├─ Manufacturer Country*
-│   │   └─ Product Description
+│   │   └─ Country of Origin*
 │   │
 │   ├── Textiles Section (if textile)
 │   │   ├─ Fiber Composition* (add multiple)
-│   │   │   └─ [Fiber Type] [Percentage] [Organic?]
+│   │   │   └─ [Fiber Type] [Percentage] [Certified?]
 │   │   ├─ Care Instructions*
 │   │   │   └─ [Max Temp] [Bleach?] [Dry Clean?]
-│   │   └─ Washing Durability (cycles)*
+│   │   └─ Durability (wash cycles)*
 │   │
 │   ├── Carbon Footprint Section
 │   │   ├─ Value (kgCO2e)
@@ -93,29 +102,18 @@ Creating ESPR-compliant Digital Product Passports requires **category-specific, 
 │   │
 │   ├── Repairability Section (if electronics/furniture)
 │   │   ├─ Repairability Score (1-10)
-│   │   ├─ Spare Parts Available
+│   │   ├─ Spare Parts Availability
 │   │   └─ Repair Instructions URL
 │   │
 │   └── Certifications
 │       └─ [Add Certification] [Name] [Issuer] [Valid Until] [Doc URL]
 │
-└── [Save Draft] [Validate] [Issue DPP with VC]
+└── [Save Draft] [Validate] [Issue VC & Publish]
 ```
 
-### Pros
-- Complete control over data
-- Category-specific validation
-- Clear UX for retailers
+### Method 2: Templates Library
 
-### Cons
-- Manual data entry burden on retailers
-- Retailers may not have the data
-
----
-
-## Solution 2: DPP Templates by Product Type
-
-### Pre-built templates with industry defaults
+Pre-built templates with industry defaults for common product types.
 
 ```typescript
 const TEXTILE_TSHIRT_TEMPLATE = {
@@ -124,40 +122,23 @@ const TEXTILE_TSHIRT_TEMPLATE = {
   defaults: {
     durability: { expectedLifespan: 2, unit: 'years' },
     recyclability: { percentage: 85 },
-    repairability: { score: 3 }, // Low for basic textiles
+    repairability: { score: 3 },
   },
   requiredOverrides: [
-    'fiberComposition',      // Retailer MUST provide
+    'fiberComposition',
     'manufacturerCountry',
   ],
   suggestedFields: [
-    'carbonFootprint',       // Encouraged but optional
+    'carbonFootprint',
     'certifications',
   ],
   industryBenchmarks: {
     carbonFootprint: { value: 5.5, unit: 'kgCO2e', source: 'WRAP UK Average' },
   }
 };
-
-const ELECTRONICS_SMARTPHONE_TEMPLATE = {
-  category: 'electronics',
-  productType: 'Smartphone',
-  defaults: {
-    durability: { expectedLifespan: 4, unit: 'years' },
-    repairability: { score: 6 },
-  },
-  requiredOverrides: [
-    'rohsCompliant',
-    'weeRegistration',
-    'spareParts',
-  ],
-  industryBenchmarks: {
-    carbonFootprint: { value: 70, unit: 'kgCO2e', source: 'Apple Environmental Report Average' },
-  }
-};
 ```
 
-### Template Library Structure
+**Template Library Structure:**
 ```
 templates/
 ├── textiles/
@@ -168,132 +149,39 @@ templates/
 ├── electronics/
 │   ├── smartphone.json
 │   ├── laptop.json
-│   ├── tablet.json
 │   └── headphones.json
 ├── batteries/
 │   ├── lithium-ion-small.json
-│   ├── lithium-ion-ev.json
-│   └── industrial.json
+│   └── lithium-ion-ev.json
 └── furniture/
     ├── chair.json
     ├── table.json
-    ├── sofa.json
-    └── cabinet.json
+    └── sofa.json
 ```
 
-### Pros
-- Quick start for retailers
-- Industry-appropriate defaults
-- Reduces data entry burden
+### Method 3: CSV Bulk Import
 
-### Cons
-- Templates may not fit all products
-- Benchmarks are approximations
+For suppliers with many products.
 
----
-
-## Solution 3: Shopify Metafield Integration
-
-### Pull existing product data from Shopify metafields
-
-Shopify retailers often already have sustainability data in metafields:
-
-```typescript
-// Shopify GraphQL query to fetch metafields
-const METAFIELD_MAPPINGS = {
-  // Common sustainability metafields
-  'custom.carbon_footprint': 'carbonFootprint.value',
-  'custom.materials': 'recyclability.materials',
-  'custom.country_of_origin': 'manufacturerCountry',
-  'custom.fiber_content': 'textileData.fiberComposition',
-
-  // Standard Shopify fields
-  'product.vendor': 'manufacturerName',
-  'variant.weight': 'productWeight',
-  'variant.barcode': 'gtin',
-};
-
-async function pullFromShopifyMetafields(productId: string) {
-  const metafields = await shopify.graphql(`
-    query {
-      product(id: "${productId}") {
-        metafields(first: 50) {
-          edges {
-            node {
-              namespace
-              key
-              value
-              type
-            }
-          }
-        }
-      }
-    }
-  `);
-
-  return mapMetafieldsToDppData(metafields);
-}
-```
-
-### Pros
-- Uses existing retailer data
-- No duplicate entry
-- Syncs automatically
-
-### Cons
-- Retailers need to set up metafields first
-- Inconsistent data formats
-
----
-
-## Solution 4: Supplier Data Import
-
-### Allow suppliers to provide sustainability data
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    SUPPLIER DATA FLOW                           │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  Supplier                         Retailer                       │
-│  (Factory/Manufacturer)           (Shopify Store)               │
-│                                                                  │
-│  ┌──────────────────┐            ┌──────────────────┐           │
-│  │ Sustainability   │   CSV/API  │ EuroComply       │           │
-│  │ Data Export      │ ─────────► │ Import Tool      │           │
-│  │                  │            │                  │           │
-│  │ • Materials      │            │ • Map to DPP     │           │
-│  │ • Carbon data    │            │ • Validate       │           │
-│  │ • Certifications │            │ • Issue VC       │           │
-│  └──────────────────┘            └──────────────────┘           │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Import Format (CSV)
+**CSV Format:**
 ```csv
-sku,fiber_composition,carbon_footprint_kg,recyclable_percent,certifications
-TSHIRT-001,"95% Organic Cotton, 5% Elastane",4.2,90,"GOTS,OEKO-TEX"
-TSHIRT-002,"100% Recycled Polyester",3.1,100,"GRS"
-JEANS-001,"98% Cotton, 2% Elastane",12.5,85,""
+sku,name,gtin,fiber_composition,carbon_footprint_kg,recyclable_percent,certifications
+TSHIRT-001,"Organic Cotton Tee",5901234567890,"95% Organic Cotton, 5% Elastane",4.2,90,"GOTS,OEKO-TEX"
+TSHIRT-002,"Recycled Poly Tee",5901234567891,"100% Recycled Polyester",3.1,100,"GRS"
+JEANS-001,"Classic Denim",5901234567892,"98% Cotton, 2% Elastane",12.5,85,""
 ```
 
-### Pros
-- Accurate data from source
-- Scalable for large catalogs
-- Supports supply chain verification
+**Import Flow:**
+1. Upload CSV
+2. Map columns to DPP fields
+3. Validate data
+4. Preview results
+5. Bulk create DPPs
+6. Issue VCs for all products
 
-### Cons
-- Requires supplier participation
-- Data format standardization needed
+### Method 4: LCA Estimation Engine
 
----
-
-## Solution 5: LCA Estimation Engine
-
-### Calculate carbon footprint from product attributes
-
-For retailers without LCA data, estimate using industry databases:
+For suppliers without LCA data, estimate carbon footprint from product attributes.
 
 ```typescript
 interface ProductAttributes {
@@ -307,18 +195,18 @@ interface ProductAttributes {
 function estimateCarbonFootprint(attrs: ProductAttributes): CarbonEstimate {
   let totalCO2e = 0;
 
-  // 1. Material production emissions
+  // Material production emissions
   for (const material of attrs.materials) {
-    const factor = EMISSION_FACTORS[material.type]; // kgCO2e per kg
+    const factor = EMISSION_FACTORS[material.type];
     totalCO2e += material.weight * factor;
   }
 
-  // 2. Manufacturing emissions (by country)
+  // Manufacturing emissions (by country)
   const mfgFactor = MANUFACTURING_FACTORS[attrs.manufacturingCountry];
   totalCO2e += attrs.weight * mfgFactor;
 
-  // 3. Transport emissions
-  const transportFactor = 0.0001; // kgCO2e per kg per km (sea freight avg)
+  // Transport emissions
+  const transportFactor = 0.0001; // kgCO2e per kg per km
   totalCO2e += attrs.weight * attrs.transportDistance * transportFactor;
 
   return {
@@ -330,7 +218,7 @@ function estimateCarbonFootprint(attrs: ProductAttributes): CarbonEstimate {
   };
 }
 
-// Industry emission factors (kgCO2e per kg material)
+// Emission factors (kgCO2e per kg material)
 const EMISSION_FACTORS = {
   'cotton-conventional': 5.9,
   'cotton-organic': 3.8,
@@ -340,203 +228,263 @@ const EMISSION_FACTORS = {
   'leather': 65.0,
   'aluminum': 8.1,
   'steel': 1.9,
-  'plastic-abs': 3.1,
-  'wood-softwood': 0.2,
-  'wood-hardwood': 0.3,
 };
 ```
 
-### Pros
-- Provides data when none exists
-- Uses accepted industry factors
-- Better than no data
+---
 
-### Cons
-- Estimates, not measured values
-- May not be accepted for compliance
-- Needs clear "estimate" labeling
+## VC Issuance
+
+When a DPP is complete, the supplier issues a Verifiable Credential.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    VC ISSUANCE FLOW                              │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  1. Supplier clicks "Publish DPP"                               │
+│                                                                  │
+│  2. System validates all required fields                        │
+│                                                                  │
+│  3. DPP data structured as VC credentialSubject                 │
+│                                                                  │
+│  4. VC signed with supplier's did:key                          │
+│     (using walt.id Signatory service)                           │
+│                                                                  │
+│  5. Signed VC stored in database                                │
+│     (vcJwt field on Passport model)                             │
+│                                                                  │
+│  6. QR code generated (GS1 Digital Link)                       │
+│                                                                  │
+│  7. DPP published to catalog                                    │
+│     (visible to retailers)                                      │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### The Issued VC
+
+```json
+{
+  "@context": [
+    "https://www.w3.org/2018/credentials/v1",
+    "https://eurocomply.eu/contexts/dpp/v1"
+  ],
+  "type": ["VerifiableCredential", "DigitalProductPassport"],
+  "issuer": "did:key:z6MkhaXgBZDvvvRhta...",
+  "issuanceDate": "2026-01-08T10:30:00Z",
+  "credentialSubject": {
+    "id": "urn:gtin:5901234567890",
+    "type": "Product",
+    "name": "Organic Cotton T-Shirt",
+    "gtin": "5901234567890",
+    "manufacturer": {
+      "name": "EcoTextiles GmbH",
+      "country": "DE"
+    },
+    "sustainability": {
+      "carbonFootprint": {
+        "value": 4.2,
+        "unit": "kgCO2e",
+        "methodology": "ISO 14067"
+      },
+      "recyclability": {
+        "percentage": 90
+      },
+      "materials": [
+        {"name": "Organic Cotton", "percentage": 95, "certified": true},
+        {"name": "Elastane", "percentage": 5}
+      ]
+    },
+    "certifications": [
+      {"name": "GOTS", "issuer": "Control Union", "validUntil": "2027-06-15"}
+    ]
+  },
+  "proof": {
+    "type": "JsonWebSignature2020",
+    "created": "2026-01-08T10:30:00Z",
+    "verificationMethod": "did:key:z6MkhaXgBZDvvvRhta...#key-1",
+    "proofPurpose": "assertionMethod",
+    "jws": "eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il19..."
+  }
+}
+```
+
+### Key Points
+
+- **did:key** - Self-contained identity, no hosting dependency
+- **Portable** - VC can be verified anywhere, by anyone
+- **Tamper-evident** - Any change breaks the signature
+- **Owned by supplier** - Can be exported and taken elsewhere
 
 ---
 
-## Recommended Implementation Order
+## Retailer Access (Free)
 
-### Phase 1: Foundation (Week 1-2)
-1. **Create category-specific schemas** in `packages/shared`
-2. **Add product category field** to Passport model
-3. **Implement mandatory field validation** by category
-4. **Create DPP edit page** in Shopify app (basic form)
-
-### Phase 2: Data Collection (Week 3-4)
-1. **Add DPP templates** for common product types
-2. **Implement Shopify metafield sync**
-3. **Build supplier CSV import**
-
-### Phase 3: Enhancement (Week 5-6)
-1. **Add LCA estimation engine**
-2. **Implement industry benchmarks**
-3. **Add compliance checklist UI**
-
-### Phase 4: Verification (Week 7-8)
-1. **Integration with certification registries**
-2. **Supplier VC verification** (verify their claims)
-3. **Compliance scoring/reporting**
-
----
-
-## Database Schema Updates Needed
-
-```prisma
-// Add to Passport model
-model Passport {
-  // ... existing fields
-
-  // New category-specific fields
-  productCategory   ProductCategory @default(OTHER)
-  categoryData      Json?           // Category-specific structured data
-  dataSource        DataSource      @default(MANUAL)
-  dataConfidence    DataConfidence  @default(UNVERIFIED)
-  complianceScore   Float?          // 0-100% completeness
-
-  // Template reference
-  templateId        String?
-  template          DppTemplate?    @relation(fields: [templateId], references: [id])
-}
-
-enum ProductCategory {
-  TEXTILE
-  ELECTRONICS
-  BATTERY
-  FURNITURE
-  OTHER
-}
-
-enum DataSource {
-  MANUAL           // Entered by retailer
-  SHOPIFY_SYNC     // Pulled from Shopify metafields
-  SUPPLIER_IMPORT  // Imported from supplier
-  LCA_ESTIMATE     // Calculated estimate
-  THIRD_PARTY_VERIFIED  // Verified by certification body
-}
-
-enum DataConfidence {
-  UNVERIFIED       // Self-declared
-  ESTIMATED        // Calculated from formulas
-  SUPPLIER_DECLARED // From supplier (not verified)
-  THIRD_PARTY_VERIFIED // Certified
-  AUDITED          // Independently audited
-}
-
-model DppTemplate {
-  id              String    @id @default(cuid())
-  name            String
-  category        ProductCategory
-  productType     String    // "T-Shirt", "Smartphone", etc.
-  defaults        Json      // Default values
-  requiredFields  String[]  // Fields retailer must provide
-  suggestedFields String[]  // Optional but recommended
-  benchmarks      Json      // Industry average data
-  passports       Passport[]
-}
-```
-
----
-
-## Shopify App UI Updates
-
-### New Routes Needed
+Retailers browse the supplier catalog and link DPPs to their products.
 
 ```
-/app/dpp/:id/edit          - Edit DPP sustainability data
-/app/templates             - Browse/select DPP templates
-/app/import                - Supplier data import
-/app/settings/metafields   - Configure Shopify metafield mappings
-```
-
-### Edit DPP Page Wireframe
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  Edit DPP: Organic Cotton T-Shirt                    [Save] │
-├─────────────────────────────────────────────────────────────┤
-│                                                              │
-│  Product Category:  [Textile ▼]                             │
-│                                                              │
-│  ─────────────────────────────────────────────────────────  │
-│  MANDATORY FIELDS (4 of 5 complete)          [██████░░] 80% │
-│  ─────────────────────────────────────────────────────────  │
-│                                                              │
-│  Manufacturer Information                                    │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │ Name:     [EcoFashion GmbH        ]  ✓                 │ │
-│  │ Country:  [Germany ▼             ]  ✓                  │ │
-│  │ Website:  [https://ecofashion.de ]                     │ │
-│  └────────────────────────────────────────────────────────┘ │
-│                                                              │
-│  Fiber Composition (Required for Textiles)                  │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │ [Organic Cotton ▼] [95]% [Certified ▼]  [×]           │ │
-│  │ [Elastane ▼      ] [ 5]%                [×]           │ │
-│  │                                    [+ Add Fiber]       │ │
-│  └────────────────────────────────────────────────────────┘ │
-│                                                              │
-│  Care Instructions (Required)                    ⚠️ Missing │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │ Max Wash Temp: [  ]°C   Bleach Allowed: [ ]            │ │
-│  │ Tumble Dry:    [ ]      Dry Clean: [ ]                 │ │
-│  │ Washing Cycles: [  ] (durability test result)          │ │
-│  └────────────────────────────────────────────────────────┘ │
-│                                                              │
-│  ─────────────────────────────────────────────────────────  │
-│  OPTIONAL FIELDS                                             │
-│  ─────────────────────────────────────────────────────────  │
-│                                                              │
-│  Carbon Footprint                                            │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │ Value: [5.2] kgCO2e                                    │ │
-│  │ Methodology: [ISO 14067 ▼]                             │ │
-│  │ Scope: [Cradle-to-gate ▼]                              │ │
-│  │                                                         │ │
-│  │ 💡 Don't have this? [Estimate from materials]          │ │
-│  │    Industry benchmark: 5.5 kgCO2e (WRAP UK)            │ │
-│  └────────────────────────────────────────────────────────┘ │
-│                                                              │
-│  Certifications                                              │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │ ✓ GOTS (Global Organic Textile Standard)               │ │
-│  │   Issuer: Control Union  Valid: 2027-06-15  [View]    │ │
-│  │                                                         │ │
-│  │ [+ Add Certification]                                   │ │
-│  └────────────────────────────────────────────────────────┘ │
-│                                                              │
-│  ─────────────────────────────────────────────────────────  │
-│                                                              │
-│  [Save Draft]  [Validate for Compliance]  [Issue VC]        │
-│                                                              │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                    RETAILER FLOW                                 │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  1. Install Shopify/WooCommerce plugin (free)                   │
+│                                                                  │
+│  2. Browse supplier catalog                                     │
+│     • Search by GTIN, product name, category                    │
+│     • Filter by certifications                                  │
+│                                                                  │
+│  3. Link DPP to product                                         │
+│     • Select product in store                                   │
+│     • Click "Link DPP"                                          │
+│     • DPP associated with product                               │
+│                                                                  │
+│  4. Display on storefront                                       │
+│     • Embedded widget shows DPP data                            │
+│     • "Verified by [Supplier]" badge                            │
+│     • QR code for physical products                             │
+│                                                                  │
+│  No payment required. ESPR Article 31 compliant.                │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Decision Points Needed
+## Category-Specific Schemas
 
-1. **Which product categories to support first?**
-   - Textiles (most Shopify retailers)
-   - Electronics
-   - All from start
+### Textiles (ESPR Priority Sector)
 
-2. **How to handle missing mandatory data?**
-   - Block VC issuance until complete
-   - Issue with warnings/disclaimers
-   - Allow partial DPPs
+| Field | Required | Description |
+|-------|----------|-------------|
+| Fiber Composition | Yes | Materials and percentages |
+| Care Instructions | Yes | Washing, drying, ironing |
+| Durability | Yes | Expected wash cycles |
+| Country of Origin | Yes | Manufacturing location |
+| Carbon Footprint | Recommended | kgCO2e per item |
+| Recyclability | Recommended | End-of-life instructions |
+| Certifications | Optional | GOTS, OEKO-TEX, GRS |
 
-3. **LCA estimation - include or not?**
-   - Pro: Provides data when none exists
-   - Con: Estimates may not satisfy regulators
+### Electronics
 
-4. **Template library - build or license?**
-   - Build: Control but time-consuming
-   - License: Faster but dependency
+| Field | Required | Description |
+|-------|----------|-------------|
+| Repairability Score | Yes | 1-10 scale |
+| Spare Parts Availability | Yes | Years available |
+| Critical Raw Materials | Yes | Cobalt, lithium, etc. |
+| WEEE Registration | Yes | Waste electronics compliance |
+| Energy Efficiency | Recommended | Energy label class |
+| Carbon Footprint | Recommended | kgCO2e per item |
 
-5. **Supplier integration priority?**
-   - CSV import first (simple)
-   - API later (complex but scalable)
+### Batteries (First ESPR Deadline: Feb 2027)
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| Battery Chemistry | Yes | Li-ion, NiMH, etc. |
+| Capacity | Yes | Wh or Ah |
+| Recycled Content | Yes | Percentage |
+| Carbon Footprint | Yes | kgCO2e per kWh |
+| State of Health | Yes | For EV batteries |
+| Critical Raw Materials | Yes | Cobalt, lithium sources |
+
+### Furniture
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| Materials | Yes | Wood, metal, fabric |
+| Durability | Yes | Expected lifespan |
+| Repairability | Yes | Spare parts, instructions |
+| Recyclability | Recommended | Disassembly instructions |
+| Certifications | Optional | FSC, PEFC |
+
+---
+
+## Validation & Compliance Scoring
+
+Each DPP gets a compliance score based on field completeness.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  COMPLIANCE SCORE: 85%                              [████████░░] │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ✅ MANDATORY FIELDS (4/4 complete)                             │
+│     ✓ Fiber Composition                                         │
+│     ✓ Care Instructions                                         │
+│     ✓ Manufacturer Country                                      │
+│     ✓ Durability                                                │
+│                                                                  │
+│  ⚠️ RECOMMENDED FIELDS (2/4 complete)                           │
+│     ✓ Carbon Footprint                                          │
+│     ✓ Recyclability                                             │
+│     ○ Certifications (none uploaded)                            │
+│     ○ Repair Instructions                                       │
+│                                                                  │
+│  💡 To reach 100%: Upload certifications, add repair info       │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Data Source Tracking
+
+Track where data comes from for transparency.
+
+| Data Source | Description | VC Attribution |
+|-------------|-------------|----------------|
+| **MANUAL** | Entered by supplier in portal | "Declared by [Supplier]" |
+| **CSV_IMPORT** | Bulk uploaded | "Declared by [Supplier]" |
+| **LCA_ESTIMATE** | Calculated estimate | "Estimated by EuroComply" |
+| **THIRD_PARTY_VERIFIED** | Certified by external body | "Verified by [Certifier]" |
+
+---
+
+## Supplier Portal Routes
+
+```
+/supplier/                     - Dashboard (DPP count, plan usage)
+/supplier/products             - Product list
+/supplier/products/new         - Create new DPP
+/supplier/products/:id/edit    - Edit DPP
+/supplier/products/import      - CSV bulk import
+/supplier/templates            - Browse templates
+/supplier/settings             - Account, billing, export
+/supplier/export               - Export all VCs and keys
+```
+
+---
+
+## Summary
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    DPP CONTENT CREATION                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  WHO CREATES?                                                   │
+│  → Suppliers (producers, importers, brands)                     │
+│  → Verified via KYB before creating DPPs                        │
+│                                                                  │
+│  HOW DO THEY CREATE?                                            │
+│  → Category-specific forms                                      │
+│  → Templates for common products                                │
+│  → CSV bulk import                                              │
+│  → LCA estimation engine                                        │
+│                                                                  │
+│  WHAT GETS ISSUED?                                              │
+│  → Verifiable Credential (W3C standard)                         │
+│  → Signed with did:key (portable identity)                      │
+│  → Tamper-evident, verifiable anywhere                          │
+│                                                                  │
+│  HOW DO RETAILERS ACCESS?                                       │
+│  → Browse supplier catalog (free)                               │
+│  → Link DPPs to products (free)                                 │
+│  → Display on storefront (free)                                 │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+*Last Updated: 2026-01-08*

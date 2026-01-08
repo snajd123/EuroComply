@@ -1,6 +1,6 @@
 # Verifiable Credentials for Digital Product Passports
 
-## How EuroComply Uses walt.id for Cryptographically Verifiable DPPs
+## How EuroComply Uses walt.id for Portable, Verifiable DPPs
 
 ---
 
@@ -21,24 +21,26 @@ Problems:
 • Single point of failure
 • No cryptographic proof of who created the data
 • No proof of when the data was created
+• Data is locked to the platform
 ```
 
 **The trust question:** When a consumer or regulator scans a DPP QR code, how do they know:
 1. The data hasn't been tampered with?
 2. It was actually issued by the claimed manufacturer?
 3. It hasn't been revoked or updated?
+4. It will still exist if the platform shuts down?
 
 ---
 
-## 2. The Innovation: DPPs as Verifiable Credentials
+## 2. The Innovation: Portable, Verifiable DPPs
 
-EuroComply issues DPPs as **W3C Verifiable Credentials** - the same standard used for digital identity wallets under eIDAS 2.0.
+EuroComply issues DPPs as **W3C Verifiable Credentials** with **did:key** identifiers - making them portable, self-verifying, and independent of any platform.
 
 ```
 EuroComply DPP Flow:
 ┌──────────────┐      ┌──────────────┐      ┌──────────────┐
 │  QR Code on  │ ──►  │  Fetch VC    │ ──►  │  Verify      │
-│  Product     │      │  (JWT)       │      │  Signature   │
+│  Product     │      │  (JSON)      │      │  Signature   │
 └──────────────┘      └──────────────┘      └──────────────┘
                                                    │
                                                    ▼
@@ -46,15 +48,15 @@ EuroComply DPP Flow:
                                             │ ✓ Issuer DID │
                                             │ ✓ Not Tampered│
                                             │ ✓ Not Expired │
-                                            │ ✓ Not Revoked │
+                                            │ ✓ Portable   │
                                             └──────────────┘
 
 Benefits:
 • Cryptographic tamper evidence (signature breaks if data changes)
-• Decentralized verification (no need to trust EuroComply's database)
-• Issuer accountability (DID proves who made the claim)
-• Timestamped (proof of when claims were made)
-• Portable (credential can be verified by anyone, anywhere)
+• Self-contained verification (no need to contact any server)
+• Issuer accountability (did:key proves who made the claim)
+• Portable (supplier owns it, can host anywhere)
+• Platform-independent (works even if EuroComply shuts down)
 ```
 
 ### What Makes This Different
@@ -63,16 +65,78 @@ Benefits:
 |--------|-----------------|-------------------|
 | **Tamper Evidence** | None - data can be silently changed | Cryptographic - any change breaks signature |
 | **Trust Model** | Trust the database operator | Trust math (cryptographic verification) |
-| **Issuer Proof** | "Trust me, I'm the manufacturer" | DID signature proves issuer identity |
-| **Offline Verification** | Impossible | Possible (with cached DID document) |
+| **Issuer Proof** | "Trust me, I'm the manufacturer" | did:key signature proves issuer identity |
+| **Verification** | Requires server connection | Works offline, anywhere |
+| **Portability** | Locked to platform | Supplier owns, can move anywhere |
+| **Platform Dependency** | Dies with platform | Works forever |
 | **Interoperability** | Proprietary formats | W3C standard, works with EUDI wallets |
-| **Regulatory Alignment** | Just data storage | Aligned with eIDAS 2.0 trust framework |
 
 ---
 
-## 3. Technical Architecture
+## 3. Why did:key Instead of did:web?
 
-### 3.1 The Identity Stack
+### The Portability Problem with did:web
+
+```
+did:web:eurocomply.eu:org:acme-corp
+       └── Requires EuroComply to host DID document
+       └── If EuroComply stops hosting, verification breaks
+       └── Creates platform dependency
+```
+
+### The did:key Solution
+
+```
+did:key:z6MkhaXgBZDvvvRhta4LjXRJzL...
+       └── The public key IS the identifier
+       └── No resolution needed
+       └── Works forever, anywhere
+       └── Supplier truly owns their identity
+```
+
+### How did:key Works
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        did:key EXPLAINED                         │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  A did:key is a self-contained identifier:                      │
+│                                                                  │
+│  did:key:z6MkhaXgBZDvvvRhta4LjXRJzLKNqVj3yQTpCFbRc8GwAdfS      │
+│          └───────────────────────────────────────────┘          │
+│                          │                                       │
+│                          └── This IS the public key              │
+│                              (Base58-encoded Ed25519)            │
+│                                                                  │
+│  To verify a signature:                                         │
+│  1. Parse the did:key to extract the public key                 │
+│  2. Use the public key to verify the signature                  │
+│  3. No network call needed!                                     │
+│                                                                  │
+│  The identity is SELF-CONTAINED in the DID string itself.       │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Comparison
+
+| Aspect | did:web | did:key |
+|--------|---------|---------|
+| **Resolution** | HTTP call to domain | Parse the string |
+| **Hosting Required** | Yes (DID document) | No |
+| **Platform Dependency** | Yes | No |
+| **Works Offline** | No | Yes |
+| **Portability** | Limited | Full |
+| **Human Readable** | Nice branding | Less pretty |
+
+**We chose did:key because suppliers own their identity, not EuroComply.**
+
+---
+
+## 4. Technical Architecture
+
+### 4.1 The Identity Stack
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -80,11 +144,11 @@ Benefits:
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                      │
 │   ┌─────────────────┐                    ┌─────────────────────┐    │
-│   │  ProductTrust   │                    │   packages/identity │    │
-│   │      API        │ ───────────────►   │   (walt.id wrapper) │    │
+│   │  Supplier API   │                    │   packages/identity │    │
+│   │                 │ ───────────────►   │   (walt.id wrapper) │    │
 │   │                 │                    │                     │    │
-│   │ POST /passports │                    │ • DidService        │    │
-│   │ POST /anchor    │                    │ • VcService         │    │
+│   │ POST /dpp       │                    │ • DidKeyService     │    │
+│   │ GET /export     │                    │ • VcService         │    │
 │   │ GET /verify     │                    │ • KeyService        │    │
 │   └─────────────────┘                    └──────────┬──────────┘    │
 │                                                     │               │
@@ -104,45 +168,25 @@ Benefits:
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-### 3.2 DID (Decentralized Identifier) Structure
+### 4.2 Supplier Identity (did:key)
 
-Every organization on EuroComply gets a **DID** - a globally unique, cryptographically verifiable identifier.
+When a supplier signs up:
+
+1. Generate Ed25519 key pair
+2. Create did:key from public key
+3. Store private key securely (exportable)
+4. Supplier can export keys at any time
 
 ```
-Organization DID: did:web:api.eurocomply.eu:org:acme-corp
-                  ─────── ─────────────────── ─────────
-                     │            │              │
-                     │            │              └── Organization slug
-                     │            └── EuroComply domain
-                     └── DID method (web-based resolution)
+Supplier DID: did:key:z6MkhaXgBZDvvvRhta4LjXRJzLKNqVj3yQTpCFbRc8GwAdfS
+              ──────────────────────────────────────────────────────────
+                                    │
+                                    └── Self-contained, portable identity
 ```
 
-**DID Document** (hosted at `https://api.eurocomply.eu/org/acme-corp/did.json`):
-```json
-{
-  "@context": ["https://www.w3.org/ns/did/v1"],
-  "id": "did:web:api.eurocomply.eu:org:acme-corp",
-  "verificationMethod": [{
-    "id": "did:web:api.eurocomply.eu:org:acme-corp#key-1",
-    "type": "JsonWebKey2020",
-    "controller": "did:web:api.eurocomply.eu:org:acme-corp",
-    "publicKeyJwk": {
-      "kty": "EC",
-      "crv": "P-256",
-      "x": "...",
-      "y": "..."
-    }
-  }],
-  "authentication": ["did:web:api.eurocomply.eu:org:acme-corp#key-1"],
-  "assertionMethod": ["did:web:api.eurocomply.eu:org:acme-corp#key-1"]
-}
-```
+### 4.3 The DPP as a Verifiable Credential
 
-**Why this matters:** Anyone can resolve this DID, get the public key, and verify signatures made by ACME Corp - without asking EuroComply for permission.
-
-### 3.3 The DPP as a Verifiable Credential
-
-When a passport is created and anchored, it becomes a signed JWT:
+When a DPP is created and signed, it becomes a portable VC:
 
 ```json
 {
@@ -151,17 +195,16 @@ When a passport is created and anchored, it becomes a signed JWT:
     "https://eurocomply.eu/contexts/dpp/v1"
   ],
   "type": ["VerifiableCredential", "DigitalProductPassport"],
-  "issuer": "did:web:api.eurocomply.eu:org:acme-corp",
-  "issuanceDate": "2026-01-07T10:30:00Z",
+  "issuer": "did:key:z6MkhaXgBZDvvvRhta4LjXRJzLKNqVj3yQTpCFbRc8GwAdfS",
+  "issuanceDate": "2026-01-08T10:30:00Z",
   "credentialSubject": {
     "id": "urn:gtin:5901234123457",
     "type": "Product",
-    "name": "Sustainable T-Shirt",
+    "name": "Organic Cotton T-Shirt",
     "gtin": "5901234123457",
     "manufacturer": {
-      "name": "ACME Textiles GmbH",
-      "country": "DE",
-      "did": "did:web:api.eurocomply.eu:org:acme-corp"
+      "name": "EcoTextiles GmbH",
+      "country": "DE"
     },
     "sustainability": {
       "carbonFootprint": {
@@ -178,124 +221,185 @@ When a passport is created and anchored, it becomes a signed JWT:
         {"name": "Elastane", "percentage": 5}
       ]
     },
-    "compliance": {
-      "regulation": "ESPR",
-      "category": "Textiles",
-      "declarationDate": "2026-01-07"
-    }
+    "certifications": [
+      {"name": "GOTS", "issuer": "Control Union", "validUntil": "2027-06-15"}
+    ]
   },
   "proof": {
-    "type": "JsonWebSignature2020",
-    "created": "2026-01-07T10:30:00Z",
-    "verificationMethod": "did:web:api.eurocomply.eu:org:acme-corp#key-1",
+    "type": "Ed25519Signature2020",
+    "created": "2026-01-08T10:30:00Z",
+    "verificationMethod": "did:key:z6MkhaXgBZDvvvRhta4LjXRJzLKNqVj3yQTpCFbRc8GwAdfS#key-1",
     "proofPurpose": "assertionMethod",
-    "jws": "eyJhbGciOiJFUzI1NiIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il19...[signature]"
+    "proofValue": "z3FXQTimwQMHMDxfKvXNyL..."
   }
 }
 ```
 
-**The `proof` field is the magic:** It contains a cryptographic signature over the entire credential. If anyone changes a single character in the data, the signature verification fails.
+**Key Points:**
+- `issuer` is a did:key - no server resolution needed
+- `proof` contains the cryptographic signature
+- The entire credential is self-contained and portable
+- Anyone can verify it without contacting EuroComply
 
 ---
 
-## 4. The Verification Flow
+## 5. Portability & Ownership
 
-### 4.1 What Happens When Someone Scans a DPP QR Code
+### Suppliers Own Their Data
+
+The Verifiable Credential belongs to the supplier, not EuroComply.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    DATA OWNERSHIP                                │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  The VC file contains EVERYTHING needed:                        │
+│                                                                  │
+│  1. The DPP data (credentialSubject)                           │
+│  2. The issuer identity (did:key)                              │
+│  3. The signature (proof)                                       │
+│                                                                  │
+│  This file:                                                     │
+│  • Can be verified by ANYONE                                   │
+│  • Can be hosted ANYWHERE                                      │
+│  • Is OWNED by the supplier                                    │
+│  • Works FOREVER (no expiring dependency)                      │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Export Package
+
+When a supplier exports their data (or cancels subscription):
+
+```
+export/
+├── credentials/
+│   ├── dpp-001.vc.json     (signed Verifiable Credential)
+│   ├── dpp-002.vc.json
+│   └── ...
+├── identity/
+│   ├── did.json            (DID document)
+│   └── private-key.jwk     (for future VC signing)
+└── manifest.json           (GTIN → VC mapping)
+```
+
+### What Suppliers Can Do After Export
+
+1. **Self-host** - Put VCs on their own server
+2. **Use another provider** - Import into any VC-compatible platform
+3. **Decentralized storage** - Upload to IPFS/Arweave
+4. **Continue signing** - Use exported private key to issue new VCs
+5. **Provide to retailers** - Give VCs directly to retail partners
+
+---
+
+## 6. Verification Flow
+
+### What Happens When Someone Verifies a DPP
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                         DPP Verification Flow                                │
 └─────────────────────────────────────────────────────────────────────────────┘
 
-     Consumer/Regulator              EuroComply API            Verifier Logic
+     Consumer/Regulator              Any Verifier              did:key Logic
             │                              │                         │
-            │  1. Scan QR Code             │                         │
-            │  (GS1 Digital Link)          │                         │
-            │                              │                         │
-            │  2. GET /v1/passports/{id}/verify                      │
+            │  1. Get VC (JSON file)       │                         │
             │─────────────────────────────►│                         │
             │                              │                         │
-            │                              │  3. Fetch VC JWT        │
-            │                              │  from database          │
+            │                              │  2. Parse did:key       │
+            │                              │  from issuer field      │
+            │                              │────────────────────────►│
             │                              │                         │
-            │                              │  4. Return VC + DID doc │
+            │                              │  3. Extract public key  │
+            │                              │  (no network call!)     │
+            │                              │◄────────────────────────│
+            │                              │                         │
+            │                              │  4. Verify signature    │
+            │                              │  using public key       │
+            │                              │                         │
+            │  5. Verification result      │                         │
             │◄─────────────────────────────│                         │
             │                              │                         │
-            │  5. Verify signature         │                         │
-            │────────────────────────────────────────────────────────►│
-            │                              │                         │
-            │                              │     a. Parse JWT        │
-            │                              │     b. Extract issuer DID
-            │                              │     c. Resolve DID doc  │
-            │                              │     d. Get public key   │
-            │                              │     e. Verify signature │
-            │                              │     f. Check expiry     │
-            │                              │     g. Check revocation │
-            │                              │                         │
-            │  6. Verification result      │                         │
-            │◄────────────────────────────────────────────────────────│
-            │                              │                         │
             │  ✓ VALID                     │                         │
-            │  • Issuer: ACME Textiles GmbH                          │
-            │  • Issued: 2026-01-07        │                         │
+            │  • Issuer: did:key:z6Mkh...  │                         │
+            │  • Issued: 2026-01-08        │                         │
             │  • Not tampered              │                         │
-            │  • Not revoked               │                         │
-            │                              │                         │
+            │  • Works offline!            │                         │
 ```
 
-### 4.2 Public Verification Endpoint
+### Public Verification Endpoint
 
 ```bash
-# Anyone can verify a DPP - no authentication required
-curl https://api.eurocomply.eu/v1/passports/pass_abc123/verify
+# Verify via EuroComply (while hosted)
+curl https://api.eurocomply.eu/v1/verify/dpp_abc123
+
+# Or verify locally (works anywhere, anytime)
+walt verify credential --credential dpp-001.vc.json
 ```
 
 Response:
 ```json
 {
-  "success": true,
-  "data": {
-    "valid": true,
-    "credential": {
-      "issuer": {
-        "did": "did:web:api.eurocomply.eu:org:acme-corp",
-        "name": "ACME Textiles GmbH",
-        "country": "DE"
-      },
-      "issuanceDate": "2026-01-07T10:30:00Z",
-      "product": {
-        "name": "Sustainable T-Shirt",
-        "gtin": "5901234123457"
-      },
-      "sustainability": {
-        "carbonFootprint": {"value": 5.2, "unit": "kgCO2e"},
-        "recyclability": {"percentage": 85}
-      }
-    },
-    "verification": {
-      "signatureValid": true,
-      "issuerVerified": true,
-      "notExpired": true,
-      "notRevoked": true,
-      "verifiedAt": "2026-01-07T15:42:00Z"
-    }
+  "valid": true,
+  "issuer": {
+    "did": "did:key:z6MkhaXgBZDvvvRhta4LjXRJzLKNqVj3yQTpCFbRc8GwAdfS",
+    "name": "EcoTextiles GmbH"
+  },
+  "issuanceDate": "2026-01-08T10:30:00Z",
+  "verification": {
+    "signatureValid": true,
+    "notExpired": true,
+    "issuerTrusted": true
   }
 }
 ```
 
 ---
 
-## 5. Why This Is Innovative (And Why It Matters for ESPR)
+## 7. Why This Matters
 
-### 5.1 Regulatory Alignment
+### For Suppliers
 
-The ESPR regulation emphasizes **verifiable** sustainability claims. The EU Commission's DPP framework mentions:
+| Benefit | Description |
+|---------|-------------|
+| **Ownership** | You own your DPPs and identity, not EuroComply |
+| **Portability** | Take your data anywhere, anytime |
+| **No lock-in** | Cancel subscription, keep your VCs |
+| **Future-proof** | VCs work forever, no platform dependency |
+| **Legal protection** | Cryptographic proof of what you claimed, when |
 
-> "Digital Product Passports should ensure data integrity and prevent unauthorized modifications"
+### For Retailers
 
-Verifiable Credentials are the **only standardized way** to achieve this with cryptographic guarantees.
+| Benefit | Description |
+|---------|-------------|
+| **Trust** | Cryptographic proof, not just a database entry |
+| **Independence** | Can verify without contacting supplier |
+| **Offline** | Verification works without internet |
+| **Standards** | W3C format works with any compliant tool |
 
-### 5.2 The "Greenwashing Defense"
+### For Regulators
+
+| Benefit | Description |
+|---------|-------------|
+| **Enforcement** | Can verify claims without trusting any company |
+| **Audit trail** | Immutable record of sustainability declarations |
+| **Standards** | W3C/eIDAS standards, not proprietary formats |
+| **Resilience** | VCs survive platform shutdowns |
+
+### For Consumers
+
+| Benefit | Description |
+|---------|-------------|
+| **Transparency** | Can independently verify claims |
+| **Interoperability** | Works with EUDI wallets (future) |
+| **Trust** | Mathematical proof, not marketing promises |
+
+---
+
+## 8. The "Greenwashing Defense"
 
 **Scenario:** A company claims their product has a 5.2 kgCO2e carbon footprint. Two years later, an NGO accuses them of greenwashing.
 
@@ -309,78 +413,24 @@ Verifiable Credentials are the **only standardized way** to achieve this with cr
 
 The VC serves as a **time-stamped, tamper-evident receipt** of what the company claimed.
 
-### 5.3 Interoperability with EUDI Wallets
-
-Under eIDAS 2.0, every EU citizen will have a digital wallet. These wallets use the **same VC standards** that EuroComply uses.
-
-**Future possibility:** A consumer's EUDI wallet could:
-1. Scan a product QR code
-2. Store the DPP credential in their wallet
-3. Verify it locally (even offline)
-4. Aggregate their "sustainable purchases"
-
-This interoperability is **only possible** because we use W3C VCs, not proprietary formats.
-
-### 5.4 Supply Chain Trust
-
-When Brand A buys components from Supplier B:
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                    Supply Chain Credential Flow                      │
-└─────────────────────────────────────────────────────────────────────┘
-
-  Supplier B                      Brand A                    Consumer
-      │                              │                           │
-      │  1. Issues component DPP     │                           │
-      │  (VC signed by Supplier B)   │                           │
-      │─────────────────────────────►│                           │
-      │                              │                           │
-      │                              │  2. Creates product DPP   │
-      │                              │  (includes Supplier B's VC│
-      │                              │   as "evidence")          │
-      │                              │                           │
-      │                              │  3. Issues final DPP      │
-      │                              │─────────────────────────►│
-      │                              │                           │
-      │                              │     Consumer can verify:  │
-      │                              │     • Brand A's claims    │
-      │                              │     • Supplier B's claims │
-      │                              │     • Neither tampered    │
-```
-
-This creates a **verifiable chain of custody** for sustainability claims.
-
 ---
 
-## 6. walt.id Integration Details
+## 9. Key Management
 
-### 6.1 Services Used
-
-| walt.id Service | EuroComply Usage |
-|-----------------|------------------|
-| **Core API** | DID creation, resolution, updates |
-| **Signatory** | VC issuance (signing credentials) |
-| **Custodian** | Key storage (private keys never leave) |
-| **Auditor** | VC verification policies |
-
-### 6.2 Key Management
-
-Private keys are **never exposed** to application code:
+### Private Keys Never Exposed
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │                      Key Management Architecture                     │
 └─────────────────────────────────────────────────────────────────────┘
 
-  EuroComply API                walt.id Custodian              HSM (optional)
+  EuroComply API                walt.id Custodian              Key Storage
        │                              │                             │
        │  "Sign this VC with         │                             │
-       │   key-id: key_abc123"       │                             │
+       │   supplier's key"           │                             │
        │─────────────────────────────►│                             │
        │                              │                             │
        │                              │  Retrieve private key       │
-       │                              │  (or delegate to HSM)       │
        │                              │─────────────────────────────►│
        │                              │                             │
        │                              │  Sign data                  │
@@ -389,11 +439,39 @@ Private keys are **never exposed** to application code:
        │  Signed VC returned          │                             │
        │◄─────────────────────────────│                             │
        │                              │                             │
-       │  (Private key never          │                             │
-       │   leaves Custodian)          │                             │
+       │  (Private key stays          │                             │
+       │   in Custodian)              │                             │
 ```
 
-### 6.3 Configuration
+### Export Available
+
+Suppliers can export their private key when:
+- They want to self-host
+- They're canceling subscription
+- They want backup
+
+```typescript
+// Export endpoint
+POST /api/supplier/export
+
+Response:
+{
+  "identity": {
+    "did": "did:key:z6Mkh...",
+    "privateKeyJwk": {
+      "kty": "OKP",
+      "crv": "Ed25519",
+      "x": "...",
+      "d": "..."  // Private key component
+    }
+  },
+  "credentials": [...]
+}
+```
+
+---
+
+## 10. Configuration
 
 ```typescript
 // packages/identity/src/config.ts
@@ -406,131 +484,129 @@ export const defaultConfig: IdentityConfig = {
     auditorApi: process.env.WALTID_AUDITOR_API || 'http://localhost:7003',
   },
   did: {
-    method: 'web',  // 'web' now, 'ebsi' later
-    domain: process.env.API_HOST || 'api.eurocomply.eu',
+    method: 'key',  // did:key for portability
   },
   features: {
-    ebsiAnchoring: false,  // Enable when EBSI access obtained
+    exportEnabled: true,  // Suppliers can export keys
   },
 };
 ```
 
 ---
 
-## 7. Code Example: Issuing a DPP Credential
+## 11. Future: EBSI Integration
+
+When EuroComply achieves scale, EBSI integration adds EU-level trust:
+
+| Feature | did:key (Current) | did:ebsi (Future) |
+|---------|-------------------|-------------------|
+| **Trust Anchor** | Self-attested | EU Government blockchain |
+| **Legal Status** | Industry standard | eIDAS 2.0 recognized |
+| **Issuer Registry** | None required | Listed in EU Trusted Issuers |
+| **Portability** | Full | Full |
+
+The architecture supports both - did:key for portability, did:ebsi for EU trust framework.
+
+---
+
+## 12. Code Example: Issuing a Portable DPP
 
 ```typescript
-import { getVcService, getDidService } from '@eurocomply/identity';
+import { getVcService, getDidKeyService } from '@eurocomply/identity';
 
-async function createVerifiableDPP(passport: Passport, organization: Organization) {
-  const didService = getDidService();
+async function createPortableDPP(dppData: DppData, supplier: Supplier) {
+  const didKeyService = getDidKeyService();
   const vcService = getVcService();
 
-  // 1. Get or create organization's DID
-  let orgDid = organization.did;
-  if (!orgDid) {
-    const { did, keyId } = await didService.createDid({
-      identifier: organization.slug,
-    });
-    orgDid = did;
-    // Store DID and keyId in organization record
+  // 1. Get or create supplier's did:key
+  let supplierDid = supplier.did;
+  if (!supplierDid) {
+    const { did, privateKeyJwk } = await didKeyService.createDidKey();
+    supplierDid = did;
+    // Store DID and encrypted private key
+    await saveSupplierIdentity(supplier.id, did, privateKeyJwk);
   }
 
-  // 2. Build credential subject (the DPP data)
+  // 2. Build credential subject
   const credentialSubject = {
-    id: `urn:gtin:${passport.product.gtin}`,
+    id: `urn:gtin:${dppData.gtin}`,
     type: 'Product',
-    name: passport.product.name,
-    gtin: passport.product.gtin,
+    name: dppData.name,
+    gtin: dppData.gtin,
     manufacturer: {
-      name: organization.name,
-      country: organization.country,
-      did: orgDid,
+      name: supplier.companyName,
+      country: supplier.country,
     },
-    sustainability: passport.data.sustainability,
-    compliance: {
-      regulation: 'ESPR',
-      category: passport.data.productCategory,
-      declarationDate: new Date().toISOString(),
-    },
+    sustainability: dppData.sustainability,
+    certifications: dppData.certifications,
   };
 
-  // 3. Issue the Verifiable Credential
-  const { vcJwt, credentialId } = await vcService.issueCredential({
-    issuerDid: orgDid,
-    issuerKeyId: organization.keyId,
+  // 3. Issue Verifiable Credential
+  const vc = await vcService.issueCredential({
+    issuerDid: supplierDid,
     credentialType: 'DigitalProductPassport',
     credentialSubject,
-    expiresIn: '10y', // 10 year validity
+    expiresIn: '10y',
   });
 
-  // 4. Store the VC JWT with the passport
-  await prisma.passport.update({
-    where: { id: passport.id },
-    data: {
-      vcJwt,
-      credentialId,
-      anchoredAt: new Date(),
-    },
-  });
-
-  return { vcJwt, credentialId };
+  // 4. Store and return
+  return {
+    vcJson: vc.credential,
+    vcJwt: vc.jwt,
+    // This VC is now portable - supplier owns it
+  };
 }
 ```
 
 ---
 
-## 8. Future: EBSI Anchoring
+## 13. Summary
 
-When EuroComply achieves business traction, EBSI integration adds:
-
-| Feature | did:web (Current) | did:ebsi (Future) |
-|---------|-------------------|-------------------|
-| **Trust Anchor** | EuroComply domain | EU Government blockchain |
-| **Legal Status** | Industry standard | eIDAS 2.0 recognized |
-| **Issuer Registry** | Self-attested | Listed in EU Trusted Issuers |
-| **Verification** | Resolve via HTTPS | Resolve via EBSI network |
-
-The architecture is **already EBSI-ready** - it's a configuration change, not a rewrite.
-
-```typescript
-// Switching to EBSI (future)
-setConfig({
-  did: {
-    method: 'ebsi',  // Changed from 'web'
-    ebsiEnvironment: 'production',
-  },
-  features: {
-    ebsiAnchoring: true,
-  },
-});
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    VERIFIABLE CREDENTIALS                        │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  IDENTITY                                                       │
+│  → did:key (self-contained, portable)                           │
+│  → No platform dependency                                       │
+│  → Supplier owns their identity                                 │
+│                                                                  │
+│  CREDENTIALS                                                    │
+│  → W3C Verifiable Credentials                                   │
+│  → Tamper-evident signatures                                    │
+│  → Work offline, forever                                        │
+│                                                                  │
+│  PORTABILITY                                                    │
+│  → Export VCs and keys anytime                                  │
+│  → Host anywhere after export                                   │
+│  → No lock-in to EuroComply                                    │
+│                                                                  │
+│  VERIFICATION                                                   │
+│  → Anyone can verify without EuroComply                        │
+│  → No server needed (did:key is self-contained)                │
+│  → Works even if EuroComply shuts down                         │
+│                                                                  │
+│  THE VALUE WE PROVIDE                                           │
+│  → Easy creation tools                                          │
+│  → Managed hosting (while subscribed)                          │
+│  → Retailer distribution                                        │
+│  → NOT lock-in                                                  │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 9. Summary: Why This Matters
-
-### For Manufacturers
-- **Legal protection**: Cryptographic proof of what you claimed, when
-- **Trust**: Verifiable claims differentiate from greenwashing competitors
-- **Future-proof**: Aligned with EU digital identity direction
-
-### For Regulators
-- **Enforcement**: Can verify claims without trusting the company's database
-- **Audit trail**: Immutable record of sustainability declarations
-- **Standards**: Uses W3C/eIDAS standards, not proprietary formats
-
-### For Consumers
-- **Transparency**: Can independently verify claims
-- **Interoperability**: Works with EUDI wallets (future)
-- **Trust**: Mathematical proof, not marketing promises
-
----
-
-## 10. References
+## 14. References
 
 - [W3C Verifiable Credentials Data Model](https://www.w3.org/TR/vc-data-model/)
 - [W3C Decentralized Identifiers (DIDs)](https://www.w3.org/TR/did-core/)
+- [did:key Method Specification](https://w3c-ccg.github.io/did-method-key/)
 - [walt.id Documentation](https://docs.walt.id/)
 - [ESPR Regulation](https://eur-lex.europa.eu/eli/reg/2024/1781)
 - [eIDAS 2.0 Framework](https://digital-strategy.ec.europa.eu/en/policies/eidas-regulation)
+
+---
+
+*Last Updated: 2026-01-08*
