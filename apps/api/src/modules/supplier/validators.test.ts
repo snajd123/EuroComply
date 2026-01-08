@@ -372,25 +372,8 @@ describe('submitVerificationSchema', () => {
     expect(result.success).toBe(true);
   });
 
-  it('should reject empty company registration', () => {
-    const invalidData = {
-      companyRegistration: '',
-      documents: [
-        {
-          type: 'BUSINESS_REGISTRATION',
-          name: 'Doc',
-          url: 'https://example.com/doc.pdf',
-        },
-      ],
-    };
-
-    const result = submitVerificationSchema.safeParse(invalidData);
-    expect(result.success).toBe(false);
-  });
-
   it('should reject empty documents array', () => {
     const invalidData = {
-      companyRegistration: 'HRB 12345',
       documents: [],
     };
 
@@ -400,7 +383,6 @@ describe('submitVerificationSchema', () => {
 
   it('should reject invalid document type', () => {
     const invalidData = {
-      companyRegistration: 'HRB 12345',
       documents: [
         {
           type: 'INVALID_TYPE',
@@ -416,7 +398,6 @@ describe('submitVerificationSchema', () => {
 
   it('should reject invalid document URL', () => {
     const invalidData = {
-      companyRegistration: 'HRB 12345',
       documents: [
         {
           type: 'BUSINESS_REGISTRATION',

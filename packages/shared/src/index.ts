@@ -359,6 +359,19 @@ export interface WebhookPayload {
 // DID Types
 // ===========================================
 
+export interface JsonWebKey {
+  kty: string;
+  crv?: string;
+  x?: string;
+  y?: string;
+  d?: string;
+  n?: string;
+  e?: string;
+  use?: string;
+  kid?: string;
+  alg?: string;
+}
+
 export interface DidDocument {
   '@context': string[];
   id: string;
