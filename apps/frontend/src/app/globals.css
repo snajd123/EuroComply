@@ -9,3 +9,47 @@
   --primary-600: #2563eb;
   --primary-700: #1d4ed8;
 }
+
+body {
+  font-family: 'Inter', sans-serif;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Space Grotesk', sans-serif;
+}
+
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 24;
+}
+
+.bg-grid-pattern {
+  background-image:
+    linear-gradient(to right, rgba(19, 78, 74, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(19, 78, 74, 0.05) 1px, transparent 1px);
+  background-size: 60px 60px;
+}
+
+.dark .bg-grid-pattern {
+  background-image:
+    linear-gradient(to right, rgba(231, 229, 228, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(231, 229, 228, 0.05) 1px, transparent 1px);
+}
+
+.btn-gradient {
+  background: linear-gradient(135deg, #134e4a 0%, #115e59 100%);
+}
+
+.btn-gradient:hover {
+  background: linear-gradient(135deg, #0f3d39 0%, #0d4a46 100%);
+}
+
+.glass-panel {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+.dark .glass-panel {
+  background: rgba(28, 25, 23, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
