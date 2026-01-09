@@ -9,6 +9,7 @@ COPY turbo.json ./
 COPY apps/api/package*.json ./apps/api/
 COPY packages/database/package*.json ./packages/database/
 COPY packages/shared/package*.json ./packages/shared/
+COPY packages/identity/package*.json ./packages/identity/
 
 RUN npm ci
 
@@ -18,8 +19,8 @@ COPY . .
 # Generate Prisma client
 RUN npm run db:generate
 
-# Build all packages
-RUN npm run build
+# Build only API and its dependencies (not Shopify app)
+RUN npx turbo run build --filter=@eurocomply/api...
 
 # Production stage
 FROM node:20-alpine AS runner
@@ -38,6 +39,8 @@ COPY --from=builder /app/packages/database/package*.json ./packages/database/
 COPY --from=builder /app/packages/database/prisma ./packages/database/prisma
 COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
 COPY --from=builder /app/packages/shared/package*.json ./packages/shared/
+COPY --from=builder /app/packages/identity/dist ./packages/identity/dist
+COPY --from=builder /app/packages/identity/package*.json ./packages/identity/
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package*.json ./
 
