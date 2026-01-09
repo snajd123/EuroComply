@@ -86,7 +86,7 @@ export const lifecycleController = {
           productId,
           eventType: body.eventType as LifecycleEventType,
           description: body.description,
-          data: body.data || {},
+          data: (body.data || {}) as any,
           quantity: body.quantity,
           reason: body.reason,
           occurredAt: body.occurredAt ? new Date(body.occurredAt) : new Date(),

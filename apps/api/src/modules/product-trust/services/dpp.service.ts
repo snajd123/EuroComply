@@ -73,7 +73,7 @@ export const dppService = {
         data: {
           did: result.did,
           keyId: result.keyId,
-          didDocument: result.didDocument,
+          didDocument: result.didDocument as any,
         },
       });
 
@@ -113,7 +113,7 @@ export const dppService = {
         data: {
           credentialId: credential.id,
           vcJwt: credential.jwt,
-          credential: credential.credential,
+          credential: credential.credential as any,
         },
       });
 
@@ -266,7 +266,7 @@ export const dppService = {
       data: {
         did: result.did,
         keyId: result.keyId,
-        didDocument: result.didDocument,
+        didDocument: result.didDocument as any,
       },
     });
 

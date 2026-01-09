@@ -61,8 +61,8 @@ export const productController = {
           sku: data.sku,
           gtin: data.gtin,
           gs1DigitalLink,
-          attributes: data.attributes || {},
-          sustainabilityClaims: data.sustainabilityClaims || [],
+          attributes: (data.attributes || {}) as any,
+          sustainabilityClaims: (data.sustainabilityClaims || []) as any,
           status: 'DRAFT',
         },
       });
@@ -213,10 +213,14 @@ export const productController = {
         gs1DigitalLink = gs1Service.generateDigitalLink(data.gtin);
       }
 
+      // Separate JSON fields that need casting
+      const { attributes, sustainabilityClaims, ...restData } = data;
       const product = await prisma.product.update({
         where: { id },
         data: {
-          ...data,
+          ...restData,
+          ...(attributes && { attributes: attributes as any }),
+          ...(sustainabilityClaims && { sustainabilityClaims: sustainabilityClaims as any }),
           ...(gs1DigitalLink && { gs1DigitalLink }),
         },
       });

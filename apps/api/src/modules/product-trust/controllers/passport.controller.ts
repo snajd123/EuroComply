@@ -46,7 +46,7 @@ export const passportController = {
       const passport = await prisma.passport.create({
         data: {
           productId: body.productId,
-          data: body.data,
+          data: body.data as any,
           version: '1.0',
         },
         include: {
@@ -232,7 +232,7 @@ export const passportController = {
       const passport = await prisma.passport.update({
         where: { id },
         data: {
-          data: mergedData,
+          data: mergedData as any,
           version: incrementVersion(existing.version),
         },
         include: {
