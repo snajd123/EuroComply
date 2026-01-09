@@ -96,6 +96,19 @@ Users can import product data from any format. The AI extracts, maps, and valida
 - **Rate-Limited Sync**: Respectful of API limits with queue-based processing
 - **Bi-directional**: Import from Shopify, push updates back
 
+### Retailer DPP Access
+
+Retailers who sell products from brands using EuroComply can access and display DPPs on their storefronts. This is provided free of charge in compliance with ESPR Article 31, which mandates free DPP access for all economic operators.
+
+Retailers register for a free account and gain access to:
+
+- **DPP Catalog Browser**: Search and browse DPPs by GTIN, brand and SKU, or serial number
+- **Embeddable Widget**: Copy-paste JavaScript snippet to display DPPs on product pages
+- **Public API**: Programmatic access to look up and retrieve DPP data
+- **Shopify Retailer App**: Automatic matching of store products to available DPPs
+
+Lookup is supported by GTIN/EAN, brand and SKU combination, or item-level serial numbers.
+
 ---
 
 ## Technology Stack

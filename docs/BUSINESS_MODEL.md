@@ -45,11 +45,12 @@ EuroComply is a Compliance-First Product Information Management (PIM) platform. 
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### Not Our Target
+### Not Our Target (Paid Plans)
 
 - **Large Enterprises**: Use SAP, Akeneo, or custom solutions
-- **Pure Retailers**: Only resell others' products, no own brands
 - **Non-EU Businesses**: No ESPR compliance requirement
+
+Retailers who only resell products from other brands are served through the free Retailer Access tier (see below).
 
 ---
 
@@ -89,6 +90,39 @@ Organizations pay monthly based on features needed and product volume.
 | Additional Users | €10/user/mo | Beyond 3 included |
 | API Overage | €0.001/call | Beyond 100k calls/mo |
 | Priority Support | €50/mo | 4-hour response SLA |
+
+---
+
+## Retailer Access (Free Tier)
+
+ESPR Article 31 mandates that DPP data must be accessible free of charge to all economic operators in the supply chain. EuroComply provides a free access layer for retailers who need to display DPPs for products they sell.
+
+### What Retailers Get (Free)
+
+Retailers register for a free account with email and company name. No technical knowledge required. Registration provides access to:
+
+- **DPP Catalog Browser**: Search and browse the full catalog of published DPPs. Lookup by GTIN/EAN, brand and SKU combination, or item-level serial number.
+- **Embeddable Widget**: A JavaScript snippet that retailers can add to their product pages. The widget automatically fetches and displays the DPP for the product.
+- **Public API**: REST API for programmatic access to DPP data. Retailers receive a simple identifier for tracking, not a complex API key.
+- **Shopify Retailer App**: A free Shopify app that automatically matches the retailer's products against the DPP catalog by GTIN and displays DPP information on product pages.
+
+### Why Free?
+
+Brands and manufacturers pay for DPP creation. Retailers access DPPs for free because:
+
+1. ESPR Article 31 legally mandates free access for economic operators
+2. Retailer adoption drives value for paying customers (brands)
+3. Network effects increase platform value
+
+### Retailer Value Proposition
+
+| Benefit | Description |
+|---------|-------------|
+| Regulatory compliance | Meet ESPR requirements to display DPPs |
+| Zero cost | Free access, no subscription required |
+| Easy integration | Copy-paste widget or install Shopify app |
+| Automatic updates | DPP data stays current as brands update |
+| Verified data | DPPs are cryptographically signed by brands |
 
 ---
 

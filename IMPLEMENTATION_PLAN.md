@@ -223,10 +223,22 @@ Passport (DPP)
 │   ├── /jobs           # Import job management
 │   └── /upload         # File upload + AI processing
 │
-└── syndication/
-    ├── /channels       # Channel connections
-    ├── /shopify        # Shopify OAuth + webhooks
-    └── /sync           # Manual sync triggers
+├── syndication/
+│   ├── /channels       # Channel connections
+│   ├── /shopify        # Shopify OAuth + webhooks
+│   └── /sync           # Manual sync triggers
+│
+├── retailer/
+│   ├── /register       # Retailer registration (free)
+│   ├── /me             # Retailer profile
+│   └── /saved          # Saved products
+│
+└── public/
+    ├── /dpp/gtin/:gtin           # Lookup by GTIN
+    ├── /dpp/brand/:brand/sku/:sku # Lookup by brand + SKU
+    ├── /dpp/serial/:serial       # Lookup by serial number
+    ├── /dpp/search               # Search catalog
+    └── /dpp/batch                # Batch lookup
 ```
 
 ### Authentication
@@ -332,6 +344,22 @@ router.use('/syndication', requireModule('syndication'), syndicationRoutes);
 
 **Outcome:** Users can manage thousands of products efficiently.
 
+### Phase 6: Retailer Access Layer
+
+**Goal:** Enable retailers to access and display DPPs on their storefronts
+
+| Task | Status |
+|------|--------|
+| Retailer registration (free tier) | Planned |
+| DPP catalog browser with search | Planned |
+| Public API for DPP lookup (GTIN, brand/SKU, serial) | Planned |
+| Embeddable JavaScript widget | Planned |
+| Shopify Retailer App (free, auto-matching) | Planned |
+| DPP index for fast lookups | Planned |
+| Rate limiting and usage tracking | Planned |
+
+**Outcome:** Retailers can search, browse, and display DPPs without technical expertise.
+
 ---
 
 ## 7. Directory Structure
@@ -346,7 +374,8 @@ EuroComply/
 │   │       ├── compliance/      # Passports, lifecycle
 │   │       ├── dam/             # Assets, upload
 │   │       ├── import/          # AI import, job processing
-│   │       └── syndication/     # Shopify, sync jobs
+│   │       ├── syndication/     # Shopify, sync jobs
+│   │       └── retailer/        # Retailer access, public API
 │   │
 │   └── frontend/                # Next.js dashboard
 │       └── src/
