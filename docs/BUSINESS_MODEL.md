@@ -39,7 +39,7 @@ EuroComply is a Compliance-First Product Information Management (PIM) platform. 
 │  Our promise:                                                   │
 │  • Import any data format with AI                              │
 │  • Single source of truth for all product data                 │
-│  • DPPs generated automatically when data complete             │
+│  • DPP Ready list for review and approval when data complete   │
 │  • Sync to Shopify with one click                              │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
@@ -154,7 +154,8 @@ Brands and manufacturers pay for DPP creation. Retailers access DPPs for free be
 │  └── Asset roles (gallery, thumbnail, certificate)              │
 │                                                                  │
 │  COMPLIANCE (DPP)                                               │
-│  ├── Auto-generation when completeness = 100%                  │
+│  ├── DPP Ready list when completeness = 100%                   │
+│  ├── Manual review and approval before issuance                │
 │  ├── W3C Verifiable Credentials (walt.id)                      │
 │  ├── did:key for portable identity                              │
 │  ├── QR codes (GS1 Digital Link)                               │
@@ -464,7 +465,7 @@ Awareness → Trial → Conversion → Expansion
 │  → AI-powered import (any file format)                         │
 │  → Product families with dynamic attributes                    │
 │  → Completeness scoring per channel                            │
-│  → Auto DPP generation with W3C VCs                            │
+│  → DPP Ready list with manual review and approval              │
 │  → Shopify syndication                                         │
 │                                                                  │
 │  DIFFERENTIATION:                                               │

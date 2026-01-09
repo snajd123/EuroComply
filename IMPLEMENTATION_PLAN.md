@@ -10,7 +10,7 @@ EuroComply is a Compliance-First Product Information Management (PIM) platform w
 
 ### Core Concept
 
-The **Golden Record** - a unified product model containing both commercial attributes (name, price, images) and compliance data (materials, certifications, carbon footprint). DPPs are generated automatically when product data completeness reaches 100%.
+The **Golden Record** - a unified product model containing both commercial attributes (name, price, images) and compliance data (materials, certifications, carbon footprint). Products appear in the DPP Ready list when completeness reaches 100%, and users manually review and approve issuance.
 
 ### Target Market
 
@@ -312,10 +312,11 @@ router.use('/syndication', requireModule('syndication'), syndicationRoutes);
 | Implement S3 + Lambda image optimization pipeline | Planned |
 | Develop completeness scoring algorithm | Planned |
 | Build walt.id connector for credential issuance | Complete |
-| Auto-trigger DPP generation at 100% completeness | Planned |
+| Build DPP Ready list for manual approval | Planned |
+| Implement manual DPP issuance workflow | Planned |
 | Asset roles and product associations | Planned |
 
-**Outcome:** Products can be validated and issued DPPs automatically.
+**Outcome:** Products at 100% completeness appear in DPP Ready list for review and approval.
 
 ### Phase 4: Syndication
 

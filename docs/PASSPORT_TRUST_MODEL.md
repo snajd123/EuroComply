@@ -2,7 +2,7 @@
 
 ## Overview
 
-EuroComply uses an **organization-only model** for passport creation. Only verified brands, manufacturers, and distributors can create DPPs. This eliminates fraud by design.
+EuroComply uses an **organization-only model** for passport creation. Only registered brands, manufacturers, and distributors can create DPPs. This eliminates fraud by design.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -10,10 +10,11 @@ EuroComply uses an **organization-only model** for passport creation. Only verif
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
 │  ✅ ORGANIZATIONS create passports (pay subscription)      │
-│     → Verified via VAT lookup or document review           │
+│     → Immediate access after registration and payment      │
 │     → Own the product data (Golden Record model)           │
 │     → Legally liable for accuracy                          │
 │     → did:key identity (portable, self-verifying)          │
+│     → Manual review and approval via DPP Ready list        │
 │                                                             │
 │  ✅ RETAILERS access FREE (ESPR Article 31)                │
 │     → Public API lookup (GTIN, brand/SKU, serial)          │
@@ -61,7 +62,7 @@ If retailers could create their own passports:
 | Benefit | Description |
 |---------|-------------|
 | **Single source of truth** | Organization creates product as Golden Record |
-| **Verified by default** | Organizations pass verification before creating DPPs |
+| **Manual approval** | Organizations review and approve each DPP before issuance |
 | **No copying possible** | Retailers can't create - only access via API |
 | **Clear liability** | Organization is legally responsible for DPP accuracy |
 
@@ -72,11 +73,11 @@ If retailers could create their own passports:
 ```
 ┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
 │ Certification│     │ Organization │     │     DPP      │     │   Retailer   │
-│    Body      │────▶│  (Verified)  │────▶│  (Signed VC) │────▶│ (Free Access)│
+│    Body      │────▶│ (Registered) │────▶│  (Signed VC) │────▶│ (Free Access)│
 └──────────────┘     └──────────────┘     └──────────────┘     └──────────────┘
        │                    │                    │                    │
    Issues cert         Creates product     did:key signed       Display only
-   to organization     DPP auto-generated  portable VC          cannot edit
+   to organization     Reviews & approves  portable VC          cannot edit
 ```
 
 ### Each Step Explained
@@ -88,7 +89,8 @@ If retailers could create their own passports:
 2. **Organization → DPP**
    - Organization pays subscription (€49-299/month)
    - Creates product as Golden Record
-   - DPP generated automatically when compliance data complete
+   - Product appears in DPP Ready list at 100% completeness
+   - Organization reviews and approves for issuance
    - Signed with did:key (portable, self-verifying)
 
 3. **DPP → Retailer**
@@ -128,34 +130,9 @@ Anyone can verify a passport at `/v1/passports/:id/verify`:
 | Claim | Verified By |
 |-------|-------------|
 | "This is a real passport" | Cryptographic signature |
-| "Created by Supplier X" | DID matches verified supplier |
-| "Supplier is verified" | KYB verification status |
+| "Created by Organization X" | DID matches organization |
+| "Organization approved this DPP" | Manual issuance workflow |
 | "Data hasn't been tampered" | VC signature integrity |
-
----
-
-## Supplier Verification (KYB)
-
-Before creating passports, suppliers must complete KYB:
-
-### Verification Requirements
-
-| Requirement | Description |
-|-------------|-------------|
-| **Business registration** | Proof of legal entity |
-| **VAT/Tax ID** | Valid tax registration |
-| **Address verification** | Physical business address |
-| **Authorized representative** | Identity of signing authority |
-| **Certification documents** | Proof of claimed certifications |
-
-### Verification States
-
-```
-PENDING → IN_REVIEW → VERIFIED
-                   ↘ REJECTED
-
-VERIFIED → SUSPENDED (if violations found)
-```
 
 ---
 
@@ -248,13 +225,14 @@ When consumers scan a DPP QR code:
 
 | Question | Answer |
 |----------|--------|
-| Who creates passports? | Only verified organizations (brands, manufacturers, distributors) |
+| Who creates passports? | Only registered organizations (brands, manufacturers, distributors) |
 | Can retailers create passports? | No |
 | Do retailers pay for access? | **No - free** (ESPR Article 31) |
 | Who is liable for accuracy? | The organization that created the DPP |
+| How are DPPs issued? | Manual review and approval via DPP Ready list |
 | What DID method? | did:key (portable, self-verifying) |
 | Can anyone verify a passport? | Yes - even offline |
-| What prevents fraud? | Architectural design - not validation rules |
+| What prevents fraud? | Architectural design + manual approval workflow |
 
 ---
 

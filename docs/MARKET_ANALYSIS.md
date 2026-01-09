@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-The EU DPP market presents a "blue ocean" opportunity in the SME segment. While enterprise players (SAP, Siemens) fight for the top 1%, **99% of EU businesses have no affordable compliance solution**. EuroComply fills this gap with a Compliance-First Product Information Management (PIM) platform where Digital Product Passports are generated automatically from complete product data.
+The EU DPP market presents a "blue ocean" opportunity in the SME segment. While enterprise players (SAP, Siemens) fight for the top 1%, **99% of EU businesses have no affordable compliance solution**. EuroComply fills this gap with a Compliance-First Product Information Management (PIM) platform where users can review and issue Digital Product Passports when product data is complete.
 
 ---
 
@@ -114,7 +114,7 @@ Current solutions are either "too complex" or "too simple" for SMEs:
 │  Our approach:                                                   │
 │  1. AI import → Dump any file (CSV, Excel, PDF)                 │
 │  2. Golden Record → Single source of truth                      │
-│  3. DPP generated → Automatic when data complete                │
+│  3. DPP Ready → Review and approve when data complete           │
 │  4. Shopify sync → Products and DPP data published              │
 │                                                                  │
 │  Competitor approach:                                            │
@@ -217,7 +217,7 @@ Phase 3 (2027): + Electronics, Batteries
 │  • Enterprise players ignore this segment                       │
 │                                                                  │
 │  OUR SOLUTION                                                   │
-│  • Compliance-First PIM with automatic DPP generation           │
+│  • Compliance-First PIM with DPP Ready approval workflow        │
 │  • Self-service (sign up → compliant same day)                  │
 │  • Affordable (€49-299/month vs €100k+)                         │
 │  • AI-powered import (dump any file format)                     │

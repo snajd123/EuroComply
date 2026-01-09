@@ -17,12 +17,12 @@ The key differentiator from enterprise competitors (SAP, Siemens) is **self-serv
 |-----------|--------------|----------------------|
 | Payment flow | Not implemented | **Organizations pay us** (subscription) |
 | Stripe usage | Not implemented | **Checkout/Billing** from organizations |
-| Verification | Manual admin review (~48hrs) | **Instant VAT or tiered** |
 | Plan enforcement | Not implemented | **Enforce product/DPP quotas** |
 | Onboarding UI | Landing page only | **Guided wizard** |
 | Data import | Not implemented | **AI-powered import** |
+| DPP issuance | Not implemented | **DPP Ready list with manual approval** |
 
-**Key insight**: Organizations (brands, manufacturers, distributors) pay subscriptions. Retailers access DPPs for free.
+**Key insight**: Organizations (brands, manufacturers, distributors) pay subscriptions. Retailers access DPPs for free. No business verification required - customers get immediate access after registration and payment.
 
 ---
 
@@ -30,7 +30,7 @@ The key differentiator from enterprise competitors (SAP, Siemens) is **self-serv
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│  SELF-SERVICE ONBOARDING FLOW (< 30 minutes to first product)      │
+│  SELF-SERVICE ONBOARDING FLOW (< 15 minutes to first product)      │
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                     │
 │  STEP 1: REGISTER (2 min)                                          │
@@ -47,7 +47,7 @@ The key differentiator from enterprise competitors (SAP, Siemens) is **self-serv
 │  ┌─────────────────────────────────────────────────────────────────┐│
 │  │ • Click link in email                                          ││
 │  │ • Account activated                                             ││
-│  │ → Can now browse, but can't publish DPPs                        ││
+│  │ → Proceed to plan selection                                     ││
 │  └─────────────────────────────────────────────────────────────────┘│
 │                              │                                      │
 │                              ▼                                      │
@@ -70,44 +70,31 @@ The key differentiator from enterprise competitors (SAP, Siemens) is **self-serv
 │  │ • Credit card / SEPA / iDEAL                                    ││
 │  │ • VAT handled automatically (Stripe Tax)                        ││
 │  │ → Subscription active immediately                               ││
+│  │ → FULL ACCESS GRANTED - ready to use EuroComply                 ││
 │  └─────────────────────────────────────────────────────────────────┘│
 │                              │                                      │
 │                              ▼                                      │
-│  STEP 5: BUSINESS VERIFICATION (Tiered)                            │
-│  ┌─────────────────────────────────────────────────────────────────┐│
-│  │                                                                  ││
-│  │  OPTION A: Instant (EU VAT lookup) - 30 seconds                 ││
-│  │  ┌─────────────────────────────────────────────────────────────┐││
-│  │  │ Enter VAT number: [DE123456789        ]                     │││
-│  │  │ → Auto-verify via VIES API                                   │││
-│  │  │ → Company name pre-filled                                    │││
-│  │  │ → Status: VERIFIED ✓                                         │││
-│  │  └─────────────────────────────────────────────────────────────┘││
-│  │                                                                  ││
-│  │  OPTION B: Document upload (manual review) - 24-48 hours        ││
-│  │  ┌─────────────────────────────────────────────────────────────┐││
-│  │  │ Upload: Business registration certificate                   │││
-│  │  │ Upload: Tax certificate (optional)                          │││
-│  │  │ → Admin reviews within 24-48 hours                          │││
-│  │  │ → Status: PENDING_REVIEW → VERIFIED                          │││
-│  │  └─────────────────────────────────────────────────────────────┘││
-│  │                                                                  ││
-│  │  Note: Can create products while pending, but can't PUBLISH DPP ││
-│  │                                                                  ││
-│  └─────────────────────────────────────────────────────────────────┘│
-│                              │                                      │
-│                              ▼                                      │
-│  STEP 6: IMPORT PRODUCTS (5-10 min)                                │
+│  STEP 5: IMPORT PRODUCTS (5-10 min)                                │
 │  ┌─────────────────────────────────────────────────────────────────┐│
 │  │ • AI Import: Upload CSV, Excel, PDF, or JSON                   ││
 │  │ • Shopify Sync: Import existing products                       ││
 │  │ • Manual: Create products with templates                        ││
 │  │ • Golden Record created with commercial + compliance data      ││
 │  │ • Completeness score shows progress toward DPP                  ││
-│  │ → DPP auto-generated when completeness reaches 100%             ││
+│  │ → Products appear in DPP Ready list at 100% completeness        ││
+│  └─────────────────────────────────────────────────────────────────┘│
+│                              │                                      │
+│                              ▼                                      │
+│  STEP 6: REVIEW & ISSUE DPPs                                       │
+│  ┌─────────────────────────────────────────────────────────────────┐│
+│  │ • DPP Ready Products list shows all complete products          ││
+│  │ • Review product data before issuing                           ││
+│  │ • Approve to issue DPP with Verifiable Credential              ││
+│  │ • QR code and public URL generated upon approval               ││
+│  │ → DPP is now live and accessible                                ││
 │  └─────────────────────────────────────────────────────────────────┘│
 │                                                                     │
-│  TOTAL TIME: ~20 minutes (with instant VAT + AI import)            │
+│  TOTAL TIME: ~15 minutes (with AI import)                          │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -174,59 +161,7 @@ async function handleStripeWebhook(event: Stripe.Event) {
 }
 ```
 
-### 2. VAT Verification (Instant KYB for EU)
-
-**EU VIES API** provides instant VAT number verification:
-
-```typescript
-// Instant verification via VIES
-async function verifyVatNumber(vatNumber: string): Promise<ViesResponse> {
-  // Extract country code (first 2 chars)
-  const countryCode = vatNumber.substring(0, 2).toUpperCase();
-  const number = vatNumber.substring(2);
-
-  const response = await fetch(
-    `https://ec.europa.eu/taxation_customs/vies/rest-api/ms/${countryCode}/vat/${number}`
-  );
-
-  if (!response.ok) {
-    return { valid: false, error: 'VIES API error' };
-  }
-
-  const data = await response.json();
-
-  return {
-    valid: data.isValid,
-    name: data.name,
-    address: data.address,
-    countryCode: data.countryCode,
-  };
-}
-
-// Auto-verify organization
-async function instantVerification(organizationId: string, vatNumber: string) {
-  const viesResult = await verifyVatNumber(vatNumber);
-
-  if (viesResult.valid) {
-    await prisma.organization.update({
-      where: { id: organizationId },
-      data: {
-        vatNumber,
-        name: viesResult.name,
-        verificationStatus: 'VERIFIED',
-        verifiedAt: new Date(),
-        verificationMethod: 'VIES_AUTO',
-      },
-    });
-
-    return { verified: true, companyName: viesResult.name };
-  }
-
-  return { verified: false, error: 'VAT number not found in VIES' };
-}
-```
-
-### 3. Email Verification
+### 2. Email Verification
 
 ```typescript
 // Send verification email on registration
@@ -258,7 +193,7 @@ async function verifyEmail(token: string) {
 }
 ```
 
-### 4. Plan Enforcement
+### 3. Plan Enforcement
 
 ```typescript
 // Check product quota before creation
@@ -301,11 +236,6 @@ model Organization {
   // Email verification
   emailVerified         Boolean  @default(false)
   emailVerifiedAt       DateTime?
-
-  // Business verification
-  verificationStatus    VerificationStatus @default(PENDING)
-  verificationMethod    String?  // 'VIES_AUTO' | 'MANUAL_REVIEW'
-  verifiedAt            DateTime?
 
   // Subscription
   subscription          Subscription?
@@ -391,14 +321,6 @@ POST /api/core/billing/checkout
 POST /api/webhooks/stripe
   → Handles subscription events
 
-// VAT verification
-POST /api/core/organizations/verify-vat
-  → Instant VIES lookup
-
-// Manual verification (fallback)
-POST /api/core/organizations/verification
-  → Document upload for manual review
-
 // Subscription management
 GET  /api/core/billing/subscription
   → Current plan, usage, billing info
@@ -420,9 +342,13 @@ POST /api/core/billing/cancel
 ├── /verify-email     - Waiting for email verification
 ├── /plan             - Select subscription tier
 ├── /payment          - Redirects to Stripe Checkout
-├── /success          - Payment confirmed
-├── /verification     - VAT entry or document upload
+├── /success          - Payment confirmed, full access granted
 └── /import           - AI import wizard for first products
+
+/dashboard/
+├── /products         - Product management
+├── /dpp-ready        - DPP Ready list (products at 100% completeness)
+└── /passports        - Issued DPPs
 ```
 
 ### Onboarding Progress Component
@@ -434,7 +360,6 @@ function OnboardingProgress({ currentStep }: { currentStep: number }) {
     { name: 'Verify Email', icon: MailIcon },
     { name: 'Select Plan', icon: CreditCardIcon },
     { name: 'Payment', icon: CheckIcon },
-    { name: 'Verify Business', icon: BuildingIcon },
     { name: 'Import Products', icon: UploadIcon },
   ];
 
@@ -463,20 +388,20 @@ function OnboardingProgress({ currentStep }: { currentStep: number }) {
 - [ ] Add Subscription model to Prisma schema
 - [ ] Implement Stripe Checkout integration
 - [ ] Implement Stripe webhook handlers
-- [ ] Add plan enforcement to DPP creation
-- [ ] Remove old revenue sharing code
-
-### Phase 2: Verification (Week 2-3)
+- [ ] Add plan enforcement to product creation
 - [ ] Add email verification flow
-- [ ] Integrate VIES API for VAT lookup
-- [ ] Keep manual review as fallback
-- [ ] Add verification status to dashboard
 
-### Phase 3: Onboarding UI (Week 3-4)
+### Phase 2: Onboarding UI (Week 2-3)
 - [ ] Build onboarding wizard pages
 - [ ] Add progress tracking
 - [ ] Integrate with Stripe Checkout
 - [ ] Add subscription management portal
+
+### Phase 3: DPP Ready Workflow (Week 3-4)
+- [ ] Implement DPP Ready Products list
+- [ ] Add completeness calculation trigger
+- [ ] Build review and approval UI
+- [ ] Implement manual DPP issuance
 
 ### Phase 4: Polish (Week 4)
 - [ ] Email templates (verification, welcome, payment)
@@ -490,10 +415,11 @@ function OnboardingProgress({ currentStep }: { currentStep: number }) {
 
 | Metric | Target |
 |--------|--------|
-| Time to first product import | < 20 minutes |
-| Instant verification rate | > 70% (EU VAT) |
+| Time to first product import | < 15 minutes |
+| Time from registration to full access | < 10 minutes |
 | Payment conversion | > 60% |
 | Onboarding completion | > 80% |
+| DPP Ready to issuance rate | > 90% |
 
 ---
 

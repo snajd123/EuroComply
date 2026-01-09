@@ -2,7 +2,7 @@
 
 ## Overview
 
-Brands, manufacturers, and distributors manage product data and generate Digital Product Passports using EuroComply's Compliance-First PIM platform. Products are managed as Golden Records, and DPPs are automatically generated when compliance data is complete. Retailers access DPPs for free via our public API, embeddable widget, or Shopify Retailer App.
+Brands, manufacturers, and distributors manage product data and generate Digital Product Passports using EuroComply's Compliance-First PIM platform. Products are managed as Golden Records, and when compliance data is complete, products appear in the DPP Ready list for review and manual approval before issuance. Retailers access DPPs for free via our public API, embeddable widget, or Shopify Retailer App.
 
 See [BUSINESS_MODEL.md](./BUSINESS_MODEL.md) for the full pricing model.
 
@@ -31,7 +31,7 @@ Creating ESPR-compliant Digital Product Passports requires **category-specific, 
 │                                                                      │
 │  1. ORGANIZATION ONBOARDING                                         │
 │     ├─ Sign up for plan (Starter €49/Professional €149/PIM €299)   │
-│     └─ Complete business verification (VAT or documents)            │
+│     └─ Immediate access after registration and payment              │
 │                                                                      │
 │  2. IDENTITY CREATION                                               │
 │     ├─ Generate did:key (portable, self-contained identity)        │
@@ -51,11 +51,16 @@ Creating ESPR-compliant Digital Product Passports requires **category-specific, 
 │     ├─ Compliance data (materials, certifications, carbon)         │
 │     └─ Completeness scoring per channel                             │
 │                                                                      │
-│  6. DPP GENERATION (Automatic at 100% completeness)                │
+│  6. DPP READY LIST (Products at 100% completeness)                 │
+│     ├─ Review product data before issuance                         │
+│     └─ Products queue for manual approval                          │
+│                                                                      │
+│  7. DPP ISSUANCE (Manual approval)                                  │
+│     ├─ User approves product for DPP issuance                      │
 │     ├─ Sign DPP data with did:key                                  │
 │     └─ Generate Verifiable Credential (portable, tamper-evident)   │
 │                                                                      │
-│  7. SYNDICATION                                                     │
+│  8. SYNDICATION                                                     │
 │     ├─ DPP metadata synced to Shopify                              │
 │     └─ Public API makes DPP accessible to retailers                │
 │                                                                      │
@@ -207,7 +212,7 @@ const EMISSION_FACTORS = {
 
 ## VC Issuance
 
-When a Golden Record reaches 100% DPP completeness, a Verifiable Credential is automatically generated.
+When a Golden Record reaches 100% DPP completeness, the product appears in the **DPP Ready list** for review and manual approval. Users review the product data and approve issuance to generate the Verifiable Credential.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -216,20 +221,26 @@ When a Golden Record reaches 100% DPP completeness, a Verifiable Credential is a
 │                                                                  │
 │  1. Product completeness reaches 100% for DPP channel           │
 │                                                                  │
-│  2. System validates all required fields                        │
+│  2. Product appears in DPP Ready Products list                  │
 │                                                                  │
-│  3. DPP data structured as VC credentialSubject                 │
+│  3. User reviews product data                                   │
 │                                                                  │
-│  4. VC signed with organization's did:key                       │
+│  4. User approves product for DPP issuance                      │
+│                                                                  │
+│  5. System validates all required fields                        │
+│                                                                  │
+│  6. DPP data structured as VC credentialSubject                 │
+│                                                                  │
+│  7. VC signed with organization's did:key                       │
 │     (using walt.id Signatory service)                           │
 │                                                                  │
-│  5. Signed VC stored in database                                │
+│  8. Signed VC stored in database                                │
 │     (vcJwt field on Passport model)                             │
 │                                                                  │
-│  6. QR code generated (GS1 Digital Link)                       │
+│  9. QR code generated (GS1 Digital Link)                       │
 │                                                                  │
-│  7. DPP accessible via public API                               │
-│     (retailers can look up by GTIN, brand/SKU, or serial)       │
+│  10. DPP accessible via public API                              │
+│      (retailers can look up by GTIN, brand/SKU, or serial)      │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -413,8 +424,9 @@ Track where data comes from for transparency.
 /dashboard/products/:id        - Edit product
 /dashboard/import              - AI import wizard
 /dashboard/families            - Product family schemas
-/dashboard/channels            - Shopify connections
+/dashboard/dpp-ready           - DPP Ready Products (100% complete, awaiting approval)
 /dashboard/passports           - Issued DPPs
+/dashboard/channels            - Shopify connections
 /dashboard/settings            - Account, billing, export
 /dashboard/export              - Export all VCs and keys
 ```
@@ -430,7 +442,7 @@ Track where data comes from for transparency.
 │                                                                  │
 │  WHO CREATES?                                                   │
 │  → Brands, manufacturers, distributors                          │
-│  → Verified via VAT lookup or document review                   │
+│  → Immediate access after registration and payment              │
 │                                                                  │
 │  HOW DO THEY CREATE?                                            │
 │  → AI-powered import (any file format)                          │
@@ -442,7 +454,7 @@ Track where data comes from for transparency.
 │  → Single source of truth for each product                      │
 │  → Commercial data + compliance data unified                    │
 │  → Completeness scoring per channel                             │
-│  → DPP generated automatically at 100%                          │
+│  → DPP Ready list at 100% for review and approval               │
 │                                                                  │
 │  WHAT GETS ISSUED?                                              │
 │  → Verifiable Credential (W3C standard)                         │

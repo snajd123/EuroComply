@@ -193,7 +193,7 @@ Organization DID: did:key:z6MkhaXgBZDvvvRhta4LjXRJzLKNqVj3yQTpCFbRc8GwAdfS
 
 ### 4.3 The DPP as a Verifiable Credential
 
-When a DPP is created and signed, it becomes a portable VC:
+When a product reaches 100% DPP completeness, it appears in the **DPP Ready list** for review. When the organization approves issuance, the DPP is signed and becomes a portable VC:
 
 ```json
 {
@@ -547,11 +547,24 @@ The architecture supports both - did:key for portability, did:ebsi for EU trust 
 ```typescript
 import { getVcService, getDidKeyService } from '@eurocomply/identity';
 
-async function createPortableDPP(product: Product, organization: Organization) {
+// 1. Products at 100% completeness appear in DPP Ready list
+async function getDppReadyProducts(organizationId: string) {
+  return prisma.product.findMany({
+    where: {
+      organizationId,
+      completeness: { path: ['dpp'], gte: 100 },
+      passportId: null,  // No DPP issued yet
+    },
+  });
+}
+
+// 2. User reviews and approves a product for DPP issuance
+async function approveDppIssuance(productId: string, organization: Organization) {
   const didKeyService = getDidKeyService();
   const vcService = getVcService();
+  const product = await prisma.product.findUnique({ where: { id: productId } });
 
-  // 1. Get or create organization's did:key
+  // 3. Get or create organization's did:key
   let organizationDid = organization.did;
   if (!organizationDid) {
     const { did, privateKeyJwk } = await didKeyService.createDidKey();
@@ -560,7 +573,7 @@ async function createPortableDPP(product: Product, organization: Organization) {
     await saveOrganizationIdentity(organization.id, did, privateKeyJwk);
   }
 
-  // 2. Build credential subject from Golden Record
+  // 4. Build credential subject from Golden Record
   const credentialSubject = {
     id: `urn:gtin:${product.gtin}`,
     type: 'Product',
@@ -574,7 +587,7 @@ async function createPortableDPP(product: Product, organization: Organization) {
     certifications: product.dppData.certifications,
   };
 
-  // 3. Issue Verifiable Credential
+  // 5. Issue Verifiable Credential (after user approval)
   const vc = await vcService.issueCredential({
     issuerDid: organizationDid,
     credentialType: 'DigitalProductPassport',
@@ -582,7 +595,7 @@ async function createPortableDPP(product: Product, organization: Organization) {
     expiresIn: '10y',
   });
 
-  // 4. Store and return
+  // 6. Store and return
   return {
     vcJson: vc.credential,
     vcJwt: vc.jwt,

@@ -28,7 +28,7 @@ Every product has a single "Golden Record" containing both commercial attributes
 │                                                                  │
 │                        ↓                                         │
 │              ┌─────────────────┐                                │
-│              │ DPP Generation  │ Automatic when data complete   │
+│              │ DPP Ready List  │ Review and approve for issue   │
 │              └────────┬────────┘                                │
 │                       ↓                                         │
 │              ┌─────────────────┐                                │
@@ -85,7 +85,8 @@ Users can import product data from any format. The AI extracts, maps, and valida
 
 ### Digital Product Passports
 
-- **Automatic Generation**: DPPs generated when completeness reaches 100%
+- **DPP Ready Products**: Products appear in approval queue when completeness reaches 100%
+- **Manual Review & Issue**: Review product data before issuing DPP
 - **Verifiable Credentials**: W3C VCs signed with did:key for tamper evidence
 - **Portable**: Organizations own their credentials, can export anytime
 - **QR Codes**: GS1 Digital Link compatible
