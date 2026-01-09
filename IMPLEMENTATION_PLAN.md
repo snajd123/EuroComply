@@ -405,6 +405,64 @@ Aligned with regulatory deadlines:
 - GS1 Digital Link resolver
 - Basic AAS export
 
+### Phase 7: EU Registry Integration (2026-2027) 📋 PLANNED
+
+**Goal:** Seamless integration with the European Commission's Digital Product Passport Registry
+
+#### What is the EU Registry?
+
+The **System Registry** (formally the Registry of Digital Product Passports) is a central database managed by the European Commission. It acts as a **lookup index** (not data storage) that enables:
+
+- **Customs Automation:** Bulk verification of products entering the EU
+- **Market Surveillance:** Regulators can query product patterns
+- **Resilience:** Record of products even if manufacturer disappears
+
+#### What the Registry Stores (Article 12 ESPR)
+
+| Data Element | EuroComply Status | Notes |
+|--------------|-------------------|-------|
+| **Product Identifier** | ✅ Ready | GS1/GTIN support implemented |
+| **Operator Identifier** | ✅ Ready | VAT ID via VIES validation |
+| **Facility Identifier** | ⚠️ Needs GLN | Add Global Location Number field |
+| **Data Carrier URL** | ✅ Ready | Hosted DPP URLs with QR codes |
+
+#### Implementation Tasks
+
+| Task | Priority | Status |
+|------|----------|--------|
+| Add GLN (Global Location Number) field to facilities | Medium | 📋 Planned |
+| Create EU Registry API client (when specs published) | High | 🔮 Waiting for EU specs |
+| Add `registryStatus` field to products | Medium | 📋 Planned |
+| Bulk registration endpoint for large importers | Medium | 📋 Planned |
+| Registry sync dashboard in supplier portal | Low | 📋 Planned |
+
+#### Timeline
+
+- **2025-2026:** EU Commission publishes Registry API specifications
+- **2026:** EuroComply implements Registry API client
+- **2027:** First products registered as DPP requirements begin
+
+#### Architecture Readiness
+
+Our current architecture is **ready for Registry integration** because:
+
+1. **GS1 Standards:** Already using GTIN for product identification
+2. **Operator Data:** VAT IDs collected and validated via VIES
+3. **Accessible URLs:** DPP URLs are public and machine-readable
+4. **Open Formats:** W3C Verifiable Credentials, JSON-LD
+
+When the EU publishes the Registry API, integration will be straightforward:
+
+```typescript
+// Future: Register product with EU Registry
+await euRegistry.registerProduct({
+  productIdentifier: product.gtin,           // Already have
+  operatorIdentifier: supplier.vatId,        // Already have
+  facilityIdentifier: facility.gln,          // Need to add
+  dataCarrierUrl: passport.publicUrl,        // Already have
+});
+```
+
 ---
 
 ## 11. ESPR Timeline & Market
