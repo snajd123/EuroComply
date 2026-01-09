@@ -283,7 +283,7 @@ router.use('/syndication', requireModule('syndication'), syndicationRoutes);
 |------|--------|
 | Design Prisma schema with Product, Family, JSONB attributes | Planned |
 | Implement AG Grid frontend with read/write capabilities | Planned |
-| Build core Node.js CRUD API | Partial |
+| Build core Node.js CRUD API | Planned |
 | Multi-currency pricing support | Planned |
 | ProductVariant with parent-child inheritance | Planned |
 
@@ -311,7 +311,7 @@ router.use('/syndication', requireModule('syndication'), syndicationRoutes);
 |------|--------|
 | Implement S3 + Lambda image optimization pipeline | Planned |
 | Develop completeness scoring algorithm | Planned |
-| Build walt.id connector for credential issuance | Complete |
+| Build walt.id connector for credential issuance | Complete (packages/identity) |
 | Build DPP Ready list for manual approval | Planned |
 | Implement manual DPP issuance workflow | Planned |
 | Asset roles and product associations | Planned |
@@ -324,9 +324,9 @@ router.use('/syndication', requireModule('syndication'), syndicationRoutes);
 
 | Task | Status |
 |------|--------|
-| Implement Shopify OAuth connector | Complete |
+| Implement Shopify OAuth connector | Planned |
 | Build rate-limited BullMQ sync workers | Planned |
-| Bi-directional product sync | Partial |
+| Bi-directional product sync | Planned |
 | DPP metadata to Shopify metafields | Planned |
 
 **Outcome:** Full PIM functionality with Shopify publishing.
@@ -478,7 +478,7 @@ The **System Registry** (formally the Registry of Digital Product Passports) is 
 
 Our architecture is ready for Registry integration:
 - GS1 standards (GTIN for product identification)
-- Operator data (VAT IDs validated via VIES)
+- Operator data (organization details)
 - Accessible URLs (public DPP endpoints)
 - Open formats (W3C VCs, JSON-LD)
 
