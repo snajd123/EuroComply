@@ -1,25 +1,43 @@
 # E-commerce Integrations
 
-EuroComply provides native Shopify integration for syndicating product data and Digital Product Passports (DPPs) to e-commerce storefronts.
+EuroComply provides Shopify integration for both brands creating DPPs and retailers displaying them.
 
 ## Overview
 
-| Platform | Integration Type | Auth Method | Status |
-|----------|-----------------|-------------|--------|
-| Shopify | OAuth App | OAuth 2.0 | Ready |
+| Integration | User Type | Cost | Purpose |
+|-------------|-----------|------|---------|
+| Shopify Syndication | Brands, Manufacturers | Included in paid plans | Sync products and DPP data to Shopify |
+| Shopify Retailer App | Retailers | Free | Display DPPs from other brands |
+| Embeddable Widget | Any website | Free | Display DPPs on any product page |
+| Public API | Developers | Free | Programmatic DPP lookup |
 
 ---
 
-## What the Integration Does
+## Integration Types
 
-1. **Bi-directional Product Sync** - Import products from Shopify, push updates back
-2. **DPP Metadata Sync** - Push DPP data to Shopify product metafields
-3. **QR Code Integration** - Add DPP QR codes to product pages
-4. **Rate-Limited Sync** - BullMQ job queue respects Shopify API limits
+### For Brands and Manufacturers (Paid)
+
+Brands and manufacturers who create DPPs can sync their product catalog with Shopify:
+
+- Bi-directional product sync between EuroComply and Shopify
+- DPP metadata pushed to Shopify product metafields
+- QR codes available for product pages
+- Rate-limited sync via BullMQ job queue
+
+### For Retailers (Free)
+
+Retailers who sell products from brands using EuroComply can display DPPs without a paid subscription:
+
+- Shopify Retailer App automatically matches products by GTIN
+- Embeddable widget for any e-commerce platform
+- Public API for custom integrations
+- No technical knowledge required
 
 ---
 
-## Shopify Integration
+## Shopify Syndication (For Brands)
+
+This integration is for brands, manufacturers, and distributors who create DPPs and want to sync them to their Shopify store.
 
 ### For Organizations
 
@@ -261,6 +279,149 @@ SHOPIFY_DEBUG=true
 4. **Audit all access** - Log all sync operations to AuditLog
 5. **Scope permissions** - Request minimum required OAuth scopes
 6. **Token rotation** - Refresh tokens before expiration
+
+---
+
+## Shopify Retailer App (Free)
+
+The Shopify Retailer App enables retailers to display DPPs for products they sell from brands using EuroComply. This app is provided free of charge in compliance with ESPR Article 31, which mandates free DPP access for all economic operators.
+
+### Installation
+
+Retailers install the app from the Shopify App Store. No EuroComply subscription is required.
+
+### Automatic Product Matching
+
+Once installed, the app automatically matches products in the retailer's store to available DPPs in the EuroComply database. Matching is performed using:
+
+- **GTIN/EAN**: Primary identifier, matched against product barcodes
+- **Brand + SKU**: Fallback when GTIN is not available
+- **Serial Number**: For item-level tracking (luxury goods, electronics)
+
+### What Retailers See
+
+- Dashboard showing matched products and their DPP status
+- List of products without available DPPs
+- DPP preview for each matched product
+
+### Theme Integration
+
+The app automatically injects DPP information into product pages. Retailers can customize the display position and styling through the app settings.
+
+### Webhooks
+
+The app listens for product changes in the retailer's store and re-matches products when barcodes or SKUs are updated.
+
+---
+
+## Embeddable Widget
+
+The embeddable widget allows any website to display DPPs without installing a Shopify app. This is suitable for retailers using WooCommerce, Magento, custom platforms, or static websites.
+
+### Registration
+
+Retailers register for a free EuroComply account to access the widget. Registration requires basic company information but no payment details.
+
+### Widget Integration
+
+After registration, retailers receive a JavaScript snippet to add to their product pages. The widget accepts a product identifier and displays the corresponding DPP information.
+
+### Lookup Methods
+
+The widget supports three lookup methods:
+
+| Method | Parameter | Example |
+|--------|-----------|---------|
+| GTIN | `data-gtin` | `data-gtin="5901234123457"` |
+| Brand + SKU | `data-brand` + `data-sku` | `data-brand="acme" data-sku="SHIRT-001"` |
+| Serial Number | `data-serial` | `data-serial="SN123456789"` |
+
+### Display Options
+
+The widget renders DPP information including:
+
+- Product name and brand
+- Material composition
+- Carbon footprint
+- Certifications
+- QR code linking to full DPP
+- Verification status
+
+Retailers can customize colors and styling to match their website design.
+
+### Caching
+
+Widget requests are cached at the CDN level to minimize latency and ensure fast page loads.
+
+---
+
+## Public API
+
+The Public API provides programmatic access to DPP data for developers building custom integrations.
+
+### Authentication
+
+The Public API does not require API keys for read-only DPP lookups. Rate limiting is applied per IP address.
+
+### Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/public/dpp/gtin/:gtin` | Lookup DPP by GTIN |
+| GET | `/api/public/dpp/brand/:brand/sku/:sku` | Lookup DPP by brand and SKU |
+| GET | `/api/public/dpp/serial/:serial` | Lookup DPP by serial number |
+| GET | `/api/public/dpp/search` | Search DPP catalog |
+| POST | `/api/public/dpp/batch` | Batch lookup (up to 100 identifiers) |
+
+### Response Format
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "dpp_xxx",
+    "gtin": "5901234123457",
+    "brand": "Acme Corp",
+    "productName": "Organic Cotton T-Shirt",
+    "materials": [...],
+    "certifications": [...],
+    "carbonFootprint": {...},
+    "qrCodeUrl": "https://cdn.eurocomply.eu/qr/xxx.png",
+    "verifyUrl": "https://eurocomply.eu/verify/xxx",
+    "issuedAt": "2026-01-06T10:00:00Z",
+    "status": "ACTIVE"
+  }
+}
+```
+
+### Rate Limits
+
+| Tier | Requests per minute | Batch size |
+|------|---------------------|------------|
+| Anonymous | 60 | 10 |
+| Registered | 300 | 100 |
+
+Retailers who register for a free account receive higher rate limits.
+
+### Search Parameters
+
+The search endpoint accepts the following query parameters:
+
+| Parameter | Description |
+|-----------|-------------|
+| `q` | Free text search |
+| `brand` | Filter by brand name |
+| `category` | Filter by product category |
+| `page` | Page number (default: 1) |
+| `limit` | Results per page (max: 50) |
+
+### Error Responses
+
+| Code | Description |
+|------|-------------|
+| 404 | DPP not found for the given identifier |
+| 429 | Rate limit exceeded |
+| 500 | Internal server error |
 
 ---
 
