@@ -2,25 +2,31 @@
  * Identity Configuration
  */
 
+export interface WaltIdConfig {
+  coreApi: string;
+  signatoryApi: string;
+  custodianApi: string;
+  auditorApi: string;
+}
+
+export interface DidConfig {
+  method: 'web' | 'ebsi';
+  domain: string; // e.g., "eurocomply.eu"
+}
+
+export interface FeatureFlags {
+  fallbackToSimulation: boolean; // Use simulated credentials if walt.id unavailable
+}
+
 export interface IdentityConfig {
   // walt.id API endpoints
-  waltid: {
-    coreApi: string;
-    signatoryApi: string;
-    custodianApi: string;
-    auditorApi: string;
-  };
+  waltid: WaltIdConfig;
 
   // DID configuration
-  did: {
-    method: 'web' | 'ebsi';
-    domain: string; // e.g., "eurocomply.eu"
-  };
+  did: DidConfig;
 
   // Feature flags
-  features: {
-    fallbackToSimulation: boolean; // Use simulated credentials if walt.id unavailable
-  };
+  features: FeatureFlags;
 }
 
 export const defaultConfig: IdentityConfig = {
@@ -53,4 +59,8 @@ export function setConfig(config: Partial<IdentityConfig>): void {
     did: { ...currentConfig.did, ...config.did },
     features: { ...currentConfig.features, ...config.features },
   };
+}
+
+export function resetConfig(): void {
+  currentConfig = { ...defaultConfig };
 }

@@ -58,7 +58,7 @@ router.post('/connect', authenticate, async (req: Request, res: Response) => {
       throw new Error(`Connection test failed: ${testResponse.status}`);
     }
 
-    const systemStatus = await testResponse.json();
+    const systemStatus = await testResponse.json() as { environment?: { version?: string; php_version?: string } };
 
     // Get existing organization or create connection
     const organization = await prisma.organization.findUnique({
@@ -347,7 +347,7 @@ async function syncProducts(
       throw new Error(`Failed to fetch products: ${response.statusText}`);
     }
 
-    const products = await response.json();
+    const products = await response.json() as Array<Record<string, unknown>>;
     totalPages = parseInt(response.headers.get('X-WP-TotalPages') || '1');
 
     for (const product of products) {

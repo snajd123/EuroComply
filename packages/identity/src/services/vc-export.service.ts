@@ -176,10 +176,11 @@ export class VcExportService {
       const dataToVerify = JSON.stringify(vcWithoutProof);
 
       // Verify signature using did:key (no network needed!)
+      // We've already verified proof.jws exists above
       const isValid = await this.didKeyService.verifySignatureOffline(
         issuerDid,
         dataToVerify,
-        proof.jws
+        proof.jws!
       );
 
       return {

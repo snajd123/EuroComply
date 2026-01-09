@@ -15,6 +15,7 @@ export interface DidDocument {
   authentication?: string[];
   assertionMethod?: string[];
   service?: ServiceEndpoint[];
+  alsoKnownAs?: string[];
 }
 
 export interface VerificationMethod {
@@ -146,6 +147,7 @@ export const CredentialTypes = {
   // MerchantTrust
   KYB_VERIFICATION: 'KYBVerificationCredential',
   DSA_COMPLIANCE: 'DSAComplianceCredential',
+  DSA_TRADER_VERIFICATION: 'DSATraderVerificationCredential',
 } as const;
 
 export type CredentialType = typeof CredentialTypes[keyof typeof CredentialTypes];

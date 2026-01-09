@@ -117,7 +117,7 @@ router.get('/callback', async (req: Request, res: Response) => {
       throw new Error('Failed to exchange code for token');
     }
 
-    const tokenData = await tokenResponse.json();
+    const tokenData = await tokenResponse.json() as { access_token: string; scope: string };
     const accessToken = tokenData.access_token;
     const scope = tokenData.scope;
 
@@ -129,7 +129,7 @@ router.get('/callback', async (req: Request, res: Response) => {
       }
     );
 
-    const shopData = await shopResponse.json();
+    const shopData = await shopResponse.json() as { shop: { id?: number; name?: string; country_code?: string; currency?: string } };
     const shopInfo = shopData.shop;
 
     // Create or update organization
@@ -408,7 +408,7 @@ async function syncProducts(
       throw new Error(`Failed to fetch products: ${response.statusText}`);
     }
 
-    const data = await response.json();
+    const data = await response.json() as { products: Array<Record<string, unknown>> };
 
     for (const product of data.products) {
       const result = await syncSingleProduct(organizationId, product);

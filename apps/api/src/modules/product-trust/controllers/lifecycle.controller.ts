@@ -1,7 +1,20 @@
 import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
-import { prisma, LifecycleEventType } from '@eurocomply/database';
+import { prisma } from '@eurocomply/database';
 import { ApiError } from '../../../common/middleware/errorHandler.js';
+
+// Define LifecycleEventType locally (matches Prisma enum)
+type LifecycleEventType =
+  | 'MANUFACTURED'
+  | 'SHIPPED'
+  | 'RECEIVED'
+  | 'SOLD'
+  | 'RETURNED'
+  | 'RECYCLED'
+  | 'DESTROYED'
+  | 'DONATED'
+  | 'REPAIRED'
+  | 'REFURBISHED';
 
 // Validation schemas
 const CreateLifecycleEventSchema = z.object({

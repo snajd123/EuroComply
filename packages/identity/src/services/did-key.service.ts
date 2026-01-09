@@ -407,7 +407,14 @@ export class DidKeyService {
         return false;
       }
 
-      return await crypto.subtle.verify(algorithm, publicKey, signatureBytes, dataBytes);
+      // Cast to ArrayBuffer to satisfy TypeScript's strict BufferSource types
+      // TextEncoder and base64UrlDecode always create regular ArrayBuffers, not SharedArrayBuffers
+      return await crypto.subtle.verify(
+        algorithm,
+        publicKey,
+        signatureBytes.buffer.slice(signatureBytes.byteOffset, signatureBytes.byteOffset + signatureBytes.byteLength) as ArrayBuffer,
+        dataBytes.buffer.slice(dataBytes.byteOffset, dataBytes.byteOffset + dataBytes.byteLength) as ArrayBuffer
+      );
     } catch {
       return false;
     }
