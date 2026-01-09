@@ -8,12 +8,22 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 
-const stats = [
+type ChangeType = 'positive' | 'negative' | 'neutral';
+
+const stats: Array<{
+  name: string;
+  value: string;
+  change: string;
+  changeType: ChangeType;
+  href: string;
+  icon: typeof Package;
+  color: string;
+}> = [
   {
     name: 'Total Products',
     value: '0',
     change: '+0%',
-    changeType: 'neutral' as const,
+    changeType: 'neutral',
     href: '/dashboard/products',
     icon: Package,
     color: 'bg-blue-500',
@@ -22,7 +32,7 @@ const stats = [
     name: 'Active Passports',
     value: '0',
     change: '+0%',
-    changeType: 'neutral' as const,
+    changeType: 'neutral',
     href: '/dashboard/passports',
     icon: QrCode,
     color: 'bg-purple-500',
@@ -31,7 +41,7 @@ const stats = [
     name: 'Credentials Issued',
     value: '0',
     change: '+0%',
-    changeType: 'neutral' as const,
+    changeType: 'neutral',
     href: '/dashboard/credentials',
     icon: BadgeCheck,
     color: 'bg-green-500',
@@ -40,7 +50,7 @@ const stats = [
     name: 'Verified Merchants',
     value: '0',
     change: '+0%',
-    changeType: 'neutral' as const,
+    changeType: 'neutral',
     href: '/dashboard/merchants',
     icon: Building2,
     color: 'bg-orange-500',
