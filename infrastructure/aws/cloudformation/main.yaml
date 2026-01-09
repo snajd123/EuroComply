@@ -555,6 +555,9 @@ Resources:
   #       - Type: forward
   #         TargetGroupArn: !Ref ALBTargetGroup
 
+  # NOTE: DesiredCount is 0 initially because we need to push a Docker image first.
+  # After pushing the image to ECR, update the service:
+  #   aws ecs update-service --cluster eurocomply-production --service eurocomply-production-api --desired-count 2
   ECSService:
     Type: AWS::ECS::Service
     DependsOn: ALBListenerHTTP
@@ -562,7 +565,7 @@ Resources:
       ServiceName: !Sub eurocomply-${Environment}-api
       Cluster: !Ref ECSCluster
       TaskDefinition: !Ref TaskDefinition
-      DesiredCount: !Ref DesiredCount
+      DesiredCount: 0
       LaunchType: FARGATE
       NetworkConfiguration:
         AwsvpcConfiguration:
