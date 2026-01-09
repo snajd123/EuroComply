@@ -1,51 +1,49 @@
-# E-commerce Integrations for ProductTrust
+# E-commerce Integrations
 
-EuroComply provides native integrations for Shopify and WooCommerce to automatically sync products and generate Digital Product Passports (DPPs) for ESPR compliance.
+EuroComply provides native Shopify integration for syndicating product data and Digital Product Passports (DPPs) to e-commerce storefronts.
 
 ## Overview
 
 | Platform | Integration Type | Auth Method | Status |
 |----------|-----------------|-------------|--------|
-| Shopify | App Store | OAuth 2.0 | Ready |
-| WooCommerce | Plugin/API | REST API Keys | Ready |
+| Shopify | OAuth App | OAuth 2.0 | Ready |
 
 ---
 
-## What These Integrations Do
+## What the Integration Does
 
-1. **Product Sync** - Automatically import products from your store
-2. **DPP Generation** - Create Digital Product Passports for each product
-3. **QR Code Integration** - Push DPP QR codes back to product pages
-4. **Lifecycle Tracking** - Track product events through orders
-5. **Supplier Catalog** - Browse and use supplier DPPs for your products
+1. **Bi-directional Product Sync** - Import products from Shopify, push updates back
+2. **DPP Metadata Sync** - Push DPP data to Shopify product metafields
+3. **QR Code Integration** - Add DPP QR codes to product pages
+4. **Rate-Limited Sync** - BullMQ job queue respects Shopify API limits
 
 ---
 
 ## Shopify Integration
 
-### For Retailers
+### For Organizations
 
-**Installation (2 minutes):**
-1. Visit the EuroComply app in Shopify App Store
-2. Click "Add app"
+**Connection (2 minutes):**
+1. Go to EuroComply Dashboard → Channels → Add Shopify
+2. Enter your Shopify store URL
 3. Authorize the required permissions
-4. Products are automatically synced
+4. Products are automatically imported
 
 **What happens:**
-- Products automatically imported to EuroComply
-- Generate DPPs for products needing ESPR compliance
-- QR codes added to product pages via metafields
+- Products imported to EuroComply as Golden Records
+- DPP data synced back to Shopify metafields
+- QR codes available for product pages
 
 ### For Developers
 
 #### OAuth Flow
 
 ```
-GET /api/shopify/auth?shop=mystore.myshopify.com
+GET /api/syndication/shopify/auth?shop=mystore.myshopify.com
 → Redirects to Shopify OAuth
-→ Returns to /api/shopify/callback
+→ Returns to /api/syndication/shopify/callback
 → Exchanges code for access token
-→ Creates organization & syncs products
+→ Creates channel & imports products
 → Redirects to dashboard
 ```
 
@@ -53,12 +51,12 @@ GET /api/shopify/auth?shop=mystore.myshopify.com
 
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| GET | `/api/shopify/auth` | None | Start OAuth flow |
-| GET | `/api/shopify/callback` | None | OAuth callback |
-| POST | `/api/shopify/webhooks/:topic` | HMAC | Webhook handler |
-| GET | `/api/shopify/status` | API Key | Get connection status |
-| POST | `/api/shopify/sync` | API Key | Manual product sync |
-| POST | `/api/shopify/disconnect` | API Key | Disconnect store |
+| GET | `/api/syndication/shopify/auth` | None | Start OAuth flow |
+| GET | `/api/syndication/shopify/callback` | None | OAuth callback |
+| POST | `/api/syndication/shopify/webhooks/:topic` | HMAC | Webhook handler |
+| GET | `/api/syndication/shopify/status` | API Key | Get connection status |
+| POST | `/api/syndication/shopify/sync` | API Key | Manual product sync |
+| POST | `/api/syndication/shopify/disconnect` | API Key | Disconnect store |
 
 #### Environment Variables
 
@@ -66,69 +64,24 @@ GET /api/shopify/auth?shop=mystore.myshopify.com
 SHOPIFY_API_KEY=your_api_key
 SHOPIFY_API_SECRET=your_api_secret
 API_HOST=api.eurocomply.eu
-DASHBOARD_URL=https://dashboard.eurocomply.eu
+DASHBOARD_URL=https://eurocomply.eu
 ```
 
 #### Required Scopes
 
 ```
 read_products
-write_products    # For metafields (DPP QR codes)
+write_products    # For metafields (DPP data)
 read_inventory
 ```
 
 #### Webhooks
 
 The app subscribes to these webhooks:
-- `products/create` - Sync new products
+- `products/create` - Import new products
 - `products/update` - Update existing products
 - `products/delete` - Archive products
 - `app/uninstalled` - Clean up on uninstall
-
----
-
-## WooCommerce Integration
-
-### For Retailers
-
-**Connection (5 minutes):**
-1. Generate REST API keys in WooCommerce → Settings → Advanced → REST API
-2. Enter credentials in EuroComply dashboard
-3. Click "Connect Store"
-4. Products are automatically synced
-
-### For Developers
-
-#### Connection Flow
-
-```
-POST /api/woocommerce/connect
-Body: { siteUrl, consumerKey, consumerSecret }
-→ Tests connection
-→ Creates organization & syncs products
-→ Returns organizationId, productsSynced
-```
-
-#### Endpoints
-
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| POST | `/api/woocommerce/connect` | API Key | Connect store |
-| POST | `/api/woocommerce/disconnect` | API Key | Disconnect store |
-| GET | `/api/woocommerce/status` | API Key | Get connection status |
-| POST | `/api/woocommerce/sync` | API Key | Manual product sync |
-| POST | `/api/woocommerce/webhooks` | Webhook Secret | Webhook handler |
-
-#### Environment Variables
-
-```env
-WOOCOMMERCE_WEBHOOK_SECRET=your_webhook_secret
-```
-
-#### Required WooCommerce Permissions
-
-- Read access to Products
-- Read access to System Status
 
 ---
 
@@ -136,93 +89,61 @@ WOOCOMMERCE_WEBHOOK_SECRET=your_webhook_secret
 
 ### What Gets Synced
 
-| Shopify Field | WooCommerce Field | EuroComply Field |
-|---------------|-------------------|------------------|
-| title | name | name |
-| body_html | description | description |
-| variants[0].sku | sku | sku |
-| variants[0].barcode | - | gtin |
-| vendor | - | attributes.vendor |
-| product_type | type | attributes.productType |
-| tags | tags | attributes.tags |
-| images | images | attributes.images |
+| Shopify Field | EuroComply Field | Direction |
+|---------------|------------------|-----------|
+| title | name | ↔ Bi-directional |
+| body_html | description | ↔ Bi-directional |
+| variants[].sku | sku | ↔ Bi-directional |
+| variants[].barcode | gtin | ↔ Bi-directional |
+| vendor | attributes.vendor | → Import only |
+| product_type | attributes.productType | → Import only |
+| tags | attributes.tags | ↔ Bi-directional |
+| images | assets | → Import only |
+| variants[].price | price | ↔ Bi-directional |
+| metafields.eurocomply.* | dppData | ← Export only |
 
 ### Sync Behavior
 
-- **Initial Sync**: All active/published products imported on connection
+- **Initial Sync**: All active products imported on connection
 - **Ongoing Sync**: Webhooks keep products in sync automatically
 - **Manual Sync**: Trigger via API or dashboard
+- **Rate Limiting**: BullMQ queue respects Shopify's 2 req/sec limit
 - **Deletions**: Products are archived, not deleted (audit trail)
 
 ---
 
-## Generating DPPs for Synced Products
+## DPP Data in Shopify
 
-Once products are synced, create Digital Product Passports:
+### Metafields
 
-```bash
-# Create passport for a product
-curl -X POST https://api.eurocomply.eu/v1/passports \
-  -H "Authorization: Bearer ec_live_xxxxx" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "productId": "prod_xxx",
-    "data": {
-      "manufacturerName": "Your Company",
-      "manufacturerCountry": "DE",
-      "carbonFootprint": { "value": 5.2, "unit": "kgCO2e" },
-      "recyclability": { "percentage": 85 },
-      "materials": [
-        { "name": "Organic Cotton", "percentage": 95 },
-        { "name": "Elastane", "percentage": 5 }
-      ]
-    }
-  }'
+DPP data is stored in product metafields (namespace: `eurocomply`):
 
-# Generate QR code
-curl -X POST https://api.eurocomply.eu/v1/passports/pass_xxx/qr \
-  -H "Authorization: Bearer ec_live_xxxxx"
-```
+| Metafield | Description |
+|-----------|-------------|
+| `eurocomply.dpp_id` | DPP identifier |
+| `eurocomply.dpp_qr_url` | QR code image URL |
+| `eurocomply.dpp_verify_url` | Public verification page URL |
+| `eurocomply.dpp_status` | Status (ACTIVE, DRAFT, etc.) |
+| `eurocomply.completeness` | Data completeness score (0-100) |
 
-The QR code URL is automatically pushed back to Shopify/WooCommerce product metafields.
+### Display in Theme
 
----
-
-## Pushing DPP to Product Pages
-
-### Shopify
-
-DPP data is stored in product metafields:
-- `eurocomply.dpp_qr_url` - QR code image URL
-- `eurocomply.dpp_verify_url` - Verification page URL
-
-Display in your theme:
 ```liquid
 {% if product.metafields.eurocomply.dpp_qr_url %}
   <div class="dpp-badge">
-    <img src="{{ product.metafields.eurocomply.dpp_qr_url }}" alt="Digital Product Passport">
-    <a href="{{ product.metafields.eurocomply.dpp_verify_url }}">Verify Product</a>
+    <h4>Digital Product Passport</h4>
+    <img
+      src="{{ product.metafields.eurocomply.dpp_qr_url }}"
+      alt="Scan for Digital Product Passport"
+      width="120"
+      height="120"
+    >
+    <a href="{{ product.metafields.eurocomply.dpp_verify_url }}" target="_blank">
+      View Product Passport
+    </a>
+    <p>Completeness: {{ product.metafields.eurocomply.completeness }}%</p>
   </div>
 {% endif %}
-```
-
-### WooCommerce
-
-DPP data is stored in product meta:
-- `_eurocomply_dpp_qr_url` - QR code image URL
-- `_eurocomply_dpp_verify_url` - Verification page URL
-
-Display in your theme:
-```php
-$qr_url = get_post_meta($product_id, '_eurocomply_dpp_qr_url', true);
-$verify_url = get_post_meta($product_id, '_eurocomply_dpp_verify_url', true);
-
-if ($qr_url) {
-    echo '<div class="dpp-badge">';
-    echo '<img src="' . esc_url($qr_url) . '" alt="Digital Product Passport">';
-    echo '<a href="' . esc_url($verify_url) . '">Verify Product</a>';
-    echo '</div>';
-}
 ```
 
 ---
@@ -235,12 +156,18 @@ if ($qr_url) {
 {
   "success": true,
   "data": {
-    "connected": true,
+    "id": "chan_xxx",
+    "type": "SHOPIFY",
+    "status": "ACTIVE",
     "shop": "mystore.myshopify.com",
-    "installedAt": "2026-01-06T10:00:00Z",
+    "connectedAt": "2026-01-06T10:00:00Z",
     "lastSyncAt": "2026-01-06T12:00:00Z",
-    "productCount": 150,
-    "passportCount": 45
+    "stats": {
+      "productCount": 150,
+      "syncedCount": 145,
+      "pendingCount": 5,
+      "errorCount": 0
+    }
   }
 }
 ```
@@ -251,80 +178,90 @@ if ($qr_url) {
 {
   "success": true,
   "data": {
-    "synced": 150,
-    "created": 10,
-    "updated": 140,
-    "failed": 0
+    "jobId": "job_xxx",
+    "status": "COMPLETED",
+    "stats": {
+      "total": 150,
+      "created": 10,
+      "updated": 140,
+      "skipped": 0,
+      "failed": 0
+    },
+    "duration": 45000
   }
 }
 ```
 
 ---
 
+## Rate Limiting
+
+Shopify enforces strict API rate limits:
+- **REST API**: 2 requests per second (burst bucket of 40)
+- **GraphQL**: 50 points per second
+
+### BullMQ Worker Configuration
+
+```typescript
+const shopifyWorker = new Worker('sync:shopify', processor, {
+  limiter: {
+    max: 2,
+    duration: 1000
+  },
+  concurrency: 1
+});
+```
+
+### Handling 429 Errors
+
+The sync worker implements exponential backoff:
+1. On 429 response, check `Retry-After` header
+2. Pause processing for specified duration
+3. Retry with exponential backoff (max 5 retries)
+
+---
+
 ## Troubleshooting
 
-### Shopify
+### Common Issues
 
 **"Invalid HMAC signature"**
 - Check API secret is correct
-- Ensure raw body is used for webhook verification
+- Ensure raw request body is used for webhook verification
 
 **"App not authorized"**
 - User may have revoked access
-- Trigger re-authorization via `/api/shopify/auth`
+- Trigger re-authorization via OAuth flow
 
-### WooCommerce
+**"Rate limit exceeded"**
+- Sync job will automatically retry
+- Check BullMQ dashboard for job status
 
-**"Failed to connect"**
-- Verify consumer key/secret are correct
-- Check store URL is accessible (no firewall blocking)
-- Ensure REST API is enabled in WooCommerce
+**"Product not syncing"**
+- Check product status in Shopify (must be Active)
+- Verify product has SKU set
+- Check sync job logs for errors
 
-**"Permission denied"**
-- API keys need read access to products
-- Check WooCommerce user permissions
+### Debug Logging
 
----
+Enable verbose logging for troubleshooting:
 
----
-
-## Using Supplier DPPs
-
-**Retailers access DPPs created by verified suppliers for FREE.** ESPR Article 31 mandates free access for all economic operators.
-
-### Accessing the Supplier Catalog
-
-In the Shopify app:
-1. Navigate to **Products** → **Browse Supplier Catalog**
-2. Search by product type, certification, or supplier
-3. Filter by category (Textiles, Electronics, etc.)
-
-### Free Access Flow
-
+```env
+LOG_LEVEL=debug
+SHOPIFY_DEBUG=true
 ```
-1. Browse catalog → Find your supplier's product
-2. View DPP preview, supplier verification badge
-3. Select your Shopify product to link
-4. Link DPP (FREE) → DPP is associated with your product
-5. Your product shows "Verified by [Supplier Name]"
-6. Supplier updates automatically apply
-```
-
-### Pricing
-
-| Who | What | Cost |
-|-----|------|------|
-| **Suppliers** | Create DPPs via SaaS platform | €49-399/month |
-| **Retailers** | Access and display DPPs | **FREE** |
-
-**Why free for retailers?** ESPR Article 31 mandates that DPP data must be accessible "free of charge" to all economic operators in the supply chain.
 
 ---
 
 ## Security Considerations
 
-1. **Encrypt stored credentials** - Access tokens stored encrypted
-2. **Verify all webhooks** - Check HMAC signatures
+1. **Encrypt stored credentials** - Access tokens stored encrypted in database
+2. **Verify all webhooks** - Check HMAC signatures before processing
 3. **Use HTTPS only** - Reject HTTP callbacks
-4. **Audit all access** - Log to AuditLog table
-5. **Scope permissions** - Request minimum required scopes
+4. **Audit all access** - Log all sync operations to AuditLog
+5. **Scope permissions** - Request minimum required OAuth scopes
+6. **Token rotation** - Refresh tokens before expiration
+
+---
+
+*Last Updated: January 2026*

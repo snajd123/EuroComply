@@ -1,319 +1,138 @@
 # EuroComply Business Model
 
-## Overview
+## Value Proposition
 
-EuroComply is a **SaaS platform for SME suppliers** to create, host, and distribute ESPR-compliant Digital Product Passports. We provide the tools that make DPP compliance accessible and affordable.
+EuroComply is a Compliance-First Product Information Management (PIM) platform. Organizations pay for tools to manage product data and generate Digital Product Passports (DPPs) for EU ESPR compliance.
+
+---
+
+## Target Market
+
+### Primary Customers
+
+| Segment | Description | Size |
+|---------|-------------|------|
+| **Brands** | Consumer brands managing product catalogs | 50-5,000 SKUs |
+| **Manufacturers** | Producers with primary product data | 100-10,000 SKUs |
+| **Distributors** | Wholesalers aggregating products | 500-50,000 SKUs |
+
+### Customer Profile
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    EUROCOMPLY MODEL                              │
+│                    TYPICAL CUSTOMER                              │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│   SUPPLIERS PAY                         RETAILERS ACCESS FREE   │
-│   ─────────────                         ────────────────────    │
+│  Company: Brand, manufacturer, or distributor                   │
+│  Employees: 10-500                                              │
+│  IT Staff: 0-5 (not dedicated to compliance)                   │
+│  Products: 100-5,000 SKUs                                       │
+│  Tech literacy: Can use web apps, not developers               │
+│  Budget: €100-500/month for compliance tools                   │
 │                                                                  │
-│   ┌──────────────┐                      ┌──────────────┐        │
-│   │  Producers   │                      │  Retailers   │        │
-│   │  Importers   │ ──── SaaS Fee ────►  │  (Shopify,   │        │
-│   │  Brands      │                      │  WooCommerce)│        │
-│   └──────────────┘                      └──────────────┘        │
-│         │                                      │                 │
-│         │ Create DPPs                          │ Display DPPs   │
-│         │ using our tools                      │ on storefronts │
-│         │                                      │                 │
-│         ▼                                      ▼                 │
-│   ┌─────────────────────────────────────────────────────────┐   │
-│   │                 EUROCOMPLY PLATFORM                      │   │
-│   │                                                          │   │
-│   │  • DPP Creator Studio (forms, templates, CSV import)    │   │
-│   │  • Verifiable Credential issuance (walt.id)             │   │
-│   │  • Managed hosting (while subscribed)                   │   │
-│   │  • Retailer plugins (Shopify, WooCommerce)              │   │
-│   │  • QR code generation (GS1 Digital Link)                │   │
-│   │  • Public verification pages                            │   │
-│   │                                                          │   │
-│   └─────────────────────────────────────────────────────────┘   │
+│  Their needs:                                                   │
+│  • "I need to manage product data across channels"             │
+│  • "I need DPPs to sell in EU"                                 │
+│  • "I don't have 6 months for implementation"                  │
+│  • "I can't afford €50k for enterprise PIM"                    │
+│                                                                  │
+│  Our promise:                                                   │
+│  • Import any data format with AI                              │
+│  • Single source of truth for all product data                 │
+│  • DPPs generated automatically when data complete             │
+│  • Sync to Shopify with one click                              │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
----
+### Not Our Target
 
-## Why This Model?
-
-### Legal Requirement: ESPR Article 31
-
-The EU Ecodesign for Sustainable Products Regulation (ESPR) mandates that DPP data must be accessible **"free of charge"** to all economic operators in the supply chain - including retailers, importers, repairers, and recyclers.
-
-**We cannot charge retailers for DPP access. It's illegal.**
-
-### Market Reality: SME Gap
-
-| Segment | DPP Solution | Cost |
-|---------|--------------|------|
-| **Enterprise** (BMW, H&M) | SAP, Siemens, custom build | €50,000 - €500,000+ |
-| **SME** (99% of EU businesses) | ??? | Can't afford enterprise solutions |
-
-EuroComply fills this gap with affordable SaaS pricing.
+- **Large Enterprises**: Use SAP, Akeneo, or custom solutions
+- **Pure Retailers**: Only resell others' products, no own brands
+- **Non-EU Businesses**: No ESPR compliance requirement
 
 ---
 
-## Who Are Our Customers?
+## Pricing Model
 
-### Suppliers (Paying Customers)
+### SaaS Subscription Tiers
 
-Only verified suppliers can create Digital Product Passports. They have the product data and the legal obligation.
+Organizations pay monthly based on features needed and product volume.
 
-| Supplier Type | Role | ESPR Obligation |
-|---------------|------|-----------------|
-| **Producer** | Manufactures the product | Create DPP with primary manufacturing data |
-| **Importer** | Brings non-EU products into EU | Must ensure DPP exists before placing on market |
-| **Brand** | Owns the product identity | Create DPPs for branded product lines |
+| Plan | Monthly | Products | Features |
+|------|---------|----------|----------|
+| **DPP Starter** | €49 | 100 | Core, Compliance, Basic DAM, Manual entry |
+| **DPP Professional** | €149 | 500 | + Full DAM, CSV Import, Priority support |
+| **PIM + DPP** | €299 | 2,000 | + PIM, AI Import, Shopify Sync, API access |
+| **Enterprise** | Custom | Unlimited | + Custom integrations, Dedicated support, SLA |
+
+### Module Breakdown
+
+| Module | DPP Starter | DPP Professional | PIM + DPP | Enterprise |
+|--------|:-----------:|:----------------:|:---------:|:----------:|
+| Core (Auth, Billing) | Y | Y | Y | Y |
+| Compliance (DPP, VCs) | Y | Y | Y | Y |
+| DAM (Basic) | Y | Y | Y | Y |
+| DAM (Full) | - | Y | Y | Y |
+| Import (CSV) | - | Y | Y | Y |
+| Import (AI) | - | - | Y | Y |
+| PIM (Families, Variants) | - | - | Y | Y |
+| Syndication (Shopify) | - | - | Y | Y |
+| API Access | - | - | Y | Y |
+| Custom Integrations | - | - | - | Y |
+
+### Add-ons
+
+| Add-on | Price | Description |
+|--------|-------|-------------|
+| Additional Products | €0.10/product/mo | Beyond plan limit |
+| Additional Users | €10/user/mo | Beyond 3 included |
+| API Overage | €0.001/call | Beyond 100k calls/mo |
+| Priority Support | €50/mo | 4-hour response SLA |
+
+---
+
+## Platform Value
+
+### What Organizations Get
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    IMPORTER USE CASE                             │
+│                    PLATFORM VALUE                                │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  Chinese Factory ─────────────────────────────► EU Importer     │
-│       │                                              │           │
-│       │ Ships product                                │           │
-│       │ (no DPP - factory doesn't use EuroComply)    │           │
-│       │                                              │           │
-│       │                                              ▼           │
-│       │                               ┌─────────────────────────┐│
-│       │                               │ ESPR Obligation:        ││
-│       │                               │ "Cannot place on EU     ││
-│       │                               │  market without DPP"    ││
-│       │                               └─────────────────────────┘│
-│       │                                              │           │
-│       │                                              ▼           │
-│       │                               ┌─────────────────────────┐│
-│       │                               │ Importer creates DPP    ││
-│       │                               │ using EuroComply SaaS   ││
-│       │                               │                         ││
-│       │                               │ • Uses factory spec     ││
-│       │                               │   sheets as data source ││
-│       │                               │ • VC: "Attested by      ││
-│       │                               │   [Importer Name]"      ││
-│       │                               └─────────────────────────┘│
-│       │                                              │           │
-│       │                                              ▼           │
-│       │                                       EU Retailers      │
-│       │                                       (free access)     │
+│  PRODUCT INFORMATION MANAGEMENT                                 │
+│  ├── Product Families (attribute schemas)                       │
+│  ├── Dynamic attributes (JSONB flexibility)                     │
+│  ├── Variants (parent-child inheritance)                        │
+│  ├── Completeness scoring (per-channel)                         │
+│  └── Multi-currency pricing                                     │
+│                                                                  │
+│  AI-POWERED IMPORT                                              │
+│  ├── Drop any file format (CSV, Excel, PDF, JSON)              │
+│  ├── AI extracts and maps data                                  │
+│  ├── Schema validation                                          │
+│  └── Bulk upsert                                                │
+│                                                                  │
+│  DIGITAL ASSET MANAGEMENT                                       │
+│  ├── S3 storage with CloudFront CDN                            │
+│  ├── On-the-fly image optimization (Lambda + Sharp)            │
+│  └── Asset roles (gallery, thumbnail, certificate)              │
+│                                                                  │
+│  COMPLIANCE (DPP)                                               │
+│  ├── Auto-generation when completeness = 100%                  │
+│  ├── W3C Verifiable Credentials (walt.id)                      │
+│  ├── did:key for portable identity                              │
+│  ├── QR codes (GS1 Digital Link)                               │
+│  └── Public verification                                        │
+│                                                                  │
+│  E-COMMERCE SYNDICATION                                         │
+│  ├── Shopify product sync                                       │
+│  ├── Rate-limited job queue (BullMQ)                           │
+│  └── DPP metadata in metafields                                 │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
-
-### Retailers (Free Access)
-
-Retailers use DPPs but don't pay for them. This is mandated by ESPR Article 31.
-
-| What Retailers Get (Free) |
-|---------------------------|
-| Browse supplier DPP catalog |
-| Link DPPs to their products |
-| Display DPPs on storefront (widget) |
-| QR codes for products |
-| Public verification page |
-| Shopify/WooCommerce plugins |
-
----
-
-## Pricing
-
-### Supplier SaaS Tiers
-
-| Tier | Monthly | DPPs Included | Features |
-|------|---------|---------------|----------|
-| **Starter** | €49 | 50 DPPs | Creator studio, VC issuance, managed hosting, QR codes |
-| **Growth** | €149 | 500 DPPs | + Bulk CSV import, templates library, priority support |
-| **Pro** | €399 | 2,000 DPPs | + API access, white-label verification, dedicated support |
-
-*Note: We deliberately do not offer an Enterprise tier. SMEs needing more than 2,000 DPPs can contact us, but large enterprises are better served by SAP, Siemens, or Catena-X solutions.*
-
-### What's Included
-
-Every tier includes:
-- **DPP Creator Studio** - Category-specific forms, validation, templates
-- **Verifiable Credential Issuance** - walt.id integration, did:key signing
-- **Managed Hosting** - EU data residency, high availability
-- **QR Code Generation** - GS1 Digital Link compliant
-- **Retailer Distribution** - Catalog listing, Shopify/WooCommerce plugins
-- **Public Verification** - Branded verification pages
-
-### No Per-Retailer Fees
-
-```
-OLD MODEL (Illegal):
-  Supplier creates DPP → Retailer pays €0.50/month → Revenue split
-
-NEW MODEL (Legal):
-  Supplier pays €149/month → Creates 500 DPPs → Unlimited retailers access free
-```
-
----
-
-## What We Sell
-
-### 1. DPP Creator Studio
-
-The tools to create ESPR-compliant Digital Product Passports.
-
-| Feature | Description |
-|---------|-------------|
-| **Category-specific forms** | Textile, electronics, battery, furniture schemas |
-| **CIRPASS/ESPR validation** | "Your DPP is 85% complete" |
-| **Templates** | Pre-built defaults for common products |
-| **Bulk CSV import** | Upload hundreds of products at once |
-| **LCA estimation** | Calculate carbon footprint from materials |
-| **Certification upload** | GOTS, FSC, OEKO-TEX document storage |
-
-### 2. Verifiable Credential Issuance
-
-Cryptographic proof that the DPP is authentic and untampered.
-
-| Feature | Description |
-|---------|-------------|
-| **did:key identity** | Portable, self-contained supplier identity |
-| **W3C VC signing** | Industry-standard Verifiable Credentials |
-| **Tamper evidence** | Any change breaks the signature |
-| **Offline verification** | No server needed to verify |
-| **EUDI wallet ready** | Compatible with EU Digital Identity wallets |
-
-### 3. Managed Hosting
-
-Reliable hosting while the subscription is active.
-
-| Feature | Description |
-|---------|-------------|
-| **EU data residency** | Data stays in EU |
-| **High availability** | Fast response for QR scans |
-| **Automatic backups** | Data protection |
-| **CDN delivery** | Global performance |
-
-### 4. Retailer Distribution
-
-Tools for retailers to access and display DPPs.
-
-| Feature | Description |
-|---------|-------------|
-| **Supplier catalog** | Retailers browse and find DPPs |
-| **Shopify plugin** | One-click DPP display |
-| **WooCommerce plugin** | WordPress integration |
-| **Storefront widget** | Embedded DPP viewer |
-| **QR codes** | Print-ready for products |
-
----
-
-## Data Portability & Ownership
-
-### Suppliers Own Their Data
-
-The DPPs and Verifiable Credentials belong to the supplier, not EuroComply.
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  THE VC IS THE ASSET - HOSTING IS JUST STORAGE                  │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  The Verifiable Credential contains:                            │
-│  ┌───────────────────────────────────────────────────────────┐  │
-│  │  {                                                         │  │
-│  │    "issuer": "did:key:z6MkhaXgBZD...",  ← Portable DID    │  │
-│  │    "credentialSubject": {                                  │  │
-│  │      ... all DPP data ...                                  │  │
-│  │    },                                                      │  │
-│  │    "proof": { "jws": "..." }            ← Signature       │  │
-│  │  }                                                         │  │
-│  └───────────────────────────────────────────────────────────┘  │
-│                                                                  │
-│  This JSON file:                                                │
-│  • Can be verified by ANYONE (did:key = self-contained)        │
-│  • Can be hosted ANYWHERE                                       │
-│  • Is OWNED by the supplier                                    │
-│  • Is TRANSFERABLE to any other host                           │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### When Subscription Ends
-
-If a supplier cancels their subscription:
-
-1. **Export package provided** containing all VCs and keys
-2. **30-day grace period** to migrate data
-3. **Customer options:**
-   - Self-host the data
-   - Move to another DPP provider
-   - Upload to decentralized storage (IPFS/Arweave)
-   - Give to distributor/retailer to host
-4. **VCs still verify** - did:key is self-contained, no EuroComply dependency
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  EXPORT PACKAGE                                                  │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  export/                                                        │
-│  ├── credentials/                                               │
-│  │   ├── dpp-001.vc.json   (signed Verifiable Credential)      │
-│  │   ├── dpp-002.vc.json                                       │
-│  │   └── ...                                                   │
-│  ├── identity/                                                  │
-│  │   ├── did-document.json                                     │
-│  │   └── private-key.jwk   (for future VC signing)             │
-│  └── manifest.json         (GTIN → VC mapping)                 │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### No Lock-In
-
-| Concern | Our Approach |
-|---------|--------------|
-| **Data ownership** | Supplier owns all VCs and keys |
-| **Portability** | Standard W3C format, works anywhere |
-| **Verification** | did:key works forever without EuroComply |
-| **Export** | Full data export on cancellation |
-
-This is NOT a lock-in business. We earn customers by being the best tool, not by holding data hostage.
-
----
-
-## Trust & Verification
-
-### How We Ensure Authenticity
-
-| Layer | Protection |
-|-------|------------|
-| **KYB verification** | Suppliers must verify business identity before creating DPPs |
-| **did:key identity** | Cryptographic proof of issuer |
-| **VC signature** | Tamper-evident - any change breaks signature |
-| **Public verification** | Anyone can verify at eurocomply.eu/verify |
-
-### VC Attribution by Supplier Type
-
-| Supplier Type | VC Attribution | Trust Level |
-|---------------|----------------|-------------|
-| **Producer** | "Verified by [Producer Name]" | Highest - primary data source |
-| **Importer** | "Attested by [Importer Name]" | High - from supplier documentation |
-| **Brand** | "Verified by [Brand Name]" | Depends on data source |
-
----
-
-## Why Suppliers Pay
-
-### The Real Value
-
-| Value | Description |
-|-------|-------------|
-| **Avoid €50k+ alternatives** | Enterprise solutions are unaffordable for SMEs |
-| **ESPR compliance** | Meet legal requirements to sell in EU |
-| **Market access** | No DPP = no EU market access (starting 2027) |
-| **Easy creation** | Forms, templates, validation - not Excel hell |
-| **Cryptographic proof** | Verifiable Credentials differentiate from competitors |
-| **Retailer reach** | Shopify/WooCommerce plugins distribute your DPPs |
 
 ### The Math
 
@@ -322,147 +141,23 @@ This is NOT a lock-in business. We earn customers by being the best tool, not by
 │  COST COMPARISON                                                 │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  Option A: Build your own DPP system                            │
-│  • Development: €50,000+                                        │
-│  • Hosting: €500/month                                          │
-│  • Maintenance: €10,000/year                                    │
-│  • Total Year 1: €66,000+                                       │
+│  Option A: Enterprise PIM + DPP Solution                        │
+│  • Akeneo/Salsify: €20,000+/year                               │
+│  • DPP addon: €10,000+/year                                    │
+│  • Implementation: €50,000+                                     │
+│  • Total Year 1: €80,000+                                       │
 │                                                                  │
-│  Option B: Enterprise vendor (SAP, Siemens)                     │
-│  • Implementation: €100,000+                                    │
-│  • Annual license: €50,000+                                     │
-│  • Total Year 1: €150,000+                                      │
+│  Option B: Build Custom Solution                                │
+│  • Development: €100,000+                                       │
+│  • Hosting: €1,000/month                                        │
+│  • Maintenance: €20,000/year                                    │
+│  • Total Year 1: €132,000+                                      │
 │                                                                  │
-│  Option C: EuroComply                                           │
-│  • Monthly SaaS: €149                                           │
-│  • Total Year 1: €1,788                                         │
+│  Option C: EuroComply PIM + DPP                                 │
+│  • Monthly SaaS: €299                                           │
+│  • Total Year 1: €3,588                                         │
 │                                                                  │
-│  EuroComply is 97% cheaper than building, 99% cheaper than SAP. │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## Why Retailers Use Us
-
-Even though access is free, retailers choose EuroComply because:
-
-| Benefit | Description |
-|---------|-------------|
-| **Supplier catalog** | Easy to find DPPs from verified suppliers |
-| **One-click integration** | Shopify/WooCommerce plugins |
-| **Verified data** | Cryptographically signed by suppliers |
-| **Zero work** | Supplier maintains the data |
-| **Compliance** | Meet ESPR requirements without expertise |
-| **Consumer trust** | "Verified by [Supplier]" badge |
-
----
-
-## Competitive Positioning
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  MARKET POSITIONING                                              │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  ENTERPRISE (NOT OUR MARKET)                                     │
-│  (BMW, Siemens, H&M)         SAP / Siemens / Circulor           │
-│  €100k+ budgets              Deep ERP integration               │
-│                              Custom implementations              │
-│                              Eclipse Dataspace / Catena-X        │
-│                                                                  │
-│  ─────────────────────────────────────────────────────────────  │
-│                                                                  │
-│  MID-MARKET                                                      │
-│  (€10k-50k budgets)          Kezzler / Avery Dennison           │
-│                              Specialized traceability            │
-│                                                                  │
-│  ─────────────────────────────────────────────────────────────  │
-│                                                                  │
-│  SME (OUR FOCUS)             ┌─────────────────────────────┐    │
-│  (99% of EU businesses)      │      EUROCOMPLY            │    │
-│  €49-399/month budgets       │                             │    │
-│                              │  "The WordPress of DPPs"   │    │
-│                              │                             │    │
-│                              │  • Affordable SaaS          │    │
-│                              │  • Easy to use              │    │
-│                              │  • No lock-in               │    │
-│                              │  • Portable VCs             │    │
-│                              │  • Quick onboarding         │    │
-│                              │  • No IT team required      │    │
-│                              └─────────────────────────────┘    │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## SME-First Strategy
-
-### Why SME Only?
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    SME FOCUS RATIONALE                           │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  99% of EU businesses are SMEs                                  │
-│  0 affordable DPP solutions exist for them                      │
-│  Enterprise has SAP, Siemens, Catena-X - they don't need us     │
-│                                                                  │
-│  We cannot compete on:                                           │
-│  ✗ ERP integration depth                                        │
-│  ✗ Complex supply chain orchestration                           │
-│  ✗ Industry consortium membership (Catena-X, etc.)              │
-│  ✗ B2B data space protocols (Eclipse EDC)                       │
-│                                                                  │
-│  We compete on:                                                  │
-│  ✓ Price (€149/mo vs €100k+)                                    │
-│  ✓ Simplicity (hours to compliant, not months)                  │
-│  ✓ No IT team required (self-service SaaS)                      │
-│  ✓ Portability (no lock-in)                                     │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### What We Build vs. What We Skip
-
-| Category | SME-Critical (Build) | Enterprise-Only (Skip) |
-|----------|---------------------|------------------------|
-| **QR Codes** | GS1 Digital Link (interoperable QR) | Custom resolver infrastructure |
-| **Trust** | did:key + W3C VCs | EBSI blockchain anchoring |
-| **Data Format** | JSON-LD, basic AAS export | Full AAS/AASX industrial twin |
-| **Interop** | Standard REST API | Eclipse Dataspace Connector |
-| **Access Control** | Simple public/private | ODRL usage policies |
-| **Integration** | Shopify/WooCommerce plugins | SAP/Oracle ERP connectors |
-| **Onboarding** | Self-service, same-day | Months of implementation |
-
-### SME User Profile
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    TYPICAL SME CUSTOMER                          │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  Company: Small textile manufacturer or importer                │
-│  Employees: 5-50                                                │
-│  IT Staff: 0-1 (not dedicated)                                  │
-│  Products: 50-500 SKUs                                          │
-│  Tech literacy: Can use web apps, not developers                │
-│  Budget: €100-500/month for compliance tools                    │
-│                                                                  │
-│  Their needs:                                                   │
-│  • "I need DPP to sell in EU, make it easy"                    │
-│  • "I don't have 6 months for implementation"                  │
-│  • "I don't have an IT team"                                   │
-│  • "I can't afford €50k for SAP"                               │
-│                                                                  │
-│  Our promise:                                                   │
-│  • Sign up today, compliant DPP by end of week                 │
-│  • Forms guide you through required fields                     │
-│  • No developer needed                                          │
-│  • €149/month, cancel anytime                                   │
+│  EuroComply is 95%+ cheaper than alternatives.                  │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -471,35 +166,241 @@ Even though access is free, retailers choose EuroComply because:
 
 ## Revenue Model
 
-### Simple SaaS
+### Primary Revenue Streams
 
 ```
-Revenue = Number of Paying Suppliers × Average Monthly Fee
-
-Example at scale:
-1,000 suppliers × €149/month average = €149,000 MRR
+┌─────────────────────────────────────────────────────────────────┐
+│                    REVENUE COMPOSITION                           │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  85% Subscription Revenue                                       │
+│  ├── Monthly/Annual SaaS fees                                   │
+│  └── Predictable, recurring                                     │
+│                                                                  │
+│  10% Usage-Based Revenue                                        │
+│  ├── Product overages                                           │
+│  ├── API call overages                                          │
+│  └── Variable, scales with usage                                │
+│                                                                  │
+│  5% Services Revenue                                            │
+│  ├── Enterprise onboarding                                      │
+│  ├── Custom integrations                                        │
+│  └── One-time or project-based                                  │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-### No Complex Splits
+### Unit Economics
 
-| Old Model (Removed) | New Model |
-|---------------------|-----------|
-| Retailer pays per DPP | Retailers free |
-| 3-way revenue split | Simple SaaS |
-| Distributor referral % | Not applicable |
-| Usage tracking/billing | Subscription only |
+| Metric | Target |
+|--------|--------|
+| Average Revenue Per User (ARPU) | €200/month |
+| Customer Acquisition Cost (CAC) | €600 |
+| Lifetime Value (LTV) | €4,800 (24 months) |
+| LTV:CAC Ratio | 8.0x |
+| Gross Margin | 75% |
+| Monthly Churn | 2% |
 
-### Future Premium (Optional)
+---
 
-For retailers who want more than free access:
+## Market Opportunity
 
-| Premium Feature | Price | Description |
-|-----------------|-------|-------------|
-| Bulk API access | €99/mo | 1000+ product sync |
-| CSRD reporting | €199/mo | Sustainability reports |
-| Supply chain analytics | €299/mo | Insights dashboard |
+### Total Addressable Market
 
-These are **value-add analytics**, not DPP access (which must remain free).
+The EU ESPR mandates DPPs for most physical products by 2027-2030.
+
+| Sector | EU Companies | DPP Deadline | TAM |
+|--------|--------------|--------------|-----|
+| Textiles | 143,000 | 2027 | €200M |
+| Furniture | 130,000 | 2029 | €180M |
+| Electronics | 100,000 | 2030 | €140M |
+| Construction | 500,000 | 2030 | €700M |
+| **Total** | **873,000** | | **€1.2B** |
+
+*TAM calculated at €120/mo average across eligible companies*
+
+### Serviceable Market
+
+Targeting SMEs and mid-market companies who:
+- Have own-brand products
+- Sell in EU market
+- Need PIM + compliance solution
+- Can't afford enterprise solutions
+
+**SAM**: ~60,000 companies = €150M annual opportunity
+
+---
+
+## Go-to-Market Strategy
+
+### Distribution Channels
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    DISTRIBUTION CHANNELS                         │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  1. DIRECT (Self-Service)                     45% of customers  │
+│     ├── Website signup                                          │
+│     ├── Shopify App Store                                       │
+│     └── SEO / Content marketing                                 │
+│                                                                  │
+│  2. PARTNERSHIPS                              35% of customers  │
+│     ├── E-commerce agencies                                     │
+│     ├── Sustainability consultants                              │
+│     └── Industry associations                                   │
+│                                                                  │
+│  3. OUTBOUND                                  20% of customers  │
+│     ├── Trade show presence                                     │
+│     ├── Targeted campaigns                                      │
+│     └── Enterprise sales                                        │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Customer Journey
+
+```
+Awareness → Trial → Conversion → Expansion
+    │          │         │           │
+    │          │         │           └── DPP Starter → PIM + DPP
+    │          │         └── Subscribe (starts at any tier)
+    │          └── 14-day free trial
+    └── Content, SEO, App Store, Partnerships
+```
+
+---
+
+## Competitive Positioning
+
+### Market Landscape
+
+| Tier | Examples | Price | Our Position |
+|------|----------|-------|--------------|
+| Enterprise PIM | Akeneo, Salsify, inRiver | €50k+/year | Not competing |
+| Mid-Market PIM | Plytix, Sales Layer | €10k+/year | Adjacent |
+| **SME PIM + DPP** | EuroComply | €600-3,600/year | **Leader** |
+| DPP-Only Tools | Various | €500-2k/year | Partial overlap |
+
+### Differentiation
+
+| Capability | Traditional PIM | DPP-Only Tools | EuroComply |
+|------------|-----------------|----------------|------------|
+| Product management | Full | None | Full |
+| DPP compliance | Addon | Basic | Native |
+| Verifiable credentials | None | None | W3C VCs |
+| AI import | None | None | Any format |
+| E-commerce sync | Limited | None | Native |
+| SME pricing | Too expensive | Affordable | Affordable |
+
+---
+
+## Data Sovereignty
+
+### Organizations Own Their Data
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  DATA OWNERSHIP GUARANTEE                                        │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  All product data and credentials belong to the organization,   │
+│  not EuroComply.                                                │
+│                                                                  │
+│  The Verifiable Credential contains:                            │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │  {                                                         │  │
+│  │    "issuer": "did:key:z6MkhaXgBZD...",  ← Portable DID    │  │
+│  │    "credentialSubject": {                                  │  │
+│  │      ... all DPP data embedded ...                         │  │
+│  │    },                                                      │  │
+│  │    "proof": { "jws": "..." }            ← Signature       │  │
+│  │  }                                                         │  │
+│  └───────────────────────────────────────────────────────────┘  │
+│                                                                  │
+│  This means:                                                    │
+│  • Can be verified by ANYONE (did:key = self-contained)        │
+│  • Can be hosted ANYWHERE                                       │
+│  • Organization OWNS it                                        │
+│  • Is TRANSFERABLE to any other host                           │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### When Subscription Ends
+
+1. **Export package provided** containing all data, VCs, and keys
+2. **30-day grace period** to migrate data
+3. **Options:**
+   - Self-host the data
+   - Move to another provider
+   - Upload to decentralized storage
+4. **VCs still verify** - did:key is self-contained, no EuroComply dependency
+
+---
+
+## Financial Projections
+
+### Year 1-3 Targets
+
+| Metric | Year 1 | Year 2 | Year 3 |
+|--------|--------|--------|--------|
+| Customers | 400 | 1,500 | 4,000 |
+| ARR | €1.0M | €3.6M | €9.6M |
+| MRR | €80k | €300k | €800k |
+| Gross Margin | 70% | 75% | 80% |
+| Headcount | 8 | 18 | 35 |
+
+### Revenue by Tier (Year 3)
+
+| Tier | Customers | % of Base | MRR | % of Revenue |
+|------|-----------|-----------|-----|--------------|
+| DPP Starter | 2,000 | 50% | €98k | 12% |
+| DPP Professional | 1,200 | 30% | €179k | 22% |
+| PIM + DPP | 680 | 17% | €204k | 26% |
+| Enterprise | 120 | 3% | €320k | 40% |
+| **Total** | **4,000** | **100%** | **€801k** | **100%** |
+
+---
+
+## Key Success Metrics
+
+### North Star Metrics
+
+| Metric | Definition | Target |
+|--------|------------|--------|
+| **Active Products** | Products managed in platform | 1M by Year 3 |
+| **DPPs Issued** | Products with active DPPs | 500k by Year 3 |
+| **Completeness Score** | Avg product data completeness | 85% |
+
+### Operational Metrics
+
+| Category | Metric | Target |
+|----------|--------|--------|
+| Growth | MRR Growth Rate | 12% MoM |
+| Retention | Net Revenue Retention | 115% |
+| Efficiency | CAC Payback Period | 5 months |
+| Engagement | Weekly Active Users | 75% |
+
+---
+
+## Risk Factors
+
+### Market Risks
+
+| Risk | Mitigation |
+|------|------------|
+| ESPR delays | Build PIM value independent of compliance |
+| Competition from incumbents | Focus on SME segment they ignore |
+| Economic downturn | Essential compliance spend, not discretionary |
+
+### Operational Risks
+
+| Risk | Mitigation |
+|------|------------|
+| Technical complexity | Modular architecture, incremental delivery |
+| Customer churn | Strong onboarding, success team |
+| Scaling challenges | Cloud-native infrastructure |
 
 ---
 
@@ -510,43 +411,37 @@ These are **value-add analytics**, not DPP access (which must remain free).
 │                    EUROCOMPLY MODEL                              │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  TARGET MARKET: SMEs (99% of EU businesses)                    │
-│  NOT: Enterprise (they have SAP, Catena-X)                      │
+│  POSITIONING: Compliance-First PIM                              │
+│  → Product data management + DPP in one platform               │
+│  → Single "Golden Record" for commercial + compliance data      │
 │                                                                  │
-│  WHO CREATES DPPs?                                              │
-│  → Producers (manufacturers - primary data)                     │
-│  → Importers (must ensure DPP exists for EU market)            │
-│  → Brands (product identity owners)                             │
+│  TARGET MARKET: SMEs and Mid-Market                            │
+│  → Brands, manufacturers, distributors                          │
+│  → 100-5,000 SKUs                                              │
+│  → Can't afford enterprise solutions                           │
 │                                                                  │
-│  WHO PAYS?                                                      │
-│  → Suppliers pay SaaS fee (€49-399/month)                      │
+│  PRICING: Modular SaaS                                         │
+│  → DPP Starter: €49/mo (compliance focus)                      │
+│  → DPP Professional: €149/mo (+ import, DAM)                   │
+│  → PIM + DPP: €299/mo (full platform)                          │
+│  → Enterprise: Custom                                           │
 │                                                                  │
-│  WHO ACCESSES FREE?                                             │
-│  → Retailers (ESPR Article 31 mandate)                         │
-│  → Consumers (public verification)                              │
+│  KEY FEATURES:                                                  │
+│  → AI-powered import (any file format)                         │
+│  → Product families with dynamic attributes                    │
+│  → Completeness scoring per channel                            │
+│  → Auto DPP generation with W3C VCs                            │
+│  → Shopify syndication                                         │
 │                                                                  │
-│  WHAT DO SUPPLIERS GET?                                         │
-│  → DPP Creator Studio                                           │
-│  → Verifiable Credential issuance                               │
-│  → Managed hosting                                              │
-│  → Retailer distribution                                        │
-│  → Data portability                                             │
-│                                                                  │
-│  WHAT HAPPENS ON CANCELLATION?                                  │
-│  → Export all VCs and keys                                      │
-│  → Host elsewhere or self-host                                  │
-│  → VCs still verify (did:key is portable)                      │
-│                                                                  │
-│  WHY US? (SME VALUE PROP)                                       │
-│  → €149/mo vs €100k+ for enterprise solutions                  │
-│  → Sign up today, compliant by end of week                     │
-│  → No IT team required                                          │
-│  → No lock-in - you own your data                              │
-│  → Cryptographic proof - not just a database                   │
+│  DIFFERENTIATION:                                               │
+│  → Only PIM with native DPP compliance                         │
+│  → AI import from any format                                   │
+│  → Affordable for SMEs                                          │
+│  → No lock-in (portable VCs)                                   │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-*Last Updated: 2026-01-08*
+*Last Updated: January 2026*

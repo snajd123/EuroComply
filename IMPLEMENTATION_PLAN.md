@@ -1,278 +1,377 @@
 # EuroComply Implementation Plan
-## Digital Product Passport Infrastructure for ESPR Compliance
+
+## Compliance-First Product Information Management Platform
 
 ---
 
 ## 1. Executive Summary
 
-EuroComply is an API-first Digital Product Passport (DPP) platform targeting manufacturers and brands preparing for the EU Ecodesign for Sustainable Products Regulation (ESPR). The platform provides developer-friendly APIs for DPP lifecycle management, following Stripe's playbook for developer experience.
+EuroComply is a Compliance-First Product Information Management (PIM) platform with Digital Product Passports (DPP) as a core capability. The platform provides tools for managing product data, generating EU ESPR-compliant DPPs, and syndicating products to e-commerce channels.
 
-### Core Focus
-**ProductTrust API** - Digital Product Passport engine for ESPR compliance
+### Core Concept
+
+The **Golden Record** - a unified product model containing both commercial attributes (name, price, images) and compliance data (materials, certifications, carbon footprint). DPPs are generated automatically when product data completeness reaches 100%.
 
 ### Target Market
-- **SME suppliers** (99% of EU businesses) - producers, importers, brands
-- E-commerce merchants on Shopify/WooCommerce
+
+- **Brands, manufacturers, distributors** managing 100-5,000 SKUs
 - First movers in textiles, batteries, electronics, furniture
-- NOT enterprise (they have SAP, Siemens, Catena-X)
+- Organizations needing both PIM and compliance functionality
+- NOT enterprise (they have SAP, Akeneo, custom solutions)
 
 ---
 
 ## 2. Technology Stack
 
-### Backend Framework
-**Node.js + TypeScript + Express**
+### Backend
 
 | Component | Choice | Rationale |
 |-----------|--------|-----------|
-| Runtime | Node.js 20+ | Async I/O, ecosystem, Stripe-like DX |
+| Runtime | Node.js 20+ | Async I/O, excellent for API syndication |
 | Language | TypeScript | Type safety, better DX |
-| Framework | Express | Proven, flexible, large ecosystem |
-| Database | PostgreSQL | ACID, JSON support, mature |
-| ORM | Prisma | Type-safe, migrations, great DX |
-| Cache | Redis | Rate limiting, sessions |
+| Framework | Express.js | Proven, flexible |
+| Database | PostgreSQL 16 | ACID, JSONB for dynamic attributes |
+| ORM | Prisma | Type-safe, migrations |
+| Cache/Queue | Redis + BullMQ | Rate limiting, async job processing |
+| AI | Claude API (Haiku) | Document parsing, data extraction |
+
+### Frontend
+
+| Component | Choice | Rationale |
+|-----------|--------|-----------|
+| Framework | Next.js 14 | React with App Router |
+| Styling | Tailwind CSS | Utility-first |
+| Data Grid | AG Grid | Spreadsheet-like product management |
+| State | React Query | Server state, optimistic updates |
 
 ### Identity & Credentials
-**walt.id Community Stack (Apache 2.0)**
 
-- W3C Verifiable Credentials
-- SD-JWT (Selective Disclosure)
-- OID4VCI/OID4VP protocols
-- EBSI compatibility (future)
+| Component | Choice | Rationale |
+|-----------|--------|-----------|
+| Stack | walt.id Community | W3C VCs, Apache 2.0 license |
+| DID Method | did:key | Self-contained, portable, offline verification |
+| Credential Format | W3C Verifiable Credentials | Industry standard |
 
-### DID Strategy
-| Phase | Method | Status |
-|-------|--------|--------|
-| Current | `did:web` | Active - works with walt.id, requires domain hosting |
-| Current | `did:key` | ✅ IMPLEMENTED - self-contained, portable, offline verification |
-| Future | `did:ebsi` | When institutional trust needed (enterprise customers) |
+### Infrastructure
 
-**Why did:key?** The public key IS the identifier. Verification works offline, forever, without any server. Required for true data sovereignty.
-
-> ✅ **did:key implemented**: `packages/identity/src/services/did-key.service.ts` provides full did:key support with Ed25519 and P-256 algorithms, offline verification, and key export/import.
-
-### Standards
-- **GS1 Digital Link** - Product identification URLs
-- **W3C Verifiable Credentials** - Cryptographic proofs
-- **ESPR/CIRPASS** - DPP data schema alignment
+| Component | Choice | Rationale |
+|-----------|--------|-----------|
+| Compute | AWS ECS Fargate | Serverless containers |
+| Database | AWS RDS PostgreSQL | Managed, Multi-AZ |
+| Cache | AWS ElastiCache Redis | Managed cluster |
+| Storage | AWS S3 + CloudFront | DAM with CDN |
+| Image Processing | AWS Lambda + Sharp | On-the-fly optimization |
+| Frontend | Vercel | Next.js hosting |
 
 ---
 
 ## 3. System Architecture
 
+### Modular Platform Design
+
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                         CLIENT LAYER                                 │
-├─────────────────┬─────────────────┬─────────────────────────────────┤
-│  Developer API  │  Dashboard UI   │  E-commerce Plugins             │
-│  (REST)         │  (React)        │  (Shopify, WooCommerce)         │
-└────────┬────────┴────────┬────────┴──────────────┬──────────────────┘
-         │                 │                        │
-         ▼                 ▼                        ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                         API GATEWAY                                  │
-│  • Rate Limiting  • Auth  • Request Validation  • Logging           │
-└─────────────────────────────────┬───────────────────────────────────┘
-                                  │
-                                  ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                      ProductTrust Service                            │
+│                         EUROCOMPLY PLATFORM                          │
 ├─────────────────────────────────────────────────────────────────────┤
-│  • Product Management     • Passport Issuance    • QR Generation    │
-│  • Lifecycle Events       • Sustainability Data  • Public Verify    │
-│  • Unsold Goods Reports   • GS1 Digital Link     • VC Anchoring     │
-└─────────────────────────────────┬───────────────────────────────────┘
-                                  │
-         ┌────────────────────────┼────────────────────────┐
-         │                        │                        │
-         ▼                        ▼                        ▼
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────────┐
-│   Identity      │    │   Integrations  │    │   QR/GS1            │
-│   Engine        │    │   Hub           │    │   Service           │
-│  (walt.id)      │    │                 │    │                     │
-├─────────────────┤    ├─────────────────┤    ├─────────────────────┤
-│ • VC Issuance   │    │ • Shopify Sync  │    │ • GS1 Digital Link  │
-│ • DID:web       │    │ • WooCommerce   │    │ • QR Generation     │
-│ • SD-JWT        │    │ • Webhooks      │    │ • Verification URLs │
-└────────┬────────┘    └────────┬────────┘    └──────────┬──────────┘
-         │                      │                        │
-         └──────────────────────┼────────────────────────┘
-                                │
-                                ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                         DATA LAYER                                   │
-├─────────────────┬─────────────────┬─────────────────────────────────┤
-│   PostgreSQL    │     Redis       │    Object Storage (S3)          │
-│   (Primary DB)  │    (Cache)      │    (QR images, documents)       │
-└─────────────────┴─────────────────┴─────────────────────────────────┘
+│                                                                      │
+│  ┌──────────────────────────────────────────────────────────────┐   │
+│  │                         CORE MODULE                           │   │
+│  │  • Authentication (JWT, API Keys)                            │   │
+│  │  • Organization management                                    │   │
+│  │  • Billing (Stripe)                                          │   │
+│  │  • Basic Product CRUD                                        │   │
+│  └──────────────────────────────────────────────────────────────┘   │
+│         │                                                            │
+│         ├─────────────────┬─────────────────┬─────────────────┐     │
+│         ▼                 ▼                 ▼                 ▼     │
+│  ┌─────────────┐   ┌─────────────┐   ┌─────────────┐   ┌──────────┐│
+│  │ COMPLIANCE  │   │     PIM     │   │     DAM     │   │  IMPORT  ││
+│  │             │   │             │   │             │   │          ││
+│  │ • Passports │   │ • Families  │   │ • Assets    │   │ • AI     ││
+│  │ • walt.id   │   │ • Variants  │   │ • S3/CDN    │   │ • CSV    ││
+│  │ • Lifecycle │   │ • Scoring   │   │ • Transform │   │ • PDF    ││
+│  │ • QR codes  │   │ • Pricing   │   │ • Roles     │   │ • Excel  ││
+│  └─────────────┘   └──────┬──────┘   └─────────────┘   └──────────┘│
+│                           │                                         │
+│                           ▼                                         │
+│                    ┌─────────────┐                                  │
+│                    │ SYNDICATION │                                  │
+│                    │             │                                  │
+│                    │ • Shopify   │                                  │
+│                    │ • BullMQ    │                                  │
+│                    │ • Rate limit│                                  │
+│                    └─────────────┘                                  │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Module Dependencies
+
+```
+CORE ─────────────────► Required by all modules
+
+COMPLIANCE ───────────► Requires: CORE
+                        Optional: PIM (enhances product data)
+
+PIM ──────────────────► Requires: CORE
+                        Optional: DAM, IMPORT
+
+DAM ──────────────────► Requires: CORE
+                        Works with: PIM, COMPLIANCE
+
+IMPORT ───────────────► Requires: CORE, PIM
+
+SYNDICATION ──────────► Requires: CORE, PIM
 ```
 
 ---
 
-## 4. Database Schema
+## 4. Data Model
+
+### Hybrid Schema Strategy
+
+The database uses a hybrid relational/JSONB approach:
+
+- **Relational columns**: Universal fields with query performance (SKU, GTIN, name, status, price)
+- **JSONB columns**: Dynamic attributes validated by ProductFamily schema
 
 ### Core Entities
 
 ```
-Organizations (Tenants)
-├── api_keys
-├── team_members
-├── webhooks
-└── settings (Shopify/WooCommerce credentials)
+Organization (Tenant)
+├── type: BRAND | MANUFACTURER | DISTRIBUTOR
+├── enabledModules: ["core", "compliance", "pim", ...]
+├── plan: DPP_STARTER | DPP_PROFESSIONAL | PIM_DPP | ENTERPRISE
+└── settings (billing, integrations)
 
-Products
-├── name, sku, gtin
-├── description
-├── attributes (JSON - sustainability data)
-├── status (DRAFT, ACTIVE, ARCHIVED)
-└── source (manual, shopify, woocommerce)
+ProductFamily (Attribute Schema)
+├── name: "Apparel", "Electronics", etc.
+├── attributeSchema: JSONB (field definitions)
+├── dppRequirements: String[] (fields needed for DPP)
+└── completenessRules: JSONB (per-channel requirements)
 
-Passports (DPPs)
+Product (Golden Record)
+├── Core fields: sku, gtin, name, status
+├── attributes: JSONB (validated by family)
+├── completeness: JSONB (per-channel scores)
+├── dppData: JSONB (compliance snapshot)
+├── price, currency (multi-currency)
+└── Variants[]
+
+ProductVariant
+├── sku, gtin
+├── attributes: JSONB (overrides parent)
+├── price (override)
+└── quantity
+
+Asset (DAM)
+├── filename, mimeType, size
+├── storageKey (S3)
+├── type: IMAGE | VIDEO | DOCUMENT | CERTIFICATE
+└── ProductAssets[] (many-to-many with roles)
+
+Channel (Syndication)
+├── type: SHOPIFY | DPP | CUSTOM_API
+├── credentials: JSONB (encrypted)
+├── status, lastSyncAt
+└── ChannelListings[]
+
+ImportJob (AI Import)
+├── fileType: CSV | EXCEL | PDF | JSON | IMAGE
+├── status: PENDING | EXTRACTING | MAPPING | IMPORTING | COMPLETED
+├── extractedData: JSONB (AI output)
+├── mappingSuggestions: JSONB
+└── errors: JSONB
+
+Passport (DPP)
 ├── productId
-├── data (JSON - CIRPASS schema)
-├── credentialId
+├── data: JSONB (CIRPASS schema)
 ├── vcJwt (Verifiable Credential)
 ├── qrCodeUrl
-├── status (DRAFT, ACTIVE, REVOKED)
-└── anchoredAt
-
-LifecycleEvents
-├── productId
-├── eventType (MANUFACTURED, SHIPPED, SOLD, RETURNED, RECYCLED, DESTROYED)
-├── quantity
-├── reason
-└── metadata
-
-AuditLog
-├── organizationId
-├── action
-├── resourceType
-├── resourceId
-└── metadata
+└── status: DRAFT | ACTIVE | REVOKED
 ```
 
 ---
 
 ## 5. API Design
 
+### Module-Based Routes
+
+```
+/api/v1/
+├── core/
+│   ├── /auth           # Login, API keys
+│   ├── /organizations  # Tenant management
+│   └── /billing        # Subscription, usage
+│
+├── pim/
+│   ├── /families       # Product family schemas
+│   ├── /products       # Product CRUD
+│   ├── /variants       # Variant management
+│   └── /completeness   # Scoring rules
+│
+├── compliance/
+│   ├── /passports      # DPP generation
+│   ├── /lifecycle      # Event tracking
+│   └── /verify         # Public verification (no auth)
+│
+├── dam/
+│   ├── /assets         # Asset CRUD
+│   └── /upload         # Upload endpoint
+│
+├── import/
+│   ├── /jobs           # Import job management
+│   └── /upload         # File upload + AI processing
+│
+└── syndication/
+    ├── /channels       # Channel connections
+    ├── /shopify        # Shopify OAuth + webhooks
+    └── /sync           # Manual sync triggers
+```
+
 ### Authentication
+
 ```bash
-# API Key in header (Stripe-style)
+# API Key (for integrations)
 curl https://api.eurocomply.eu/v1/products \
   -H "Authorization: Bearer ec_live_xxxxx"
+
+# JWT (for dashboard)
+curl https://api.eurocomply.eu/v1/products \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIs..."
 ```
 
-### ProductTrust API Endpoints
+### Module Access Control
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/v1/products` | Create product |
-| GET | `/v1/products` | List products |
-| GET | `/v1/products/:id` | Get product |
-| PATCH | `/v1/products/:id` | Update product |
-| DELETE | `/v1/products/:id` | Archive product |
-| POST | `/v1/products/:id/events` | Log lifecycle event |
-| POST | `/v1/passports` | Create DPP |
-| GET | `/v1/passports/:id` | Get DPP |
-| PATCH | `/v1/passports/:id` | Update DPP |
-| POST | `/v1/passports/:id/qr` | Generate QR code |
-| POST | `/v1/passports/:id/anchor` | Anchor to blockchain |
-| GET | `/v1/passports/:id/verify` | Public verification (no auth) |
-| GET | `/v1/reports/unsold-goods` | ESPR Article 20 report |
+```typescript
+// Middleware checks module access
+const requireModule = (module: Module) => {
+  return (req, res, next) => {
+    if (!req.organization.enabledModules.includes(module)) {
+      throw new ForbiddenError(`Module '${module}' not enabled`);
+    }
+    next();
+  };
+};
 
-### E-commerce Integration Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/shopify/auth` | Start OAuth flow |
-| GET | `/api/shopify/callback` | OAuth callback |
-| POST | `/api/shopify/webhooks/:topic` | Webhook handler |
-| GET | `/api/shopify/status` | Connection status |
-| POST | `/api/shopify/sync` | Manual sync |
-| POST | `/api/woocommerce/connect` | Connect store |
-| GET | `/api/woocommerce/status` | Connection status |
-| POST | `/api/woocommerce/sync` | Manual sync |
-
-### Webhook Events
-```
-product.created
-product.updated
-passport.created
-passport.anchored
-lifecycle.recorded
+// Routes are grouped by module
+router.use('/pim/families', requireModule('pim'), familyRoutes);
+router.use('/syndication', requireModule('syndication'), syndicationRoutes);
 ```
 
 ---
 
-## 6. Implementation Status
+## 6. Implementation Phases
 
-### Completed ✅
+### Phase 1: Data Foundation
 
-- [x] Project scaffolding (monorepo)
-- [x] Database schema (Prisma + PostgreSQL)
-- [x] Authentication system (API keys)
-- [x] Rate limiting and middleware
-- [x] Organization/tenant management
-- [x] Product CRUD operations
-- [x] Passport CRUD operations
-- [x] GS1 Digital Link generation
-- [x] QR code generation
-- [x] Lifecycle event tracking
-- [x] walt.id integration (VCs)
-- [x] DID document hosting (did:web)
-- [x] Public passport verification
-- [x] Shopify integration (OAuth, sync, webhooks)
-- [x] WooCommerce integration (API key, sync, webhooks)
+**Goal:** Establish PIM schema and basic management UI
 
-### In Progress 🔄
+| Task | Status |
+|------|--------|
+| Design Prisma schema with Product, Family, JSONB attributes | Planned |
+| Implement AG Grid frontend with read/write capabilities | Planned |
+| Build core Node.js CRUD API | Partial |
+| Multi-currency pricing support | Planned |
+| ProductVariant with parent-child inheritance | Planned |
 
-- [ ] React Dashboard
-- [ ] Batch passport generation
-- [ ] ESPR unsold goods report generation
+**Outcome:** Users can manually create and edit products with dynamic attributes.
 
-### Future 📋
+### Phase 2: AI Import Engine
 
-- [ ] EBSI integration (when mature)
-- [ ] Supply chain credential sharing
-- [ ] AI-powered document parsing
-- [ ] Additional e-commerce platforms
+**Goal:** Enable bulk data onboarding from any format
+
+| Task | Status |
+|------|--------|
+| Implement stream-based file parser (CSV, Excel) | Planned |
+| Build Claude API integration for data extraction | Planned |
+| Create import wizard UI with mapping preview | Planned |
+| Set up BullMQ workers for async processing | Planned |
+| PDF/Image OCR support | Planned |
+
+**Outcome:** Users can import 10,000 SKUs from any file format.
+
+### Phase 3: Compliance & DAM
+
+**Goal:** Integrate DPP and media workflows
+
+| Task | Status |
+|------|--------|
+| Implement S3 + Lambda image optimization pipeline | Planned |
+| Develop completeness scoring algorithm | Planned |
+| Build walt.id connector for credential issuance | Complete |
+| Auto-trigger DPP generation at 100% completeness | Planned |
+| Asset roles and product associations | Planned |
+
+**Outcome:** Products can be validated and issued DPPs automatically.
+
+### Phase 4: Syndication
+
+**Goal:** Connect to e-commerce channels
+
+| Task | Status |
+|------|--------|
+| Implement Shopify OAuth connector | Complete |
+| Build rate-limited BullMQ sync workers | Planned |
+| Bi-directional product sync | Partial |
+| DPP metadata to Shopify metafields | Planned |
+
+**Outcome:** Full PIM functionality with Shopify publishing.
+
+### Phase 5: Frontend Dashboard
+
+**Goal:** Spreadsheet-like product management interface
+
+| Task | Status |
+|------|--------|
+| AG Grid integration with virtualization | Planned |
+| Inline editing with optimistic updates | Planned |
+| Completeness visualization (traffic lights) | Planned |
+| Import wizard UI | Planned |
+| Channel sync status dashboard | Planned |
+
+**Outcome:** Users can manage thousands of products efficiently.
 
 ---
 
 ## 7. Directory Structure
 
 ```
-eurocomply/
+EuroComply/
 ├── apps/
-│   ├── api/                    # Express.js API server
-│   │   ├── src/
-│   │   │   ├── modules/
-│   │   │   │   ├── product-trust/    # DPP endpoints
-│   │   │   │   └── integrations/     # Shopify, WooCommerce
-│   │   │   ├── common/
-│   │   │   │   ├── auth/
-│   │   │   │   ├── middleware/
-│   │   │   │   ├── routes/           # health, did
-│   │   │   │   └── utils/
-│   │   │   └── index.ts
-│   │   └── package.json
+│   ├── api/                     # Express.js API server
+│   │   └── src/
+│   │       ├── core/            # Auth, org, billing
+│   │       ├── pim/             # Families, products, variants
+│   │       ├── compliance/      # Passports, lifecycle
+│   │       ├── dam/             # Assets, upload
+│   │       ├── import/          # AI import, job processing
+│   │       └── syndication/     # Shopify, sync jobs
 │   │
-│   └── dashboard/              # React admin dashboard (planned)
+│   └── frontend/                # Next.js dashboard
+│       └── src/
+│           ├── app/             # App Router pages
+│           ├── components/      # UI components
+│           │   ├── grid/        # AG Grid wrappers
+│           │   ├── import/      # Import wizard
+│           │   └── common/      # Shared components
+│           └── lib/             # Utilities, API client
 │
 ├── packages/
-│   ├── database/               # Prisma schema & migrations
-│   ├── identity/               # walt.id integration
-│   ├── integrations/           # Shopify & WooCommerce clients
-│   └── shared/                 # Shared types and utilities
+│   ├── database/                # Prisma schema & migrations
+│   ├── identity/                # walt.id integration
+│   ├── shared/                  # Shared types, Zod schemas
+│   └── ai/                      # Claude API integration
 │
-├── docs/
-│   └── ECOMMERCE_INTEGRATIONS.md
+├── infrastructure/
+│   ├── aws/                     # CloudFormation templates
+│   └── terraform/               # Alternative IaC
 │
 ├── docker/
-│   ├── docker-compose.yml
-│   └── Dockerfile
+│   ├── docker-compose.yml       # Local development
+│   └── Dockerfile               # Production build
 │
-└── README.md
+└── docs/                        # Documentation
 ```
 
 ---
@@ -281,259 +380,91 @@ eurocomply/
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| Architecture | Monolith-first | Faster iteration, extract services later |
-| API Style | REST | Stripe-like simplicity |
-| Multi-tenancy | Shared DB, row-level | Cost-effective for SME pricing |
-| Identity | walt.id (free) | W3C VCs, EBSI-ready |
-| DID Method | did:key | Self-contained, portable, offline verification |
-| E-commerce | Shopify + WooCommerce | Largest SME platforms |
+| Architecture | Headless Modular Monolith | Logical separation, shared runtime, option to extract |
+| Data Model | Relational + JSONB | SQL performance + NoSQL flexibility |
+| API Style | REST | Simple, well-understood |
+| Multi-tenancy | Shared DB, row-level security | Cost-effective |
+| Identity | walt.id + did:key | Portable, offline verification |
+| AI Provider | Claude (Haiku) | Cost-effective for extraction |
+| Job Queue | BullMQ + Redis | Rate limiting, reliable processing |
+| E-commerce | Shopify only (initially) | Largest SME platform |
 
 ---
 
-## 9. Business Model
+## 9. Pricing Tiers & Module Access
 
-### Supplier-Pays SaaS (ESPR Article 31 Compliant)
+| Plan | Monthly | Products | Modules |
+|------|---------|----------|---------|
+| **DPP Starter** | €49 | 100 | Core, Compliance, Basic DAM |
+| **DPP Professional** | €149 | 500 | + Full DAM, CSV Import |
+| **PIM + DPP** | €299 | 2,000 | + PIM, AI Import, Shopify Sync, API |
+| **Enterprise** | Custom | Unlimited | All + Custom integrations |
 
-**Suppliers pay** for DPP creation tools. **Retailers access free** (EU law mandates free access).
-
-| Tier | Monthly | DPPs | Features |
-|------|---------|------|----------|
-| Starter | €49 | 50 | Creator studio, VCs, hosting, QR codes |
-| Growth | €149 | 500 | + CSV import, templates, priority support |
-| Pro | €399 | 2,000 | + API access, white-label, dedicated support |
-
-See [BUSINESS_MODEL.md](docs/BUSINESS_MODEL.md) for details.
-
-### Data Sovereignty
-
-All tiers include full data sovereignty:
-- Self-contained VCs (all data embedded)
-- Offline verification (works forever without us)
-- One-click export (VC + images + offline viewer)
-- No lock-in (open standards, any viewer works)
-
-See [DATA_SOVEREIGNTY.md](docs/DATA_SOVEREIGNTY.md) for architecture details.
+See [BUSINESS_MODEL.md](docs/BUSINESS_MODEL.md) for full details.
 
 ---
 
-## 10. Product Roadmap
+## 10. Success Metrics
 
-### Phase 1: Textile MVP ✅ COMPLETE
+### Technical KPIs
 
-**Goal:** Compliant DPPs for textile/apparel SMEs
+| Metric | Target |
+|--------|--------|
+| API latency (p95) | < 200ms |
+| Uptime | 99.9% |
+| Import throughput | 1,000 products/minute |
+| Completeness calculation | < 100ms |
 
-```typescript
-interface TextileDppData {
-  // MANDATORY (2027)
-  fiberComposition: FiberEntry[];
-  countryOfOrigin: string;
-  manufacturerIdentification: { name: string; did?: string; };
-  careInstructions: { maxWashTemp: number; bleachAllowed: boolean; tumbleDry: boolean; };
-  hazardousSubstances: { reachCompliant: boolean; };
+### Business KPIs
 
-  // RECOMMENDED
-  carbonFootprint?: { value: number; unit: 'kgCO2e'; methodology: string; };
-  certifications?: Certification[];
-}
-```
+| Metric | Year 1 | Year 2 | Year 3 |
+|--------|--------|--------|--------|
+| Customers | 400 | 1,500 | 4,000 |
+| ARR | €1.0M | €3.6M | €9.6M |
+| Active Products | 100k | 400k | 1M |
+| DPPs Issued | 50k | 200k | 500k |
 
-**Delivered:**
-- Textile-specific schema and validation
-- Data collection UI in Shopify app
-- Template library (t-shirt, jeans, jacket benchmarks)
-- Compliance validation engine
+---
 
-### Phase 2: Third-Party Data Integration ✅ COMPLETE
+## 11. EU Registry Integration (Future)
 
-**Goal:** Auto-populate from industry databases
+### What is the EU Registry?
 
-- Higg MSI integration (carbon footprint calculation)
-- Certification registry (GOTS, OEKO-TEX, GRS)
-
-### Phase 3: Supplier SaaS Platform ⚠️ PARTIAL
-
-**Goal:** Self-service supplier onboarding
-
-**Implemented:**
-- ✅ Supplier portal (registration, verification, dashboard)
-- ✅ SaaS subscription billing (€49/149/399) - schema + services ready
-- ✅ Free retailer catalog access (ESPR Article 31)
-- ✅ Email verification service
-- ✅ VIES VAT verification service
-
-**Not Yet Implemented:**
-- ❌ Migration tooling for existing did:web to did:key
-
-### Phase 3.5: Data Sovereignty ✅ COMPLETE
-
-**Goal:** True data portability and ownership
-
-| Feature | Status | Location |
-|---------|--------|----------|
-| did:key implementation | ✅ | `packages/identity/src/services/did-key.service.ts` |
-| Self-contained VCs | ✅ | `packages/identity/src/services/vc-export.service.ts` |
-| Offline verification | ✅ | Built into did:key service |
-| Key export/import | ✅ | `did-key.service.ts` - `exportPrivateKey()`, `importPrivateKey()` |
-| Offline HTML viewer | ✅ | `vc-export.service.ts` - `generateOfflineViewer()` |
-| Portable export package | ✅ | `vc-export.service.ts` - `exportPortablePackage()` |
-| API endpoints | ✅ | `apps/api/src/modules/supplier/routes.ts` + `export.service.ts` |
-
-**Test Coverage:** 34 tests (16 did:key + 11 vc-export + 7 export service)
-
-### Phase 4: Shopify Metaobject Sync 📋 PLANNED
-
-**Goal:** Native Shopify data storage
-
-- DPP metaobject definitions
-- Bi-directional sync with EuroComply
-
-### Phase 5: Furniture & Electronics (2026)
-
-**Goal:** Expand to next product categories
-
-Aligned with regulatory deadlines:
-| Category | ESPR Deadline | Our Timeline |
-|----------|---------------|--------------|
-| Textiles | 2027 | ✅ Ready |
-| Furniture | 2029 | 2026 |
-| Electronics | 2030 | 2027 |
-
-### Phase 6: Advanced Features (2026+)
-
-- Item-level tracking (serial numbers)
-- Supply chain VCs
-- GS1 Digital Link resolver
-- Basic AAS export
-
-### Phase 7: EU Registry Integration (2026-2027) 📋 PLANNED
-
-**Goal:** Seamless integration with the European Commission's Digital Product Passport Registry
-
-#### What is the EU Registry?
-
-The **System Registry** (formally the Registry of Digital Product Passports) is a central database managed by the European Commission. It acts as a **lookup index** (not data storage) that enables:
+The **System Registry** (formally the Registry of Digital Product Passports) is a central database managed by the European Commission. It acts as a lookup index enabling:
 
 - **Customs Automation:** Bulk verification of products entering the EU
 - **Market Surveillance:** Regulators can query product patterns
 - **Resilience:** Record of products even if manufacturer disappears
 
-#### What the Registry Stores (Article 12 ESPR)
+### Timeline
 
-| Data Element | EuroComply Status | Notes |
-|--------------|-------------------|-------|
-| **Product Identifier** | ✅ Ready | GS1/GTIN support implemented |
-| **Operator Identifier** | ✅ Ready | VAT ID via VIES validation |
-| **Facility Identifier** | ⚠️ Needs GLN | Add Global Location Number field |
-| **Data Carrier URL** | ✅ Ready | Hosted DPP URLs with QR codes |
+| Milestone | Date |
+|-----------|------|
+| EU publishes Registry API specs | 2025-2026 |
+| EuroComply implements Registry client | 2026 |
+| First products registered | 2027 |
 
-#### Implementation Tasks
+### Architecture Readiness
 
-| Task | Priority | Status |
-|------|----------|--------|
-| Add GLN (Global Location Number) field to facilities | Medium | 📋 Planned |
-| Create EU Registry API client (when specs published) | High | 🔮 Waiting for EU specs |
-| Add `registryStatus` field to products | Medium | 📋 Planned |
-| Bulk registration endpoint for large importers | Medium | 📋 Planned |
-| Registry sync dashboard in supplier portal | Low | 📋 Planned |
-
-#### Timeline
-
-- **2025-2026:** EU Commission publishes Registry API specifications
-- **2026:** EuroComply implements Registry API client
-- **2027:** First products registered as DPP requirements begin
-
-#### Architecture Readiness
-
-Our current architecture is **ready for Registry integration** because:
-
-1. **GS1 Standards:** Already using GTIN for product identification
-2. **Operator Data:** VAT IDs collected and validated via VIES
-3. **Accessible URLs:** DPP URLs are public and machine-readable
-4. **Open Formats:** W3C Verifiable Credentials, JSON-LD
-
-When the EU publishes the Registry API, integration will be straightforward:
-
-```typescript
-// Future: Register product with EU Registry
-await euRegistry.registerProduct({
-  productIdentifier: product.gtin,           // Already have
-  operatorIdentifier: supplier.vatId,        // Already have
-  facilityIdentifier: facility.gln,          // Need to add
-  dataCarrierUrl: passport.publicUrl,        // Already have
-});
-```
+Our architecture is ready for Registry integration:
+- GS1 standards (GTIN for product identification)
+- Operator data (VAT IDs validated via VIES)
+- Accessible URLs (public DPP endpoints)
+- Open formats (W3C VCs, JSON-LD)
 
 ---
 
-## 11. ESPR Timeline & Market
+## 12. Related Documentation
 
-| Milestone | Date | Implication |
-|-----------|------|-------------|
-| ESPR enters into force | July 2024 | Framework active |
-| First delegated acts | 2025-2026 | Product-specific rules |
-| DPP requirements begin | 2027+ | Passports mandatory |
-
-**First product categories**: Textiles, batteries, electronics, furniture
-
-### Target Customer Profile (SME Suppliers)
-- Company size: 5-200 employees
-- Revenue: €1M-€50M (SME range)
-- Products: Physical goods sold in EU
-- IT staff: 0-2 (not dedicated)
-- Tech: Using Shopify/WooCommerce, can use web apps
-- Pain: Upcoming ESPR compliance, no internal expertise, can't afford enterprise solutions
+| Document | Description |
+|----------|-------------|
+| [README.md](./README.md) | Platform overview and setup |
+| [BUSINESS_MODEL.md](./docs/BUSINESS_MODEL.md) | Pricing and market positioning |
+| [DATA_SOVEREIGNTY.md](./docs/DATA_SOVEREIGNTY.md) | Data ownership architecture |
+| [VERIFIABLE_CREDENTIALS.md](./docs/VERIFIABLE_CREDENTIALS.md) | VC/DID technical details |
+| [ECOMMERCE_INTEGRATIONS.md](./docs/ECOMMERCE_INTEGRATIONS.md) | Shopify integration guide |
+| [INFRASTRUCTURE.md](./INFRASTRUCTURE.md) | AWS deployment guide |
 
 ---
 
-## 12. EBSI Roadmap (Future)
-
-EBSI integration planned when business traction achieved.
-
-### Trigger Criteria
-- 50+ paying customers
-- €10K+ MRR
-- Enterprise customer requirement
-
-### What EBSI Adds
-- Listed in EU Trusted Issuers Registry
-- Full eIDAS 2.0 legal recognition
-- "Powered by EBSI" marketing
-
-### Current State
-- Using: did:web via walt.id (production) + did:key (new, portable)
-- Credentials: W3C VCs with self-contained data option
-- Verifiable: Yes (did:web requires server, did:key works offline)
-- Data Sovereignty: ✅ COMPLETE (export implemented)
-- EBSI-ready: Yes (architecture supports upgrade)
-
-### Phase 3.5 Complete ✅
-- ✅ did:key (self-contained, offline verification)
-- ✅ Self-contained VCs (all data embedded)
-- ✅ Full data sovereignty (one-click export, no lock-in)
-- ✅ Offline HTML viewer for DPPs
-
----
-
-## 13. Success Metrics
-
-### Technical KPIs
-- API latency < 200ms (p95)
-- 99.9% uptime
-- < 0.1% error rate
-- Time to first passport < 5 minutes
-
-### Business KPIs
-- Year 1: 500 organizations, €500K ARR
-- Year 2: 2,000 organizations, €2M ARR
-- Focus: Product-market fit before scale
-
----
-
-## 14. Related Documentation
-
-- **[README.md](./README.md)** - Quick start and API usage
-- **[Business Model](./docs/BUSINESS_MODEL.md)** - Pricing and supplier-pays model
-- **[Data Sovereignty](./docs/DATA_SOVEREIGNTY.md)** - Self-contained VCs and no lock-in
-- **[E-commerce Integrations](./docs/ECOMMERCE_INTEGRATIONS.md)** - Shopify & WooCommerce setup
-- **[Verifiable Credentials](./docs/VERIFIABLE_CREDENTIALS.md)** - How DPPs become cryptographically verifiable
-- **[Testing Guide](./docs/TESTING_GUIDE.md)** - Local testing instructions
+*Last Updated: January 2026*

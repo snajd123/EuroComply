@@ -1,380 +1,339 @@
 # EuroComply
 
-**Digital Product Passport SaaS for SME Suppliers**
+**Compliance-First Product Information Management for EU Regulations**
 
-EuroComply provides affordable DPP (Digital Product Passport) infrastructure for SME manufacturers, importers, and brands preparing for the EU Ecodesign for Sustainable Products Regulation (ESPR).
+EuroComply is a Product Information Management (PIM) platform with Digital Product Passports (DPP) as a core capability. Built for brands, manufacturers, and distributors who need to manage product data and comply with EU ESPR regulations.
 
-## 🎯 Our Focus: SMEs
+---
 
-**99% of EU businesses are SMEs. Zero affordable DPP solutions exist for them.**
+## Platform Overview
 
-Enterprise has SAP, Siemens, Catena-X. SMEs have nothing. We fill that gap.
+EuroComply unifies product data management and regulatory compliance into a single platform. Instead of treating compliance as an afterthought, the platform architects data structures where regulatory validity is intrinsic to the product record.
 
-| What We Offer | What We Don't |
-|---------------|---------------|
-| €49-399/month SaaS | €100k+ enterprise solutions |
-| Self-service, same-day setup | Months of implementation |
-| No IT team required | Complex ERP integration |
-| Portable data (did:key) | Platform lock-in |
+### Core Concept: The Golden Record
 
-## 💼 Business Model
-
-### Supplier-Pays SaaS (ESPR Article 31 Compliant)
-
-**Suppliers pay** for DPP creation tools. **Retailers access free** (EU law mandates free access).
+Every product has a single "Golden Record" containing both commercial attributes and compliance data:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  SUPPLIERS PAY                          RETAILERS ACCESS FREE   │
-│  ─────────────                          ────────────────────    │
-│  Producers, Importers, Brands           Shopify, WooCommerce    │
-│  €49-399/month SaaS                     €0 (ESPR Article 31)    │
+│                      GOLDEN RECORD                               │
+├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  Create DPPs → Managed hosting → Retailers display on stores   │
+│  COMMERCIAL DATA              COMPLIANCE DATA                   │
+│  ├── Name, Description        ├── Material Composition          │
+│  ├── SKU, GTIN                ├── Carbon Footprint              │
+│  ├── Price, Currency          ├── Certifications                │
+│  ├── Images, Media            ├── Country of Origin             │
+│  └── Variants                 └── Care Instructions             │
+│                                                                  │
+│                        ↓                                         │
+│              ┌─────────────────┐                                │
+│              │ DPP Generation  │ Automatic when data complete   │
+│              └────────┬────────┘                                │
+│                       ↓                                         │
+│              ┌─────────────────┐                                │
+│              │ Shopify Sync    │ Product syndication            │
+│              └─────────────────┘                                │
+│                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### Pricing Tiers
+---
 
-| Tier | Monthly | DPPs | Features |
-|------|---------|------|----------|
-| **Starter** | €49 | 50 | Creator studio, VCs, hosting, QR codes |
-| **Growth** | €149 | 500 | + CSV import, templates, priority support |
-| **Pro** | €399 | 2,000 | + API access, white-label, dedicated support |
+## Platform Modules
 
-*No Enterprise tier. Large companies use SAP/Siemens.*
+EuroComply uses a modular architecture. Organizations enable the modules they need:
 
-## 🎯 What We Do
+| Module | Description | Depends On |
+|--------|-------------|------------|
+| **Core** | Authentication, organizations, billing | - |
+| **Compliance** | DPP generation, walt.id credentials, lifecycle tracking | Core |
+| **PIM** | Product families, variants, completeness scoring | Core |
+| **DAM** | Digital asset management, image optimization | Core |
+| **Import** | AI-powered data import from any format | Core, PIM |
+| **Syndication** | Shopify integration, channel publishing | Core, PIM |
 
-### Digital Product Passports (DPPs)
+### Plan-Based Access
 
-- **DPP Creator Studio** - Category-specific forms for textiles, electronics, batteries
-- **Verifiable Credentials** - W3C VCs with did:key (portable, self-verifying)
-- **QR Code Generation** - GS1 Digital Link compliant
-- **Managed Hosting** - EU data residency (while subscribed)
-- **Data Sovereignty** - Self-contained VCs with all data embedded, export anytime
-- **No Lock-in** - VCs verify offline, forever, without EuroComply
-- **Public Verification** - Anyone can verify a product's passport
+| Plan | Monthly | Products | Modules Included |
+|------|---------|----------|------------------|
+| **DPP Starter** | €49 | 100 | Core, Compliance, Basic DAM |
+| **DPP Professional** | €149 | 500 | Core, Compliance, DAM, CSV Import |
+| **PIM + DPP** | €299 | 2,000 | All modules |
+| **Enterprise** | Custom | Unlimited | All + API + Custom integrations |
 
-### Free Retailer Access
+---
 
-ESPR Article 31 mandates free DPP access for economic operators.
+## Key Features
 
-- **Shopify/WooCommerce plugins** - Browse supplier catalog, link DPPs
-- **No subscription fees** - Retailers never pay for DPP access
-- **Display on storefront** - Embedded widget, QR codes
+### AI-Powered Import
 
-## 🛒 E-commerce Integrations
+Users can import product data from any format. The AI extracts, maps, and validates data automatically:
 
-Automatically sync products from your existing store:
+- **Supported formats**: CSV, Excel, PDF, JSON, Images (OCR)
+- **Intelligent mapping**: AI suggests field mappings to your product schema
+- **Data enrichment**: Auto-fill missing fields based on product type
+- **Validation**: Schema validation and compliance pre-checks
 
-| Platform | Status | Features |
-|----------|--------|----------|
-| **Shopify** | Ready | OAuth install, auto-sync, QR to metafields |
-| **WooCommerce** | Ready | API key connect, auto-sync, QR to meta |
+### Product Information Management
 
-See [E-commerce Integrations Guide](docs/ECOMMERCE_INTEGRATIONS.md) for setup instructions.
+- **Product Families**: Define attribute schemas per product type (Apparel, Electronics, etc.)
+- **Dynamic Attributes**: Flexible JSONB storage for category-specific data
+- **Variants**: Parent-child product relationships with attribute inheritance
+- **Completeness Scoring**: Per-channel readiness scores (DPP: 85%, Shopify: 100%)
+- **Multi-Currency**: Support for EUR, USD, GBP, and other currencies
 
-## 🏗️ Architecture
+### Digital Product Passports
+
+- **Automatic Generation**: DPPs generated when completeness reaches 100%
+- **Verifiable Credentials**: W3C VCs signed with did:key for tamper evidence
+- **Portable**: Organizations own their credentials, can export anytime
+- **QR Codes**: GS1 Digital Link compatible
+
+### E-commerce Syndication
+
+- **Shopify Integration**: Sync products, variants, and DPP metadata
+- **Rate-Limited Sync**: Respectful of API limits with queue-based processing
+- **Bi-directional**: Import from Shopify, push updates back
+
+---
+
+## Technology Stack
+
+### Backend
+
+| Component | Technology | Purpose |
+|-----------|------------|---------|
+| Runtime | Node.js 20 | API server, async I/O |
+| Framework | Express.js | HTTP routing |
+| ORM | Prisma | Type-safe database access |
+| Database | PostgreSQL 16 | Primary data store with JSONB |
+| Cache/Queue | Redis + BullMQ | Caching, job processing |
+| Identity | walt.id | DID/VC infrastructure |
+| AI | Claude API | Document parsing, data extraction |
+
+### Frontend
+
+| Component | Technology | Purpose |
+|-----------|------------|---------|
+| Framework | Next.js 14 | React with App Router |
+| Styling | Tailwind CSS | Utility-first CSS |
+| Data Grid | AG Grid | Spreadsheet-like product management |
+| State | React Query | Server state management |
+
+### Infrastructure
+
+| Component | Technology | Purpose |
+|-----------|------------|---------|
+| Compute | AWS ECS Fargate | Containerized API |
+| Database | AWS RDS | Managed PostgreSQL |
+| Cache | AWS ElastiCache | Managed Redis |
+| Storage | AWS S3 + CloudFront | Asset storage and CDN |
+| Image Processing | AWS Lambda + Sharp | On-the-fly image optimization |
+| Frontend | Vercel | Next.js hosting |
+
+---
+
+## Data Model
+
+### Core Entities
 
 ```
-eurocomply/
+Organization (tenant)
+├── Products (Golden Records)
+│   ├── attributes: JSONB (dynamic, validated by family)
+│   ├── completeness: JSONB (per-channel scores)
+│   ├── dppData: JSONB (compliance snapshot)
+│   ├── price: Decimal (multi-currency)
+│   └── Variants
+│       └── attributes: JSONB (overrides parent)
+├── ProductFamilies (attribute schemas)
+│   ├── attributeSchema: JSONB (field definitions)
+│   └── completenessRules: JSONB (per-channel requirements)
+├── Assets (DAM)
+│   └── ProductAssets (many-to-many with roles)
+├── Channels (Shopify connections)
+│   └── ChannelListings (product sync status)
+├── ImportJobs (AI import tracking)
+└── Passports (issued DPPs with VCs)
+```
+
+### Hybrid Schema Design
+
+The database uses a hybrid relational/JSONB approach:
+
+- **Relational columns**: Universal fields (SKU, GTIN, name, status, price)
+- **JSONB columns**: Dynamic attributes validated by ProductFamily schema
+
+This provides SQL query performance for core fields with NoSQL flexibility for category-specific data.
+
+---
+
+## Project Structure
+
+```
+EuroComply/
 ├── apps/
-│   ├── api/           # Express.js API server
-│   │   └── modules/
-│   │       ├── product-trust/   # DPP management
-│   │       ├── integrations/    # E-commerce sync
-│   │       └── supplier/        # Supplier marketplace
-│   └── frontend/      # Next.js landing & supplier portal
+│   ├── api/                 # Express.js API server
+│   │   └── src/
+│   │       ├── core/        # Auth, org, billing
+│   │       ├── compliance/  # Passports, lifecycle
+│   │       ├── pim/         # Families, variants, scoring
+│   │       ├── dam/         # Assets
+│   │       ├── import/      # AI import
+│   │       └── syndication/ # Shopify connector
+│   └── frontend/            # Next.js dashboard
 ├── packages/
-│   ├── database/      # Prisma schema & migrations
-│   ├── identity/      # walt.id integration (VCs)
-│   ├── integrations/  # Shopify & WooCommerce sync
-│   ├── sdk/           # Client SDK
-│   └── shared/        # Shared types & utilities
-├── plugins/
-│   └── shopify/       # Shopify embedded app (Remix)
-├── docker/            # Docker configuration
-└── infrastructure/
-    └── aws/           # AWS CloudFormation & deployment
+│   ├── database/            # Prisma schema
+│   ├── shared/              # Shared types, validation
+│   └── identity/            # walt.id integration
+├── infrastructure/
+│   ├── aws/                 # CloudFormation templates
+│   └── terraform/           # Alternative IaC
+└── docs/                    # Documentation
 ```
 
-## 🚀 Quick Start
+---
+
+## Getting Started
 
 ### Prerequisites
+
 - Node.js 20+
-- Docker & Docker Compose
-- Git
+- PostgreSQL 16+
+- Redis 7+
+- Docker (for local development)
 
-### Local Development Setup
+### Local Development
 
-> **Production Deployment**: For AWS-based production infrastructure (EU/GDPR compliant), see [INFRASTRUCTURE.md](./INFRASTRUCTURE.md)
-
-1. **Clone and install dependencies**
 ```bash
-git clone https://github.com/your-org/eurocomply.git
-cd eurocomply
+# Clone repository
+git clone https://github.com/your-org/EuroComply.git
+cd EuroComply
+
+# Install dependencies
 npm install
-```
 
-2. **Start infrastructure (Docker)**
-```bash
-cd docker
-docker-compose up -d postgres
-```
-
-3. **Configure environment**
-```bash
+# Set up environment
 cp .env.example .env
-# Edit .env with your configuration
-```
 
-4. **Initialize database**
-```bash
-npm run db:generate
-npm run db:push
-npm run db:seed
-```
+# Start database and Redis
+docker-compose up -d postgres redis
 
-5. **Start development server**
-```bash
+# Run migrations
+npm run db:migrate
+
+# Start development server
 npm run dev
 ```
 
-The API will be available at `http://localhost:3000`
+### Environment Variables
 
-### With walt.id (for Verifiable Credentials)
-```bash
-cd docker
-docker-compose up -d  # Starts all services including walt.id stack
-```
-
-## 📚 API Usage
-
-### Authentication
-All API requests require an API key:
-```bash
-curl https://api.eurocomply.eu/v1/products \
-  -H "Authorization: Bearer ec_live_xxxxx"
-```
-
-### Create a Product
-```bash
-curl -X POST https://api.eurocomply.eu/v1/products \
-  -H "Authorization: Bearer ec_live_xxxxx" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Sustainable T-Shirt",
-    "gtin": "5901234123457",
-    "sku": "TSHIRT-001"
-  }'
-```
-
-### Create a Digital Product Passport
-```bash
-curl -X POST https://api.eurocomply.eu/v1/passports \
-  -H "Authorization: Bearer ec_live_xxxxx" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "productId": "prod_xxx",
-    "data": {
-      "manufacturerName": "EcoFashion GmbH",
-      "manufacturerCountry": "DE",
-      "carbonFootprint": {
-        "value": 5.2,
-        "unit": "kgCO2e"
-      },
-      "recyclability": {
-        "percentage": 85,
-        "instructions": "Remove buttons before recycling"
-      },
-      "materials": [
-        { "name": "Organic Cotton", "percentage": 95 },
-        { "name": "Elastane", "percentage": 5 }
-      ]
-    }
-  }'
-```
-
-### Generate QR Code
-```bash
-curl -X POST https://api.eurocomply.eu/v1/passports/pass_xxx/qr \
-  -H "Authorization: Bearer ec_live_xxxxx"
-```
-
-### Record Lifecycle Event
-```bash
-curl -X POST https://api.eurocomply.eu/v1/products/prod_xxx/events \
-  -H "Authorization: Bearer ec_live_xxxxx" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "eventType": "DESTROYED",
-    "quantity": 50,
-    "reason": "End of season - unsold inventory",
-    "description": "Donated to textile recycling facility"
-  }'
-```
-
-### Public Verification (No Auth)
-```bash
-curl https://api.eurocomply.eu/v1/passports/pass_xxx/verify
-```
-
-### Export DPP (Data Sovereignty)
-```bash
-# Get supplier's DID
-curl https://api.eurocomply.eu/v1/suppliers/export/did \
-  -H "Authorization: Bearer ec_live_xxxxx"
-
-# Export DPP as portable package
-curl -X POST https://api.eurocomply.eu/v1/suppliers/export/dpp/prod_xxx \
-  -H "Authorization: Bearer ec_live_xxxxx" \
-  -H "Content-Type: application/json" \
-  -d '{"includePrivateKey": false}'
-
-# Download offline HTML viewer
-curl https://api.eurocomply.eu/v1/suppliers/export/viewer/prod_xxx \
-  -H "Authorization: Bearer ec_live_xxxxx" \
-  -o dpp-viewer.html
-```
-
-## ☁️ Infrastructure
-
-EuroComply uses a **hybrid deployment**:
-- **Frontend**: Vercel (CDN, instant deploys)
-- **Backend**: AWS eu-central-1 (Frankfurt) for EU/GDPR compliance
-
-### Backend Stack (AWS)
-
-| Component | Service | Configuration |
-|-----------|---------|---------------|
-| Compute | ECS Fargate | Auto-scaling 2-10 tasks |
-| Database | RDS PostgreSQL 16 | Multi-AZ, encrypted |
-| Cache | ElastiCache Redis 7 | Session & DPP cache |
-| Load Balancer | ALB | HTTPS termination |
-| Secrets | Secrets Manager | JWT, DB credentials |
-
-### Quick Deploy
-
-```bash
-# Set secrets
-export DB_PASSWORD="secure-password"
-export JWT_SECRET="32-char-minimum-secret"
-
-# Deploy to AWS
-cd infrastructure/aws/scripts
-./deploy.sh production
-```
-
-See [infrastructure/aws/README.md](./infrastructure/aws/README.md) for full deployment guide.
-
-## 🔐 Identity & Credentials
-
-EuroComply uses **walt.id Community Stack** for W3C Verifiable Credentials:
-
-- **DID Methods**: `did:web` (production) + `did:key` (portable, offline verification)
-- **Credential Format**: W3C Verifiable Credentials, JWT
-- **Export**: ✅ Full data portability (self-contained VCs, key export)
-
-Each product passport is issued as a cryptographically signed Verifiable Credential.
-
-## 🔓 Data Sovereignty ✅ COMPLETE
-
-**Your data, your rules, our tools.** See [DATA_SOVEREIGNTY.md](docs/DATA_SOVEREIGNTY.md) for architecture.
-
-| Guarantee | Status |
-|-----------|--------|
-| **You own your data** | ✅ Self-contained VCs with all data embedded |
-| **No lock-in** | ✅ Open standards (W3C VC, JSON) |
-| **Offline verification** | ✅ did:key - verify without any server |
-| **One-click export** | ✅ VC + images + offline HTML viewer |
-| **Key portability** | ✅ Export/import private keys |
-
-```typescript
-// Example: Create portable DPP export
-const package = await vcExportService.exportPortablePackage({
-  issuerDid: did,
-  issuerKeyId: keyId,
-  subjectId: 'urn:gtin:1234567890123',
-  dppData: passportData,
-  includePrivateKey: true,
-});
-// Returns: credential.json, viewer.html, public-key.jwk, private-key.jwk
-```
-
-## 📋 Environment Variables
+See `.env.example` for required configuration. Key variables:
 
 ```env
 # Database
 DATABASE_URL=postgresql://user:pass@localhost:5432/eurocomply
 
-# API
-PORT=3000
-API_HOST=api.eurocomply.eu
-DASHBOARD_URL=https://dashboard.eurocomply.eu
+# Redis
+REDIS_URL=redis://localhost:6379
 
-# walt.id (Verifiable Credentials)
+# Authentication
+JWT_SECRET=your-32-char-minimum-secret
+
+# walt.id
 WALTID_CORE_API=http://localhost:7000
 WALTID_SIGNATORY_API=http://localhost:7001
 WALTID_CUSTODIAN_API=http://localhost:7002
 WALTID_AUDITOR_API=http://localhost:7003
 
-# Shopify Integration
+# Shopify
 SHOPIFY_API_KEY=your_api_key
 SHOPIFY_API_SECRET=your_api_secret
 
-# WooCommerce Integration
-WOOCOMMERCE_WEBHOOK_SECRET=your_webhook_secret
+# AI (for import)
+ANTHROPIC_API_KEY=your_claude_api_key
 ```
 
-## 📦 ESPR Timeline
+---
 
-| Milestone | Date | What It Means |
-|-----------|------|---------------|
+## API Documentation
+
+API documentation available at:
+- Development: http://localhost:3000/api/docs
+- Production: https://api.eurocomply.eu/api/docs
+
+### Authentication
+
+All API requests require an API key:
+
+```bash
+curl https://api.eurocomply.eu/v1/products \
+  -H "Authorization: Bearer ec_live_xxxxx"
+```
+
+---
+
+## Compliance
+
+### EU Regulations
+
+- **ESPR** (Ecodesign for Sustainable Products Regulation): DPP generation
+- **GDPR**: EU data residency (Frankfurt), encryption at rest/transit
+
+### Data Standards
+
+- **W3C Verifiable Credentials**: Tamper-evident DPPs
+- **W3C DIDs**: did:key for portable identity
+- **GS1 Digital Link**: QR code standards
+
+### ESPR Timeline
+
+| Milestone | Date | Impact |
+|-----------|------|--------|
 | ESPR enters into force | July 2024 | Framework law active |
 | First delegated acts | 2025-2026 | Product-specific rules |
-| DPP requirements begin | 2027+ | Passports required for covered products |
+| DPP requirements begin | 2027+ | Passports required |
 
 **First product categories**: Textiles, batteries, electronics, furniture
 
-## 🗺️ Roadmap
+---
 
-### Completed ✅
-- [x] Core API infrastructure
-- [x] Product & Passport management
-- [x] QR code generation (GS1 Digital Link)
-- [x] Verifiable Credential issuance (walt.id)
-- [x] Lifecycle event tracking
-- [x] Shopify integration (OAuth + embedded app)
-- [x] WooCommerce integration
-- [x] Textile DPP schema & validation
-- [x] DPP data collection UI (Shopify app)
-- [x] Higg MSI carbon footprint calculation
-- [x] Supplier SaaS portal (registration, verification, catalog)
-- [x] Free retailer access (ESPR Article 31 compliant)
-- [x] **Data Sovereignty (Phase 3.5)**:
-  - [x] did:key implementation (Ed25519, P-256)
-  - [x] Self-contained VCs (all data embedded)
-  - [x] Offline verification
-  - [x] Key export/import for portability
-  - [x] Offline HTML viewer generation
-  - [x] API endpoints for data export
+## Data Sovereignty
 
-### In Progress 🔄
-- [ ] React Dashboard (Supplier Portal UI)
+Organizations own their data. Full portability guaranteed:
 
-### Future 📋
-- [ ] Furniture & Electronics schemas
-- [ ] GS1 Digital Link resolver
-- [ ] Basic AAS export (compliance format)
-- [ ] Batch passport generation
-- [ ] Item-level tracking (serial numbers)
+| Guarantee | Implementation |
+|-----------|----------------|
+| **You own your data** | Self-contained VCs with all data embedded |
+| **No lock-in** | Open standards (W3C VC, JSON) |
+| **Offline verification** | did:key verifies without any server |
+| **One-click export** | VC + images + offline HTML viewer |
+| **Key portability** | Export/import private keys |
 
-## 📄 License
+---
+
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) | Technical implementation roadmap |
+| [BUSINESS_MODEL.md](./docs/BUSINESS_MODEL.md) | Pricing and business model |
+| [ARCHITECTURE_PORTABILITY.md](./docs/ARCHITECTURE_PORTABILITY.md) | Data portability architecture |
+| [VERIFIABLE_CREDENTIALS.md](./docs/VERIFIABLE_CREDENTIALS.md) | VC/DID technical details |
+| [INFRASTRUCTURE.md](./INFRASTRUCTURE.md) | AWS infrastructure guide |
+| [ECOMMERCE_INTEGRATIONS.md](./docs/ECOMMERCE_INTEGRATIONS.md) | Shopify integration guide |
+
+---
+
+## License
 
 Proprietary - All rights reserved
 
-## 🤝 Support
+---
+
+## Support
 
 - Documentation: https://docs.eurocomply.eu
-- Support: support@eurocomply.eu
+- API Status: https://status.eurocomply.eu
+- Contact: support@eurocomply.eu
