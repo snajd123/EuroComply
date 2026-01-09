@@ -87,14 +87,20 @@ export async function verifyVatNumber(vatNumber: string): Promise<ViesResponse> 
       };
     }
 
-    const data = await response.json();
+    const data = await response.json() as {
+      isValid?: boolean;
+      countryCode?: string;
+      vatNumber?: string;
+      name?: string;
+      address?: string;
+    };
 
     return {
       valid: data.isValid === true,
       countryCode: data.countryCode,
       vatNumber: data.vatNumber,
-      name: data.name || undefined,
-      address: data.address || undefined,
+      name: data.name,
+      address: data.address,
     };
   } catch (error: any) {
     console.error('VIES verification error:', error);
@@ -145,30 +151,39 @@ export async function verifySupplierVat(
   }
 
   // Update supplier with verified status
-  await prisma.supplier.update({
-    where: { id: supplierId },
-    data: {
-      vatNumber: vatNumber.replace(/[\s.-]/g, '').toUpperCase(),
-      companyName: viesResult.name || undefined, // Update company name if returned
-      verificationStatus: 'VERIFIED',
-      verificationMethod: 'VIES_AUTO',
-      verifiedAt: new Date(),
-      verificationDocs: {
-        viesVerification: {
-          verifiedAt: new Date().toISOString(),
-          vatNumber: viesResult.vatNumber,
-          countryCode: viesResult.countryCode,
-          name: viesResult.name,
-          address: viesResult.address,
-        },
+  const updateData: Record<string, any> = {
+    vatNumber: vatNumber.replace(/[\s.-]/g, '').toUpperCase(),
+    verificationStatus: 'VERIFIED',
+    verificationMethod: 'VIES_AUTO',
+    verifiedAt: new Date(),
+    verificationDocs: {
+      viesVerification: {
+        verifiedAt: new Date().toISOString(),
+        vatNumber: viesResult.vatNumber,
+        countryCode: viesResult.countryCode,
+        name: viesResult.name,
+        address: viesResult.address,
       },
     },
+  };
+
+  // Only update company name if returned from VIES
+  if (viesResult.name) {
+    updateData.companyName = viesResult.name;
+  }
+
+  await prisma.supplier.update({
+    where: { id: supplierId },
+    data: updateData,
   });
 
-  return {
+  const result: { verified: boolean; companyName?: string; error?: string } = {
     verified: true,
-    companyName: viesResult.name,
   };
+  if (viesResult.name) {
+    result.companyName = viesResult.name;
+  }
+  return result;
 }
 
 /**

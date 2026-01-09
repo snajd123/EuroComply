@@ -282,7 +282,7 @@ export async function adminReviewVerification(
     where: { id: supplierId },
     data: {
       verificationStatus: input.decision,
-      verificationMethod: input.decision === 'VERIFIED' ? 'MANUAL_REVIEW' : undefined,
+      verificationMethod: input.decision === 'VERIFIED' ? 'MANUAL_REVIEW' : null,
       verifiedAt: input.decision === 'VERIFIED' ? new Date() : null,
       verifiedBy: input.decision === 'VERIFIED' ? adminId : null,
       verificationDocs: {
@@ -356,7 +356,7 @@ export async function createSupplierProduct(supplierId: string, input: CreateSup
     data: {
       supplierId,
       name: input.name,
-      description: input.description,
+      description: input.description ?? null,
       category: input.category,
       imageUrls: input.imageUrls || [],
       dppData: input.dppData,
@@ -447,17 +447,19 @@ export async function updateSupplierProduct(
     throw new Error('Only verified suppliers can publish products');
   }
 
+  const updateData: Record<string, any> = {
+    publishedAt: input.visibility === 'PUBLISHED' && !existing.publishedAt ? new Date() : existing.publishedAt,
+  };
+  if (input.name !== undefined) updateData.name = input.name;
+  if (input.description !== undefined) updateData.description = input.description;
+  if (input.category !== undefined) updateData.category = input.category;
+  if (input.imageUrls !== undefined) updateData.imageUrls = input.imageUrls;
+  if (input.dppData !== undefined) updateData.dppData = input.dppData;
+  if (input.visibility !== undefined) updateData.visibility = input.visibility;
+
   const product = await prisma.supplierProduct.update({
     where: { id: productId },
-    data: {
-      name: input.name,
-      description: input.description,
-      category: input.category,
-      imageUrls: input.imageUrls,
-      dppData: input.dppData,
-      visibility: input.visibility,
-      publishedAt: input.visibility === 'PUBLISHED' && !existing.publishedAt ? new Date() : existing.publishedAt,
-    },
+    data: updateData,
   });
 
   return product;
