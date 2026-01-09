@@ -11,9 +11,23 @@ import {
   Settings,
   FileText,
   Shield,
+  LucideIcon,
 } from 'lucide-react';
 
-const navigation = [
+type NavItem = {
+  name: string;
+  href: string;
+  icon: LucideIcon;
+};
+
+type NavGroup = {
+  name: string;
+  items: NavItem[];
+};
+
+type NavigationItem = NavItem | NavGroup;
+
+const navigation: NavigationItem[] = [
   {
     name: 'Overview',
     href: '/dashboard',
@@ -64,47 +78,55 @@ export function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-        {navigation.map((item) =>
-          'items' in item ? (
-            <div key={item.name} className="pt-4 first:pt-0">
-              <h3 className="px-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                {item.name}
-              </h3>
-              <div className="mt-2 space-y-1">
-                {item.items.map((subItem) => {
-                  const isActive = pathname === subItem.href;
-                  return (
-                    <Link
-                      key={subItem.name}
-                      href={subItem.href}
-                      className={`flex items-center gap-3 px-3 py-2 text-sm rounded-lg transition-colors ${
-                        isActive
-                          ? 'bg-primary-50 text-primary-700 font-medium'
-                          : 'text-gray-700 hover:bg-gray-100'
-                      }`}
-                    >
-                      <subItem.icon className="w-5 h-5" />
-                      {subItem.name}
-                    </Link>
-                  );
-                })}
+        {navigation.map((item) => {
+          if ('items' in item) {
+            const group = item as NavGroup;
+            return (
+              <div key={group.name} className="pt-4 first:pt-0">
+                <h3 className="px-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                  {group.name}
+                </h3>
+                <div className="mt-2 space-y-1">
+                  {group.items.map((subItem) => {
+                    const isActive = pathname === subItem.href;
+                    const Icon = subItem.icon;
+                    return (
+                      <Link
+                        key={subItem.name}
+                        href={subItem.href}
+                        className={`flex items-center gap-3 px-3 py-2 text-sm rounded-lg transition-colors ${
+                          isActive
+                            ? 'bg-primary-50 text-primary-700 font-medium'
+                            : 'text-gray-700 hover:bg-gray-100'
+                        }`}
+                      >
+                        <Icon className="w-5 h-5" />
+                        {subItem.name}
+                      </Link>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          ) : (
-            <Link
-              key={item.name}
-              href={item.href}
-              className={`flex items-center gap-3 px-3 py-2 text-sm rounded-lg transition-colors ${
-                pathname === item.href
-                  ? 'bg-primary-50 text-primary-700 font-medium'
-                  : 'text-gray-700 hover:bg-gray-100'
-              }`}
-            >
-              <item.icon className="w-5 h-5" />
-              {item.name}
-            </Link>
-          )
-        )}
+            );
+          } else {
+            const navItem = item as NavItem;
+            const Icon = navItem.icon;
+            return (
+              <Link
+                key={navItem.name}
+                href={navItem.href}
+                className={`flex items-center gap-3 px-3 py-2 text-sm rounded-lg transition-colors ${
+                  pathname === navItem.href
+                    ? 'bg-primary-50 text-primary-700 font-medium'
+                    : 'text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                <Icon className="w-5 h-5" />
+                {navItem.name}
+              </Link>
+            );
+          }
+        })}
       </nav>
 
       {/* Footer */}
