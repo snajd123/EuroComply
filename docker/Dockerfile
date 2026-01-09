@@ -22,17 +22,20 @@ RUN npm run db:generate
 # Build only API and its dependencies (not Shopify app)
 RUN npx turbo run build --filter=@eurocomply/api...
 
-# Production stage
-FROM node:20-alpine AS runner
+# Production stage - using slim (Debian) for OpenSSL 1.1 compatibility with Prisma
+FROM node:20-slim AS runner
 
 WORKDIR /app
 
-# Install OpenSSL 1.1 compatibility for Prisma
-RUN apk add --no-cache openssl1.1-compat
+# Install OpenSSL and wget for health checks
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    openssl \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 eurocomply
+RUN groupadd --system --gid 1001 nodejs
+RUN useradd --system --uid 1001 eurocomply
 
 # Copy built files
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
