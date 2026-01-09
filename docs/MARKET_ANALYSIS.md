@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-The EU DPP market presents a "blue ocean" opportunity in the SME segment. While enterprise players (SAP, Siemens) fight for the top 1%, **99% of EU businesses have no affordable DPP solution**. EuroComply fills this gap.
+The EU DPP market presents a "blue ocean" opportunity in the SME segment. While enterprise players (SAP, Siemens) fight for the top 1%, **99% of EU businesses have no affordable compliance solution**. EuroComply fills this gap with a Compliance-First Product Information Management (PIM) platform where Digital Product Passports are generated automatically from complete product data.
 
 ---
 
@@ -77,10 +77,10 @@ Current solutions are either "too complex" or "too simple" for SMEs:
 │                                                                  │
 │  ✓ Self-service onboarding (no sales calls)                    │
 │  ✓ Sign up with credit card, same-day compliance               │
-│  ✓ Template-driven (tells you exactly what data is required)   │
-│  ✓ Low price point (€50-150/month, not €500+)                  │
+│  ✓ AI-powered data import (dump any file format)               │
+│  ✓ Low price point (€49-299/month, not €500+)                  │
 │  ✓ No IT team required                                          │
-│  ✓ Works with existing tools (Shopify, WooCommerce)            │
+│  ✓ Works with existing tools (Shopify integration)             │
 │                                                                  │
 │  = EuroComply fills this exact gap                              │
 │                                                                  │
@@ -96,26 +96,26 @@ Current solutions are either "too complex" or "too simple" for SMEs:
 | Capability | SAP/Siemens | Mid-Market (Renoon) | **EuroComply** |
 |------------|-------------|---------------------|----------------|
 | Target market | Fortune 500 | Mid-size brands | **SMEs (99%)** |
-| Price | €100k+ | €10k+/year | **€49-399/month** |
+| Price | €100k+ | €10k+/year | **€49-299/month** |
 | Sales model | Enterprise sales | Demo required | **Self-service** |
 | Setup time | Months | Weeks | **Same day** |
 | IT team needed | Yes | Usually | **No** |
-| Shopify integration | No | Some | **Native plugin** |
+| Data import | ERP connectors | Manual/CSV | **AI-powered (any format)** |
+| Shopify integration | No | Some | **Native integration** |
 | ESPR compliant | Yes | Yes | **Yes** |
 
-### Distribution Advantage: E-commerce Plugins
+### Distribution Advantage: E-commerce Integration
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │  DISTRIBUTION STRATEGY                                           │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  SMEs sell on: Shopify, WooCommerce, Etsy                       │
-│                                                                  │
 │  Our approach:                                                   │
-│  1. Shopify Plugin → Install in 2 minutes                       │
-│  2. Browse supplier catalog → Link DPPs to products             │
-│  3. QR codes automatically added to product pages               │
+│  1. AI import → Dump any file (CSV, Excel, PDF)                 │
+│  2. Golden Record → Single source of truth                      │
+│  3. DPP generated → Automatic when data complete                │
+│  4. Shopify sync → Products and DPP data published              │
 │                                                                  │
 │  Competitor approach:                                            │
 │  1. Book a demo                                                  │
@@ -169,8 +169,9 @@ Phase 3 (2027): + Electronics, Batteries
 
 | Challenge | How We Solve It |
 |-----------|-----------------|
-| Data complexity | Template-driven forms, LCA calculators |
-| Technical integration | Shopify/WooCommerce native plugins |
+| Data complexity | AI-powered import from any file format |
+| Data management | Golden Record model with completeness scoring |
+| Technical integration | Native Shopify integration |
 | Trust/verification | W3C Verifiable Credentials (did:key) |
 | Cost sensitivity | €49/month starting tier |
 | 10-year data retention | Managed hosting + data portability |
@@ -212,24 +213,25 @@ Phase 3 (2027): + Electronics, Batteries
 │                                                                  │
 │  MARKET GAP                                                     │
 │  • 99% of EU businesses are SMEs                                │
-│  • 0 affordable, self-service DPP solutions exist               │
+│  • 0 affordable, self-service compliance solutions exist        │
 │  • Enterprise players ignore this segment                       │
 │                                                                  │
 │  OUR SOLUTION                                                   │
+│  • Compliance-First PIM with automatic DPP generation           │
 │  • Self-service (sign up → compliant same day)                  │
-│  • Affordable (€49-399/month vs €100k+)                         │
-│  • Template-driven (tells you what data is needed)              │
-│  • E-commerce native (Shopify plugin)                           │
+│  • Affordable (€49-299/month vs €100k+)                         │
+│  • AI-powered import (dump any file format)                     │
+│  • E-commerce native (Shopify integration)                      │
 │  • No lock-in (portable VCs, full export)                       │
 │                                                                  │
 │  COMPETITIVE MOAT                                               │
 │  • First-mover in SME segment                                   │
-│  • Distribution via e-commerce platforms                        │
-│  • Network effects (supplier catalog grows)                     │
+│  • Golden Record model (PIM + DPP unified)                      │
+│  • AI import reduces onboarding friction                        │
 │  • W3C standards (not proprietary)                              │
 │                                                                  │
 │  TAGLINE                                                        │
-│  "The TurboTax of Digital Product Passports"                    │
+│  "Compliance-First Product Management"                          │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -238,9 +240,9 @@ Phase 3 (2027): + Electronics, Batteries
 
 ## Related Documentation
 
-- [Implementation Roadmap](./IMPLEMENTATION_ROADMAP.md) - Technical phases and timelines
+- [Implementation Plan](../IMPLEMENTATION_PLAN.md) - Technical architecture and phases
 - [Business Model](./BUSINESS_MODEL.md) - SME-first SaaS pricing
-- [Supplier Portal Design](./supplier-portal-design.md) - Supplier-pays model details
+- [E-commerce Integrations](./ECOMMERCE_INTEGRATIONS.md) - Shopify integration guide
 
 ---
 

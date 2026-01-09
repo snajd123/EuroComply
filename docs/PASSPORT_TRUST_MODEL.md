@@ -2,26 +2,26 @@
 
 ## Overview
 
-EuroComply uses a **supplier-only model** for passport creation. This eliminates fraud by design.
+EuroComply uses an **organization-only model** for passport creation. Only verified brands, manufacturers, and distributors can create DPPs. This eliminates fraud by design.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                    TRUST BY DESIGN                          │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
-│  ✅ SUPPLIERS create passports (pay SaaS fee)              │
-│     → Verified via KYB                                      │
-│     → Own the product data                                  │
-│     → Legally liable for accuracy                           │
+│  ✅ ORGANIZATIONS create passports (pay subscription)      │
+│     → Verified via VAT lookup or document review           │
+│     → Own the product data (Golden Record model)           │
+│     → Legally liable for accuracy                          │
 │     → did:key identity (portable, self-verifying)          │
 │                                                             │
-│  ✅ RETAILERS access FREE (ESPR Article 31)                 │
-│     → Browse supplier catalog                               │
-│     → Link DPPs to products                                 │
-│     → Display on storefront                                 │
-│     → Cannot create or modify DPPs                          │
+│  ✅ RETAILERS access FREE (ESPR Article 31)                │
+│     → Public API lookup (GTIN, brand/SKU, serial)          │
+│     → Embeddable widget for any website                    │
+│     → Shopify Retailer App for automatic matching          │
+│     → Cannot create or modify DPPs                         │
 │                                                             │
-│  = NO FRAUD + ESPR COMPLIANT                                │
+│  = NO FRAUD + ESPR COMPLIANT                               │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -36,7 +36,7 @@ EU law requires DPP data to be accessible **"free of charge"** to all economic o
 
 | Who | Access | Cost |
 |-----|--------|------|
-| Suppliers | Create DPPs | €49-399/month SaaS |
+| Brands, Manufacturers | Create DPPs | €49-299/month subscription |
 | Retailers | View & display DPPs | **Free** |
 | Consumers | Verify DPPs | **Free** |
 | Regulators | Audit DPPs | **Free** |
@@ -56,14 +56,14 @@ If retailers could create their own passports:
 | **No accountability** | Who verifies retailer's claims? |
 | **Complex validation** | Need proof requirements, plagiarism detection |
 
-### The Solution: Supplier-Only
+### The Solution: Organization-Only
 
 | Benefit | Description |
 |---------|-------------|
-| **Single source of truth** | Supplier creates DPP once, retailers subscribe |
-| **Verified by default** | Suppliers pass KYB before creating passports |
-| **No copying possible** | Retailers can't create - only subscribe |
-| **Clear liability** | Supplier is legally responsible for DPP accuracy |
+| **Single source of truth** | Organization creates product as Golden Record |
+| **Verified by default** | Organizations pass verification before creating DPPs |
+| **No copying possible** | Retailers can't create - only access via API |
+| **Clear liability** | Organization is legally responsible for DPP accuracy |
 
 ---
 
@@ -71,29 +71,29 @@ If retailers could create their own passports:
 
 ```
 ┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│ Certification│     │   Supplier   │     │     DPP      │     │   Retailer   │
+│ Certification│     │ Organization │     │     DPP      │     │   Retailer   │
 │    Body      │────▶│  (Verified)  │────▶│  (Signed VC) │────▶│ (Free Access)│
 └──────────────┘     └──────────────┘     └──────────────┘     └──────────────┘
        │                    │                    │                    │
-   Issues cert         Creates DPP          did:key signed       Display only
-   to supplier         pays SaaS fee        portable VC          cannot edit
+   Issues cert         Creates product     did:key signed       Display only
+   to organization     DPP auto-generated  portable VC          cannot edit
 ```
 
 ### Each Step Explained
 
-1. **Certification Body → Supplier**
-   - GOTS, OEKO-TEX, FSC etc. certify the supplier
-   - Supplier has documentary proof
+1. **Certification Body → Organization**
+   - GOTS, OEKO-TEX, FSC etc. certify the organization
+   - Organization has documentary proof
 
-2. **Supplier → DPP**
-   - Supplier pays SaaS fee (€49-399/month)
-   - Creates Digital Product Passport
+2. **Organization → DPP**
+   - Organization pays subscription (€49-299/month)
+   - Creates product as Golden Record
+   - DPP generated automatically when compliance data complete
    - Signed with did:key (portable, self-verifying)
-   - Issued as Verifiable Credential (VC)
 
 3. **DPP → Retailer**
-   - Retailer accesses supplier's DPP for **free**
-   - Links to their products via Shopify/WooCommerce
+   - Retailer accesses DPP for **free** via public API
+   - Uses widget or Shopify Retailer App
    - Can display but cannot modify
 
 ---
@@ -186,40 +186,29 @@ Certifications can be independently verified:
 
 ---
 
-## What Retailers See
+## What Retailers Get
 
-### Shopify Plugin Flow (Free Access)
+### Retailer Access Options (All Free)
 
-```
-1. Retailer installs Shopify/WooCommerce plugin (free)
-   └─ No subscription required
-
-2. Retailer browses Supplier Catalog
-   └─ Sees products from verified suppliers
-   └─ Sees DPP preview, supplier verification badge
-
-3. Retailer links DPP to their product (free)
-   └─ No payment - ESPR Article 31 mandates free access
-   └─ DPP associated with retailer's product
-
-4. DPP displays on retailer's store
-   └─ Shows "Verified by [Supplier Name]"
-   └─ QR code links to public verification
-```
+| Option | How It Works |
+|--------|--------------|
+| **Public API** | Look up DPPs by GTIN, brand/SKU, or serial number |
+| **Embeddable Widget** | JavaScript snippet that displays DPP on any product page |
+| **Shopify Retailer App** | Auto-matches store products to available DPPs by GTIN |
 
 ### What Retailers Cannot Do
 
 - ❌ Create their own passport
-- ❌ Modify supplier's DPP data
+- ❌ Modify organization's DPP data
 - ❌ Claim certifications
-- ❌ Remove supplier attribution
+- ❌ Remove organization attribution
 
 ### What Retailers Can Do (All Free)
 
-- ✅ Browse supplier catalog
-- ✅ Link DPPs to their products
+- ✅ Look up DPPs via public API
+- ✅ Embed widget on product pages
+- ✅ Install Shopify Retailer App for auto-matching
 - ✅ Display DPPs on their store
-- ✅ Unlink (stops displaying)
 
 ---
 
@@ -259,10 +248,10 @@ When consumers scan a DPP QR code:
 
 | Question | Answer |
 |----------|--------|
-| Who creates passports? | Only verified suppliers (pay SaaS fee) |
+| Who creates passports? | Only verified organizations (brands, manufacturers, distributors) |
 | Can retailers create passports? | No |
 | Do retailers pay for access? | **No - free** (ESPR Article 31) |
-| Who is liable for accuracy? | Supplier |
+| Who is liable for accuracy? | The organization that created the DPP |
 | What DID method? | did:key (portable, self-verifying) |
 | Can anyone verify a passport? | Yes - even offline |
 | What prevents fraud? | Architectural design - not validation rules |

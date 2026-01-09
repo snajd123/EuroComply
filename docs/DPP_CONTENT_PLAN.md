@@ -1,64 +1,63 @@
-# DPP Content Strategy: How Suppliers Create Product-Specific Passport Data
+# DPP Content Strategy: How Organizations Create Product Data
 
 ## Overview
 
-Only verified suppliers (producers, importers, brands) create Digital Product Passports using EuroComply's SaaS platform. Retailers access these DPPs for free via our e-commerce plugins.
+Brands, manufacturers, and distributors manage product data and generate Digital Product Passports using EuroComply's Compliance-First PIM platform. Products are managed as Golden Records, and DPPs are automatically generated when compliance data is complete. Retailers access DPPs for free via our public API, embeddable widget, or Shopify Retailer App.
 
-See [BUSINESS_MODEL.md](./BUSINESS_MODEL.md) for the full SaaS model.
+See [BUSINESS_MODEL.md](./BUSINESS_MODEL.md) for the full pricing model.
 
 ---
 
 ## The Challenge
 
-Creating ESPR-compliant Digital Product Passports requires **category-specific, product-specific sustainability data** that only suppliers have access to.
+Creating ESPR-compliant Digital Product Passports requires **category-specific, product-specific sustainability data** that brands and manufacturers have access to.
 
 | Challenge | Description |
 |-----------|-------------|
 | **Category-specific requirements** | Textiles need fiber composition; batteries need chemical composition |
 | **Mandatory vs optional fields** | Different categories have different mandatory fields |
-| **Data availability** | Suppliers have manufacturing data; retailers typically don't |
+| **Data fragmentation** | Product data exists in spreadsheets, PDFs, and legacy systems |
 | **Data verification** | Claims need to be verifiable, not just stated |
 | **Varying timelines** | Different categories have different compliance deadlines |
 
 ---
 
-## Supplier Portal: DPP Creation Flow
+## Product Data Creation Flow
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│              SUPPLIER DPP CREATION FLOW                              │
+│              GOLDEN RECORD CREATION FLOW                             │
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                      │
-│  1. SUPPLIER ONBOARDING                                             │
-│     ├─ Sign up for SaaS plan (Starter €49/Growth €149/Pro €399)   │
-│     └─ Complete KYB verification                                    │
+│  1. ORGANIZATION ONBOARDING                                         │
+│     ├─ Sign up for plan (Starter €49/Professional €149/PIM €299)   │
+│     └─ Complete business verification (VAT or documents)            │
 │                                                                      │
 │  2. IDENTITY CREATION                                               │
 │     ├─ Generate did:key (portable, self-contained identity)        │
 │     └─ Private key stored securely (exportable on request)         │
 │                                                                      │
-│  3. PRODUCT CATEGORIZATION                                          │
+│  3. PRODUCT FAMILY SELECTION                                        │
 │     └─ Select: Textile / Electronics / Battery / Furniture / Other │
 │                                                                      │
-│  4. SCHEMA SELECTION                                                │
-│     └─ System loads category-specific required/optional fields     │
+│  4. DATA IMPORT                                                     │
+│     ├─ AI Import: Upload any file (CSV, Excel, PDF, JSON)          │
+│     ├─ Manual Entry: Dashboard forms                                │
+│     ├─ Shopify Sync: Import existing products                      │
+│     └─ Templates: Industry-standard defaults                        │
 │                                                                      │
-│  5. DATA ENTRY                                                      │
-│     ├─ Manual Entry: Supplier portal forms                         │
-│     ├─ CSV Import: Bulk product upload                              │
-│     ├─ Templates: Industry-standard defaults                        │
-│     └─ LCA Data: From supplier's LCA studies                       │
+│  5. GOLDEN RECORD CREATION                                          │
+│     ├─ Commercial data (name, SKU, price, images)                  │
+│     ├─ Compliance data (materials, certifications, carbon)         │
+│     └─ Completeness scoring per channel                             │
 │                                                                      │
-│  6. VALIDATION                                                       │
-│     └─ Check mandatory fields, compliance score                     │
-│                                                                      │
-│  7. VC ISSUANCE                                                     │
+│  6. DPP GENERATION (Automatic at 100% completeness)                │
 │     ├─ Sign DPP data with did:key                                  │
 │     └─ Generate Verifiable Credential (portable, tamper-evident)   │
 │                                                                      │
-│  8. PUBLISH                                                         │
-│     ├─ DPP appears in supplier catalog                             │
-│     └─ Retailers can find and link to their products               │
+│  7. SYNDICATION                                                     │
+│     ├─ DPP metadata synced to Shopify                              │
+│     └─ Public API makes DPP accessible to retailers                │
 │                                                                      │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -67,62 +66,45 @@ Creating ESPR-compliant Digital Product Passports requires **category-specific, 
 
 ## Data Entry Methods
 
-### Method 1: Category-Specific Forms
+### Method 1: AI-Powered Import (Primary)
 
-Guided forms tailored to each product category.
+Upload any file format and let AI extract and map product data automatically.
 
-```
-/supplier/products/new
-├── Product Category Selector
-│   └─ [Textile] [Electronics] [Battery] [Furniture] [Other]
-│
-├── Dynamic Form (based on category)
-│   ├── Core Fields (all categories)
-│   │   ├─ Product Name*
-│   │   ├─ GTIN/Barcode
-│   │   ├─ Manufacturer Name*
-│   │   └─ Country of Origin*
-│   │
-│   ├── Textiles Section (if textile)
-│   │   ├─ Fiber Composition* (add multiple)
-│   │   │   └─ [Fiber Type] [Percentage] [Certified?]
-│   │   ├─ Care Instructions*
-│   │   │   └─ [Max Temp] [Bleach?] [Dry Clean?]
-│   │   └─ Durability (wash cycles)*
-│   │
-│   ├── Carbon Footprint Section
-│   │   ├─ Value (kgCO2e)
-│   │   ├─ Methodology [GHG Protocol / ISO 14067 / PEF]
-│   │   └─ Scope [Cradle-to-gate / Cradle-to-grave]
-│   │
-│   ├── Recyclability Section
-│   │   ├─ Recyclable Percentage*
-│   │   ├─ Materials Breakdown
-│   │   └─ End-of-life Instructions
-│   │
-│   ├── Repairability Section (if electronics/furniture)
-│   │   ├─ Repairability Score (1-10)
-│   │   ├─ Spare Parts Availability
-│   │   └─ Repair Instructions URL
-│   │
-│   └── Certifications
-│       └─ [Add Certification] [Name] [Issuer] [Valid Until] [Doc URL]
-│
-└── [Save Draft] [Validate] [Issue VC & Publish]
-```
+**Supported Formats:**
+- CSV/Excel spreadsheets
+- PDF catalogs and spec sheets
+- JSON data exports
+- Images with product information (OCR)
 
-### Method 2: Templates Library
+**AI Import Flow:**
+1. Upload file(s) to the import wizard
+2. AI extracts product data automatically
+3. Review suggested field mappings
+4. Approve or adjust mappings
+5. Products created as Golden Records
+6. Completeness scores calculated per channel
 
-Pre-built templates with industry defaults for common product types.
+### Method 2: Category-Specific Forms
+
+Guided forms tailored to each product family for manual entry.
+
+**Dashboard Product Form:**
+- Core Fields: Product Name, SKU, GTIN, Description
+- Family-specific fields loaded dynamically
+- Completeness indicator shows progress toward DPP readiness
+- Rich text and image upload for commercial content
+
+### Method 3: Templates Library
+
+Pre-built templates with industry defaults for common product types within each Product Family.
 
 ```typescript
 const TEXTILE_TSHIRT_TEMPLATE = {
-  category: 'textile',
+  family: 'APPAREL',
   productType: 'T-Shirt',
   defaults: {
     durability: { expectedLifespan: 2, unit: 'years' },
     recyclability: { percentage: 85 },
-    repairability: { score: 3 },
   },
   requiredOverrides: [
     'fiberComposition',
@@ -159,29 +141,19 @@ templates/
     └── sofa.json
 ```
 
-### Method 3: CSV Bulk Import
+### Method 4: Shopify Sync
 
-For suppliers with many products.
+Organizations using Shopify can import their existing product catalog:
 
-**CSV Format:**
-```csv
-sku,name,gtin,fiber_composition,carbon_footprint_kg,recyclable_percent,certifications
-TSHIRT-001,"Organic Cotton Tee",5901234567890,"95% Organic Cotton, 5% Elastane",4.2,90,"GOTS,OEKO-TEX"
-TSHIRT-002,"Recycled Poly Tee",5901234567891,"100% Recycled Polyester",3.1,100,"GRS"
-JEANS-001,"Classic Denim",5901234567892,"98% Cotton, 2% Elastane",12.5,85,""
-```
+1. Connect Shopify store via OAuth
+2. Products imported as Golden Records
+3. Commercial data (name, SKU, price, images) populated automatically
+4. Add compliance data to reach 100% DPP completeness
+5. DPP metadata synced back to Shopify metafields
 
-**Import Flow:**
-1. Upload CSV
-2. Map columns to DPP fields
-3. Validate data
-4. Preview results
-5. Bulk create DPPs
-6. Issue VCs for all products
+### Method 5: LCA Estimation Engine
 
-### Method 4: LCA Estimation Engine
-
-For suppliers without LCA data, estimate carbon footprint from product attributes.
+For organizations without LCA data, estimate carbon footprint from product attributes.
 
 ```typescript
 interface ProductAttributes {
@@ -235,20 +207,20 @@ const EMISSION_FACTORS = {
 
 ## VC Issuance
 
-When a DPP is complete, the supplier issues a Verifiable Credential.
+When a Golden Record reaches 100% DPP completeness, a Verifiable Credential is automatically generated.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                    VC ISSUANCE FLOW                              │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  1. Supplier clicks "Publish DPP"                               │
+│  1. Product completeness reaches 100% for DPP channel           │
 │                                                                  │
 │  2. System validates all required fields                        │
 │                                                                  │
 │  3. DPP data structured as VC credentialSubject                 │
 │                                                                  │
-│  4. VC signed with supplier's did:key                          │
+│  4. VC signed with organization's did:key                       │
 │     (using walt.id Signatory service)                           │
 │                                                                  │
 │  5. Signed VC stored in database                                │
@@ -256,8 +228,8 @@ When a DPP is complete, the supplier issues a Verifiable Credential.
 │                                                                  │
 │  6. QR code generated (GS1 Digital Link)                       │
 │                                                                  │
-│  7. DPP published to catalog                                    │
-│     (visible to retailers)                                      │
+│  7. DPP accessible via public API                               │
+│     (retailers can look up by GTIN, brand/SKU, or serial)       │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -321,33 +293,25 @@ When a DPP is complete, the supplier issues a Verifiable Credential.
 
 ## Retailer Access (Free)
 
-Retailers browse the supplier catalog and link DPPs to their products.
+Retailers can access and display DPPs on their storefronts using the free Retailer Access layer. This is provided free of charge in compliance with ESPR Article 31.
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    RETAILER FLOW                                 │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  1. Install Shopify/WooCommerce plugin (free)                   │
-│                                                                  │
-│  2. Browse supplier catalog                                     │
-│     • Search by GTIN, product name, category                    │
-│     • Filter by certifications                                  │
-│                                                                  │
-│  3. Link DPP to product                                         │
-│     • Select product in store                                   │
-│     • Click "Link DPP"                                          │
-│     • DPP associated with product                               │
-│                                                                  │
-│  4. Display on storefront                                       │
-│     • Embedded widget shows DPP data                            │
-│     • "Verified by [Supplier]" badge                            │
-│     • QR code for physical products                             │
-│                                                                  │
-│  No payment required. ESPR Article 31 compliant.                │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
+**Access Options:**
+
+| Option | Description |
+|--------|-------------|
+| **Public API** | Look up DPPs by GTIN, brand/SKU, or serial number |
+| **Embeddable Widget** | JavaScript snippet for any website |
+| **Shopify Retailer App** | Automatic product matching by GTIN |
+
+**Lookup Identifiers:**
+
+| Identifier | Example | Use Case |
+|------------|---------|----------|
+| GTIN/EAN | 5901234567890 | Standard barcode lookup |
+| Brand + SKU | acme/SHIRT-001 | When GTIN not available |
+| Serial Number | SN123456789 | Item-level tracking |
+
+Retailers register for a free account and receive access to all lookup methods. No subscription required.
 
 ---
 
@@ -440,17 +404,19 @@ Track where data comes from for transparency.
 
 ---
 
-## Supplier Portal Routes
+## Dashboard Routes
 
 ```
-/supplier/                     - Dashboard (DPP count, plan usage)
-/supplier/products             - Product list
-/supplier/products/new         - Create new DPP
-/supplier/products/:id/edit    - Edit DPP
-/supplier/products/import      - CSV bulk import
-/supplier/templates            - Browse templates
-/supplier/settings             - Account, billing, export
-/supplier/export               - Export all VCs and keys
+/dashboard                     - Overview (product count, completeness, plan usage)
+/dashboard/products            - Product list (Golden Records)
+/dashboard/products/new        - Create new product
+/dashboard/products/:id        - Edit product
+/dashboard/import              - AI import wizard
+/dashboard/families            - Product family schemas
+/dashboard/channels            - Shopify connections
+/dashboard/passports           - Issued DPPs
+/dashboard/settings            - Account, billing, export
+/dashboard/export              - Export all VCs and keys
 ```
 
 ---
@@ -459,18 +425,24 @@ Track where data comes from for transparency.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    DPP CONTENT CREATION                          │
+│                    PRODUCT DATA & DPP CREATION                   │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
 │  WHO CREATES?                                                   │
-│  → Suppliers (producers, importers, brands)                     │
-│  → Verified via KYB before creating DPPs                        │
+│  → Brands, manufacturers, distributors                          │
+│  → Verified via VAT lookup or document review                   │
 │                                                                  │
 │  HOW DO THEY CREATE?                                            │
-│  → Category-specific forms                                      │
-│  → Templates for common products                                │
-│  → CSV bulk import                                              │
-│  → LCA estimation engine                                        │
+│  → AI-powered import (any file format)                          │
+│  → Shopify sync (import existing products)                      │
+│  → Manual entry with templates                                  │
+│  → LCA estimation for carbon footprint                          │
+│                                                                  │
+│  GOLDEN RECORD MODEL                                            │
+│  → Single source of truth for each product                      │
+│  → Commercial data + compliance data unified                    │
+│  → Completeness scoring per channel                             │
+│  → DPP generated automatically at 100%                          │
 │                                                                  │
 │  WHAT GETS ISSUED?                                              │
 │  → Verifiable Credential (W3C standard)                         │
@@ -478,9 +450,10 @@ Track where data comes from for transparency.
 │  → Tamper-evident, verifiable anywhere                          │
 │                                                                  │
 │  HOW DO RETAILERS ACCESS?                                       │
-│  → Browse supplier catalog (free)                               │
-│  → Link DPPs to products (free)                                 │
-│  → Display on storefront (free)                                 │
+│  → Public API (GTIN, brand/SKU, serial lookup)                  │
+│  → Embeddable widget (any website)                              │
+│  → Shopify Retailer App (auto-matching)                         │
+│  → All free (ESPR Article 31 compliant)                         │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```

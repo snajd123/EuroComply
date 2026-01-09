@@ -4,7 +4,7 @@
 
 ## Overview
 
-EuroComply is built on the principle that **suppliers own their data**. Digital Product Passports and Verifiable Credentials belong to the supplier, not the platform. This document describes the target portability architecture.
+EuroComply is built on the principle that **organizations own their data**. Digital Product Passports and Verifiable Credentials belong to the organization (brand, manufacturer, distributor), not the platform. This document describes the target portability architecture.
 
 ---
 
@@ -19,12 +19,14 @@ Our architecture is deliberately simple. We target SMEs (99% of EU businesses) w
 │                                                                  │
 │  WHAT WE BUILD (SME-Critical)                                   │
 │  ─────────────────────────────                                  │
+│  • Compliance-First PIM (Golden Record model)                   │
 │  • W3C Verifiable Credentials (standard format)                 │
 │  • did:key identity (planned - currently did:web)               │
 │  • GS1 Digital Link QR codes (interoperable)                    │
 │  • JSON-LD data format (web standard)                           │
 │  • REST API (simple, well-documented)                           │
-│  • Shopify/WooCommerce plugins (where SMEs sell)                │
+│  • Shopify integration (where SMEs sell)                        │
+│  • AI-powered import (any file format)                          │
 │                                                                  │
 │  WHAT WE SKIP (Enterprise-Only)                                 │
 │  ─────────────────────────────                                  │
@@ -50,8 +52,8 @@ Our architecture is deliberately simple. We target SMEs (99% of EU businesses) w
 │                    DATA OWNERSHIP PRINCIPLES                     │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  1. SUPPLIERS OWN THEIR DATA                                    │
-│     • DPPs and VCs belong to the supplier                       │
+│  1. ORGANIZATIONS OWN THEIR DATA                                │
+│     • DPPs and VCs belong to the organization                   │
 │     • EuroComply is a tool, not a data custodian                │
 │                                                                  │
 │  2. SELF-CONTAINED VCs (KEY ARCHITECTURAL DECISION)             │
@@ -73,7 +75,7 @@ Our architecture is deliberately simple. We target SMEs (99% of EU businesses) w
 │  5. ESPR COMPLIANCE                                             │
 │     • DPPs must be accessible for product lifetime              │
 │     • Portability ensures this obligation can be met            │
-│     • Supplier controls where data lives                        │
+│     • Organization controls where data lives                    │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -86,7 +88,7 @@ See [DATA_SOVEREIGNTY.md](./DATA_SOVEREIGNTY.md) for detailed architecture and r
 
 ### Complete Export Package
 
-When a supplier exports their data, they receive everything needed to operate independently:
+When an organization exports their data, they receive everything needed to operate independently:
 
 ```
 export/
@@ -115,9 +117,9 @@ export/
 {
   "exportedAt": "2026-01-08T10:00:00Z",
   "eurocomplyVersion": "1.0.0",
-  "supplier": {
-    "id": "sup_abc123",
-    "companyName": "ABC Textiles GmbH",
+  "organization": {
+    "id": "org_abc123",
+    "name": "ABC Textiles GmbH",
     "did": "did:key:z6MkhaXgBZDvvvRhta..."
   },
   "statistics": {
@@ -149,13 +151,13 @@ export/
 │                    CANCELLATION FLOW                             │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  Day 0: Supplier initiates cancellation                        │
+│  Day 0: Organization initiates cancellation                     │
 │         → System generates export package                       │
 │         → Download link provided                                 │
 │                                                                  │
 │  Day 1-30: Grace period                                         │
 │         → DPPs remain accessible                                │
-│         → Supplier can download export anytime                  │
+│         → Organization can download export anytime              │
 │         → Reminder emails sent                                  │
 │                                                                  │
 │  Day 30: Subscription ends                                      │
@@ -164,7 +166,7 @@ export/
 │                                                                  │
 │  Day 60: Data deletion                                          │
 │         → Data removed from EuroComply                          │
-│         → Supplier's exported VCs still work                    │
+│         → Organization's exported VCs still work                │
 │         → did:key verification still works                      │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
@@ -361,7 +363,7 @@ Supplier provides VCs directly to retailers.
 
 ## Continuing to Issue VCs After Export
 
-Suppliers can continue signing new VCs using their exported private key.
+Organizations can continue signing new VCs using their exported private key.
 
 ### Using walt.id CLI
 
@@ -461,17 +463,17 @@ ESPR requires DPP data to remain accessible for the product's lifetime.
 │                    10-YEAR AVAILABILITY                          │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  Scenario: Supplier uses EuroComply for 3 years, then cancels   │
+│  Scenario: Organization uses EuroComply for 3 years, cancels    │
 │                                                                  │
 │  Year 0-3: DPPs hosted on EuroComply                            │
-│            • Full SaaS features                                  │
+│            • Full platform features                              │
 │            • Managed hosting                                     │
 │                                                                  │
-│  Year 3: Supplier cancels                                       │
+│  Year 3: Organization cancels                                   │
 │          • Exports all VCs and keys                             │
 │          • Chooses new hosting solution                         │
 │                                                                  │
-│  Year 3-10+: Supplier self-hosts or uses alternative           │
+│  Year 3-10+: Organization self-hosts or uses alternative        │
 │              • VCs still valid (did:key is permanent)           │
 │              • Verification still works                         │
 │              • ESPR obligation met                              │
@@ -529,7 +531,7 @@ ESPR requires DPP data to remain accessible for the product's lifetime.
 │  WHAT YOU OWN                                                   │
 │  → All Verifiable Credentials (signed DPPs)                     │
 │  → Your identity (did:key + private key)                        │
-│  → Product data and metadata                                    │
+│  → Product data (Golden Records)                                │
 │  → QR codes                                                     │
 │                                                                  │
 │  WHAT YOU CAN DO                                                │
@@ -545,9 +547,10 @@ ESPR requires DPP data to remain accessible for the product's lifetime.
 │  → ESPR compliance (data remains accessible)                    │
 │                                                                  │
 │  OUR VALUE PROPOSITION                                          │
-│  → Easy creation tools (no IT team required)                    │
+│  → Compliance-First PIM (Golden Record model)                   │
+│  → AI-powered import (any file format)                          │
 │  → Managed hosting (while subscribed)                           │
-│  → Retailer distribution network                                │
+│  → Free retailer access layer                                   │
 │  → Simple standards (W3C VC, did:key, GS1)                     │
 │  → NOT lock-in                                                  │
 │                                                                  │

@@ -7,6 +7,7 @@ The key differentiator from enterprise competitors (SAP, Siemens) is **self-serv
 - Credit card signup
 - Same-day compliance
 - No IT team needed
+- AI-powered data import from any file format
 
 ---
 
@@ -14,13 +15,14 @@ The key differentiator from enterprise competitors (SAP, Siemens) is **self-serv
 
 | Component | Current Code | Required (SaaS Model) |
 |-----------|--------------|----------------------|
-| Payment flow | Retailers pay suppliers (revenue sharing) | **Suppliers pay us** (subscription) |
-| Stripe usage | Connect payouts TO suppliers | **Checkout/Billing** FROM suppliers |
-| KYB | Manual admin review (~48hrs) | **Instant or tiered** |
-| Plan enforcement | Not implemented | **Enforce DPP quotas** |
-| Onboarding UI | None | **Guided wizard** |
+| Payment flow | Not implemented | **Organizations pay us** (subscription) |
+| Stripe usage | Not implemented | **Checkout/Billing** from organizations |
+| Verification | Manual admin review (~48hrs) | **Instant VAT or tiered** |
+| Plan enforcement | Not implemented | **Enforce product/DPP quotas** |
+| Onboarding UI | Landing page only | **Guided wizard** |
+| Data import | Not implemented | **AI-powered import** |
 
-**Key insight**: The payment flow is inverted. We need to refactor from "marketplace" to "SaaS subscription" model.
+**Key insight**: Organizations (brands, manufacturers, distributors) pay subscriptions. Retailers access DPPs for free.
 
 ---
 
@@ -28,7 +30,7 @@ The key differentiator from enterprise competitors (SAP, Siemens) is **self-serv
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│  SELF-SERVICE ONBOARDING FLOW (< 30 minutes to first DPP)          │
+│  SELF-SERVICE ONBOARDING FLOW (< 30 minutes to first product)      │
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                     │
 │  STEP 1: REGISTER (2 min)                                          │
@@ -36,7 +38,7 @@ The key differentiator from enterprise competitors (SAP, Siemens) is **self-serv
 │  │ • Email + password                                              ││
 │  │ • Company name                                                  ││
 │  │ • Country (EU only initially)                                   ││
-│  │ • Supplier type: Producer / Importer / Brand                   ││
+│  │ • Organization type: Brand / Manufacturer / Distributor         ││
 │  │ → Email verification link sent                                  ││
 │  └─────────────────────────────────────────────────────────────────┘│
 │                              │                                      │
@@ -52,9 +54,9 @@ The key differentiator from enterprise competitors (SAP, Siemens) is **self-serv
 │  STEP 3: SELECT PLAN (2 min)                                       │
 │  ┌─────────────────────────────────────────────────────────────────┐│
 │  │ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐                ││
-│  │ │  STARTER    │ │   GROWTH    │ │    PRO      │                ││
-│  │ │  €49/mo     │ │  €149/mo    │ │  €399/mo    │                ││
-│  │ │  50 DPPs    │ │  500 DPPs   │ │  2000 DPPs  │                ││
+│  │ │DPP STARTER  │ │DPP PROFESS. │ │  PIM + DPP  │                ││
+│  │ │  €49/mo     │ │  €149/mo    │ │  €299/mo    │                ││
+│  │ │ 100 products│ │ 500 products│ │2000 products│                ││
 │  │ │  [Select]   │ │  [Select]   │ │  [Select]   │                ││
 │  │ └─────────────┘ └─────────────┘ └─────────────┘                ││
 │  │                                                                  ││
@@ -90,23 +92,22 @@ The key differentiator from enterprise competitors (SAP, Siemens) is **self-serv
 │  │  │ → Status: PENDING_REVIEW → VERIFIED                          │││
 │  │  └─────────────────────────────────────────────────────────────┘││
 │  │                                                                  ││
-│  │  Note: Can create DPPs while pending, but can't PUBLISH         ││
+│  │  Note: Can create products while pending, but can't PUBLISH DPP ││
 │  │                                                                  ││
 │  └─────────────────────────────────────────────────────────────────┘│
 │                              │                                      │
 │                              ▼                                      │
-│  STEP 6: CREATE FIRST DPP (15-20 min)                              │
+│  STEP 6: IMPORT PRODUCTS (5-10 min)                                │
 │  ┌─────────────────────────────────────────────────────────────────┐│
-│  │ • Select category: Textiles / Furniture / Electronics          ││
-│  │ • Choose template: "Cotton T-Shirt", "Denim Jeans", etc.       ││
-│  │ • Fill mandatory fields (highlighted)                           ││
-│  │ • Optional: Use carbon calculator                               ││
-│  │ • Preview DPP                                                   ││
-│  │ • Issue Verifiable Credential (did:key)                         ││
-│  │ → PUBLISHED (if verified) or DRAFT (if pending)                 ││
+│  │ • AI Import: Upload CSV, Excel, PDF, or JSON                   ││
+│  │ • Shopify Sync: Import existing products                       ││
+│  │ • Manual: Create products with templates                        ││
+│  │ • Golden Record created with commercial + compliance data      ││
+│  │ • Completeness score shows progress toward DPP                  ││
+│  │ → DPP auto-generated when completeness reaches 100%             ││
 │  └─────────────────────────────────────────────────────────────────┘│
 │                                                                     │
-│  TOTAL TIME: ~25 minutes (with instant VAT verification)           │
+│  TOTAL TIME: ~20 minutes (with instant VAT + AI import)            │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -117,28 +118,25 @@ The key differentiator from enterprise competitors (SAP, Siemens) is **self-serv
 
 ### 1. Stripe Integration (Subscription Billing)
 
-**Change from current code**: Remove revenue sharing, add subscription billing.
-
 ```typescript
-// NEW: Stripe Subscription (not Connect payouts)
 import Stripe from 'stripe';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 // Pricing tiers
 const PLANS = {
-  starter: { priceId: 'price_starter_monthly', dppLimit: 50 },
-  growth: { priceId: 'price_growth_monthly', dppLimit: 500 },
-  pro: { priceId: 'price_pro_monthly', dppLimit: 2000 },
+  dpp_starter: { priceId: 'price_dpp_starter_monthly', productLimit: 100 },
+  dpp_professional: { priceId: 'price_dpp_professional_monthly', productLimit: 500 },
+  pim_dpp: { priceId: 'price_pim_dpp_monthly', productLimit: 2000 },
 };
 
 // Create checkout session
-async function createCheckoutSession(supplierId: string, plan: keyof typeof PLANS) {
-  const supplier = await getSupplier(supplierId);
+async function createCheckoutSession(organizationId: string, plan: keyof typeof PLANS) {
+  const organization = await getOrganization(organizationId);
 
   const session = await stripe.checkout.sessions.create({
     mode: 'subscription',
-    customer_email: supplier.email,
+    customer_email: organization.email,
     line_items: [{
       price: PLANS[plan].priceId,
       quantity: 1,
@@ -146,7 +144,7 @@ async function createCheckoutSession(supplierId: string, plan: keyof typeof PLAN
     success_url: `${DASHBOARD_URL}/onboarding/success?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${DASHBOARD_URL}/onboarding/plan`,
     metadata: {
-      supplierId,
+      organizationId,
       plan,
     },
     tax_id_collection: { enabled: true },  // Collect VAT ID
@@ -161,7 +159,7 @@ async function handleStripeWebhook(event: Stripe.Event) {
   switch (event.type) {
     case 'checkout.session.completed':
       const session = event.data.object;
-      await activateSubscription(session.metadata.supplierId, session.subscription);
+      await activateSubscription(session.metadata.organizationId, session.subscription);
       break;
     case 'customer.subscription.updated':
       await updateSubscriptionStatus(event.data.object);
@@ -205,16 +203,16 @@ async function verifyVatNumber(vatNumber: string): Promise<ViesResponse> {
   };
 }
 
-// Auto-verify supplier
-async function instantVerification(supplierId: string, vatNumber: string) {
+// Auto-verify organization
+async function instantVerification(organizationId: string, vatNumber: string) {
   const viesResult = await verifyVatNumber(vatNumber);
 
   if (viesResult.valid) {
-    await prisma.supplier.update({
-      where: { id: supplierId },
+    await prisma.organization.update({
+      where: { id: organizationId },
       data: {
         vatNumber,
-        companyName: viesResult.name,
+        name: viesResult.name,
         verificationStatus: 'VERIFIED',
         verifiedAt: new Date(),
         verificationMethod: 'VIES_AUTO',
@@ -232,9 +230,9 @@ async function instantVerification(supplierId: string, vatNumber: string) {
 
 ```typescript
 // Send verification email on registration
-async function sendVerificationEmail(supplier: Supplier) {
+async function sendVerificationEmail(organization: Organization) {
   const token = jwt.sign(
-    { supplierId: supplier.id, purpose: 'email_verification' },
+    { organizationId: organization.id, purpose: 'email_verification' },
     process.env.JWT_SECRET,
     { expiresIn: '24h' }
   );
@@ -242,10 +240,10 @@ async function sendVerificationEmail(supplier: Supplier) {
   const verifyUrl = `${DASHBOARD_URL}/verify-email?token=${token}`;
 
   await emailService.send({
-    to: supplier.email,
+    to: organization.email,
     subject: 'Verify your EuroComply account',
     template: 'email-verification',
-    data: { verifyUrl, companyName: supplier.companyName },
+    data: { verifyUrl, companyName: organization.name },
   });
 }
 
@@ -253,8 +251,8 @@ async function sendVerificationEmail(supplier: Supplier) {
 async function verifyEmail(token: string) {
   const payload = jwt.verify(token, process.env.JWT_SECRET);
 
-  await prisma.supplier.update({
-    where: { id: payload.supplierId },
+  await prisma.organization.update({
+    where: { id: payload.organizationId },
     data: { emailVerified: true, emailVerifiedAt: new Date() },
   });
 }
@@ -263,22 +261,22 @@ async function verifyEmail(token: string) {
 ### 4. Plan Enforcement
 
 ```typescript
-// Check DPP quota before creation
-async function checkDppQuota(supplierId: string): Promise<boolean> {
-  const supplier = await prisma.supplier.findUnique({
-    where: { id: supplierId },
+// Check product quota before creation
+async function checkProductQuota(organizationId: string): Promise<boolean> {
+  const organization = await prisma.organization.findUnique({
+    where: { id: organizationId },
     include: { subscription: true, _count: { select: { products: true } } },
   });
 
-  if (!supplier.subscription || supplier.subscription.status !== 'ACTIVE') {
+  if (!organization.subscription || organization.subscription.status !== 'ACTIVE') {
     throw new Error('No active subscription');
   }
 
-  const limit = PLANS[supplier.subscription.plan].dppLimit;
-  const used = supplier._count.products;
+  const limit = PLANS[organization.subscription.plan].productLimit;
+  const used = organization._count.products;
 
   if (used >= limit) {
-    throw new Error(`DPP limit reached (${used}/${limit}). Upgrade your plan.`);
+    throw new Error(`Product limit reached (${used}/${limit}). Upgrade your plan.`);
   }
 
   return true;
@@ -290,13 +288,13 @@ async function checkDppQuota(supplierId: string): Promise<boolean> {
 ## Database Schema Changes
 
 ```prisma
-// Remove old revenue sharing fields, add subscription fields
+// Organization model for brands, manufacturers, distributors
 
-model Supplier {
+model Organization {
   id                    String   @id @default(cuid())
   email                 String   @unique
-  passwordHash          String
-  companyName           String
+  name                  String
+  type                  OrganizationType  // BRAND | MANUFACTURER | DISTRIBUTOR
   country               String
   vatNumber             String?
 
@@ -309,19 +307,18 @@ model Supplier {
   verificationMethod    String?  // 'VIES_AUTO' | 'MANUAL_REVIEW'
   verifiedAt            DateTime?
 
-  // Subscription (NEW - replaces revenue sharing)
+  // Subscription
   subscription          Subscription?
 
   // DID identity
   did                   String?
 
-  // Relations
-  products              SupplierProduct[]
+  // Enabled modules
+  enabledModules        String[]  // ["core", "compliance", "pim", "dam", "import", "syndication"]
 
-  // REMOVE these old fields:
-  // stripeConnectAccountId  (was for payouts TO suppliers)
-  // payoutEnabled           (was for revenue sharing)
-  // payoutMinimum           (was for revenue sharing)
+  // Relations
+  products              Product[]
+  users                 User[]
 
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
@@ -329,17 +326,17 @@ model Supplier {
 
 model Subscription {
   id                    String   @id @default(cuid())
-  supplierId            String   @unique
-  supplier              Supplier @relation(fields: [supplierId], references: [id])
+  organizationId        String   @unique
+  organization          Organization @relation(fields: [organizationId], references: [id])
 
   // Stripe data
   stripeCustomerId      String
   stripeSubscriptionId  String
 
   // Plan info
-  plan                  SubscriptionPlan  // STARTER | GROWTH | PRO
-  status                SubscriptionStatus // ACTIVE | PAST_DUE | CANCELED
-  dppLimit              Int
+  plan                  SubscriptionPlan
+  status                SubscriptionStatus
+  productLimit          Int
 
   // Billing period
   currentPeriodStart    DateTime
@@ -350,10 +347,17 @@ model Subscription {
   updatedAt             DateTime @updatedAt
 }
 
+enum OrganizationType {
+  BRAND
+  MANUFACTURER
+  DISTRIBUTOR
+}
+
 enum SubscriptionPlan {
-  STARTER   // €49/mo, 50 DPPs
-  GROWTH    // €149/mo, 500 DPPs
-  PRO       // €399/mo, 2000 DPPs
+  DPP_STARTER       // €49/mo, 100 products
+  DPP_PROFESSIONAL  // €149/mo, 500 products
+  PIM_DPP           // €299/mo, 2000 products
+  ENTERPRISE        // Custom
 }
 
 enum SubscriptionStatus {
@@ -362,30 +366,25 @@ enum SubscriptionStatus {
   CANCELED
   TRIALING
 }
-
-// REMOVE these models (old revenue sharing):
-// - SupplierEarning
-// - SupplierPayout
-// - ProductSubscription (pricing fields)
 ```
 
 ---
 
 ## API Endpoints
 
-### New Endpoints (Onboarding)
+### Onboarding Endpoints
 
 ```typescript
 // Registration
-POST /api/suppliers/register
-  → Creates supplier, sends verification email
+POST /api/core/auth/register
+  → Creates organization, sends verification email
 
 // Email verification
-POST /api/suppliers/verify-email
+POST /api/core/auth/verify-email
   → Verifies email token
 
 // Plan selection
-POST /api/suppliers/checkout
+POST /api/core/billing/checkout
   → Creates Stripe checkout session, redirects to payment
 
 // Stripe webhook
@@ -393,32 +392,22 @@ POST /api/webhooks/stripe
   → Handles subscription events
 
 // VAT verification
-POST /api/suppliers/verify-vat
+POST /api/core/organizations/verify-vat
   → Instant VIES lookup
 
 // Manual verification (fallback)
-POST /api/suppliers/verification
+POST /api/core/organizations/verification
   → Document upload for manual review
 
 // Subscription management
-GET  /api/suppliers/subscription
+GET  /api/core/billing/subscription
   → Current plan, usage, billing info
 
-POST /api/suppliers/subscription/upgrade
+POST /api/core/billing/upgrade
   → Upgrade plan via Stripe portal
 
-POST /api/suppliers/subscription/cancel
+POST /api/core/billing/cancel
   → Cancel subscription
-```
-
-### Removed Endpoints (Old Model)
-
-```typescript
-// REMOVE these (revenue sharing model):
-GET  /api/suppliers/earnings
-POST /api/suppliers/payouts/request
-GET  /api/suppliers/payouts
-POST /api/suppliers/stripe/connect  // Was for Connect payouts
 ```
 
 ---
@@ -433,7 +422,7 @@ POST /api/suppliers/stripe/connect  // Was for Connect payouts
 ├── /payment          - Redirects to Stripe Checkout
 ├── /success          - Payment confirmed
 ├── /verification     - VAT entry or document upload
-└── /first-dpp        - Guided DPP creation wizard
+└── /import           - AI import wizard for first products
 ```
 
 ### Onboarding Progress Component
@@ -446,7 +435,7 @@ function OnboardingProgress({ currentStep }: { currentStep: number }) {
     { name: 'Select Plan', icon: CreditCardIcon },
     { name: 'Payment', icon: CheckIcon },
     { name: 'Verify Business', icon: BuildingIcon },
-    { name: 'Create DPP', icon: DocumentIcon },
+    { name: 'Import Products', icon: UploadIcon },
   ];
 
   return (
@@ -501,7 +490,7 @@ function OnboardingProgress({ currentStep }: { currentStep: number }) {
 
 | Metric | Target |
 |--------|--------|
-| Time to first DPP | < 30 minutes |
+| Time to first product import | < 20 minutes |
 | Instant verification rate | > 70% (EU VAT) |
 | Payment conversion | > 60% |
 | Onboarding completion | > 80% |
@@ -512,7 +501,7 @@ function OnboardingProgress({ currentStep }: { currentStep: number }) {
 
 - [Market Analysis](./MARKET_ANALYSIS.md) - Why self-service matters
 - [Business Model](./BUSINESS_MODEL.md) - Pricing tiers
-- [Implementation Roadmap](./IMPLEMENTATION_ROADMAP.md) - Full roadmap
+- [Implementation Plan](../IMPLEMENTATION_PLAN.md) - Technical architecture
 
 ---
 

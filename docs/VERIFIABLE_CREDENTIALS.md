@@ -175,20 +175,20 @@ did:key:z6MkhaXgBZDvvvRhta4LjXRJzL...
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-### 4.2 Supplier Identity (did:key)
+### 4.2 Organization Identity (did:key)
 
-When a supplier signs up:
+When an organization (brand, manufacturer, distributor) signs up:
 
 1. Generate Ed25519 key pair
 2. Create did:key from public key
 3. Store private key securely (exportable)
-4. Supplier can export keys at any time
+4. Organization can export keys at any time
 
 ```
-Supplier DID: did:key:z6MkhaXgBZDvvvRhta4LjXRJzLKNqVj3yQTpCFbRc8GwAdfS
-              ──────────────────────────────────────────────────────────
-                                    │
-                                    └── Self-contained, portable identity
+Organization DID: did:key:z6MkhaXgBZDvvvRhta4LjXRJzLKNqVj3yQTpCFbRc8GwAdfS
+                  ──────────────────────────────────────────────────────────
+                                        │
+                                        └── Self-contained, portable identity
 ```
 
 ### 4.3 The DPP as a Verifiable Credential
@@ -289,7 +289,7 @@ See [DATA_SOVEREIGNTY.md](./DATA_SOVEREIGNTY.md) for full architecture details.
 
 ### One-Click Export Package
 
-When a supplier exports their data (or cancels subscription):
+When an organization exports their data (or cancels subscription):
 
 ```
 dpp-export-{supplier-id}.zip
@@ -317,7 +317,7 @@ dpp-export-{supplier-id}.zip
 - Renders beautiful DPP page
 - Works forever without internet
 
-### What Suppliers Can Do After Export
+### What Organizations Can Do After Export
 
 1. **Self-host** - Put VCs on their own server
 2. **Use another provider** - Import into any VC-compatible platform
@@ -393,7 +393,7 @@ Response:
 
 ## 7. Why This Matters
 
-### For Suppliers
+### For Organizations
 
 | Benefit | Description |
 |---------|-------------|
@@ -408,9 +408,10 @@ Response:
 | Benefit | Description |
 |---------|-------------|
 | **Trust** | Cryptographic proof, not just a database entry |
-| **Independence** | Can verify without contacting supplier |
+| **Independence** | Can verify without contacting the brand |
 | **Offline** | Verification works without internet |
 | **Standards** | W3C format works with any compliant tool |
+| **Free access** | Public API, widget, and Shopify app at no cost |
 
 ### For Regulators
 
@@ -546,36 +547,36 @@ The architecture supports both - did:key for portability, did:ebsi for EU trust 
 ```typescript
 import { getVcService, getDidKeyService } from '@eurocomply/identity';
 
-async function createPortableDPP(dppData: DppData, supplier: Supplier) {
+async function createPortableDPP(product: Product, organization: Organization) {
   const didKeyService = getDidKeyService();
   const vcService = getVcService();
 
-  // 1. Get or create supplier's did:key
-  let supplierDid = supplier.did;
-  if (!supplierDid) {
+  // 1. Get or create organization's did:key
+  let organizationDid = organization.did;
+  if (!organizationDid) {
     const { did, privateKeyJwk } = await didKeyService.createDidKey();
-    supplierDid = did;
+    organizationDid = did;
     // Store DID and encrypted private key
-    await saveSupplierIdentity(supplier.id, did, privateKeyJwk);
+    await saveOrganizationIdentity(organization.id, did, privateKeyJwk);
   }
 
-  // 2. Build credential subject
+  // 2. Build credential subject from Golden Record
   const credentialSubject = {
-    id: `urn:gtin:${dppData.gtin}`,
+    id: `urn:gtin:${product.gtin}`,
     type: 'Product',
-    name: dppData.name,
-    gtin: dppData.gtin,
+    name: product.name,
+    gtin: product.gtin,
     manufacturer: {
-      name: supplier.companyName,
-      country: supplier.country,
+      name: organization.name,
+      country: organization.country,
     },
-    sustainability: dppData.sustainability,
-    certifications: dppData.certifications,
+    sustainability: product.dppData.sustainability,
+    certifications: product.dppData.certifications,
   };
 
   // 3. Issue Verifiable Credential
   const vc = await vcService.issueCredential({
-    issuerDid: supplierDid,
+    issuerDid: organizationDid,
     credentialType: 'DigitalProductPassport',
     credentialSubject,
     expiresIn: '10y',
@@ -585,7 +586,7 @@ async function createPortableDPP(dppData: DppData, supplier: Supplier) {
   return {
     vcJson: vc.credential,
     vcJwt: vc.jwt,
-    // This VC is now portable - supplier owns it
+    // This VC is now portable - organization owns it
   };
 }
 ```
@@ -602,7 +603,7 @@ async function createPortableDPP(dppData: DppData, supplier: Supplier) {
 │  IDENTITY                                                       │
 │  → did:key (self-contained, portable)                           │
 │  → No platform dependency                                       │
-│  → Supplier owns their identity                                 │
+│  → Organization owns their identity                             │
 │                                                                  │
 │  CREDENTIALS                                                    │
 │  → W3C Verifiable Credentials                                   │
@@ -620,9 +621,10 @@ async function createPortableDPP(dppData: DppData, supplier: Supplier) {
 │  → Works even if EuroComply shuts down                         │
 │                                                                  │
 │  THE VALUE WE PROVIDE                                           │
-│  → Easy creation tools                                          │
+│  → Easy product management (Golden Record model)               │
+│  → AI-powered import from any format                           │
 │  → Managed hosting (while subscribed)                          │
-│  → Retailer distribution                                        │
+│  → Free retailer access layer                                  │
 │  → NOT lock-in                                                  │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘

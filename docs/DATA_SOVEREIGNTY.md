@@ -11,7 +11,7 @@
 | Verification | ✅ Works offline | `did-key.service.ts` - `verifySignatureOffline()` |
 | Export | ✅ Implemented | `vc-export.service.ts` - `exportPortablePackage()` |
 | Offline Viewer | ✅ Implemented | `vc-export.service.ts` - `generateOfflineViewer()` |
-| API Endpoints | ✅ Implemented | `apps/api/src/modules/supplier/routes.ts` |
+| API Endpoints | ✅ Implemented | `apps/api/src/core/routes.ts` |
 
 **Test Coverage:** 34 tests (16 did:key + 11 vc-export + 7 export service) - all passing
 
@@ -408,26 +408,28 @@ curl -X GET https://api.eurocomply.eu/v1/suppliers/export/viewer/prod_123 \
 ┌────────────────────────────┬─────────┬─────────────────────────────┐
 │ Tier                       │ Price   │ Sovereignty Features        │
 ├────────────────────────────┼─────────┼─────────────────────────────┤
-│ Starter                    │ €49/mo  │ ✅ Self-contained VCs       │
+│ DPP Starter                │ €49/mo  │ ✅ Self-contained VCs       │
 │                            │         │ ✅ One-click export         │
 │                            │         │ ✅ Offline verification     │
 ├────────────────────────────┼─────────┼─────────────────────────────┤
-│ Growth                     │ €149/mo │ All Starter features        │
-│                            │         │ ✅ API access               │
+│ DPP Professional           │ €149/mo │ All Starter features        │
+│                            │         │ ✅ DAM integration          │
 │                            │         │ ✅ Bulk export              │
 ├────────────────────────────┼─────────┼─────────────────────────────┤
-│ Pro                        │ €399/mo │ All Growth features         │
-│                            │         │ ✅ White-label viewer       │
-│                            │         │ ✅ Custom domain option     │
+│ PIM + DPP                  │ €299/mo │ All Professional features   │
+│                            │         │ ✅ Full PIM capabilities    │
+│                            │         │ ✅ AI import                │
+│                            │         │ ✅ Shopify sync             │
+│                            │         │ ✅ API access               │
 ├────────────────────────────┼─────────┼─────────────────────────────┤
-│ Enterprise                 │ €599+   │ All Pro features            │
+│ Enterprise                 │ Custom  │ All PIM + DPP features      │
 │                            │         │ ✅ Dedicated infrastructure │
-│                            │         │ ✅ Deploy to your cloud     │
+│                            │         │ ✅ Custom integrations      │
 │                            │         │ ✅ SLA guarantees           │
 └────────────────────────────┴─────────┴─────────────────────────────┘
 ```
 
-**Note**: All tiers get the same sovereignty guarantees. Enterprise just adds dedicated infrastructure for customers who want physical isolation.
+**Note**: All tiers get the same sovereignty guarantees. Enterprise adds dedicated infrastructure for organizations that require physical isolation.
 
 ---
 
@@ -541,9 +543,9 @@ function resolveDidKey(did: string): PublicKey {
 
 ## Related Documentation
 
-- [Self-Service Onboarding](./SELF_SERVICE_ONBOARDING.md) - How suppliers sign up
+- [Self-Service Onboarding](./SELF_SERVICE_ONBOARDING.md) - How organizations sign up
 - [Business Model](./BUSINESS_MODEL.md) - Pricing tiers
-- [Implementation Roadmap](./IMPLEMENTATION_ROADMAP.md) - Development phases
+- [Implementation Plan](../IMPLEMENTATION_PLAN.md) - Development phases
 
 ---
 
