@@ -276,11 +276,22 @@ const signed = await wallet.sign(versionData);
 
 #### Supported Wallet Types
 
+**User Wallets (for natural persons):**
+
 | Type | Storage | Signing | Use Case |
 |------|---------|---------|----------|
-| **MANAGED** | walt.id Custodian | Server-side (automatic) | Default for all users |
-| **EUDI** | User's EU Digital Identity Wallet | User confirms on phone | Higher trust requirements |
+| **MANAGED** | walt.id Custodian | Server-side (automatic) | Default for all users (global) |
+| **EUDI** | User's EU Digital Identity Wallet | User confirms on phone | EU users wanting stronger identity |
 | **EXTERNAL** | Third-party wallet | User-controlled | Full self-sovereignty |
+
+**Organization Wallets (for legal entities):**
+
+| Type | Storage | Signing | Use Case |
+|------|---------|---------|----------|
+| **MANAGED** | walt.id Custodian | Server-side (automatic) | Default for all organizations (global) |
+| **EU_ORG_WALLET** | EU Organizational Identity Wallet | Authorized signer confirms | EU orgs wanting government-verified identity |
+
+**Global Coverage:** MANAGED wallets are the default and provide full functionality for users and organizations worldwide. EU wallets are optional enhancements for those who want government-verified identity.
 
 #### Why This Design
 

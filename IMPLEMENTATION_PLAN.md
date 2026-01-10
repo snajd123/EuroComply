@@ -264,9 +264,13 @@ UserWallet (User Identity & Keys)
 
 OrganizationWallet (Organization Identity)
 ├── organizationId (unique)
-├── did, keyId (walt.id managed key)
-├── leiCode? (Legal Entity Identifier for future)
-└── createdAt
+├── type: MANAGED | EU_ORG_WALLET
+├── did?, keyId? (for MANAGED wallets)
+├── euOrgDid?, euOrgSubject?, connectionState? (for EU Org Wallet)
+├── activeDid (which DID to use for signing DPPs)
+├── leiCode? (ISO 17442 Legal Entity Identifier)
+├── vatNumber? (for EU VAT verification)
+└── connectedAt, lastUsedAt, createdAt
 
 ProductVersion (Git-Style Version Control)
 ├── productId, version (1, 2, 3...)
@@ -469,19 +473,22 @@ Phase 7: Retailer Access    ──► Public API and widget
 | Implement approval routing logic (by scope and hierarchy) | Planned |
 | Build approval inbox API and UI | Planned |
 | Product history tab with version timeline | Planned |
-| **Wallet Architecture (EUDI-Ready)** | |
+| **Wallet Architecture (Global + EU-Ready)** | |
 | Create WalletProvider interface (abstraction for all wallet types) | Planned |
 | Implement ManagedWalletProvider (walt.id Custodian backend) | Planned |
-| Add UserWallet and OrganizationWallet models to schema | Planned |
+| Add UserWallet model (MANAGED, EUDI, EXTERNAL types) | Planned |
+| Add OrganizationWallet model (MANAGED, EU_ORG_WALLET types) | Planned |
 | Build WalletFactory for provider instantiation | Planned |
 | Auto-generate managed wallet on first signing action | Planned |
 | Implement per-version signing through wallet interface | Planned |
-| Signature verification display in history view | Planned |
-| Include user wallets in data export package | Planned |
-| Stub EUDIWalletProvider interface (implementation when EUDI launches) | Planned |
-| Wallet settings UI (view wallet, future: connect EUDI) | Planned |
+| Trust level display in signature verification (Platform-managed vs Government-verified) | Planned |
+| Include user and org wallets in data export package | Planned |
+| Stub EUDIWalletProvider interface (user wallets, for when EUDI launches) | Planned |
+| Stub EUOrgWalletProvider interface (org wallets, for when EU Org Wallet launches) | Planned |
+| User wallet settings UI (view wallet, future: connect EUDI) | Planned |
+| Organization wallet settings UI (view wallet, LEI, future: connect EU Org Wallet) | Planned |
 
-**Outcome:** Users can sign up, start free trial, manage subscriptions with overage billing, and export data on cancellation. Enterprise customers can use SSO. Organizations can invite team members with role-based access control, and all product changes are version-controlled with cryptographic signatures. Wallet abstraction enables future EUDI integration without code changes. Database schema supports all future features.
+**Outcome:** Users can sign up, start free trial, manage subscriptions with overage billing, and export data on cancellation. Enterprise customers can use SSO. Organizations can invite team members with role-based access control, and all product changes are version-controlled with cryptographic signatures. Wallet architecture supports global users (MANAGED) with optional EU identity enhancement (EUDI for users, EU Org Wallet for organizations) without code changes. Database schema supports all future features.
 
 **Key Decision:** Design attestation models NOW (Contributor, DataRequest, Contribution, ContributionVersion) even though implementation is Phase 5. This prevents schema rework later.
 
