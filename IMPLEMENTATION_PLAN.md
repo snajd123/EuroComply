@@ -358,10 +358,12 @@ Phase 7: Retailer Access    ──► Public API and widget
 | Implement User/Team management within organizations | Planned |
 | Create API key management (hashed keys, scopes) | Planned |
 | Set up Stripe billing integration (subscriptions, usage metering) | Planned |
+| Implement audit log infrastructure (event logging for all actions) | Planned |
 | Basic login/signup UI | Planned |
 | Organization settings page | Planned |
+| Audit log viewer UI | Planned |
 
-**Outcome:** Users can sign up, create organizations, and manage subscriptions. Database schema supports all future features.
+**Outcome:** Users can sign up, create organizations, and manage subscriptions. Database schema supports all future features. Audit log captures all actions for compliance.
 
 **Key Decision:** Design attestation models NOW (Contributor, DataRequest, Contribution, ContributionVersion) even though implementation is Phase 5. This prevents schema rework later.
 
@@ -384,11 +386,14 @@ Phase 7: Retailer Access    ──► Public API and widget
 | Add completeness visualization (traffic lights per channel) | Planned |
 | ProductVariant with parent-child inheritance | Planned |
 | Multi-currency pricing support | Planned |
+| Bulk operations API (edit, delete, assign family) | Planned |
+| Bulk operations UI (multi-select in AG Grid) | Planned |
+| Export to CSV/Excel/JSON | Planned |
 | S3 upload for assets (images, documents, certificates) | Planned |
 | Asset-product associations with roles (hero, gallery, certificate) | Planned |
 | Basic asset management UI | Planned |
 
-**Outcome:** Users can manage products with dynamic attributes, see completeness scores, upload assets. Core PIM functionality complete.
+**Outcome:** Users can manage products with dynamic attributes, see completeness scores, upload assets, perform bulk operations, and export data. Core PIM functionality complete.
 
 **Dependencies:** Phase 1 (auth, org, schema)
 
@@ -646,7 +651,10 @@ EuroComply/
 | Core (Auth, Billing) | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Compliance (DPP, VCs) | ✓ | ✓ | ✓ | ✓ | ✓ |
 | DAM (Basic) | ✓ | ✓ | ✓ | ✓ | ✓ |
-| PIM (Families, Variants) | - | Basic | Full | Full | Full |
+| PIM (Families, Variants) | - | Basic (3) | Full | Full | Full |
+| Bulk Operations | - | - | ✓ | ✓ | ✓ |
+| Export (CSV/JSON) | - | - | ✓ | ✓ | ✓ |
+| Audit Log | - | - | ✓ | ✓ | ✓ |
 | Import (CSV) | - | ✓ | ✓ | ✓ | ✓ |
 | Import (AI) | - | 20/mo | Unlimited | Unlimited | Unlimited |
 | Attestation (Multi-Party) | - | ✓ | ✓ | ✓ | ✓ |

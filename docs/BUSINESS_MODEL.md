@@ -147,6 +147,9 @@ Retailers who only resell products from other brands are served through the free
 | Product Families | - | Basic (3) | Unlimited | Unlimited | Unlimited |
 | Variants | - | ✓ | ✓ | ✓ | ✓ |
 | Completeness Scoring | - | ✓ | ✓ | ✓ | ✓ |
+| Bulk Operations | - | - | ✓ | ✓ | ✓ |
+| Export (CSV/JSON) | - | - | ✓ | ✓ | ✓ |
+| Audit Log | - | - | ✓ | ✓ | ✓ |
 | | | | | | |
 | **DAM** | | | | | |
 | Image Upload | 5/product | 10/product | 20/product | 50/product | Unlimited |
@@ -169,6 +172,42 @@ Retailers who only resell products from other brands are served through the free
 | Priority Support | - | - | ✓ | ✓ | ✓ |
 | Dedicated Success | - | - | - | - | ✓ |
 | SLA | - | - | - | 99.5% | 99.9% |
+
+### Tier Differentiation Summary
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  WHAT DIFFERENTIATES EACH TIER                                   │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  DPP STARTER → DPP PROFESSIONAL                                 │
+│  • Product storage (30 days → permanent)                        │
+│  • Basic PIM (3 families, variants, completeness)               │
+│  • CSV import + 20 AI imports/month                             │
+│  • Multi-party attestation                                       │
+│                                                                  │
+│  DPP PROFESSIONAL → PIM STANDARD                                │
+│  • More products (500 → 2,000)                                  │
+│  • Unlimited product families                                    │
+│  • Unlimited AI imports                                          │
+│  • Bulk operations, export, audit log                           │
+│  • Shopify sync + API access                                    │
+│                                                                  │
+│  PIM STANDARD → PIM GROWTH                                      │
+│  • More products (2,000 → 20,000)                               │
+│  • More users (5 → 10)                                          │
+│  • Webhooks for real-time integrations                          │
+│  • SLA guarantee (99.5%)                                        │
+│                                                                  │
+│  PIM GROWTH → ENTERPRISE                                        │
+│  • More products (20,000 → 100,000+)                            │
+│  • Unlimited users                                               │
+│  • Custom integrations                                           │
+│  • Dedicated success manager                                     │
+│  • Higher SLA (99.9%)                                           │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
 
 ### DPP Starter: Session-Only Model
 
