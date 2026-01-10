@@ -20,6 +20,7 @@ Our architecture is deliberately simple. We target SMEs (99% of EU businesses) w
 │  • Compliance-First PIM (Golden Record model)                   │
 │  • W3C Verifiable Credentials (standard format)                 │
 │  • did:key identity (self-contained, portable)                  │
+│  • did:ebsi support (planned - EU trust framework)              │
 │  • GS1 Digital Link QR codes (interoperable)                    │
 │  • JSON-LD data format (web standard)                           │
 │  • REST API (simple, well-documented)                           │
@@ -32,7 +33,6 @@ Our architecture is deliberately simple. We target SMEs (99% of EU businesses) w
 │  • Full AAS/AASX (industrial digital twins)                     │
 │  • ODRL usage policies (complex access control)                 │
 │  • Catena-X/Gaia-X integration (consortium protocols)           │
-│  • EBSI blockchain anchoring (institutional trust)              │
 │  • SAP/Oracle ERP connectors                                    │
 │                                                                  │
 │  WHY: Enterprise has SAP, Siemens, Catena-X. SMEs have nothing. │
@@ -549,7 +549,7 @@ ESPR requires DPP data to remain accessible for the product's lifetime.
 │  → AI-powered import (any file format)                          │
 │  → Managed hosting (while subscribed)                           │
 │  → Free retailer access layer                                   │
-│  → Simple standards (W3C VC, did:key, GS1)                     │
+│  → Simple standards (W3C VC, did:key/did:ebsi, GS1)            │
 │  → NOT lock-in                                                  │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘

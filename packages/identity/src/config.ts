@@ -10,8 +10,8 @@ export interface WaltIdConfig {
 }
 
 export interface DidConfig {
-  method: 'web' | 'ebsi';
-  domain: string; // e.g., "eurocomply.eu"
+  method: 'key' | 'web' | 'ebsi';
+  domain: string; // e.g., "eurocomply.eu" (used for did:web)
 }
 
 export interface FeatureFlags {
@@ -37,7 +37,7 @@ export const defaultConfig: IdentityConfig = {
     auditorApi: process.env.WALTID_AUDITOR_API || 'http://localhost:7003',
   },
   did: {
-    method: (process.env.DID_METHOD as 'web' | 'ebsi') || 'web',
+    method: (process.env.DID_METHOD as 'key' | 'web' | 'ebsi') || 'key',
     domain: process.env.PLATFORM_DOMAIN || 'eurocomply.eu',
   },
   features: {
