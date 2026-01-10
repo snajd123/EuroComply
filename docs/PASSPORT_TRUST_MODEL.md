@@ -37,7 +37,7 @@ EU law requires DPP data to be accessible **"free of charge"** to all economic o
 
 | Who | Access | Cost |
 |-----|--------|------|
-| Brands, Manufacturers | Create DPPs | €29-499/month subscription |
+| Brands, Manufacturers | Create DPPs | €99-499/month subscription |
 | Retailers | View & display DPPs | **Free** |
 | Consumers | Verify DPPs | **Free** |
 | Regulators | Audit DPPs | **Free** |
@@ -87,7 +87,7 @@ If retailers could create their own passports:
    - Organization has documentary proof
 
 2. **Organization → DPP**
-   - Organization pays subscription (€29-499/month)
+   - Organization pays subscription (€99-499/month)
    - Creates product as Golden Record
    - Product appears in DPP Ready list at 100% completeness
    - Organization reviews and approves for issuance

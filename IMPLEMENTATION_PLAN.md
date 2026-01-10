@@ -638,10 +638,10 @@ EuroComply/
 
 | Plan | Monthly | Annual | Products | Users |
 |------|---------|--------|----------|-------|
-| **DPP Starter** | €29 | €290/yr | 50 | 1 |
-| **DPP Professional** | €99 | €990/yr | 500 | 3 |
-| **PIM + DPP Standard** | €199 | €1,990/yr | 2,000 | 5 |
-| **PIM + DPP Growth** | €499 | €4,990/yr | 20,000 | 10 |
+| **DPP Starter** | €99 | €990/yr | 100 | Unlimited |
+| **DPP Professional** | €149 | €1,490/yr | 1,000 | Unlimited |
+| **PIM + DPP Standard** | €249 | €2,490/yr | 5,000 | Unlimited |
+| **PIM + DPP Growth** | €499 | €4,990/yr | 25,000 | Unlimited |
 | **Enterprise** | Custom | Custom | 100,000+ | Unlimited |
 
 ### Module Access by Tier
@@ -683,7 +683,7 @@ See [BUSINESS_MODEL.md](docs/BUSINESS_MODEL.md) for full cost analysis and margi
 | Metric | Year 1 | Year 2 | Year 3 |
 |--------|--------|--------|--------|
 | Customers | 400 | 1,500 | 4,000 |
-| ARR | €1.0M | €3.6M | €9.6M |
+| ARR | €1.0M | €3.6M | €9.7M |
 | Active Products | 100k | 400k | 1M |
 | DPPs Issued | 50k | 200k | 500k |
 

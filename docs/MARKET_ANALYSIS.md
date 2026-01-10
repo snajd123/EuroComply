@@ -78,7 +78,7 @@ Current solutions are either "too complex" or "too simple" for SMEs:
 │  ✓ Self-service onboarding (no sales calls)                    │
 │  ✓ Sign up with credit card, same-day compliance               │
 │  ✓ AI-powered data import (dump any file format)               │
-│  ✓ Low price point (€29-499/month, not €500+)                  │
+│  ✓ Low price point (€99-499/month, not €500+)                  │
 │  ✓ No IT team required                                          │
 │  ✓ Works with existing tools (Shopify integration)             │
 │                                                                  │
@@ -96,7 +96,7 @@ Current solutions are either "too complex" or "too simple" for SMEs:
 | Capability | SAP/Siemens | Mid-Market (Renoon) | **EuroComply** |
 |------------|-------------|---------------------|----------------|
 | Target market | Fortune 500 | Mid-size brands | **SMEs (99%)** |
-| Price | €100k+ | €10k+/year | **€29-499/month** |
+| Price | €100k+ | €10k+/year | **€99-499/month** |
 | Sales model | Enterprise sales | Demo required | **Self-service** |
 | Setup time | Months | Weeks | **Same day** |
 | IT team needed | Yes | Usually | **No** |

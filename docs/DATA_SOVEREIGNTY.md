@@ -408,15 +408,15 @@ curl -X GET https://api.eurocomply.eu/v1/suppliers/export/viewer/prod_123 \
 ┌────────────────────────────┬─────────┬─────────────────────────────┐
 │ Tier                       │ Price   │ Sovereignty Features        │
 ├────────────────────────────┼─────────┼─────────────────────────────┤
-│ DPP Starter (100 products) │ €29/mo  │ ✅ Self-contained VCs       │
+│ DPP Starter (100 products) │ €99/mo  │ ✅ Self-contained VCs       │
 │                            │         │ ✅ One-click export         │
 │                            │         │ ✅ Offline verification     │
 ├────────────────────────────┼─────────┼─────────────────────────────┤
-│ DPP Professional (1,000)   │ €99/mo  │ All Starter features        │
+│ DPP Professional (1,000)   │ €149/mo │ All Starter features        │
 │                            │         │ ✅ Basic PIM (3 families)   │
 │                            │         │ ✅ Multi-party attestation  │
 ├────────────────────────────┼─────────┼─────────────────────────────┤
-│ PIM Standard (5,000)       │ €199/mo │ All Professional features   │
+│ PIM Standard (5,000)       │ €249/mo │ All Professional features   │
 │                            │         │ ✅ Full PIM capabilities    │
 │                            │         │ ✅ Bulk ops, Export, Audit  │
 │                            │         │ ✅ Shopify sync + API       │

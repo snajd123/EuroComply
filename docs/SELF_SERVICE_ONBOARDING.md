@@ -55,7 +55,7 @@ The key differentiator from enterprise competitors (SAP, Siemens) is **self-serv
 │  ┌─────────────────────────────────────────────────────────────────┐│
 │  │ ┌───────────┐ ┌───────────┐ ┌───────────┐ ┌───────────┐        ││
 │  │ │DPP STARTER│ │ DPP PRO   │ │PIM STNDRD │ │PIM GROWTH │        ││
-│  │ │  €29/mo   │ │  €99/mo   │ │  €199/mo  │ │  €499/mo  │        ││
+│  │ │  €99/mo   │ │  €149/mo  │ │  €249/mo  │ │  €499/mo  │        ││
 │  │ │100 product│ │1k products│ │5k products│ │25k product│        ││
 │  │ │ [Select]  │ │ [Select]  │ │ [Select]  │ │ [Select]  │        ││
 │  │ └───────────┘ └───────────┘ └───────────┘ └───────────┘        ││
@@ -285,9 +285,9 @@ enum OrganizationType {
 }
 
 enum SubscriptionPlan {
-  DPP_STARTER       // €29/mo, 100 products, unlimited users
-  DPP_PROFESSIONAL  // €99/mo, 1,000 products, unlimited users
-  PIM_STANDARD      // €199/mo, 5,000 products, unlimited users
+  DPP_STARTER       // €99/mo, 100 products, unlimited users
+  DPP_PROFESSIONAL  // €149/mo, 1,000 products, unlimited users
+  PIM_STANDARD      // €249/mo, 5,000 products, unlimited users
   PIM_GROWTH        // €499/mo, 25,000 products, unlimited users
   ENTERPRISE        // Custom, 100k+ products, unlimited users
 }

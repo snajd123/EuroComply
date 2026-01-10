@@ -94,10 +94,10 @@ Retailers who only resell products from other brands are served through the free
 │                                                                              │
 │  ┌─────────────────┐     ┌─────────────────┐                                │
 │  │  DPP STARTER    │     │ DPP PROFESSIONAL│                                │
-│  │  €29/mo         │ ──► │ €99/mo          │                                │
+│  │  €99/mo         │ ──► │ €149/mo         │                                │
 │  │  100 products   │     │ 1,000 products  │                                │
 │  │  Generate DPPs  │     │ + Basic PIM     │                                │
-│  │  30-day edit    │     │ + Limited AI    │                                │
+│  │  Permanent edit │     │ + Limited AI    │                                │
 │  │  Unlimited users│     │ + Attestation   │                                │
 │  └─────────────────┘     └─────────────────┘                                │
 │                                   │                                          │
@@ -108,7 +108,7 @@ Retailers who only resell products from other brands are served through the free
 │  ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐       │
 │  │  PIM + DPP      │     │ PIM + DPP       │     │  ENTERPRISE     │       │
 │  │  STANDARD       │ ──► │ GROWTH          │ ──► │                 │       │
-│  │  €199/mo        │     │ €499/mo         │     │ Custom          │       │
+│  │  €249/mo        │     │ €499/mo         │     │ Custom          │       │
 │  │  5,000 products │     │ 25,000 products │     │ 100k+ products  │       │
 │  │  Full PIM       │     │ + Higher limits │     │ + SLA           │       │
 │  │  Full AI Import │     │ + Priority      │     │ + Custom        │       │
@@ -124,9 +124,9 @@ Retailers who only resell products from other brands are served through the free
 
 | Plan | Monthly | Annual (2 months free) | Products | Users |
 |------|---------|------------------------|----------|-------|
-| **DPP Starter** | €29 | €290/year (€24/mo) | 100 | Unlimited |
-| **DPP Professional** | €99 | €990/year (€82/mo) | 1,000 | Unlimited |
-| **PIM + DPP Standard** | €199 | €1,990/year (€166/mo) | 5,000 | Unlimited |
+| **DPP Starter** | €99 | €990/year (€82/mo) | 100 | Unlimited |
+| **DPP Professional** | €149 | €1,490/year (€124/mo) | 1,000 | Unlimited |
+| **PIM + DPP Standard** | €249 | €2,490/year (€207/mo) | 5,000 | Unlimited |
 | **PIM + DPP Growth** | €499 | €4,990/year (€416/mo) | 25,000 | Unlimited |
 | **Enterprise** | Custom | Custom | 100,000+ | Unlimited |
 
@@ -143,7 +143,7 @@ Retailers who only resell products from other brands are served through the free
 | Attestation (Multi-Party) | - | ✓ | ✓ | ✓ | ✓ |
 | | | | | | |
 | **PRODUCT MANAGEMENT** | | | | | |
-| Editing Window | 30 days | Permanent | Permanent | Permanent | Permanent |
+| Editing | Permanent | Permanent | Permanent | Permanent | Permanent |
 | DPP Hosting | Permanent | Permanent | Permanent | Permanent | Permanent |
 | Product Families | - | Basic (3) | Unlimited | Unlimited | Unlimited |
 | Variants | - | ✓ | ✓ | ✓ | ✓ |
@@ -182,7 +182,7 @@ Retailers who only resell products from other brands are served through the free
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
 │  DPP STARTER → DPP PROFESSIONAL                                 │
-│  • Editing window (30 days → permanent)                         │
+│  • More products (100 → 1,000)                                  │
 │  • Basic PIM (3 families, variants, completeness)               │
 │  • CSV import + 20 AI imports/month                             │
 │  • Multi-party attestation                                       │
@@ -208,42 +208,37 @@ Retailers who only resell products from other brands are served through the free
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### DPP Starter: Edit Window Model
+### DPP Starter: Compliance-First Tier
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  DPP STARTER - HOW IT WORKS                                      │
+│  DPP STARTER (€99/mo) - HOW IT WORKS                             │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  ACTIVE PERIOD (30 days after DPP creation)                     │
-│  ─────────────────────────────────────────                      │
-│  1. User enters product data (manual form)                      │
-│  2. User uploads images                                          │
-│  3. System generates DPP + VC + QR code                         │
-│  4. User can edit, update, regenerate DPP                       │
-│  5. User downloads complete package:                             │
-│     • DPP data (JSON-LD)                                        │
-│     • Verifiable Credential (JWT)                               │
-│     • QR code (PNG/SVG)                                         │
-│     • Public verification URL                                    │
+│  INCLUDED FEATURES                                               │
+│  ─────────────────                                              │
+│  • 100 products with permanent editing                          │
+│  • Manual product data entry                                    │
+│  • Image upload (5 per product)                                 │
+│  • DPP generation with VC + QR code                             │
+│  • Public verification page                                     │
+│  • Permanent hosting (10+ years, ESPR compliant)                │
+│  • Unlimited users                                               │
 │                                                                  │
-│  AFTER 30 DAYS (automatic transition to "Published" state)      │
-│  ─────────────────────────────────────────────────────────      │
-│  • Public DPP page: STAYS LIVE (10+ years, ESPR compliant)      │
-│  • QR code resolver: KEEPS WORKING FOREVER                      │
-│  • JSON-LD/VC: PERMANENTLY HOSTED via CDN                       │
-│  • Images: ALL KEPT (original quality, CDN-served)              │
-│  • Editing: DISABLED (upgrade to edit again)                    │
+│  NOT INCLUDED (upgrade to DPP Professional)                     │
+│  ──────────────────────────────────────────                     │
+│  • Product families and variants                                │
+│  • CSV import                                                    │
+│  • AI-powered import                                            │
+│  • Multi-party attestation                                      │
 │                                                                  │
-│  WHY THIS WORKS                                                  │
-│  ─────────────                                                  │
-│  ESPR requires DPP data to be accessible for product lifetime.  │
-│  Deleting data would break QR codes → non-compliance.           │
-│  We keep public-facing data forever; only editing is limited.   │
+│  IDEAL FOR                                                       │
+│  ─────────                                                      │
+│  Small brands with <100 products who need basic DPP compliance  │
+│  without advanced product management features.                  │
 │                                                                  │
 │  UPGRADE PATH                                                    │
-│  → DPP Professional (€99/mo): Re-enables editing for all DPPs   │
-│  → Or create new DPP (counts against 100 product limit)         │
+│  → DPP Professional (€149/mo): +PIM, +AI imports, +Attestation  │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -696,17 +691,17 @@ At 500 customer scale (€220/month infrastructure amortized):
 │  MARGIN ANALYSIS BY TIER                                                     │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  DPP STARTER (€29/month, 100 products)                                      │
+│  DPP STARTER (€99/month, 100 products)                                      │
 │  ─────────────────────────────────────                                      │
 │  Infrastructure share:     €0.44                                            │
 │  S3 storage (1GB):         €0.02                                            │
 │  Bandwidth:                €0.15                                            │
 │  ────────────────────────────────                                           │
 │  Total cost:               €0.61                                            │
-│  Revenue:                  €29.00                                           │
-│  Gross margin:             €28.39 (98%)                                     │
+│  Revenue:                  €99.00                                           │
+│  Gross margin:             €98.39 (99%)                                     │
 │                                                                              │
-│  DPP PROFESSIONAL (€99/month, 1,000 products)                               │
+│  DPP PROFESSIONAL (€149/month, 1,000 products)                              │
 │  ─────────────────────────────────────                                      │
 │  Infrastructure share:     €0.44                                            │
 │  S3 storage (10GB):        €0.23                                            │
@@ -714,10 +709,10 @@ At 500 customer scale (€220/month infrastructure amortized):
 │  AI imports (20):          €0.08                                            │
 │  ────────────────────────────────                                           │
 │  Total cost:               €1.75                                            │
-│  Revenue:                  €99.00                                           │
-│  Gross margin:             €97.25 (98%)                                     │
+│  Revenue:                  €149.00                                          │
+│  Gross margin:             €147.25 (99%)                                     │
 │                                                                              │
-│  PIM STANDARD (€199/month, 5,000 products)                                  │
+│  PIM STANDARD (€249/month, 5,000 products)                                  │
 │  ─────────────────────────────────────                                      │
 │  Infrastructure share:     €0.44                                            │
 │  S3 storage (50GB):        €1.15                                            │
@@ -725,8 +720,8 @@ At 500 customer scale (€220/month infrastructure amortized):
 │  AI imports (100 avg):     €0.40                                            │
 │  ────────────────────────────────                                           │
 │  Total cost:               €6.99                                            │
-│  Revenue:                  €199.00                                          │
-│  Gross margin:             €192.01 (96%)                                    │
+│  Revenue:                  €249.00                                          │
+│  Gross margin:             €242.01 (97%)                                    │
 │                                                                              │
 │  PIM GROWTH (€499/month, 25,000 products)                                   │
 │  ─────────────────────────────────────                                      │
@@ -884,8 +879,8 @@ Brands and manufacturers pay for DPP creation. Retailers access DPPs for free be
 │  • Total Year 1: €132,000+                                      │
 │                                                                  │
 │  Option C: EuroComply PIM + DPP Standard                        │
-│  • Monthly SaaS: €199                                           │
-│  • Total Year 1: €2,388                                         │
+│  • Monthly SaaS: €249                                           │
+│  • Total Year 1: €2,988                                         │
 │                                                                  │
 │  EuroComply is 97%+ cheaper than alternatives.                  │
 │                                                                  │
@@ -1009,7 +1004,7 @@ Awareness → Trial → Conversion → Expansion
 |------|----------|-------|--------------|
 | Enterprise PIM | Akeneo, Salsify, inRiver | €50k+/year | Not competing |
 | Mid-Market PIM | Plytix, Sales Layer | €10k+/year | Adjacent |
-| **SME PIM + DPP** | EuroComply | €350-6,000/year | **Leader** |
+| **SME PIM + DPP** | EuroComply | €1,200-6,000/year | **Leader** |
 | DPP-Only Tools | Various | €500-2k/year | Partial overlap |
 
 ### Differentiation
@@ -1097,8 +1092,8 @@ Dormant Hosting addresses the ESPR requirement for 10-year data availability whi
 | Metric | Year 1 | Year 2 | Year 3 |
 |--------|--------|--------|--------|
 | Customers | 400 | 1,500 | 4,000 |
-| ARR | €0.8M | €2.7M | €7.2M |
-| MRR | €65k | €225k | €600k |
+| ARR | €1.0M | €3.6M | €9.7M |
+| MRR | €88k | €300k | €812k |
 | Gross Margin | 94% | 95% | 96% |
 | Headcount | 8 | 18 | 35 |
 
@@ -1106,12 +1101,12 @@ Dormant Hosting addresses the ESPR requirement for 10-year data availability whi
 
 | Tier | Customers | % of Base | MRR | % of Revenue |
 |------|-----------|-----------|-----|--------------|
-| DPP Starter | 1,600 | 40% | €46k | 8% |
-| DPP Professional | 1,200 | 30% | €119k | 20% |
-| PIM Standard | 800 | 20% | €159k | 27% |
-| PIM Growth | 320 | 8% | €160k | 27% |
-| Enterprise | 80 | 2% | €116k | 19% |
-| **Total** | **4,000** | **100%** | **€600k** | **100%** |
+| DPP Starter | 1,600 | 40% | €158k | 19% |
+| DPP Professional | 1,200 | 30% | €179k | 22% |
+| PIM Standard | 800 | 20% | €199k | 25% |
+| PIM Growth | 320 | 8% | €160k | 20% |
+| Enterprise | 80 | 2% | €116k | 14% |
+| **Total** | **4,000** | **100%** | **€812k** | **100%** |
 
 ---
 
@@ -1173,9 +1168,9 @@ Dormant Hosting addresses the ESPR requirement for 10-year data availability whi
 │  → Can't afford enterprise solutions                           │
 │                                                                  │
 │  PRICING: 5-Tier SaaS Model (Unlimited Users All Tiers)        │
-│  → DPP Starter: €29/mo (100 products, compliance-only)         │
-│  → DPP Professional: €99/mo (1k products, basic PIM)           │
-│  → PIM Standard: €199/mo (5k products, full platform)          │
+│  → DPP Starter: €99/mo (100 products, compliance-only)         │
+│  → DPP Professional: €149/mo (1k products, basic PIM)          │
+│  → PIM Standard: €249/mo (5k products, full platform)          │
 │  → PIM Growth: €499/mo (25k products, high volume)             │
 │  → Enterprise: Custom (100k+ products)                          │
 │                                                                  │
