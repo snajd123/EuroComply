@@ -408,28 +408,31 @@ curl -X GET https://api.eurocomply.eu/v1/suppliers/export/viewer/prod_123 \
 ┌────────────────────────────┬─────────┬─────────────────────────────┐
 │ Tier                       │ Price   │ Sovereignty Features        │
 ├────────────────────────────┼─────────┼─────────────────────────────┤
-│ DPP Starter                │ €49/mo  │ ✅ Self-contained VCs       │
+│ DPP Starter                │ €29/mo  │ ✅ Self-contained VCs       │
 │                            │         │ ✅ One-click export         │
 │                            │         │ ✅ Offline verification     │
 ├────────────────────────────┼─────────┼─────────────────────────────┤
-│ DPP Professional           │ €149/mo │ All Starter features        │
-│                            │         │ ✅ DAM integration          │
-│                            │         │ ✅ Bulk export              │
+│ DPP Professional           │ €99/mo  │ All Starter features        │
+│                            │         │ ✅ Basic PIM (3 families)   │
+│                            │         │ ✅ Multi-party attestation  │
 ├────────────────────────────┼─────────┼─────────────────────────────┤
-│ PIM + DPP                  │ €299/mo │ All Professional features   │
+│ PIM Standard               │ €199/mo │ All Professional features   │
 │                            │         │ ✅ Full PIM capabilities    │
-│                            │         │ ✅ AI import                │
-│                            │         │ ✅ Shopify sync             │
-│                            │         │ ✅ API access               │
+│                            │         │ ✅ Bulk ops, Export, Audit  │
+│                            │         │ ✅ Shopify sync + API       │
 ├────────────────────────────┼─────────┼─────────────────────────────┤
-│ Enterprise                 │ Custom  │ All PIM + DPP features      │
-│                            │         │ ✅ Dedicated infrastructure │
+│ PIM Growth                 │ €499/mo │ All Standard features       │
+│                            │         │ ✅ 20,000 products          │
+│                            │         │ ✅ Webhooks, 99.5% SLA      │
+├────────────────────────────┼─────────┼─────────────────────────────┤
+│ Enterprise                 │ Custom  │ All Growth features         │
+│                            │         │ ✅ 100,000+ products        │
 │                            │         │ ✅ Custom integrations      │
-│                            │         │ ✅ SLA guarantees           │
+│                            │         │ ✅ Dedicated support, 99.9% │
 └────────────────────────────┴─────────┴─────────────────────────────┘
 ```
 
-**Note**: All tiers get the same sovereignty guarantees. Enterprise adds dedicated infrastructure for organizations that require physical isolation.
+**Note**: All tiers get the same sovereignty guarantees (self-contained VCs, one-click export, offline verification). Higher tiers add more features and volume.
 
 ---
 

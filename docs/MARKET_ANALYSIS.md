@@ -41,11 +41,11 @@ The volume of potential SME customers is massive:
 │  Target: 2% of Textile + Furniture SMEs                         │
 │  = ~5,000 companies                                              │
 │                                                                  │
-│  Average price: €149/month (Growth tier)                        │
-│  Annual value per customer: €1,788                              │
+│  Average price: €150/month (blended average)                    │
+│  Annual value per customer: €1,800                              │
 │                                                                  │
 │  Year 1 ARR (1,000 customers): €1.8M                            │
-│  Year 3 ARR (5,000 customers): €8.9M                            │
+│  Year 3 ARR (5,000 customers): €9.0M                            │
 │                                                                  │
 │  Global DPP market projection: USD $1.7B+ by 2030               │
 │                                                                  │
@@ -78,7 +78,7 @@ Current solutions are either "too complex" or "too simple" for SMEs:
 │  ✓ Self-service onboarding (no sales calls)                    │
 │  ✓ Sign up with credit card, same-day compliance               │
 │  ✓ AI-powered data import (dump any file format)               │
-│  ✓ Low price point (€49-299/month, not €500+)                  │
+│  ✓ Low price point (€29-499/month, not €500+)                  │
 │  ✓ No IT team required                                          │
 │  ✓ Works with existing tools (Shopify integration)             │
 │                                                                  │
@@ -96,7 +96,7 @@ Current solutions are either "too complex" or "too simple" for SMEs:
 | Capability | SAP/Siemens | Mid-Market (Renoon) | **EuroComply** |
 |------------|-------------|---------------------|----------------|
 | Target market | Fortune 500 | Mid-size brands | **SMEs (99%)** |
-| Price | €100k+ | €10k+/year | **€49-299/month** |
+| Price | €100k+ | €10k+/year | **€29-499/month** |
 | Sales model | Enterprise sales | Demo required | **Self-service** |
 | Setup time | Months | Weeks | **Same day** |
 | IT team needed | Yes | Usually | **No** |

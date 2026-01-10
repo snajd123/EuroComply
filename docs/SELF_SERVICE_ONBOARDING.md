@@ -53,12 +53,12 @@ The key differentiator from enterprise competitors (SAP, Siemens) is **self-serv
 │                              ▼                                      │
 │  STEP 3: SELECT PLAN (2 min)                                       │
 │  ┌─────────────────────────────────────────────────────────────────┐│
-│  │ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐                ││
-│  │ │DPP STARTER  │ │DPP PROFESS. │ │  PIM + DPP  │                ││
-│  │ │  €49/mo     │ │  €149/mo    │ │  €299/mo    │                ││
-│  │ │ 100 products│ │ 500 products│ │2000 products│                ││
-│  │ │  [Select]   │ │  [Select]   │ │  [Select]   │                ││
-│  │ └─────────────┘ └─────────────┘ └─────────────┘                ││
+│  │ ┌───────────┐ ┌───────────┐ ┌───────────┐ ┌───────────┐        ││
+│  │ │DPP STARTER│ │ DPP PRO   │ │PIM STNDRD │ │PIM GROWTH │        ││
+│  │ │  €29/mo   │ │  €99/mo   │ │  €199/mo  │ │  €499/mo  │        ││
+│  │ │50 products│ │500 product│ │2000 prodct│ │20k product│        ││
+│  │ │ [Select]  │ │ [Select]  │ │ [Select]  │ │ [Select]  │        ││
+│  │ └───────────┘ └───────────┘ └───────────┘ └───────────┘        ││
 │  │                                                                  ││
 │  │ → Stripe Checkout redirect                                      ││
 │  └─────────────────────────────────────────────────────────────────┘│
@@ -112,9 +112,10 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 // Pricing tiers
 const PLANS = {
-  dpp_starter: { priceId: 'price_dpp_starter_monthly', productLimit: 100 },
+  dpp_starter: { priceId: 'price_dpp_starter_monthly', productLimit: 50 },
   dpp_professional: { priceId: 'price_dpp_professional_monthly', productLimit: 500 },
-  pim_dpp: { priceId: 'price_pim_dpp_monthly', productLimit: 2000 },
+  pim_standard: { priceId: 'price_pim_standard_monthly', productLimit: 2000 },
+  pim_growth: { priceId: 'price_pim_growth_monthly', productLimit: 20000 },
 };
 
 // Create checkout session
@@ -284,10 +285,11 @@ enum OrganizationType {
 }
 
 enum SubscriptionPlan {
-  DPP_STARTER       // €49/mo, 100 products
-  DPP_PROFESSIONAL  // €149/mo, 500 products
-  PIM_DPP           // €299/mo, 2000 products
-  ENTERPRISE        // Custom
+  DPP_STARTER       // €29/mo, 50 products
+  DPP_PROFESSIONAL  // €99/mo, 500 products
+  PIM_STANDARD      // €199/mo, 2000 products
+  PIM_GROWTH        // €499/mo, 20000 products
+  ENTERPRISE        // Custom, 100k+ products
 }
 
 enum SubscriptionStatus {

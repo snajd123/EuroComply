@@ -56,12 +56,13 @@ EuroComply uses a modular architecture. Organizations enable the modules they ne
 
 ### Plan-Based Access
 
-| Plan | Monthly | Products | Modules Included |
-|------|---------|----------|------------------|
-| **DPP Starter** | €49 | 100 | Core, Compliance, Basic DAM |
-| **DPP Professional** | €149 | 500 | Core, Compliance, DAM, CSV Import |
-| **PIM + DPP** | €299 | 2,000 | All modules |
-| **Enterprise** | Custom | Unlimited | All + API + Custom integrations |
+| Plan | Monthly | Annual | Products | Key Features |
+|------|---------|--------|----------|--------------|
+| **DPP Starter** | €29 | €290/yr | 50 | Core, Compliance, Basic DAM (session-only storage) |
+| **DPP Professional** | €99 | €990/yr | 500 | + Basic PIM (3 families), CSV Import, 20 AI imports/mo, Attestation |
+| **PIM Standard** | €199 | €1,990/yr | 2,000 | + Full PIM, Unlimited AI, Bulk Ops, Export, Audit Log, Shopify, API |
+| **PIM Growth** | €499 | €4,990/yr | 20,000 | + Webhooks, Priority Support, 99.5% SLA |
+| **Enterprise** | Custom | Custom | 100,000+ | + Custom integrations, Dedicated Success, 99.9% SLA |
 
 ---
 
@@ -85,6 +86,9 @@ Users can import product data from any format. The AI extracts, maps, and valida
 - **Variants**: Parent-child product relationships with attribute inheritance
 - **Completeness Scoring**: Per-channel readiness scores (DPP: 85%, Shopify: 100%)
 - **Multi-Currency**: Support for EUR, USD, GBP, and other currencies
+- **Bulk Operations**: Edit, delete, or assign families to multiple products at once (PIM Standard+)
+- **Export**: Download product data as CSV, Excel, or JSON (PIM Standard+)
+- **Audit Log**: Track who changed what, when - essential for compliance (PIM Standard+)
 
 ### Digital Product Passports
 
