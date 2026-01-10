@@ -309,111 +309,223 @@ router.use('/syndication', requireModule('syndication'), syndicationRoutes);
 
 ## 6. Implementation Phases
 
-### Phase 1: Data Foundation
+### Phase Overview
 
-**Goal:** Establish PIM schema and basic management UI
+Each phase is a **full-stack vertical slice** - backend, frontend, and tests together. This enables demo-able progress and early feedback.
+
+```
+Phase 1: Core + Schema      ──► Foundation for everything
+Phase 2: PIM + DAM          ──► Product management (main UI)
+Phase 3: Import Engine      ──► Data onboarding
+Phase 4: Compliance         ──► DPP workflow
+Phase 5: Attestation        ──► Third-party contributions (tightly coupled with Phase 4)
+Phase 6: Syndication        ──► Shopify integration
+Phase 7: Retailer Access    ──► Public API and widget
+```
+
+---
+
+### Phase 1: Core + Schema
+
+**Goal:** Establish foundation - auth, multi-tenancy, and complete database schema
 
 | Task | Status |
 |------|--------|
-| Design Prisma schema with Product, Family, JSONB attributes | Planned |
-| Implement AG Grid frontend with read/write capabilities | Planned |
-| Build core Node.js CRUD API | Planned |
-| Multi-currency pricing support | Planned |
+| Design complete Prisma schema (all entities including Contributor, Contribution, Attestation) | Planned |
+| Implement authentication (JWT sessions, password hashing) | Planned |
+| Build Organization model with multi-tenancy (row-level security) | Planned |
+| Implement User/Team management within organizations | Planned |
+| Create API key management (hashed keys, scopes) | Planned |
+| Set up Stripe billing integration (subscriptions, usage metering) | Planned |
+| Basic login/signup UI | Planned |
+| Organization settings page | Planned |
+
+**Outcome:** Users can sign up, create organizations, and manage subscriptions. Database schema supports all future features.
+
+**Key Decision:** Design attestation models NOW (Contributor, DataRequest, Contribution, ContributionVersion) even though implementation is Phase 5. This prevents schema rework later.
+
+---
+
+### Phase 2: PIM + DAM
+
+**Goal:** Full-stack product management - the core UI users interact with daily
+
+| Task | Status |
+|------|--------|
+| Implement ProductFamily model with dynamic attribute schemas | Planned |
+| Build Product CRUD API with JSONB validation | Planned |
+| Implement completeness scoring algorithm (per-channel) | Planned |
+| Build AG Grid frontend with virtualization (10k+ rows) | Planned |
+| Implement inline editing with optimistic updates | Planned |
+| Add completeness visualization (traffic lights per channel) | Planned |
 | ProductVariant with parent-child inheritance | Planned |
+| Multi-currency pricing support | Planned |
+| S3 upload for assets (images, documents, certificates) | Planned |
+| Asset-product associations with roles (hero, gallery, certificate) | Planned |
+| Basic asset management UI | Planned |
 
-**Outcome:** Users can manually create and edit products with dynamic attributes.
+**Outcome:** Users can manage products with dynamic attributes, see completeness scores, upload assets. Core PIM functionality complete.
 
-### Phase 2: AI Import Engine
+**Dependencies:** Phase 1 (auth, org, schema)
 
-**Goal:** Enable bulk data onboarding from any format
+---
+
+### Phase 3: Import Engine
+
+**Goal:** Enable bulk data onboarding from any format - full stack
 
 | Task | Status |
 |------|--------|
 | Implement stream-based file parser (CSV, Excel) | Planned |
 | Build Claude API integration for data extraction | Planned |
-| Create import wizard UI with mapping preview | Planned |
 | Set up BullMQ workers for async processing | Planned |
-| PDF/Image OCR support | Planned |
+| Create import wizard UI with column mapping | Planned |
+| Build mapping preview with validation errors | Planned |
+| Implement import progress tracking | Planned |
+| PDF/Image OCR support for product data | Planned |
+| Import history and error logs | Planned |
 
-**Outcome:** Users can import 10,000 SKUs from any file format.
+**Outcome:** Users can import 10,000 SKUs from any file format via intuitive wizard.
 
-### Phase 3: Compliance & DAM
+**Dependencies:** Phase 2 (product model, families, completeness)
 
-**Goal:** Integrate DPP and media workflows
+---
+
+### Phase 4: Compliance
+
+**Goal:** DPP workflow - from "ready" products to issued passports
 
 | Task | Status |
 |------|--------|
-| Implement S3 + Lambda image optimization pipeline | Planned |
-| Develop completeness scoring algorithm | Planned |
-| Build walt.id connector for credential issuance | Complete (packages/identity) |
-| Build DPP Ready list for manual approval | Planned |
-| Implement manual DPP issuance workflow | Planned |
-| Asset roles and product associations | Planned |
+| Build DPP completeness rules (which fields required) | Planned |
+| Implement DPP Ready list (products at 100% DPP completeness) | Planned |
+| Build manual review and approval workflow | Planned |
+| Integrate packages/identity for VC issuance | Complete (packages/identity) |
+| Generate DPP as Verifiable Credential (with attestation slots) | Planned |
+| QR code generation with customizable branding | Planned |
+| DPP public verification page | Planned |
+| DPP lifecycle tracking (issued, updated, revoked) | Planned |
+| Lambda image optimization pipeline | Planned |
 
-**Outcome:** Products at 100% completeness appear in DPP Ready list for review and approval.
+**Outcome:** Products at 100% completeness appear in DPP Ready list. Users review and issue DPPs as Verifiable Credentials with QR codes.
 
-### Phase 4: Syndication
+**Dependencies:** Phase 2 (completeness scoring, assets)
 
-**Goal:** Connect to e-commerce channels
+**Key Decision:** DPP VC schema includes `attestations[]` array from day one, even if empty. This enables Phase 5 integration without schema changes.
+
+---
+
+### Phase 5: Multi-Party Attestation
+
+**Goal:** Third-party data contributions with cryptographic signatures
+
+| Task | Status |
+|------|--------|
+| Implement Contributor model with did:key generation | Planned |
+| Build DataRequest model and email invitation system | Planned |
+| Create Contribution and ContributionVersion models | Planned |
+| Build contributor portal (token-based access) | Planned |
+| Implement configurable product visibility (full vs. requested-only) | Planned |
+| Contributor data entry forms with validation | Planned |
+| Signature and attestation VC generation | Planned |
+| Customer review and approval workflow UI | Planned |
+| Link approved attestations to DPP VC | Planned |
+| Notification system (email + in-app) | Planned |
+| Expiry tracking and reminders (30 days, 7 days, expired) | Planned |
+| Revocation handling with customer alerts | Planned |
+| Attestation badges in DPP verification view | Planned |
+
+**Outcome:** Customers can request data from manufacturers, certifiers, labs. Contributors sign with their own DID. DPPs show complete chain of trust.
+
+**Dependencies:** Phase 1 (schema), Phase 4 (DPP issuance)
+
+See [MULTI_PARTY_ATTESTATION.md](docs/MULTI_PARTY_ATTESTATION.md) for full architecture.
+
+---
+
+### Phase 6: Syndication
+
+**Goal:** Publish products to e-commerce channels
 
 | Task | Status |
 |------|--------|
 | Implement Shopify OAuth connector | Planned |
 | Build rate-limited BullMQ sync workers | Planned |
-| Bi-directional product sync | Planned |
+| Product push to Shopify (create/update) | Planned |
+| Product pull from Shopify (bi-directional) | Planned |
 | DPP metadata to Shopify metafields | Planned |
+| Sync status dashboard (last sync, errors) | Planned |
+| Webhook handlers for Shopify events | Planned |
+| Manual sync triggers | Planned |
 
-**Outcome:** Full PIM functionality with Shopify publishing.
+**Outcome:** Products sync to Shopify with DPP metadata in metafields. Bi-directional sync keeps data consistent.
 
-### Phase 5: Frontend Dashboard
+**Dependencies:** Phase 2 (products), Phase 4 (DPP data)
 
-**Goal:** Spreadsheet-like product management interface
+---
 
-| Task | Status |
-|------|--------|
-| AG Grid integration with virtualization | Planned |
-| Inline editing with optimistic updates | Planned |
-| Completeness visualization (traffic lights) | Planned |
-| Import wizard UI | Planned |
-| Channel sync status dashboard | Planned |
-
-**Outcome:** Users can manage thousands of products efficiently.
-
-### Phase 6: Retailer Access Layer
+### Phase 7: Retailer Access Layer
 
 **Goal:** Enable retailers to access and display DPPs on their storefronts
 
 | Task | Status |
 |------|--------|
-| Retailer registration (free tier) | Planned |
+| Retailer registration (free tier, no payment) | Planned |
+| Retailer dashboard with saved products | Planned |
 | DPP catalog browser with search | Planned |
 | Public API for DPP lookup (GTIN, brand/SKU, serial) | Planned |
+| Batch lookup endpoint for bulk verification | Planned |
 | Embeddable JavaScript widget | Planned |
-| Shopify Retailer App (free, auto-matching) | Planned |
-| DPP index for fast lookups | Planned |
+| Widget customization (colors, layout) | Planned |
+| Shopify Retailer App (free, auto-matching by GTIN) | Planned |
+| DPP index for fast lookups (ElasticSearch or similar) | Planned |
 | Rate limiting and usage tracking | Planned |
 
-**Outcome:** Retailers can search, browse, and display DPPs without technical expertise.
+**Outcome:** Retailers can search, browse, and display DPPs without technical expertise. Free widget and Shopify app drive adoption.
 
-### Phase 7: Multi-Party Attestation
+**Dependencies:** Phase 4 (DPP endpoints)
 
-**Goal:** Enable third-party data contributions with cryptographic signatures
+---
 
-| Task | Status |
-|------|--------|
-| Contributor model and authentication (did:key per contributor) | Planned |
-| DataRequest model and email invitation system | Planned |
-| Contribution and ContributionVersion models with versioning | Planned |
-| Contributor portal with configurable product visibility | Planned |
-| Signature and attestation VC generation | Planned |
-| Customer review and approval workflow | Planned |
-| Link approved attestations to DPP VC | Planned |
-| Notification system (expiry, revocation, new versions) | Planned |
-| Attestation display in DPP verification view | Planned |
+### Phase Dependency Graph
 
-**Outcome:** Customers can request data from manufacturers, certifiers, labs, and suppliers. Contributors sign their data with their own DID, creating a chain of trust in the final DPP.
+```
+                    ┌─────────────────────┐
+                    │     PHASE 1         │
+                    │   Core + Schema     │
+                    └──────────┬──────────┘
+                               │
+                               ▼
+                    ┌─────────────────────┐
+                    │     PHASE 2         │
+                    │    PIM + DAM        │
+                    └──────────┬──────────┘
+                               │
+              ┌────────────────┼────────────────┐
+              ▼                ▼                ▼
+     ┌─────────────┐   ┌─────────────┐   ┌─────────────┐
+     │   PHASE 3   │   │   PHASE 4   │   │   PHASE 6   │
+     │   Import    │   │  Compliance │   │ Syndication │
+     └─────────────┘   └──────┬──────┘   └─────────────┘
+                              │
+                              ▼
+                    ┌─────────────────────┐
+                    │     PHASE 5         │
+                    │   Attestation       │
+                    └──────────┬──────────┘
+                               │
+                               ▼
+                    ┌─────────────────────┐
+                    │     PHASE 7         │
+                    │  Retailer Access    │
+                    └─────────────────────┘
+```
 
-See [MULTI_PARTY_ATTESTATION.md](docs/MULTI_PARTY_ATTESTATION.md) for full architecture.
+**Parallel Work Possible:**
+- Phase 3 (Import) and Phase 4 (Compliance) can run in parallel after Phase 2
+- Phase 6 (Syndication) can start after Phase 2, independent of Phases 3-5
+- Phase 5 (Attestation) requires Phase 4 (DPP structure)
+- Phase 7 (Retailer) requires Phase 4 (DPP endpoints)
 
 ---
 
