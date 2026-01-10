@@ -1,19 +1,25 @@
 # EuroComply Infrastructure
 
-AWS-based infrastructure for EU/GDPR-compliant Digital Product Passport platform.
+Hybrid infrastructure for EU/GDPR-compliant Digital Product Passport platform with billion-scale read capacity.
 
 ---
 
 ## Overview
 
-| Aspect | Choice |
-|--------|--------|
-| **Cloud Provider** | AWS (Amazon Web Services) |
-| **Primary Region** | eu-central-1 (Frankfurt, Germany) |
-| **Compliance** | GDPR, EU Data Residency |
-| **Architecture** | Serverless containers (ECS Fargate) |
-| **Database** | Managed PostgreSQL (RDS) |
-| **Cache** | Managed Redis (ElastiCache) |
+EuroComply uses a **dual-path architecture** that separates:
+- **Write Path (AWS)**: PIM operations, user management, DPP issuance
+- **Read Path (Cloudflare + Hetzner)**: Billion-scale QR code scans at fixed cost
+
+| Aspect | Write Path (AWS) | Read Path (Hetzner) |
+|--------|------------------|---------------------|
+| **Purpose** | PIM, API, management | DPP serving (QR scans) |
+| **Location** | eu-central-1 (Frankfurt) | Germany + Finland |
+| **Provider** | AWS | Cloudflare CDN + Hetzner |
+| **Scaling** | Auto-scaling containers | Static files, CDN |
+| **Cost Model** | Usage-based | Fixed (~$200/month) |
+| **Capacity** | 10,000+ concurrent users | Billions of scans/day |
+
+See [SCALABILITY.md](docs/SCALABILITY.md) for detailed architecture.
 
 ---
 
@@ -22,74 +28,62 @@ AWS-based infrastructure for EU/GDPR-compliant Digital Product Passport platform
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                              INTERNET                                        │
-└─────────────────────────────────┬───────────────────────────────────────────┘
+└────────────────┬────────────────────────────────────┬───────────────────────┘
+                 │                                    │
+                 │ QR Scans (billions/day)            │ PIM/API (thousands/day)
+                 │ dpp.eurocomply.eu                  │ api.eurocomply.eu
+                 ▼                                    ▼
+┌────────────────────────────────────┐  ┌────────────────────────────────────┐
+│   READ PATH (Cloudflare + Hetzner) │  │      WRITE PATH (AWS)               │
+│   Fixed cost: ~$200/month          │  │      Usage-based: ~$300/month       │
+├────────────────────────────────────┤  ├────────────────────────────────────┤
+│                                    │  │                                    │
+│  ┌──────────────────────────────┐  │  │  ┌──────────────────────────────┐  │
+│  │    Cloudflare CDN            │  │  │  │    Route 53 (DNS)            │  │
+│  │    • 300+ edge locations     │  │  │  │    api.eurocomply.eu         │  │
+│  │    • Unlimited bandwidth     │  │  │  └──────────────┬───────────────┘  │
+│  │    • DDoS protection         │  │  │                 │                  │
+│  └──────────────┬───────────────┘  │  │  ┌──────────────▼───────────────┐  │
+│                 │ (~1% cache miss) │  │  │    Application Load Balancer │  │
+│                 ▼                  │  │  │    SSL termination (ACM)     │  │
+│  ┌──────────────────────────────┐  │  │  └──────────────┬───────────────┘  │
+│  │    Hetzner Origin Servers    │  │  │                 │                  │
+│  │                              │  │  │  ┌──────────────▼───────────────┐  │
+│  │  ┌────────┐ ┌────────┐      │  │  │  │    ECS Fargate (2-10 tasks)  │  │
+│  │  │ DE-FSN │ │ FI-HEL │      │  │  │  │    Auto-scaling containers   │  │
+│  │  │ Nginx  │ │ Nginx  │      │  │  │  └──────────────┬───────────────┘  │
+│  │  └────────┘ └────────┘      │  │  │                 │                  │
+│  │       ↕ Lsyncd sync ↕       │  │  │  ┌──────────────┼───────────────┐  │
+│  │  ┌────────┐                 │  │  │  │              │               │  │
+│  │  │ DE-NBG │                 │  │  │  ▼              ▼               ▼  │
+│  │  │ Nginx  │                 │  │  │  ┌────────┐ ┌────────┐ ┌────────┐ │
+│  │  └────────┘                 │  │  │  │  RDS   │ │ Redis  │ │  SQS   │ │
+│  │                              │  │  │  │ Postgres│ │        │ │        │ │
+│  │  Static files:              │  │  │  └────────┘ └────────┘ └────────┘ │
+│  │  /var/www/dpp/gtin/{gtin}/  │  │  │                                    │
+│  │    • index.html             │  │  │  ┌──────────────────────────────┐  │
+│  │    • dpp.json               │  │  │  │    S3, Secrets, CloudWatch   │  │
+│  │    • qr.svg                 │  │  │  └──────────────────────────────┘  │
+│  └──────────────────────────────┘  │  │                                    │
+│                                    │  │                                    │
+│  Germany/Finland (EU)              │  │  Frankfurt (EU)                    │
+│  GDPR Compliant                    │  │  GDPR Compliant                    │
+│                                    │  │                                    │
+└────────────────────────────────────┘  └────────────────────────────────────┘
+                 │                                    │
+                 └────────────────┬───────────────────┘
                                   │
                                   ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         AWS eu-central-1 (Frankfurt)                         │
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │                           Route 53 (DNS)                               │  │
-│  │                     api.eurocomply.eu → ALB                            │  │
-│  └───────────────────────────────┬───────────────────────────────────────┘  │
-│                                  │                                           │
-│  ┌───────────────────────────────▼───────────────────────────────────────┐  │
-│  │                      CloudFront (CDN)                                  │  │
-│  │            QR codes, static assets, global edge caching               │  │
-│  └───────────────────────────────┬───────────────────────────────────────┘  │
-│                                  │                                           │
-│  ┌───────────────────────────────▼───────────────────────────────────────┐  │
-│  │              Application Load Balancer (ALB)                           │  │
-│  │                    SSL termination (ACM)                               │  │
-│  │                    Path-based routing                                  │  │
-│  └───────────────────────────────┬───────────────────────────────────────┘  │
-│                                  │                                           │
-│         ┌────────────────────────┼────────────────────────┐                 │
-│         │                        │                        │                 │
-│         ▼                        ▼                        ▼                 │
-│  ┌─────────────┐          ┌─────────────┐          ┌─────────────┐         │
-│  │ ECS Fargate │          │ ECS Fargate │          │ ECS Fargate │         │
-│  │   API (1)   │          │   API (2)   │          │   API (N)   │         │
-│  │             │          │             │          │             │         │
-│  │ Port 3000   │          │ Port 3000   │          │ Port 3000   │         │
-│  └──────┬──────┘          └──────┬──────┘          └──────┬──────┘         │
-│         │                        │                        │                 │
-│         └────────────────────────┼────────────────────────┘                 │
-│                                  │                                           │
-│    ┌─────────────────────────────┼─────────────────────────────────┐        │
-│    │                             │                                 │        │
-│    ▼                             ▼                                 ▼        │
-│  ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────────┐     │
-│  │ RDS PostgreSQL  │    │   ElastiCache   │    │        SQS          │     │
-│  │                 │    │     Redis       │    │                     │     │
-│  │ Primary + RR    │    │    Cluster      │    │   vc-issuance-queue │     │
-│  │ Multi-AZ        │    │                 │    │   webhook-queue     │     │
-│  │                 │    │                 │    │                     │     │
-│  │ Port 5432       │    │   Port 6379     │    │                     │     │
-│  └────────┬────────┘    └─────────────────┘    └─────────────────────┘     │
-│           │                                                                  │
-│           ▼                                                                  │
-│  ┌─────────────────┐                                                        │
-│  │  Read Replica   │  ← High-traffic reads (QR verification)                │
-│  └─────────────────┘                                                        │
-│                                                                              │
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │                         Supporting Services                            │  │
-│  │                                                                        │  │
-│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌───────────┐  │  │
-│  │  │ S3 Buckets   │  │   Secrets    │  │  CloudWatch  │  │    ACM    │  │  │
-│  │  │              │  │   Manager    │  │              │  │           │  │  │
-│  │  │ - assets     │  │              │  │ - Logs       │  │ SSL Certs │  │  │
-│  │  │ - backups    │  │ - DB creds   │  │ - Metrics    │  │           │  │  │
-│  │  │ - documents  │  │ - API keys   │  │ - Alarms     │  │           │  │  │
-│  │  └──────────────┘  └──────────────┘  └──────────────┘  └───────────┘  │  │
-│  └───────────────────────────────────────────────────────────────────────┘  │
-│                                                                              │
-└──────────────────────────────────────────────────────────────────────────────┘
+                    ┌─────────────────────────┐
+                    │  DPP Publish Flow       │
+                    │  AWS → push → Hetzner   │
+                    │  (rsync/scp on issuance)│
+                    └─────────────────────────┘
 ```
 
 ---
 
-## AWS Services
+## AWS Services (Write Path)
 
 ### Compute
 
@@ -103,7 +97,6 @@ AWS-based infrastructure for EU/GDPR-compliant Digital Product Passport platform
 | Service | Purpose | Configuration |
 |---------|---------|---------------|
 | **RDS PostgreSQL 16** | Primary database | db.t3.medium, Multi-AZ |
-| **RDS Read Replica** | Read scaling | For verification queries |
 
 ### Caching
 
@@ -117,9 +110,74 @@ AWS-based infrastructure for EU/GDPR-compliant Digital Product Passport platform
 |---------|---------|---------------|
 | **VPC** | Network isolation | 10.0.0.0/16 |
 | **ALB** | Load balancing | Path-based routing |
-| **CloudFront** | CDN | Global edge locations |
-| **Route 53** | DNS | Hosted zone |
+| **Route 53** | DNS | api.eurocomply.eu |
 | **ACM** | SSL certificates | Auto-renewal |
+
+---
+
+## Hetzner + Cloudflare (Read Path)
+
+The read path handles all DPP serving (QR code scans) with fixed-cost infrastructure.
+
+### Why Not AWS for Reads?
+
+| Metric | AWS CloudFront | Cloudflare + Hetzner |
+|--------|----------------|----------------------|
+| 1B scans/day | ~$38,000/month | ~$200/month |
+| 10B scans/day | ~$250,000/month | ~$2,000/month |
+| Bandwidth cost | $0.085/GB | Unlimited (free) |
+| Scalability | Unlimited | Unlimited |
+
+**ESPR requires free DPP access.** We can't pass infrastructure costs to users. Self-hosting the read path solves this.
+
+### Hetzner Origin Servers
+
+| Server | Location | Purpose | Cost |
+|--------|----------|---------|------|
+| origin1 | Falkenstein, Germany | Primary origin | ~€50/month |
+| origin2 | Helsinki, Finland | Failover, geo-redundancy | ~€50/month |
+| origin3 | Nuremberg, Germany | Failover | ~€50/month |
+
+**Specifications (AX41):**
+- AMD Ryzen 5 3600 (6 cores)
+- 64 GB DDR4 RAM
+- 2× 512GB NVMe SSD
+- 20 TB/month bandwidth included
+
+### Cloudflare CDN
+
+| Feature | Configuration |
+|---------|---------------|
+| **Plan** | Pro ($20/month) |
+| **Bandwidth** | Unlimited |
+| **Edge locations** | 300+ worldwide |
+| **DDoS protection** | Included |
+| **SSL** | Full (strict) |
+
+### DNS Configuration
+
+```
+dpp.eurocomply.eu    A    <origin1-ip>    (proxied via Cloudflare)
+dpp.eurocomply.eu    A    <origin2-ip>    (proxied via Cloudflare)
+dpp.eurocomply.eu    A    <origin3-ip>    (proxied via Cloudflare)
+
+api.eurocomply.eu    → Route 53 → AWS ALB
+```
+
+### File Synchronization
+
+Files are pushed from AWS to Hetzner on DPP issuance:
+
+```
+AWS ECS (DPP issuance)
+        │
+        ├─── rsync/scp ───► origin1 (primary)
+        │                       │
+        │                       ├─── lsyncd ───► origin2
+        │                       └─── lsyncd ───► origin3
+```
+
+**Sync latency:** <2 seconds from issuance to global availability
 
 ### Storage
 
@@ -295,45 +353,92 @@ Target Memory utilization: 80%
 
 ---
 
-## Cost Estimates (eu-central-1)
+## Cost Estimates
+
+### Total Infrastructure Cost
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  MONTHLY INFRASTRUCTURE COST                                     │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  READ PATH (Cloudflare + Hetzner) - FIXED                       │
+│  ─────────────────────────────────────────                      │
+│  Cloudflare Pro:                    $20/month                   │
+│  Hetzner AX41 × 3:                  €150/month (~$165)          │
+│  Subtotal:                          ~$185/month                 │
+│                                                                  │
+│  WRITE PATH (AWS) - SCALES WITH USERS                           │
+│  ─────────────────────────────────────                          │
+│  Development:                       ~$60/month                  │
+│  Production (10K users):            ~$300/month                 │
+│  Enterprise (100K users):           ~$800/month                 │
+│                                                                  │
+│  TOTAL:                             ~$500-1,000/month           │
+│                                                                  │
+│  KEY INSIGHT: DPP scan volume doesn't affect cost.              │
+│  1M scans/day and 10B scans/day cost the same.                 │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
 
 ### Development/Testing
 
-| Service | Configuration | Monthly Cost |
-|---------|---------------|--------------|
+| Component | Service | Monthly Cost |
+|-----------|---------|--------------|
+| **Write Path (AWS)** | | |
 | ECS Fargate | 0.25 vCPU, 0.5 GB, 1 task | ~$10 |
 | RDS PostgreSQL | db.t3.micro, 20 GB | ~$15 |
 | ElastiCache | cache.t3.micro | ~$12 |
 | ALB | Low traffic | ~$20 |
-| S3, CloudWatch, etc. | Minimal | ~$5 |
-| **Total** | | **~$62/month** |
+| S3, CloudWatch | Minimal | ~$5 |
+| **Read Path (Hetzner)** | | |
+| Hetzner VPS | 1x CX21 (dev only) | ~€5 |
+| Cloudflare | Free tier | $0 |
+| **Total** | | **~$70/month** |
 
-### Production (10K users)
+### Production (10K users, any scan volume)
 
-| Service | Configuration | Monthly Cost |
-|---------|---------------|--------------|
+| Component | Service | Monthly Cost |
+|-----------|---------|--------------|
+| **Write Path (AWS)** | | |
 | ECS Fargate | 0.5 vCPU, 1 GB, 2-4 tasks | ~$60 |
-| RDS PostgreSQL | db.t3.medium, Multi-AZ, 100 GB | ~$80 |
-| RDS Read Replica | db.t3.medium | ~$35 |
+| RDS PostgreSQL | db.t3.medium, Multi-AZ | ~$80 |
 | ElastiCache | cache.t3.medium, 2 nodes | ~$50 |
 | ALB | Moderate traffic | ~$30 |
-| CloudFront | 100 GB transfer | ~$15 |
 | S3, SQS, Secrets | Moderate | ~$20 |
-| **Total** | | **~$290/month** |
+| **Read Path (Hetzner + Cloudflare)** | | |
+| Hetzner AX41 × 3 | Dedicated servers | ~$165 |
+| Cloudflare Pro | Unlimited bandwidth | ~$20 |
+| **Total** | | **~$425/month** |
 
-### Production (100K users)
+*Handles: 10K concurrent users + unlimited DPP scans*
 
-| Service | Configuration | Monthly Cost |
-|---------|---------------|--------------|
-| ECS Fargate | 1 vCPU, 2 GB, 4-10 tasks | ~$300 |
-| RDS PostgreSQL | db.r6g.large, Multi-AZ, 500 GB | ~$400 |
-| RDS Read Replicas | 2x db.r6g.large | ~$300 |
-| ElastiCache | cache.r6g.large, 3 nodes | ~$350 |
-| ALB | High traffic | ~$100 |
-| CloudFront | 1 TB transfer | ~$100 |
-| S3, SQS, Secrets | High | ~$100 |
-| WAF | Standard rules | ~$50 |
-| **Total** | | **~$1,700/month** |
+### Enterprise (100K users, any scan volume)
+
+| Component | Service | Monthly Cost |
+|-----------|---------|--------------|
+| **Write Path (AWS)** | | |
+| ECS Fargate | 1 vCPU, 2 GB, 4-10 tasks | ~$200 |
+| RDS PostgreSQL | db.r6g.large, Multi-AZ | ~$400 |
+| ElastiCache | cache.r6g.large, 3 nodes | ~$200 |
+| ALB + WAF | High traffic | ~$100 |
+| S3, SQS, Secrets | High | ~$50 |
+| **Read Path (Hetzner + Cloudflare)** | | |
+| Hetzner AX51 × 3 | Larger dedicated servers | ~$250 |
+| Cloudflare Pro | Unlimited bandwidth | ~$20 |
+| **Total** | | **~$1,220/month** |
+
+*Handles: 100K concurrent users + unlimited DPP scans*
+
+### Cost Comparison: Old vs New Architecture
+
+| Scenario | AWS-Only | Hybrid (AWS + Hetzner) | Savings |
+|----------|----------|------------------------|---------|
+| 10K users, 1M scans/day | ~$500/month | ~$425/month | 15% |
+| 10K users, 100M scans/day | ~$4,500/month | ~$425/month | 91% |
+| 10K users, 1B scans/day | ~$38,000/month | ~$500/month | 99% |
+| Enterprise, 10B scans/day | ~$250,000/month | ~$2,000/month | 99% |
 
 ---
 

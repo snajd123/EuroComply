@@ -174,16 +174,21 @@ Lookup is supported by GTIN/EAN, brand and SKU combination, or item-level serial
 | Data Grid | AG Grid | Spreadsheet-like product management |
 | State | React Query | Server state management |
 
-### Infrastructure
+### Infrastructure (Hybrid Architecture)
 
-| Component | Technology | Purpose |
-|-----------|------------|---------|
-| Compute | AWS ECS Fargate | Containerized API |
-| Database | AWS RDS | Managed PostgreSQL |
-| Cache | AWS ElastiCache | Managed Redis |
-| Storage | AWS S3 + CloudFront | Asset storage and CDN |
-| Image Processing | AWS Lambda + Sharp | On-the-fly image optimization |
-| Frontend | Vercel | Next.js hosting |
+EuroComply uses a **dual-path architecture** for cost-effective billion-scale DPP serving:
+
+| Path | Component | Technology | Purpose |
+|------|-----------|------------|---------|
+| **Write** | Compute | AWS ECS Fargate | Containerized API |
+| **Write** | Database | AWS RDS | Managed PostgreSQL |
+| **Write** | Cache | AWS ElastiCache | Managed Redis |
+| **Write** | Storage | AWS S3 | Asset storage |
+| **Read** | CDN | Cloudflare | Global edge, unlimited bandwidth |
+| **Read** | Origins | Hetzner (EU) | Static DPP files |
+| **Both** | Frontend | Vercel | Next.js hosting |
+
+**Why hybrid?** ESPR requires free DPP access. AWS bandwidth costs would be ~$38k/month at 1B scans/day. Cloudflare + Hetzner is fixed at ~$200/month. See [SCALABILITY.md](docs/SCALABILITY.md) for details.
 
 ---
 

@@ -114,6 +114,47 @@ WHAT EACH COMPONENT DOES:
 
 ---
 
+## Hosting Infrastructure & Data Residency
+
+All data is stored in the EU, using GDPR-compliant infrastructure:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  EU DATA RESIDENCY                                               │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  WRITE PATH (PIM, User Data)                                    │
+│  ─────────────────────────────                                  │
+│  Provider: AWS (Amazon Web Services)                            │
+│  Region: eu-central-1 (Frankfurt, Germany)                      │
+│  Services: RDS PostgreSQL, ECS, ElastiCache, S3                 │
+│  Compliance: GDPR, SOC 2, ISO 27001                             │
+│                                                                  │
+│  READ PATH (DPP Public Access)                                  │
+│  ─────────────────────────────                                  │
+│  CDN: Cloudflare (global edge, EU origin)                       │
+│  Origins: Hetzner (German company)                              │
+│    • Falkenstein, Germany                                       │
+│    • Helsinki, Finland                                          │
+│    • Nuremberg, Germany                                         │
+│  Compliance: GDPR, German data protection law                   │
+│                                                                  │
+│  KEY POINTS                                                     │
+│  ──────────                                                     │
+│  • All data stored in EU                                        │
+│  • Hetzner is German company (subject to German law)            │
+│  • Cloudflare configured for EU-only origin (data never         │
+│    stored in US/other regions)                                  │
+│  • AWS EU data processing addendum (DPA) in place               │
+│  • No data transfer outside EU without customer consent         │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+See [INFRASTRUCTURE.md](../INFRASTRUCTURE.md) for technical details.
+
+---
+
 ## The VC Contains Everything
 
 This is the key architectural decision. The VC is NOT a reference to data stored elsewhere. It contains ALL the DPP data:

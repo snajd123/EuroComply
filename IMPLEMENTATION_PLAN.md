@@ -584,23 +584,26 @@ This approach supports industries beyond ESPR compliance - any business needing 
 | DPP public verification page | Planned |
 | DPP lifecycle tracking (issued, updated, revoked) | Planned |
 | Lambda image optimization pipeline | Planned |
-| **Static DPP Serving (Billion-Scale)** | |
-| Create S3 bucket for static DPP files | Planned |
-| Configure CloudFront distribution (dpp.eurocomply.eu) | Planned |
+| **Static DPP Serving (Billion-Scale, Fixed Cost)** | |
+| Provision 3x Hetzner origin servers (Germany/Finland) | Planned |
+| Configure Nginx for static file serving | Planned |
+| Set up Lsyncd for real-time file replication | Planned |
+| Configure Cloudflare DNS and CDN caching | Planned |
 | Implement DPP pre-rendering (JSON + HTML) on issuance | Planned |
+| Build origin push mechanism (rsync/scp from AWS) | Planned |
 | Add static serving fields to Passport model | Planned |
-| Upload static files to S3 on DPP publish | Planned |
-| CDN cache invalidation on DPP update/revoke | Planned |
+| Implement Cloudflare cache purge on update/revoke | Planned |
 | Revocation page rendering | Planned |
 | Content negotiation (HTML for browsers, JSON for APIs) | Planned |
 
-**Outcome:** Products at 100% completeness appear in DPP Ready list. Users review and issue DPPs as Verifiable Credentials with QR codes. DPPs are served via CDN for billion-scale reads without database involvement.
+**Outcome:** Products at 100% completeness appear in DPP Ready list. Users review and issue DPPs as Verifiable Credentials with QR codes. DPPs are served via Cloudflare CDN + Hetzner origins for billion-scale reads at fixed cost (~$200/month).
 
 **Dependencies:** Phase 2 (completeness scoring, assets)
 
 **Key Decisions:**
 - DPP VC schema includes `attestations[]` array from day one, even if empty. This enables Phase 5 integration without schema changes.
-- DPPs are pre-rendered to static files (JSON + HTML) and served via CloudFront CDN. This enables billions of QR scans/day without touching the database.
+- DPPs are pre-rendered to static files (JSON + HTML) and served via Cloudflare CDN with Hetzner bare-metal origins. This enables billions of QR scans/day at fixed cost (ESPR requires free access, so we can't use usage-based pricing).
+- Read path is completely separate from write path. QR scans never touch AWS or the database.
 
 See [SCALABILITY.md](docs/SCALABILITY.md) for full architecture.
 
@@ -671,13 +674,13 @@ See [MULTI_PARTY_ATTESTATION.md](docs/MULTI_PARTY_ATTESTATION.md) for full archi
 | Shopify Retailer App (free, auto-matching by GTIN) | Planned |
 | DPP index for fast lookups (ElasticSearch or similar) | Planned |
 | Rate limiting and usage tracking | Planned |
-| **Scan Analytics (CDN-Based)** | |
-| CloudFront access log delivery to S3 | Planned |
-| Athena table for log analysis | Planned |
+| **Scan Analytics** | |
+| Add JavaScript beacon to DPP HTML pages | Planned |
+| Build scan analytics API endpoint | Planned |
 | Scan analytics dashboard (popular products, trends) | Planned |
 | Organization-level scan reports | Planned |
 
-**Outcome:** Retailers can search, browse, and display DPPs without technical expertise. Free widget and Shopify app drive adoption. Organizations can see scan analytics for their products.
+**Outcome:** Retailers can search, browse, and display DPPs without technical expertise. Free widget and Shopify app drive adoption. Organizations can see scan analytics for their products via JavaScript beacon (works with CDN caching).
 
 **Dependencies:** Phase 4 (DPP endpoints, static serving)
 

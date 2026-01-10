@@ -4,6 +4,8 @@
 
 EuroComply is designed to handle billions of QR code scans per day while maintaining low latency and predictable costs. This is achieved through a **dual-path architecture** that separates high-volume reads (QR scans) from low-volume writes (PIM operations).
 
+**Key Insight:** DPP access must be free for all users (ESPR Article 31). This means infrastructure costs scale with adoption but revenue doesn't. We solve this by self-hosting the read path with Cloudflare (unlimited free bandwidth) + Hetzner (cheap EU bare metal), reducing costs by 99% compared to AWS CloudFront.
+
 ---
 
 ## Scale Requirements
@@ -26,64 +28,139 @@ EuroComply is designed to handle billions of QR code scans per day while maintai
 │                         DUAL-PATH ARCHITECTURE                               │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  WRITE PATH (Low volume, complex)                                           │
-│  ─────────────────────────────────                                          │
-│  • PIM operations → PostgreSQL                                              │
-│  • DPP issuance → PostgreSQL + S3 + CDN invalidation                       │
+│  WRITE PATH (Low volume, complex) - AWS                                     │
+│  ───────────────────────────────────────                                    │
+│  • PIM operations → PostgreSQL (RDS)                                        │
+│  • DPP issuance → PostgreSQL + push to Hetzner origins                     │
 │  • User management → PostgreSQL                                             │
+│  • Hosted on: AWS ECS Fargate (eu-central-1)                               │
 │  • Capacity needed: Thousands of writes/day                                 │
 │                                                                              │
-│  READ PATH (High volume, simple)                                            │
-│  ────────────────────────────────                                           │
-│  • QR scans → CloudFront CDN → S3 static files                             │
+│  READ PATH (High volume, simple) - Cloudflare + Hetzner                    │
+│  ───────────────────────────────────────────────────────                   │
+│  • QR scans → Cloudflare CDN → Hetzner static files                        │
 │  • No database                                                              │
-│  • No API server                                                            │
-│  • No compute                                                               │
+│  • No AWS costs                                                             │
+│  • Unlimited bandwidth (Cloudflare)                                         │
 │  • Capacity: Billions of reads/day                                          │
+│  • Cost: ~$200-500/month (regardless of volume)                            │
 │                                                                              │
 │  SEPARATION IS KEY                                                          │
 │  ─────────────────────────────────                                          │
 │  Write path complexity doesn't affect read path performance.                │
 │  Read path can scale infinitely without touching write path.                │
+│  Read path cost is fixed, not usage-based.                                  │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## DPP Serving Architecture (Billion-Scale)
+## Why Self-Host the Read Path?
 
-QR code scans are served entirely from static files via CDN. The database and API are never involved.
+### The Problem with AWS CloudFront
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  AWS CLOUDFRONT COST BREAKDOWN (1B scans/day)                    │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  1. DATA TRANSFER (egress) - THE BIG ONE                        │
+│     • 30B requests × 5KB = 150TB/month                          │
+│     • AWS charges: ~$0.085/GB                                   │
+│     • Cost: 150,000 GB × $0.085 = $12,750/month                 │
+│                                                                  │
+│  2. REQUESTS                                                    │
+│     • 30B requests/month                                        │
+│     • AWS charges: ~$0.0085 per 10,000 requests                 │
+│     • Cost: 30B ÷ 10k × $0.0085 = $25,500/month                 │
+│                                                                  │
+│  TOTAL: ~$38,000/month                                          │
+│                                                                  │
+│  THE PROBLEM:                                                   │
+│  ESPR requires free DPP access. Revenue doesn't scale with      │
+│  scans, but AWS costs do. A viral product could bankrupt us.    │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### The Solution: Cloudflare + Hetzner
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  CLOUDFLARE + HETZNER COST (1B scans/day)                        │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  CLOUDFLARE (CDN Layer)                                         │
+│  • Pro plan: $20/month                                          │
+│  • Bandwidth: UNLIMITED (yes, really)                           │
+│  • Requests: UNLIMITED                                          │
+│                                                                  │
+│  HETZNER (Origin Servers - EU)                                  │
+│  • 3x AX41 dedicated servers: €150/month                        │
+│  • 20TB bandwidth included per server                           │
+│  • Location: Germany (GDPR compliant)                           │
+│                                                                  │
+│  TOTAL: ~$200/month                                             │
+│                                                                  │
+│  SAVINGS: 99.5% vs AWS CloudFront                               │
+│                                                                  │
+│  WHY THIS WORKS:                                                │
+│  • Cloudflare monetizes security/enterprise features, not       │
+│    bandwidth. Free bandwidth is their acquisition strategy.     │
+│  • Hetzner is European bare metal at commodity prices.          │
+│  • DPPs are small (~5KB) static files - perfect for CDN.        │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## DPP Serving Architecture (Billion-Scale)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                    DPP SERVING AT BILLION-SCALE                              │
+│                    SELF-HOSTED DPP SERVING ARCHITECTURE                      │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │  QR Code: https://dpp.eurocomply.eu/01/05901234567890                       │
 │                                                                              │
 │  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │  LAYER 1: CloudFront Global CDN                                      │    │
-│  │  ─────────────────────────────────────────────────────────────────   │    │
-│  │  • 450+ edge locations worldwide                                     │    │
-│  │  • Serves static files directly (no origin hit)                      │    │
-│  │  • Cache TTL: 24h (or until invalidation)                            │    │
-│  │  • Expected hit rate: 99%+                                           │    │
-│  │  • Capacity: Unlimited (AWS manages scaling)                         │    │
+│  │  LAYER 1: Cloudflare Global CDN (Free/Pro - $20/month)              │    │
+│  │  ───────────────────────────────────────────────────────────────    │    │
+│  │  • 300+ edge locations worldwide                                    │    │
+│  │  • Unlimited bandwidth                                              │    │
+│  │  • Free DDoS protection                                             │    │
+│  │  • Auto-caching of static files                                     │    │
+│  │  • Cache TTL: 24h (configurable via Cache-Control headers)          │    │
+│  │  • Expected cache hit rate: 99%+                                    │    │
 │  └──────────────────────────────┬──────────────────────────────────────┘    │
-│                                 │ (1% cache miss)                            │
+│                                 │ (~1% cache miss)                           │
 │                                 ▼                                            │
 │  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │  LAYER 2: S3 Origin (Static Files)                                   │    │
-│  │  ─────────────────────────────────────────────────────────────────   │    │
-│  │  • Pre-rendered DPP JSON files                                       │    │
-│  │  • Pre-rendered DPP HTML pages                                       │    │
-│  │  • No compute required                                               │    │
-│  │  • Infinite storage capacity                                         │    │
-│  └─────────────────────────────────────────────────────────────────────┘    │
+│  │  LAYER 2: Hetzner Origin Servers (€150/month total)                  │    │
+│  │  ───────────────────────────────────────────────────────────────    │    │
+│  │                                                                       │    │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                   │    │
+│  │  │  Server 1   │  │  Server 2   │  │  Server 3   │                   │    │
+│  │  │  (Germany)  │  │  (Finland)  │  │  (Germany)  │                   │    │
+│  │  │  FSN1-DC14  │  │  HEL1-DC2   │  │  NBG1-DC3   │                   │    │
+│  │  │             │  │             │  │             │                   │    │
+│  │  │  Nginx      │  │  Nginx      │  │  Nginx      │                   │    │
+│  │  │  + Static   │  │  + Static   │  │  + Static   │                   │    │
+│  │  │    Files    │  │    Files    │  │    Files    │                   │    │
+│  │  └─────────────┘  └─────────────┘  └─────────────┘                   │    │
+│  │         │                │                │                          │    │
+│  │         └────────────────┴────────────────┘                          │    │
+│  │                          │                                           │    │
+│  │                   Lsyncd/Rsync                                       │    │
+│  │              (real-time file sync)                                   │    │
+│  │                                                                       │    │
+│  └──────────────────────────────────────────────────────────────────────┘    │
 │                                                                              │
 │  DATABASE INVOLVEMENT: ZERO                                                 │
-│  API INVOLVEMENT: ZERO                                                      │
+│  AWS INVOLVEMENT: ZERO (for read path)                                      │
+│  COST: FIXED (~$200/month regardless of volume)                             │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -91,7 +168,7 @@ QR code scans are served entirely from static files via CDN. The database and AP
 ### Static File Structure
 
 ```
-s3://eurocomply-dpp-public/
+/var/www/dpp/                          # On each Hetzner server
 ├── gtin/
 │   ├── 05901234567890/
 │   │   ├── dpp.json           # Machine-readable VC (for APIs)
@@ -118,15 +195,16 @@ https://dpp.eurocomply.eu/01/05901234567890
                      GS1 AI (01)        GTIN-13/14
                      = GTIN
 
-Routes to: s3://eurocomply-dpp-public/gtin/05901234567890/index.html (browser)
-       or: s3://eurocomply-dpp-public/gtin/05901234567890/dpp.json (Accept: application/json)
+Cloudflare routes to Hetzner origin
+Origin serves: /var/www/dpp/gtin/05901234567890/index.html (browser)
+           or: /var/www/dpp/gtin/05901234567890/dpp.json (Accept: application/json)
 ```
 
 ---
 
 ## DPP Issuance Flow (Write Path)
 
-When a DPP is issued, static files are generated and uploaded to S3:
+When a DPP is issued, static files are generated and pushed to Hetzner origins:
 
 ```typescript
 async function issueDPP(product: Product, vc: VerifiableCredential): Promise<Passport> {
@@ -139,8 +217,7 @@ async function issueDPP(product: Product, vc: VerifiableCredential): Promise<Pas
       productId: product.id,
       vcJwt: signedVC.jwt,
       status: 'ACTIVE',
-      staticJsonKey: `gtin/${product.gtin}/dpp.json`,
-      staticHtmlKey: `gtin/${product.gtin}/index.html`,
+      staticPath: `gtin/${product.gtin}`,
       cdnUrl: `https://dpp.eurocomply.eu/01/${product.gtin}`,
     },
   });
@@ -148,102 +225,59 @@ async function issueDPP(product: Product, vc: VerifiableCredential): Promise<Pas
   // 3. Pre-render static files
   const staticFiles = await prerenderDPP(product, signedVC);
 
-  // 4. Upload to S3 (parallel)
-  await Promise.all([
-    s3.putObject({
-      Bucket: 'eurocomply-dpp-public',
-      Key: `gtin/${product.gtin}/dpp.json`,
-      Body: JSON.stringify(staticFiles.json),
-      ContentType: 'application/json',
-      CacheControl: 'public, max-age=86400',
-    }),
-    s3.putObject({
-      Bucket: 'eurocomply-dpp-public',
-      Key: `gtin/${product.gtin}/index.html`,
-      Body: staticFiles.html,
-      ContentType: 'text/html',
-      CacheControl: 'public, max-age=86400',
-    }),
-    s3.putObject({
-      Bucket: 'eurocomply-dpp-public',
-      Key: `gtin/${product.gtin}/qr.svg`,
-      Body: staticFiles.qr,
-      ContentType: 'image/svg+xml',
-      CacheControl: 'public, max-age=86400',
-    }),
-    s3.putObject({
-      Bucket: 'eurocomply-dpp-public',
-      Key: `gtin/${product.gtin}/meta.json`,
-      Body: JSON.stringify({
+  // 4. Push to Hetzner origin servers (via rsync/scp)
+  await pushToOrigins({
+    path: `gtin/${product.gtin}`,
+    files: {
+      'dpp.json': JSON.stringify(staticFiles.json),
+      'index.html': staticFiles.html,
+      'qr.svg': staticFiles.qr,
+      'meta.json': JSON.stringify({
         version: passport.id,
         issuedAt: new Date().toISOString(),
         gtin: product.gtin,
         organizationId: product.organizationId,
       }),
-      ContentType: 'application/json',
-    }),
-  ]);
+    },
+  });
 
-  // 5. Update passport with publish timestamp
+  // 5. Cloudflare auto-caches on next request (no manual invalidation needed)
+  //    Or use Cloudflare API to purge if immediate update required
+  if (process.env.CLOUDFLARE_ZONE_ID) {
+    await cloudflare.purgeCache({
+      zoneId: process.env.CLOUDFLARE_ZONE_ID,
+      files: [`https://dpp.eurocomply.eu/01/${product.gtin}`],
+    });
+  }
+
+  // 6. Update passport with publish timestamp
   await prisma.passport.update({
     where: { id: passport.id },
     data: { lastPublishedAt: new Date() },
   });
 
-  // 6. Invalidate CDN cache (async, non-blocking)
-  cloudfront.createInvalidation({
-    DistributionId: process.env.CLOUDFRONT_DPP_DISTRIBUTION_ID,
-    InvalidationBatch: {
-      Paths: { Quantity: 1, Items: [`/01/${product.gtin}/*`] },
-      CallerReference: `dpp-${passport.id}-${Date.now()}`,
-    },
-  }).catch(err => logger.error('CDN invalidation failed', { err, passportId: passport.id }));
-
   return passport;
 }
-```
 
----
+// Push files to all origin servers
+async function pushToOrigins(params: { path: string; files: Record<string, string> }): Promise<void> {
+  const origins = [
+    { host: 'origin1.eurocomply.eu', path: '/var/www/dpp' },
+    { host: 'origin2.eurocomply.eu', path: '/var/www/dpp' },
+    { host: 'origin3.eurocomply.eu', path: '/var/www/dpp' },
+  ];
 
-## DPP Update Flow
+  // Write to primary, lsyncd replicates to others
+  // Or parallel push to all for immediate consistency
+  await Promise.all(origins.map(origin =>
+    sshExec(origin.host, `mkdir -p ${origin.path}/${params.path}`)
+  ));
 
-When a DPP is updated (product data changes), static files are regenerated:
-
-```typescript
-async function updateDPP(passportId: string): Promise<void> {
-  const passport = await prisma.passport.findUnique({
-    where: { id: passportId },
-    include: { product: true },
-  });
-
-  // 1. Re-sign the VC with updated data
-  const newVC = buildDPPCredential(passport.product);
-  const signedVC = await wallet.sign(newVC);
-
-  // 2. Update database
-  await prisma.passport.update({
-    where: { id: passportId },
-    data: {
-      vcJwt: signedVC.jwt,
-      data: newVC.credentialSubject,
-    },
-  });
-
-  // 3. Re-render and upload static files (same as issuance)
-  const staticFiles = await prerenderDPP(passport.product, signedVC);
-  await uploadStaticFiles(passport.product.gtin, staticFiles);
-
-  // 4. Invalidate CDN
-  await invalidateCDN(passport.product.gtin);
-
-  // 5. Update publish timestamp
-  await prisma.passport.update({
-    where: { id: passportId },
-    data: {
-      lastPublishedAt: new Date(),
-      cdnInvalidatedAt: new Date(),
-    },
-  });
+  await Promise.all(origins.map(origin =>
+    Object.entries(params.files).map(([filename, content]) =>
+      scpPush(origin.host, content, `${origin.path}/${params.path}/${filename}`)
+    )
+  ).flat());
 }
 ```
 
@@ -285,31 +319,22 @@ async function revokeDPP(passportId: string, reason: string): Promise<void> {
     },
   };
 
-  // 3. Upload revoked files
-  await Promise.all([
-    s3.putObject({
-      Bucket: 'eurocomply-dpp-public',
-      Key: `gtin/${passport.product.gtin}/index.html`,
-      Body: revocationHtml,
-      ContentType: 'text/html',
-      CacheControl: 'no-cache', // Don't cache revocation pages
-    }),
-    s3.putObject({
-      Bucket: 'eurocomply-dpp-public',
-      Key: `gtin/${passport.product.gtin}/dpp.json`,
-      Body: JSON.stringify(revokedJson),
-      ContentType: 'application/json',
-      CacheControl: 'no-cache',
-    }),
-  ]);
-
-  // 4. Force immediate CDN refresh
-  await cloudfront.createInvalidation({
-    DistributionId: process.env.CLOUDFRONT_DPP_DISTRIBUTION_ID,
-    InvalidationBatch: {
-      Paths: { Quantity: 1, Items: [`/01/${passport.product.gtin}/*`] },
-      CallerReference: `revoke-${passportId}-${Date.now()}`,
+  // 3. Push revoked files to origins
+  await pushToOrigins({
+    path: `gtin/${passport.product.gtin}`,
+    files: {
+      'index.html': revocationHtml,
+      'dpp.json': JSON.stringify(revokedJson),
     },
+  });
+
+  // 4. Force immediate Cloudflare cache purge
+  await cloudflare.purgeCache({
+    zoneId: process.env.CLOUDFLARE_ZONE_ID,
+    files: [
+      `https://dpp.eurocomply.eu/01/${passport.product.gtin}`,
+      `https://dpp.eurocomply.eu/01/${passport.product.gtin}/`,
+    ],
   });
 }
 ```
@@ -318,109 +343,250 @@ async function revokeDPP(passportId: string, reason: string): Promise<void> {
 
 ## Cost Analysis
 
-### Cost at 1 Billion Scans/Day
+### Cost Comparison: AWS vs Self-Hosted
+
+| Scale | AWS CloudFront | Cloudflare + Hetzner | Savings |
+|-------|----------------|----------------------|---------|
+| 1M scans/day | ~$1,200/month | ~$200/month | 83% |
+| 10M scans/day | ~$4,000/month | ~$200/month | 95% |
+| 100M scans/day | ~$12,000/month | ~$300/month | 97% |
+| 1B scans/day | ~$38,000/month | ~$500/month | 99% |
+| 10B scans/day | ~$250,000/month | ~$2,000/month | 99% |
+
+### Detailed Cost Breakdown (Self-Hosted)
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  COST AT 1 BILLION SCANS/DAY                                     │
+│  MONTHLY INFRASTRUCTURE COST (ANY SCALE)                         │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  CloudFront Requests:                                           │
-│  • 1B requests × 30 days = 30B requests/month                   │
-│  • First 10B: $0.0085/10k = $8,500                              │
-│  • Next 20B: $0.0060/10k = $12,000                              │
-│  • Total: ~$20,500/month                                        │
+│  READ PATH (Cloudflare + Hetzner)                               │
+│  ─────────────────────────────────                              │
+│  Cloudflare Pro:                    $20/month                   │
+│  Hetzner AX41 × 3 (redundancy):    €150/month (~$165)          │
+│  Subtotal:                          ~$185/month                 │
 │                                                                  │
-│  CloudFront Data Transfer:                                      │
-│  • Avg response: 5KB                                            │
-│  • 30B × 5KB = 150TB/month                                      │
-│  • ~$0.085/GB = ~$12,750/month                                  │
+│  WRITE PATH (AWS)                                               │
+│  ────────────────                                               │
+│  ECS Fargate (2-4 tasks):          ~$100/month                  │
+│  RDS PostgreSQL (db.t3.medium):    ~$80/month                   │
+│  ElastiCache Redis:                 ~$50/month                  │
+│  ALB + networking:                  ~$50/month                  │
+│  S3 + misc:                         ~$20/month                  │
+│  Subtotal:                          ~$300/month                 │
 │                                                                  │
-│  S3 Storage (1M DPPs):                                          │
-│  • 1M × 50KB = 50GB                                             │
-│  • ~$1.15/month                                                  │
+│  TOTAL:                             ~$500/month                 │
 │                                                                  │
-│  S3 Requests (1% cache miss):                                   │
-│  • 300M requests/month                                          │
-│  • $0.0004/1k = ~$120/month                                     │
-│                                                                  │
-│  TOTAL: ~$33,400/month for 1B scans/day                         │
-│                                                                  │
-│  Per scan: $0.000001 (one-thousandth of a cent)                 │
+│  This handles:                                                  │
+│  • Billions of DPP scans/day                                   │
+│  • 10,000+ concurrent PIM users                                │
+│  • 10+ million products                                        │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### Cost at 10 Billion Scans/Day
+### Why Cloudflare Can Offer Unlimited Bandwidth
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  COST AT 10 BILLION SCANS/DAY                                    │
+│  CLOUDFLARE'S BUSINESS MODEL                                     │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  CloudFront Requests:                                           │
-│  • 10B requests × 30 days = 300B requests/month                 │
-│  • Tiered pricing: ~$150,000/month                              │
+│  AWS sells bandwidth (commodity markup)                         │
+│  Cloudflare sells security/features (value-add)                 │
 │                                                                  │
-│  CloudFront Data Transfer:                                      │
-│  • 300B × 5KB = 1.5PB/month                                     │
-│  • ~$100,000/month                                              │
+│  Cloudflare revenue sources:                                    │
+│  • Enterprise contracts (security, WAF, bot protection)         │
+│  • Workers (serverless compute)                                 │
+│  • R2 Storage (S3 competitor with no egress fees)               │
+│  • Zero Trust (enterprise security)                             │
 │                                                                  │
-│  S3 (unchanged from 1B scenario):                               │
-│  • ~$200/month                                                  │
+│  Free/cheap bandwidth is customer acquisition.                  │
 │                                                                  │
-│  TOTAL: ~$250,000/month for 10B scans/day                       │
-│                                                                  │
-│  Per scan: $0.0000008 (less than one-thousandth of a cent)      │
-│                                                                  │
-│  NOTE: At this scale, negotiate AWS Enterprise Discount Program │
-│        for 20-30% savings.                                      │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Cost Comparison: Static vs. Dynamic
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  STATIC vs. DYNAMIC SERVING (1B scans/day)                       │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  STATIC (CloudFront + S3)                                       │
-│  ─────────────────────────                                      │
-│  • CDN + Transfer: ~$33,000/month                               │
-│  • No compute costs                                             │
-│  • No database costs                                            │
-│  • Infinite scalability                                         │
-│                                                                  │
-│  DYNAMIC (API + Database)                                       │
-│  ────────────────────────                                       │
-│  • ~12,000 requests/second average                              │
-│  • ~100,000 requests/second peak                                │
-│  • Would require:                                               │
-│    - 50+ API server instances (~$50,000/month)                  │
-│    - Massive RDS cluster (~$30,000/month)                       │
-│    - Redis cluster for caching (~$10,000/month)                 │
-│    - Load balancers, NAT, etc. (~$5,000/month)                  │
-│  • Total: ~$95,000/month (3x more expensive)                    │
-│  • Plus: operational complexity, failure risk                   │
-│                                                                  │
-│  SAVINGS: ~$62,000/month (65% reduction)                        │
+│  Terms of Service:                                              │
+│  • Prohibit using Cloudflare only for large file serving        │
+│  • DPPs are small (~5KB) text/JSON files - perfectly fine      │
+│  • This is exactly what Cloudflare is designed for             │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Write Path Scalability
+## Hetzner Server Configuration
 
-The write path (PIM operations) uses standard PostgreSQL scaling patterns:
-
-### Current Architecture (Sufficient for Years 1-3)
+### Recommended Setup
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  WRITE PATH - CURRENT ARCHITECTURE                               │
+│  HETZNER ORIGIN SERVERS                                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Server Model: AX41 (or AX51 for more storage)                  │
+│  • CPU: AMD Ryzen 5 3600 (6 cores)                              │
+│  • RAM: 64 GB DDR4                                              │
+│  • Storage: 2× 512GB NVMe SSD                                   │
+│  • Bandwidth: 20 TB/month included                              │
+│  • Price: ~€50/month                                            │
+│                                                                  │
+│  Locations (for redundancy):                                    │
+│  • Server 1: Falkenstein, Germany (FSN1)                        │
+│  • Server 2: Helsinki, Finland (HEL1)                           │
+│  • Server 3: Nuremberg, Germany (NBG1)                          │
+│                                                                  │
+│  Software Stack:                                                │
+│  • OS: Ubuntu 22.04 LTS                                         │
+│  • Web Server: Nginx (static file serving)                      │
+│  • Sync: Lsyncd (real-time file replication)                    │
+│  • Monitoring: Prometheus + Grafana                             │
+│                                                                  │
+│  GDPR Compliance:                                               │
+│  • All servers in EU (Germany/Finland)                          │
+│  • Hetzner is German company, GDPR compliant                    │
+│  • Data never leaves EU                                         │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Nginx Configuration
+
+```nginx
+# /etc/nginx/sites-available/dpp.eurocomply.eu
+
+server {
+    listen 80;
+    server_name dpp.eurocomply.eu;
+    root /var/www/dpp;
+
+    # Health check for Cloudflare
+    location /health {
+        return 200 'OK';
+        add_header Content-Type text/plain;
+    }
+
+    # GS1 Digital Link routing
+    # /01/{gtin} -> /gtin/{gtin}/
+    location ~ ^/01/(\d+)$ {
+        alias /var/www/dpp/gtin/$1/;
+
+        # Content negotiation
+        if ($http_accept ~* "application/json") {
+            rewrite ^ /gtin/$1/dpp.json last;
+        }
+
+        try_files /gtin/$1/index.html =404;
+    }
+
+    # Direct file access
+    location / {
+        try_files $uri $uri/ =404;
+
+        # Cache headers (Cloudflare respects these)
+        add_header Cache-Control "public, max-age=86400";
+    }
+
+    # JSON files
+    location ~* \.json$ {
+        add_header Content-Type application/json;
+        add_header Cache-Control "public, max-age=86400";
+    }
+
+    # Gzip compression
+    gzip on;
+    gzip_types application/json text/html text/css application/javascript;
+}
+```
+
+### File Synchronization (Lsyncd)
+
+```lua
+-- /etc/lsyncd/lsyncd.conf.lua
+-- Primary server pushes to replicas
+
+sync {
+    default.rsyncssh,
+    source = "/var/www/dpp",
+    host = "origin2.eurocomply.eu",
+    targetdir = "/var/www/dpp",
+    delay = 1,  -- Sync within 1 second
+    rsync = {
+        compress = true,
+        archive = true,
+    },
+}
+
+sync {
+    default.rsyncssh,
+    source = "/var/www/dpp",
+    host = "origin3.eurocomply.eu",
+    targetdir = "/var/www/dpp",
+    delay = 1,
+    rsync = {
+        compress = true,
+        archive = true,
+    },
+}
+```
+
+---
+
+## Cloudflare Configuration
+
+### DNS Setup
+
+```
+dpp.eurocomply.eu    A      <origin1-ip>     (proxied)
+dpp.eurocomply.eu    A      <origin2-ip>     (proxied)
+dpp.eurocomply.eu    A      <origin3-ip>     (proxied)
+```
+
+### Page Rules / Cache Rules
+
+```
+URL: dpp.eurocomply.eu/*
+
+Rules:
+• Cache Level: Cache Everything
+• Edge Cache TTL: 1 day
+• Browser Cache TTL: 1 day
+• Origin Cache Control: On (respect Cache-Control headers)
+```
+
+### Cloudflare API for Cache Purging
+
+```typescript
+// When DPP is updated or revoked
+async function purgeCloudflareCache(gtin: string): Promise<void> {
+  await fetch(
+    `https://api.cloudflare.com/client/v4/zones/${CLOUDFLARE_ZONE_ID}/purge_cache`,
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${CLOUDFLARE_API_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        files: [
+          `https://dpp.eurocomply.eu/01/${gtin}`,
+          `https://dpp.eurocomply.eu/01/${gtin}/`,
+          `https://dpp.eurocomply.eu/gtin/${gtin}/dpp.json`,
+          `https://dpp.eurocomply.eu/gtin/${gtin}/index.html`,
+        ],
+      }),
+    }
+  );
+}
+```
+
+---
+
+## Write Path Architecture (AWS)
+
+The write path (PIM operations) remains on AWS for reliability and managed services:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  WRITE PATH - AWS (eu-central-1)                                 │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
 │  API Layer                                                      │
@@ -432,7 +598,7 @@ The write path (PIM operations) uses standard PostgreSQL scaling patterns:
 │  Database Layer                                                 │
 │  ──────────────                                                 │
 │  • AWS RDS PostgreSQL (Multi-AZ)                                │
-│  • db.r6g.xlarge (4 vCPU, 32 GB RAM)                           │
+│  • db.t3.medium → db.r6g.xlarge as needed                      │
 │  • Handles 10,000+ transactions/second                          │
 │                                                                  │
 │  Caching Layer                                                  │
@@ -445,19 +611,100 @@ The write path (PIM operations) uses standard PostgreSQL scaling patterns:
 │  ──────────────                                                 │
 │  • BullMQ workers (2-5 instances)                               │
 │  • Handles bulk imports, Shopify sync                           │
-│  • Rate-limited to respect external APIs                        │
+│  • DPP publishing to Hetzner origins                            │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### Future Scaling (Years 3+, if needed)
+---
 
-| Scale Trigger | Solution |
-|---------------|----------|
-| 10,000+ concurrent users | Add read replicas for analytics/reports |
-| 100M+ products | Partition by organization (tenant sharding) |
-| Complex analytics | Move reporting to data warehouse (Redshift/BigQuery) |
-| Global latency requirements | Multi-region deployment with Route 53 |
+## Monitoring and Analytics
+
+### Cloudflare Analytics (Free)
+
+```
+Cloudflare Dashboard provides:
+• Requests (total, cached vs uncached)
+• Bandwidth saved
+• Geographic distribution
+• Cache hit ratio
+• Error rates
+```
+
+### Custom Analytics (Log-Based)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  SCAN ANALYTICS                                                  │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Option 1: Cloudflare Logpush (Enterprise)                      │
+│  • Real-time logs to S3/R2                                      │
+│  • Full request details                                         │
+│                                                                  │
+│  Option 2: Nginx Access Logs (Free)                             │
+│  • Logs on origin servers                                       │
+│  • Only cache misses (~1% of traffic)                           │
+│  • Ship to S3 via Filebeat                                      │
+│                                                                  │
+│  Option 3: JavaScript Beacon (Free)                             │
+│  • Add tracking pixel to DPP HTML pages                         │
+│  • Sends scan event to our API                                  │
+│  • Works with CDN caching                                       │
+│                                                                  │
+│  Recommended: Option 3 for production                           │
+│  • Works with Cloudflare Free/Pro                               │
+│  • Captures all scans (not just cache misses)                   │
+│  • Async, doesn't affect page load                              │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### JavaScript Beacon for Analytics
+
+```html
+<!-- Added to each DPP HTML page -->
+<script>
+  (function() {
+    var img = new Image();
+    img.src = 'https://api.eurocomply.eu/v1/analytics/scan?' +
+      'gtin=' + encodeURIComponent('{{gtin}}') +
+      '&t=' + Date.now();
+  })();
+</script>
+```
+
+---
+
+## EU Registry Integration (Future)
+
+When the EU DPP Registry launches (expected 2026-2027):
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  EU REGISTRY INTEGRATION STRATEGY                                │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  PHASE 1 (Now): Self-Hosted Read Path                           │
+│  • Cloudflare + Hetzner serves all DPP traffic                  │
+│  • ~$200/month for unlimited scale                              │
+│                                                                  │
+│  PHASE 2 (2026-2027): EU Registry as Option                     │
+│  • Register DPPs with EU Registry                               │
+│  • EU Registry can serve DPP data directly                      │
+│  • Our hosted version remains as backup/management              │
+│                                                                  │
+│  PHASE 3 (Long-term): EU Registry Primary                       │
+│  • EU Registry becomes the canonical source                     │
+│  • We focus on issuance/management (write path)                 │
+│  • Read traffic shifts to EU infrastructure                     │
+│  • Our costs drop even further                                  │
+│                                                                  │
+│  KEY POINT: We're not locked into self-hosting forever.         │
+│  EU Registry will eventually absorb public read traffic.        │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
@@ -475,18 +722,16 @@ model Passport {
   status          PassportStatus @default(ACTIVE)
 
   // Static serving (for billion-scale reads)
-  staticJsonKey   String?   // S3 key: gtin/05901234567890/dpp.json
-  staticHtmlKey   String?   // S3 key: gtin/05901234567890/index.html
+  staticPath      String?   // gtin/05901234567890
   cdnUrl          String?   // https://dpp.eurocomply.eu/01/05901234567890
-  lastPublishedAt DateTime? // When static files were last uploaded
-  cdnInvalidatedAt DateTime? // When CDN cache was last cleared
+  lastPublishedAt DateTime? // When static files were last pushed to origins
 
   // Revocation
   revokedAt       DateTime?
   revocationReason String?
 
   // QR Code
-  qrCodeUrl       String?   // S3 URL to QR code SVG
+  qrCodeUrl       String?   // CDN URL to QR code SVG
 
   // Attestations
   attestations    AttestationRef[]
@@ -507,96 +752,20 @@ enum PassportStatus {
 
 ---
 
-## CloudFront Configuration
-
-```yaml
-# cloudfront-dpp-distribution.yaml
-Distribution:
-  Origins:
-    - Id: S3-DPP-Public
-      DomainName: eurocomply-dpp-public.s3.eu-central-1.amazonaws.com
-      S3OriginConfig:
-        OriginAccessIdentity: origin-access-identity/cloudfront/XXXXX
-
-  DefaultCacheBehavior:
-    TargetOriginId: S3-DPP-Public
-    ViewerProtocolPolicy: redirect-to-https
-    CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6  # CachingOptimized
-
-    # Content negotiation based on Accept header
-    # Browser gets HTML, API gets JSON
-    FunctionAssociations:
-      - EventType: viewer-request
-        FunctionARN: arn:aws:cloudfront::XXXXX:function/content-negotiation
-
-  # Custom error pages
-  CustomErrorResponses:
-    - ErrorCode: 404
-      ResponseCode: 404
-      ResponsePagePath: /_shared/404.html
-      ErrorCachingMinTTL: 60
-
-  # Aliases
-  Aliases:
-    - dpp.eurocomply.eu
-
-  # SSL
-  ViewerCertificate:
-    AcmCertificateArn: arn:aws:acm:us-east-1:XXXXX:certificate/XXXXX
-    SslSupportMethod: sni-only
-    MinimumProtocolVersion: TLSv1.2_2021
-```
-
----
-
-## Monitoring and Analytics
-
-QR scan analytics without database involvement:
-
-### CloudFront Access Logs → S3 → Athena
-
-```sql
--- Query scan patterns by GTIN
-SELECT
-  date_trunc('hour', time) as hour,
-  uri,
-  count(*) as scans,
-  count(distinct client_ip) as unique_scanners
-FROM cloudfront_logs
-WHERE date = '2026-01-10'
-  AND uri LIKE '/01/%'
-GROUP BY 1, 2
-ORDER BY 3 DESC
-LIMIT 100;
-```
-
-### Real-Time Metrics
-
-```
-CloudFront → CloudWatch Metrics → Dashboard
-
-Key Metrics:
-• Requests (total, by status code)
-• Cache hit ratio (target: >99%)
-• Latency (p50, p95, p99)
-• Data transfer
-• Error rate
-```
-
----
-
 ## Implementation Checklist
 
 ### Phase 4 (Compliance) - Required for Launch
 
 | Task | Complexity | Status |
 |------|------------|--------|
-| Create S3 bucket for static DPP files | Low | Planned |
-| Configure CloudFront distribution | Medium | Planned |
+| Provision 3x Hetzner origin servers | Low | Planned |
+| Configure Nginx for static file serving | Low | Planned |
+| Set up Lsyncd for file replication | Medium | Planned |
+| Configure Cloudflare DNS and caching | Low | Planned |
 | Implement DPP pre-rendering (JSON + HTML) | Medium | Planned |
+| Build origin push mechanism (rsync/scp) | Medium | Planned |
 | Add static serving fields to Passport model | Low | Planned |
-| Upload static files on DPP issuance | Low | Planned |
-| CDN invalidation on DPP update | Low | Planned |
+| Implement Cloudflare cache purge on update | Low | Planned |
 | Revocation page rendering | Low | Planned |
 | Content negotiation (HTML vs JSON) | Low | Planned |
 
@@ -604,10 +773,10 @@ Key Metrics:
 
 | Task | Complexity | Status |
 |------|------------|--------|
-| CloudFront access log delivery to S3 | Low | Planned |
-| Athena table for log analysis | Medium | Planned |
+| Add JavaScript beacon to DPP pages | Low | Planned |
+| Build scan analytics API endpoint | Low | Planned |
 | Scan analytics dashboard | Medium | Planned |
-| Popular products report | Low | Planned |
+| Organization-level scan reports | Low | Planned |
 
 ---
 
@@ -618,25 +787,34 @@ Key Metrics:
 │  SCALABILITY SUMMARY                                             │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  QR SCANS (READ PATH)                                           │
-│  ─────────────────────                                          │
+│  QR SCANS (READ PATH) - Cloudflare + Hetzner                    │
+│  ───────────────────────────────────────────                    │
 │  Capacity: Billions per day                                     │
 │  Latency: <100ms globally                                       │
-│  Architecture: CloudFront CDN → S3 static files                 │
+│  Architecture: Cloudflare CDN → Hetzner static files           │
 │  Database involvement: Zero                                     │
-│  Cost: ~$33k/month for 1B scans/day                            │
+│  Cost: ~$200/month (fixed, regardless of volume)               │
 │                                                                  │
-│  PIM OPERATIONS (WRITE PATH)                                    │
-│  ─────────────────────────                                      │
+│  PIM OPERATIONS (WRITE PATH) - AWS                              │
+│  ─────────────────────────────────                              │
 │  Capacity: Thousands per day                                    │
 │  Architecture: ECS → PostgreSQL → Redis                         │
+│  Cost: ~$300/month                                              │
 │  Scalable to: 10,000+ concurrent users                         │
 │                                                                  │
-│  KEY INSIGHT                                                    │
-│  ───────────                                                    │
-│  Separate read and write paths completely.                      │
-│  DPPs are immutable after issuance → perfect for static serving.│
-│  QR scans should never touch the database.                      │
+│  TOTAL INFRASTRUCTURE                                           │
+│  ────────────────────                                           │
+│  Cost: ~$500/month                                              │
+│  Handles: Billions of scans + thousands of PIM users           │
+│  Savings vs AWS-only: 99%                                       │
+│                                                                  │
+│  KEY INSIGHTS                                                   │
+│  ────────────                                                   │
+│  1. Separate read and write paths completely                    │
+│  2. DPPs are immutable → perfect for CDN caching               │
+│  3. Cloudflare offers unlimited bandwidth (free)               │
+│  4. Self-host origins in EU for GDPR compliance                │
+│  5. EU Registry will absorb read traffic long-term             │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -647,9 +825,10 @@ Key Metrics:
 
 | Document | Description |
 |----------|-------------|
+| [INFRASTRUCTURE.md](../INFRASTRUCTURE.md) | Full infrastructure guide (AWS + Hetzner) |
 | [ARCHITECTURE_PORTABILITY.md](./ARCHITECTURE_PORTABILITY.md) | Data ownership and portability |
+| [DATA_SOVEREIGNTY.md](./DATA_SOVEREIGNTY.md) | EU data residency |
 | [IMPLEMENTATION_PLAN.md](../IMPLEMENTATION_PLAN.md) | Full implementation roadmap |
-| [INFRASTRUCTURE.md](../INFRASTRUCTURE.md) | AWS infrastructure guide |
 
 ---
 

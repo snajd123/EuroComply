@@ -192,9 +192,36 @@ This approach enables gradual scaling without forcing premature tier transitions
 
 ## Infrastructure Cost Analysis
 
-### AWS Services Used
+### Dual-Path Architecture
 
-EuroComply runs on AWS with the following services:
+EuroComply uses a **hybrid infrastructure** that separates write operations (AWS) from read operations (Cloudflare + Hetzner). This is critical because ESPR requires free DPP access - we can't pass infrastructure costs to users scanning QR codes.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  WHY HYBRID INFRASTRUCTURE?                                      │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  THE PROBLEM:                                                   │
+│  • ESPR Article 31 requires free DPP access for everyone        │
+│  • QR scan volume could be billions/day (supply chains)         │
+│  • AWS charges ~$0.085/GB for bandwidth                         │
+│  • 1B scans/day on AWS = ~$38,000/month                        │
+│  • Revenue from 1,000 brands = ~€200,000/month                  │
+│  • A few viral products could consume all margin                │
+│                                                                  │
+│  THE SOLUTION:                                                  │
+│  • Write Path (AWS): Reliable, managed, usage-based             │
+│  • Read Path (Cloudflare + Hetzner): Fixed cost, unlimited      │
+│  • Cost: ~$200/month for unlimited DPP scans                    │
+│                                                                  │
+│  RESULT: Infrastructure cost is predictable and bounded.        │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+See [SCALABILITY.md](./SCALABILITY.md) for technical details.
+
+### Write Path: AWS Services
 
 | Service | Purpose |
 |---------|---------|
@@ -202,11 +229,27 @@ EuroComply runs on AWS with the following services:
 | RDS PostgreSQL | Primary database |
 | ElastiCache Redis | Session cache, rate limiting, job queue |
 | S3 | Digital Asset Management (images, documents) |
-| CloudFront | CDN for asset delivery |
 | ALB | Load balancing |
-| Route 53 | DNS |
+| Route 53 | DNS for api.eurocomply.eu |
 | CloudWatch | Monitoring and logging |
 | Secrets Manager | API keys, credentials |
+
+### Read Path: Cloudflare + Hetzner
+
+| Service | Purpose | Cost |
+|---------|---------|------|
+| Cloudflare Pro | Global CDN, unlimited bandwidth | $20/month |
+| Hetzner AX41 × 3 | Origin servers (Germany, Finland) | €150/month |
+| **Total Read Path** | **Unlimited DPP scans** | **~$200/month** |
+
+### Cost Comparison: AWS-Only vs Hybrid
+
+| DPP Scans/Day | AWS-Only | Hybrid | Savings |
+|---------------|----------|--------|---------|
+| 1 million | ~$1,200/month | ~$200/month | 83% |
+| 100 million | ~$12,000/month | ~$200/month | 98% |
+| 1 billion | ~$38,000/month | ~$200/month | 99.5% |
+| 10 billion | ~$250,000/month | ~$500/month | 99.8% |
 
 ### Compute: ECS Fargate
 
