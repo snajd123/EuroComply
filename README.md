@@ -389,6 +389,8 @@ Organizations own their data. Full portability guaranteed:
 |----------|-------------|
 | [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) | Technical implementation roadmap |
 | [BUSINESS_MODEL.md](./docs/BUSINESS_MODEL.md) | Pricing and business model |
+| [SCALABILITY.md](./docs/SCALABILITY.md) | Billion-scale DPP serving architecture |
+| [USER_MANAGEMENT.md](./docs/USER_MANAGEMENT.md) | User roles, permissions, and version control |
 | [ARCHITECTURE_PORTABILITY.md](./docs/ARCHITECTURE_PORTABILITY.md) | Data portability architecture |
 | [VERIFIABLE_CREDENTIALS.md](./docs/VERIFIABLE_CREDENTIALS.md) | VC/DID technical details |
 | [MULTI_PARTY_ATTESTATION.md](./docs/MULTI_PARTY_ATTESTATION.md) | Third-party data contribution architecture |

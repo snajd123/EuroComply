@@ -217,7 +217,14 @@ Passport (DPP)
 ├── vcJwt (Verifiable Credential)
 ├── qrCodeUrl
 ├── attestations: AttestationRef[] (linked attestation VCs)
-└── status: DRAFT | ACTIVE | REVOKED
+├── status: DRAFT | ACTIVE | REVOKED
+├── staticJsonKey? (S3 key for JSON file)
+├── staticHtmlKey? (S3 key for HTML page)
+├── cdnUrl? (public DPP URL)
+├── lastPublishedAt? (when static files uploaded)
+├── cdnInvalidatedAt? (when CDN cache cleared)
+├── revokedAt?, revocationReason?
+└── See SCALABILITY.md for billion-scale serving
 
 Subscription
 ├── organizationId
@@ -577,12 +584,25 @@ This approach supports industries beyond ESPR compliance - any business needing 
 | DPP public verification page | Planned |
 | DPP lifecycle tracking (issued, updated, revoked) | Planned |
 | Lambda image optimization pipeline | Planned |
+| **Static DPP Serving (Billion-Scale)** | |
+| Create S3 bucket for static DPP files | Planned |
+| Configure CloudFront distribution (dpp.eurocomply.eu) | Planned |
+| Implement DPP pre-rendering (JSON + HTML) on issuance | Planned |
+| Add static serving fields to Passport model | Planned |
+| Upload static files to S3 on DPP publish | Planned |
+| CDN cache invalidation on DPP update/revoke | Planned |
+| Revocation page rendering | Planned |
+| Content negotiation (HTML for browsers, JSON for APIs) | Planned |
 
-**Outcome:** Products at 100% completeness appear in DPP Ready list. Users review and issue DPPs as Verifiable Credentials with QR codes.
+**Outcome:** Products at 100% completeness appear in DPP Ready list. Users review and issue DPPs as Verifiable Credentials with QR codes. DPPs are served via CDN for billion-scale reads without database involvement.
 
 **Dependencies:** Phase 2 (completeness scoring, assets)
 
-**Key Decision:** DPP VC schema includes `attestations[]` array from day one, even if empty. This enables Phase 5 integration without schema changes.
+**Key Decisions:**
+- DPP VC schema includes `attestations[]` array from day one, even if empty. This enables Phase 5 integration without schema changes.
+- DPPs are pre-rendered to static files (JSON + HTML) and served via CloudFront CDN. This enables billions of QR scans/day without touching the database.
+
+See [SCALABILITY.md](docs/SCALABILITY.md) for full architecture.
 
 ---
 
@@ -651,10 +671,15 @@ See [MULTI_PARTY_ATTESTATION.md](docs/MULTI_PARTY_ATTESTATION.md) for full archi
 | Shopify Retailer App (free, auto-matching by GTIN) | Planned |
 | DPP index for fast lookups (ElasticSearch or similar) | Planned |
 | Rate limiting and usage tracking | Planned |
+| **Scan Analytics (CDN-Based)** | |
+| CloudFront access log delivery to S3 | Planned |
+| Athena table for log analysis | Planned |
+| Scan analytics dashboard (popular products, trends) | Planned |
+| Organization-level scan reports | Planned |
 
-**Outcome:** Retailers can search, browse, and display DPPs without technical expertise. Free widget and Shopify app drive adoption.
+**Outcome:** Retailers can search, browse, and display DPPs without technical expertise. Free widget and Shopify app drive adoption. Organizations can see scan analytics for their products.
 
-**Dependencies:** Phase 4 (DPP endpoints)
+**Dependencies:** Phase 4 (DPP endpoints, static serving)
 
 ---
 
@@ -853,6 +878,7 @@ Our architecture is ready for Registry integration:
 |----------|-------------|
 | [README.md](./README.md) | Platform overview and setup |
 | [BUSINESS_MODEL.md](./docs/BUSINESS_MODEL.md) | Pricing and market positioning |
+| [SCALABILITY.md](./docs/SCALABILITY.md) | Billion-scale DPP serving architecture |
 | [USER_MANAGEMENT.md](./docs/USER_MANAGEMENT.md) | User roles, permissions, and version control workflow |
 | [DATA_SOVEREIGNTY.md](./docs/DATA_SOVEREIGNTY.md) | Data ownership architecture |
 | [VERIFIABLE_CREDENTIALS.md](./docs/VERIFIABLE_CREDENTIALS.md) | VC/DID technical details |
