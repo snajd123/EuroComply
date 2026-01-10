@@ -2,13 +2,6 @@
 
 ## How EuroComply Uses walt.id for Portable, Verifiable DPPs
 
-> ⚠️ **Implementation Status**
-> - DID Method: Currently `did:web` (target: `did:key` for offline verification)
-> - VC Content: Currently references DB (target: all data embedded)
-> - Export: Not yet implemented (target: one-click export with offline viewer)
->
-> See [DATA_SOVEREIGNTY.md](./DATA_SOVEREIGNTY.md) for target architecture.
-
 ---
 
 ## 1. The Problem with Traditional DPPs
@@ -527,18 +520,179 @@ export const defaultConfig: IdentityConfig = {
 
 ---
 
-## 11. Future: EBSI Integration
+## 11. Understanding DIDs, Keys, and Organization Identity
 
-When EuroComply achieves scale, EBSI integration adds EU-level trust:
+### How did:key Works
 
-| Feature | did:key (Current) | did:ebsi (Future) |
-|---------|-------------------|-------------------|
-| **Trust Anchor** | Self-attested | EU Government blockchain |
-| **Legal Status** | Industry standard | eIDAS 2.0 recognized |
+A common misconception is that you can choose what goes in a `did:key` (like a company name). **This is not how it works.**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    did:key GENERATION                            │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Step 1: Generate cryptographic key pair                        │
+│                                                                  │
+│    ┌─────────────────────────────────────────────────────────┐  │
+│    │  Ed25519 Key Pair                                       │  │
+│    │  Private: 0x7f3a...def456 (kept secret)                 │  │
+│    │  Public:  0xed01abc123...789xyz                         │  │
+│    └─────────────────────────────────────────────────────────┘  │
+│                                                                  │
+│  Step 2: Encode public key as did:key                           │
+│                                                                  │
+│    Public Key → Multicodec prefix → Base58 encode → did:key     │
+│                                                                  │
+│    0xed01abc123...789xyz                                        │
+│           ↓                                                      │
+│    did:key:z6MkhaXgBZDvvvRhta4LjXRJzLKNqVj3yQTpCFbRc8GwAdfS    │
+│            └─────────────────────────────────────────────────┘  │
+│                    This IS the public key                        │
+│                                                                  │
+│  The DID is DERIVED from the key. You cannot choose it.         │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Where Does Organization Identity Live?
+
+The DID is **cryptographic identity** (a key). The **human identity** (company name, VAT number, etc.) is stored as metadata:
+
+```json
+{
+  "issuer": "did:key:z6MkhaXgBZDvvvRhta...",
+
+  "issuerMetadata": {
+    "name": "ABC Textiles GmbH",
+    "vatNumber": "DE123456789",
+    "address": "Berlin, Germany",
+    "website": "https://abc-textiles.de"
+  },
+
+  "credentialSubject": {
+    "id": "urn:gtin:5901234567890",
+    "productName": "Organic Cotton T-Shirt",
+    ...
+  }
+}
+```
+
+**In our database:**
+
+```typescript
+Organization {
+  // Human-readable identity
+  name: "ABC Textiles GmbH"
+  vatNumber: "DE123456789"
+
+  // Cryptographic identity (stored key material)
+  keyId: "key_abc123"              // Internal reference
+  publicKeyJwk: { ... }            // The actual public key
+
+  // DID identifiers (derived from same key)
+  didKey: "did:key:z6Mk..."        // Always available (derived)
+  didEbsi?: "did:ebsi:z23..."      // Added after EBSI registration
+
+  // Which to use for signing new VCs
+  activeDid: "did:key:z6Mk..."     // Switch to did:ebsi when ready
+}
+```
+
+### Same Key → Multiple DIDs
+
+The **same cryptographic key pair** can have multiple DID identifiers:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    ONE KEY, MULTIPLE DIDs                        │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Ed25519 Key Pair (generated once, stored securely)             │
+│  ├── Public Key:  0xabc123...                                   │
+│  └── Private Key: 0xdef456...                                   │
+│                                                                  │
+│  Same key → Multiple DID methods:                               │
+│                                                                  │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │ did:key:z6MkhaXgBZD...                                      ││
+│  │ ✓ Derived directly from public key                          ││
+│  │ ✓ Works offline, instant, free                              ││
+│  │ ✓ No registration required                                  ││
+│  │ ✓ Available NOW                                             ││
+│  └─────────────────────────────────────────────────────────────┘│
+│                                                                  │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │ did:ebsi:z23abc...                                          ││
+│  │ ✓ Same public key registered on EBSI blockchain             ││
+│  │ ✓ EU government trust anchor                                ││
+│  │ ✓ Listed in Trusted Issuers Registry                        ││
+│  │ ✓ Requires onboarding (€10-50 per DID)                      ││
+│  │ ○ Available when EBSI integration ready                     ││
+│  └─────────────────────────────────────────────────────────────┘│
+│                                                                  │
+│  BOTH DIDs resolve to the same public key!                      │
+│  VCs signed with the private key verify against BOTH.           │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### EBSI Migration Path
+
+Organizations can seamlessly upgrade from did:key to did:ebsi:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    EBSI MIGRATION PATH                           │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  TODAY (did:key)                                                │
+│  ─────────────────                                              │
+│  1. Organization signs up to EuroComply                         │
+│  2. Key pair generated automatically                            │
+│  3. did:key derived: did:key:z6MkhaXgBZD...                    │
+│  4. VCs issued with did:key as issuer                          │
+│                                                                  │
+│  LATER (did:ebsi - when we integrate)                           │
+│  ─────────────────────────────────────                          │
+│  1. Organization clicks "Register on EBSI"                      │
+│  2. Same public key submitted to EBSI                           │
+│  3. EBSI assigns: did:ebsi:z23abc...                           │
+│  4. Organization chooses which DID to use for new VCs          │
+│                                                                  │
+│  WHAT HAPPENS TO OLD VCs?                                       │
+│  ─────────────────────────                                      │
+│  • Old VCs with did:key: Still valid! Signature still verifies │
+│  • New VCs: Can use did:ebsi for EU trust framework            │
+│  • No re-issuance needed for existing VCs                      │
+│  • Both DIDs link to same organization                         │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### did:key vs did:ebsi Comparison
+
+| Feature | did:key | did:ebsi |
+|---------|---------|----------|
+| **Trust Anchor** | Self-attested (cryptographic) | EU Government blockchain |
+| **Legal Status** | Industry standard (W3C) | eIDAS 2.0 recognized |
 | **Issuer Registry** | None required | Listed in EU Trusted Issuers |
+| **Cost** | Free | €10-50 per registration |
+| **Setup Time** | Instant | Days (onboarding process) |
+| **Offline Verification** | Yes | Requires EBSI API |
 | **Portability** | Full | Full |
+| **Key Ownership** | Organization | Organization |
 
-The architecture supports both - did:key for portability, did:ebsi for EU trust framework.
+### Configuration
+
+Switch DID method via environment variable:
+
+```bash
+# .env
+DID_METHOD=key    # Default: portable, instant, free
+# DID_METHOD=ebsi  # When EBSI integration ready
+```
+
+The architecture supports seamless switching - same key, different DID format.
 
 ---
 
