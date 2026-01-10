@@ -231,8 +231,8 @@ Retailers who only resell products from other brands are served through the free
 │  • Public DPP page: STAYS LIVE (10+ years, ESPR compliant)      │
 │  • QR code resolver: KEEPS WORKING FOREVER                      │
 │  • JSON-LD/VC: PERMANENTLY HOSTED via CDN                       │
+│  • Images: ALL KEPT (original quality, CDN-served)              │
 │  • Editing: DISABLED (upgrade to edit again)                    │
-│  • Source images: DELETED (optimized thumbnails kept)           │
 │                                                                  │
 │  WHY THIS WORKS                                                  │
 │  ─────────────                                                  │
@@ -519,18 +519,19 @@ ESPR requires DPP data to be accessible for the product's lifetime (typically 10
 │  DPP HOSTING COST BREAKDOWN (Per DPP, 10-Year Lifetime)                      │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  STORAGE (What we keep for published DPPs)                                  │
+│  STORAGE (What we keep for ALL published DPPs, all tiers)                   │
 │  ──────────────────────────────────────────                                 │
 │  Component              │ Size    │ Tier              │ 10-Year Cost        │
 │  ───────────────────────┼─────────┼───────────────────┼─────────────────────│
 │  JSON-LD/VC (public)    │ 5KB     │ S3 + CloudFront   │ $0.001              │
-│  Optimized thumbnail    │ 20KB    │ S3 + CloudFront   │ $0.002              │
+│  Original images        │ 2MB     │ S3 IA + CloudFront│ $0.005              │
 │  Database record        │ 15KB    │ RDS PostgreSQL    │ $0.001              │
 │  ───────────────────────┼─────────┼───────────────────┼─────────────────────│
-│  TOTAL STORAGE          │ ~40KB   │                   │ ~$0.004             │
+│  TOTAL STORAGE          │ ~2MB    │                   │ ~$0.007             │
 │                                                                              │
-│  Note: Source images DELETED for DPP Starter after 30 days                  │
-│  (saves 200-500KB per DPP, only optimized thumbnails kept)                  │
+│  SIMPLE POLICY: All images kept at original quality for all tiers.          │
+│  Cost difference vs deleting originals: ~$0.002/DPP (negligible)            │
+│  Consumer experience: Full quality images forever                           │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -612,16 +613,15 @@ At scale with millions of DPPs across thousands of customers:
 │  PLATFORM SCALE: 10 MILLION DPPs (10,000 customers × 1,000 avg)             │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  STORAGE COSTS                                                              │
+│  STORAGE COSTS (keeping ALL original images)                                │
 │  ─────────────────────────────────────────────────────────────              │
 │  Component              │ Total Size  │ Tier           │ Monthly Cost       │
 │  ───────────────────────┼─────────────┼────────────────┼────────────────────│
 │  Public JSON-LD files   │ 50GB        │ S3 Standard    │ $1.15              │
-│  Optimized thumbnails   │ 200GB       │ S3 Standard    │ $4.60              │
-│  Source images (10% act)│ 500GB       │ S3 Standard    │ $11.50             │
+│  Original images        │ 20TB        │ S3 Infreq. Acc │ $250.00            │
 │  Database               │ 150GB       │ RDS            │ Incl. in instance  │
 │  ───────────────────────┼─────────────┼────────────────┼────────────────────│
-│  TOTAL STORAGE          │             │                │ ~$17/month         │
+│  TOTAL STORAGE          │ ~20TB       │                │ ~$251/month        │
 │                                                                              │
 │  BANDWIDTH (100M scans/month, 10 per DPP average)                           │
 │  ─────────────────────────────────────────────────────────────              │
@@ -629,19 +629,19 @@ At scale with millions of DPPs across thousands of customers:
 │                                                                              │
 │  TOTAL INFRASTRUCTURE FOR 10M DPPs                                          │
 │  ─────────────────────────────────────────────────────────────              │
-│  Storage + Bandwidth + Compute:                   ~$632/month               │
+│  Storage + Bandwidth + Compute:                   ~$866/month               │
 │                                                                              │
 │  UNIT ECONOMICS                                                             │
 │  ─────────────────────────────────────────────────────────────              │
-│  Cost per DPP/month:         $0.00006                                       │
-│  Cost per DPP/year:          $0.0007                                        │
-│  Cost per DPP/10 years:      $0.007  (less than 1 cent!)                    │
+│  Cost per DPP/month:         $0.00009                                       │
+│  Cost per DPP/year:          $0.001                                         │
+│  Cost per DPP/10 years:      $0.01   (one cent!)                            │
 │                                                                              │
 │  REVENUE AT THIS SCALE                                                      │
 │  ─────────────────────────────────────────────────────────────              │
 │  10,000 customers × €150 avg/month = €1,500,000/month                       │
-│  Infrastructure cost: ~€600/month                                           │
-│  Infrastructure as % of revenue: 0.04%                                      │
+│  Infrastructure cost: ~€800/month                                           │
+│  Infrastructure as % of revenue: 0.05%                                      │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -670,18 +670,18 @@ Different data types use different storage tiers for cost optimization:
 │  Data Type               │ Access Pattern     │ Tier           │ Notes      │
 │  ────────────────────────┼────────────────────┼────────────────┼────────────│
 │  Public DPP JSON-LD      │ On every scan      │ S3 + CloudFront│ Must be    │
-│  Optimized thumbnails    │ On every scan      │ S3 + CloudFront│ instant    │
+│  Product images          │ On every scan      │ S3 IA + CDN    │ instant    │
 │  Database records        │ Active queries     │ RDS            │            │
-│  ────────────────────────┼────────────────────┼────────────────┼────────────│
-│  Source images (active)  │ During editing     │ S3 Standard    │ 30 days    │
-│  Source images (dormant) │ Never (deleted)    │ DELETED        │ Starter    │
-│  Source images (paid)    │ On edit            │ S3 IA          │ Pro+       │
 │  ────────────────────────┼────────────────────┼────────────────┼────────────│
 │  Backup/audit logs       │ Rarely             │ Glacier        │ Compliance │
 │                                                                              │
+│  SIMPLE POLICY: All product images kept at original quality, all tiers.     │
+│  Using S3 Infrequent Access for images (rarely re-downloaded after cache).  │
+│  CloudFront caches images at edge - most requests never hit S3 origin.      │
+│                                                                              │
 │  KEY INSIGHT: Public-facing DPP data CANNOT use Glacier                     │
 │  (12+ hour retrieval is unacceptable for QR scans)                          │
-│  But source files and backups CAN use Glacier for major savings             │
+│  Only backups and audit logs use Glacier for cold storage.                  │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
