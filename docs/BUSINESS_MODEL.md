@@ -207,29 +207,42 @@ Retailers who only resell products from other brands are served through the free
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### DPP Starter: Session-Only Model
+### DPP Starter: Edit Window Model
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │  DPP STARTER - HOW IT WORKS                                      │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
+│  ACTIVE PERIOD (30 days after DPP creation)                     │
+│  ─────────────────────────────────────────                      │
 │  1. User enters product data (manual form)                      │
 │  2. User uploads images                                          │
 │  3. System generates DPP + VC + QR code                         │
-│  4. User downloads complete package:                             │
-│     • DPP data (JSON)                                           │
+│  4. User can edit, update, regenerate DPP                       │
+│  5. User downloads complete package:                             │
+│     • DPP data (JSON-LD)                                        │
 │     • Verifiable Credential (JWT)                               │
 │     • QR code (PNG/SVG)                                         │
 │     • Public verification URL                                    │
-│  5. Product data stored for 30 days (for edits/regeneration)    │
-│  6. After 30 days: DPP remains valid, product data deleted      │
 │                                                                  │
-│  Use case: Small brands with few products, just need DPP        │
-│  compliance without ongoing product management.                  │
+│  AFTER 30 DAYS (automatic transition to "Published" state)      │
+│  ─────────────────────────────────────────────────────────      │
+│  • Public DPP page: STAYS LIVE (10+ years, ESPR compliant)      │
+│  • QR code resolver: KEEPS WORKING FOREVER                      │
+│  • JSON-LD/VC: PERMANENTLY HOSTED via CDN                       │
+│  • Editing: DISABLED (upgrade to edit again)                    │
+│  • Source images: DELETED (optimized thumbnails kept)           │
 │                                                                  │
-│  Upgrade path: When they want to manage products long-term,     │
-│  they upgrade to DPP Professional and import their DPPs.        │
+│  WHY THIS WORKS                                                  │
+│  ─────────────                                                  │
+│  ESPR requires DPP data to be accessible for product lifetime.  │
+│  Deleting data would break QR codes → non-compliance.           │
+│  We keep public-facing data forever; only editing is limited.   │
+│                                                                  │
+│  UPGRADE PATH                                                    │
+│  → DPP Professional (€99/mo): Re-enables editing for all DPPs   │
+│  → Or create new DPP (counts against 100 product limit)         │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -493,6 +506,182 @@ EuroComply runs on AWS with the following services:
 │                                                                              │
 │  Note: Per-customer infra cost drops dramatically with scale               │
 │  Real costs are headcount (support, development) not infrastructure        │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### DPP Hosting Economics (10-Year Lifetime)
+
+ESPR requires DPP data to be accessible for the product's lifetime (typically 10+ years). Here's the true cost of hosting a DPP forever:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  DPP HOSTING COST BREAKDOWN (Per DPP, 10-Year Lifetime)                      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  STORAGE (What we keep for published DPPs)                                  │
+│  ──────────────────────────────────────────                                 │
+│  Component              │ Size    │ Tier              │ 10-Year Cost        │
+│  ───────────────────────┼─────────┼───────────────────┼─────────────────────│
+│  JSON-LD/VC (public)    │ 5KB     │ S3 + CloudFront   │ $0.001              │
+│  Optimized thumbnail    │ 20KB    │ S3 + CloudFront   │ $0.002              │
+│  Database record        │ 15KB    │ RDS PostgreSQL    │ $0.001              │
+│  ───────────────────────┼─────────┼───────────────────┼─────────────────────│
+│  TOTAL STORAGE          │ ~40KB   │                   │ ~$0.004             │
+│                                                                              │
+│  Note: Source images DELETED for DPP Starter after 30 days                  │
+│  (saves 200-500KB per DPP, only optimized thumbnails kept)                  │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### QR Code Scan Economics (CDN-First Architecture)
+
+DPP pages are **static content** - they don't change after issuance. This enables aggressive CDN caching:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  CDN CACHING ARCHITECTURE                                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Consumer scans QR → CloudFront Edge (cached) → Response                    │
+│                            │                                                 │
+│                       Cache MISS (rare, ~0.1%)                              │
+│                            │                                                 │
+│                            ▼                                                 │
+│                       S3 Origin                                              │
+│                                                                              │
+│  CACHE BEHAVIOR                                                             │
+│  ─────────────────                                                          │
+│  • Cache-Control: max-age=86400 (24 hours)                                  │
+│  • Cache hit rate: 99.9%+ (static content)                                  │
+│  • Edge locations: 400+ globally                                            │
+│                                                                              │
+│  COST PER SCAN                                                              │
+│  ─────────────────                                                          │
+│  • Cache HIT: $0.0000001 (request cost only)                                │
+│  • Cache MISS: $0.000004 (request + origin fetch)                           │
+│  • Effective average: ~$0.0000004 per scan                                  │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Viral Product Scenario
+
+What happens if a product goes viral with millions of scans?
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  VIRAL PRODUCT COST ANALYSIS                                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Scenario: Product goes viral, 10 million QR scans in one month             │
+│                                                                              │
+│  BREAKDOWN                                                                  │
+│  ─────────────────────────────────────────────────────────────              │
+│  Total scans:           10,000,000                                          │
+│  Cache hit rate:        99.9%                                               │
+│  Cache hits:            9,990,000  →  Served from edge, minimal cost        │
+│  Cache misses:          10,000     →  Origin fetches                        │
+│                                                                              │
+│  Data per scan:         25KB (JSON + thumbnail)                             │
+│  Total CDN transfer:    ~250GB                                              │
+│                                                                              │
+│  COST BREAKDOWN                                                             │
+│  ─────────────────────────────────────────────────────────────              │
+│  CDN data transfer:     250GB × $0.085/GB    = $21.25                       │
+│  Request costs:         10M × $0.0000001     = $1.00                        │
+│  Origin fetches:        10K × $0.0001        = $1.00                        │
+│  ─────────────────────────────────────────────────────────────              │
+│  TOTAL FOR 10M SCANS:                          ~$23                         │
+│                                                                              │
+│  Cost per scan: $0.0000023 (less than a thousandth of a cent)               │
+│                                                                              │
+│  EVEN MORE EXTREME: 100 million scans = ~$230                               │
+│  Still negligible compared to subscription revenue                          │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Platform-Wide Scale Economics
+
+At scale with millions of DPPs across thousands of customers:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  PLATFORM SCALE: 10 MILLION DPPs (10,000 customers × 1,000 avg)             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  STORAGE COSTS                                                              │
+│  ─────────────────────────────────────────────────────────────              │
+│  Component              │ Total Size  │ Tier           │ Monthly Cost       │
+│  ───────────────────────┼─────────────┼────────────────┼────────────────────│
+│  Public JSON-LD files   │ 50GB        │ S3 Standard    │ $1.15              │
+│  Optimized thumbnails   │ 200GB       │ S3 Standard    │ $4.60              │
+│  Source images (10% act)│ 500GB       │ S3 Standard    │ $11.50             │
+│  Database               │ 150GB       │ RDS            │ Incl. in instance  │
+│  ───────────────────────┼─────────────┼────────────────┼────────────────────│
+│  TOTAL STORAGE          │             │                │ ~$17/month         │
+│                                                                              │
+│  BANDWIDTH (100M scans/month, 10 per DPP average)                           │
+│  ─────────────────────────────────────────────────────────────              │
+│  CDN transfer (2.5TB)   │             │ CloudFront     │ ~$215/month        │
+│                                                                              │
+│  TOTAL INFRASTRUCTURE FOR 10M DPPs                                          │
+│  ─────────────────────────────────────────────────────────────              │
+│  Storage + Bandwidth + Compute:                   ~$632/month               │
+│                                                                              │
+│  UNIT ECONOMICS                                                             │
+│  ─────────────────────────────────────────────────────────────              │
+│  Cost per DPP/month:         $0.00006                                       │
+│  Cost per DPP/year:          $0.0007                                        │
+│  Cost per DPP/10 years:      $0.007  (less than 1 cent!)                    │
+│                                                                              │
+│  REVENUE AT THIS SCALE                                                      │
+│  ─────────────────────────────────────────────────────────────              │
+│  10,000 customers × €150 avg/month = €1,500,000/month                       │
+│  Infrastructure cost: ~€600/month                                           │
+│  Infrastructure as % of revenue: 0.04%                                      │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Storage Tier Strategy
+
+Different data types use different storage tiers for cost optimization:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  STORAGE TIER STRATEGY                                                       │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  AWS STORAGE TIERS                                                          │
+│  ─────────────────────────────────────────────────────────────              │
+│  Tier                    │ Cost/GB/mo │ Retrieval    │ Use Case             │
+│  ────────────────────────┼────────────┼──────────────┼──────────────────────│
+│  S3 Standard             │ $0.023     │ Instant      │ Active data          │
+│  S3 Infrequent Access    │ $0.0125    │ Instant      │ Monthly access       │
+│  S3 Glacier Instant      │ $0.004     │ Instant      │ Archive, rare        │
+│  S3 Glacier Flexible     │ $0.0036    │ 1-12 hours   │ Backup               │
+│  S3 Glacier Deep Archive │ $0.00099   │ 12-48 hours  │ Cold storage         │
+│                                                                              │
+│  EUROCOMPLY DATA TIERING                                                    │
+│  ─────────────────────────────────────────────────────────────              │
+│  Data Type               │ Access Pattern     │ Tier           │ Notes      │
+│  ────────────────────────┼────────────────────┼────────────────┼────────────│
+│  Public DPP JSON-LD      │ On every scan      │ S3 + CloudFront│ Must be    │
+│  Optimized thumbnails    │ On every scan      │ S3 + CloudFront│ instant    │
+│  Database records        │ Active queries     │ RDS            │            │
+│  ────────────────────────┼────────────────────┼────────────────┼────────────│
+│  Source images (active)  │ During editing     │ S3 Standard    │ 30 days    │
+│  Source images (dormant) │ Never (deleted)    │ DELETED        │ Starter    │
+│  Source images (paid)    │ On edit            │ S3 IA          │ Pro+       │
+│  ────────────────────────┼────────────────────┼────────────────┼────────────│
+│  Backup/audit logs       │ Rarely             │ Glacier        │ Compliance │
+│                                                                              │
+│  KEY INSIGHT: Public-facing DPP data CANNOT use Glacier                     │
+│  (12+ hour retrieval is unacceptable for QR scans)                          │
+│  But source files and backups CAN use Glacier for major savings             │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
