@@ -48,6 +48,7 @@ EuroComply uses a modular architecture. Organizations enable the modules they ne
 |--------|-------------|------------|
 | **Core** | Authentication, organizations, billing | - |
 | **Compliance** | DPP generation, walt.id credentials, lifecycle tracking | Core |
+| **EPCIS** | Supply chain events, carbon tracking, IoT sensor data | Core, Compliance |
 | **Attestation** | Third-party data contributions with cryptographic signatures | Core, Compliance |
 | **PIM** | Product families, variants, completeness scoring | Core |
 | **DAM** | Digital asset management, image optimization | Core |
@@ -101,6 +102,49 @@ Users can import product data from any format. The AI extracts, maps, and valida
 - **Verifiable Credentials**: W3C VCs signed with did:key for tamper evidence
 - **Portable**: Organizations own their credentials, can export anytime
 - **QR Codes**: GS1 Digital Link compatible
+
+### Supply Chain Lifecycle Tracking (EPCIS 2.0)
+
+Track the complete journey of every product with GS1 EPCIS 2.0 integration:
+
+- **Manufacturing Events**: When and where products are created
+- **Shipping & Receiving**: Full logistics chain with locations
+- **Transport Carbon**: Automatic CO2 calculation per shipment
+- **Repairs & Refurbishment**: Service history for circular economy
+- **End-of-Life**: Recycling and disposal tracking
+
+**Where does the data come from?**
+
+| Source | How It Works |
+|--------|--------------|
+| **ERP/WMS Systems** | SAP, Oracle, Dynamics push events via webhooks |
+| **Manual Entry** | Staff record events in our UI (shipping, receiving) |
+| **IoT Sensors** | Temperature loggers, GPS trackers, RFID readers |
+| **Shopify** | Fulfillment webhooks auto-generate shipping events |
+| **Suppliers** | Supplier portal for upstream supply chain events |
+| **3PL Providers** | DHL, FedEx tracking integration |
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  PRODUCT LIFECYCLE TIMELINE                                      │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ● Jan 10 - MANUFACTURED (Berlin Factory)                       │
+│  │ Carbon: 2.5 kg CO2e | Energy: 3.2 kWh (85% renewable)        │
+│  │                                                               │
+│  ● Jan 10 - SHIPPED (Berlin → Munich, 450km by road)            │
+│  │ Carbon: 4.2 kg CO2e | Temperature: 4-8°C ✓                   │
+│  │                                                               │
+│  ● Jan 11 - RECEIVED (Munich Distribution Center)               │
+│  │                                                               │
+│  ● Jan 12 - SOLD (EcoFashion Store)                             │
+│                                                                  │
+│  Total Carbon Footprint: 8.5 kg CO2e                            │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+See [EPCIS_INTEGRATION.md](docs/EPCIS_INTEGRATION.md) for full documentation.
 
 ### Multi-Party Attestation
 
@@ -395,6 +439,8 @@ Organizations own their data. Full portability guaranteed:
 | [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) | Technical implementation roadmap |
 | [BUSINESS_MODEL.md](./docs/BUSINESS_MODEL.md) | Pricing and business model |
 | [SCALABILITY.md](./docs/SCALABILITY.md) | Billion-scale DPP serving architecture |
+| [EPCIS_INTEGRATION.md](./docs/EPCIS_INTEGRATION.md) | Supply chain lifecycle tracking |
+| [EU_INTEGRATION.md](./docs/EU_INTEGRATION.md) | EBSI and EU DPP Registry integration |
 | [USER_MANAGEMENT.md](./docs/USER_MANAGEMENT.md) | User roles, permissions, and version control |
 | [ARCHITECTURE_PORTABILITY.md](./docs/ARCHITECTURE_PORTABILITY.md) | Data portability architecture |
 | [VERIFIABLE_CREDENTIALS.md](./docs/VERIFIABLE_CREDENTIALS.md) | VC/DID technical details |

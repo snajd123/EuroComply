@@ -478,6 +478,286 @@ const shippingWithCarbon: ObjectEvent & { espr: EsprExtension } = {
 
 ---
 
+## Data Sources: Where Events Come From
+
+The most common question: **"How do we actually get supply chain events?"**
+
+### Overview
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  EPCIS DATA SOURCES                                              │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  SOURCE                  METHOD              AUTOMATION LEVEL   │
+│  ────────────────────────────────────────────────────────────   │
+│                                                                  │
+│  ERP/WMS Systems         Webhooks/API        ████████████ High  │
+│  (SAP, Oracle, Dynamics)                                        │
+│                                                                  │
+│  Shopify/E-commerce      Fulfillment hooks   ████████████ High  │
+│                                                                  │
+│  IoT Sensors             MQTT/HTTP push      ████████████ High  │
+│  (temp, GPS, RFID)                                              │
+│                                                                  │
+│  3PL Providers           Tracking API        ████████░░░░ Med   │
+│  (DHL, FedEx, UPS)                                              │
+│                                                                  │
+│  Supplier Portal         Manual + forms      ████░░░░░░░░ Low   │
+│                                                                  │
+│  Staff Manual Entry      Our UI              ████░░░░░░░░ Low   │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 1. ERP/WMS Systems (Most Common)
+
+Large companies already track inventory movements in their ERP. We capture these events.
+
+```typescript
+// SAP sends webhook when shipment is created
+// POST https://api.eurocomply.eu/v1/epcis/capture
+
+// Middleware transforms SAP IDoc to EPCIS
+const sapShipmentToEpcis = (sapEvent: SapDelivery): ObjectEvent => ({
+  type: 'ObjectEvent',
+  eventTime: sapEvent.ERDAT + 'T' + sapEvent.ERZET,
+  eventTimeZoneOffset: '+01:00',
+  epcList: sapEvent.ITEMS.map(item =>
+    `urn:epc:id:sgtin:${gtinToEpc(item.EAN11)}`
+  ),
+  action: 'OBSERVE',
+  bizStep: 'urn:epcglobal:cbv:bizstep:shipping',
+  disposition: 'urn:epcglobal:cbv:disp:in_transit',
+  readPoint: `urn:epc:id:sgln:${sapEvent.WERKS}`, // Plant GLN
+});
+
+// Common ERP integrations:
+// - SAP S/4HANA: IDocs → Middleware → EPCIS API
+// - Oracle EBS: Business events → Integration Cloud → EPCIS API
+// - Microsoft Dynamics: Power Automate → EPCIS API
+// - NetSuite: SuiteScript → EPCIS API
+```
+
+**Setup effort:** Medium (one-time integration per ERP)
+**Ongoing effort:** Zero (fully automated)
+
+### 2. E-commerce Platforms (Shopify, etc.)
+
+Fulfillment events from e-commerce platforms are captured automatically.
+
+```typescript
+// Shopify sends fulfillment webhook
+// POST https://api.eurocomply.eu/webhooks/shopify/fulfillment
+
+interface ShopifyFulfillmentWebhook {
+  id: number;
+  order_id: number;
+  status: 'success';
+  tracking_number: string;
+  tracking_company: string;
+  line_items: Array<{
+    sku: string;
+    barcode: string; // GTIN
+    quantity: number;
+  }>;
+  destination: {
+    city: string;
+    country_code: string;
+  };
+}
+
+// Automatically creates:
+// 1. ObjectEvent (shipping) for each product
+// 2. Links to DPP by GTIN
+// 3. Calculates estimated carbon (based on carrier/destination)
+```
+
+**Setup effort:** Low (enable in Shopify app settings)
+**Ongoing effort:** Zero (fully automated)
+
+### 3. IoT Sensors
+
+For cold chain, asset tracking, or quality monitoring.
+
+```typescript
+// Temperature logger sends readings every 5 minutes
+// POST https://api.eurocomply.eu/v1/epcis/sensor
+
+interface SensorPayload {
+  deviceId: string;
+  containerId: string;  // SSCC of shipment
+  timestamp: string;
+  readings: {
+    temperature: number;  // Celsius
+    humidity?: number;    // Percent
+    location?: { lat: number; lng: number };
+    shock?: number;       // G-force
+  };
+}
+
+// Creates ObjectEvent with sensorElementList
+// Alerts if temperature exceeds threshold
+// Aggregates into trip summary for DPP
+```
+
+**Supported devices:**
+- Bluetooth loggers (Testo, Sensitech)
+- GPS trackers (CalAmp, Geotab)
+- RFID readers (Zebra, Impinj)
+- Custom IoT (via MQTT or HTTP)
+
+**Setup effort:** Medium (device configuration)
+**Ongoing effort:** Zero (fully automated)
+
+### 4. 3PL/Logistics Providers
+
+Track shipments through carrier APIs.
+
+```typescript
+// Poll DHL tracking API for shipment updates
+// Or receive push notifications via webhook
+
+interface CarrierTrackingEvent {
+  trackingNumber: string;
+  timestamp: string;
+  status: 'picked_up' | 'in_transit' | 'delivered' | 'exception';
+  location: {
+    city: string;
+    country: string;
+    coordinates?: { lat: number; lng: number };
+  };
+}
+
+// Supported carriers:
+// - DHL Express/Freight (push webhooks)
+// - FedEx (Track API)
+// - UPS (Tracking API)
+// - DB Schenker (EDI)
+// - Maersk (TradeLens API)
+```
+
+**Setup effort:** Medium (API credentials per carrier)
+**Ongoing effort:** Low (occasional API updates)
+
+### 5. Supplier Portal
+
+Suppliers record upstream events through our web portal.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  SUPPLIER EVENT ENTRY                                            │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  You've been invited by TextileCo to record supply chain        │
+│  events for: Cotton Fabric (GTIN: 4012345054321)                │
+│                                                                  │
+│  Event Type:  ┌──────────────────────────────────┐              │
+│               │ ▼ Raw Material Received          │              │
+│               └──────────────────────────────────┘              │
+│                                                                  │
+│  Date & Time: ┌──────────────────────────────────┐              │
+│               │ 2026-01-08 09:30                 │              │
+│               └──────────────────────────────────┘              │
+│                                                                  │
+│  Origin:      ┌──────────────────────────────────┐              │
+│               │ Cotton Farm, Gujarat, India      │              │
+│               └──────────────────────────────────┘              │
+│                                                                  │
+│  Quantity:    ┌────────┐                                        │
+│               │ 500    │ kg                                     │
+│               └────────┘                                        │
+│                                                                  │
+│  Certificate: [Upload] GOTS Organic Certificate.pdf             │
+│                                                                  │
+│                              ┌─────────────────┐                │
+│                              │  Submit Event   │                │
+│                              └─────────────────┘                │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Setup effort:** Low (send email invite)
+**Ongoing effort:** Depends on supplier (their manual work)
+
+### 6. Manual Entry (Our UI)
+
+For events not captured by systems.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  RECORD LIFECYCLE EVENT                                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Product:     Blue Cotton T-Shirt (GTIN: 4012345012345)         │
+│                                                                  │
+│  Event Type:  ○ Manufactured    ● Shipped    ○ Received         │
+│               ○ Repaired        ○ Recycled   ○ Other            │
+│                                                                  │
+│  Date/Time:   [2026-01-10] [14:00]                              │
+│                                                                  │
+│  From:        [Berlin Warehouse ▼]                              │
+│  To:          [Munich DC ▼]                                     │
+│                                                                  │
+│  Transport:   ● Road  ○ Rail  ○ Sea  ○ Air                      │
+│  Distance:    [450] km  (auto-calculated ✓)                     │
+│                                                                  │
+│  ☑ Calculate carbon automatically (4.2 kg CO2e)                 │
+│                                                                  │
+│  Notes:       [Overnight express delivery               ]       │
+│                                                                  │
+│                     [Cancel]  [Record Event]                    │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Use cases:**
+- Small operations without ERP
+- One-off events (repairs, returns)
+- Correcting automated data
+- End-of-life/recycling events
+
+### Typical Customer Journeys
+
+| Customer Type | Primary Source | Secondary | Manual |
+|--------------|----------------|-----------|--------|
+| **Enterprise (SAP)** | ERP webhooks (90%) | 3PL tracking (8%) | Exceptions (2%) |
+| **Mid-size (Shopify)** | Shopify fulfillment (70%) | Supplier portal (20%) | Staff entry (10%) |
+| **Small Brand** | Manual entry (60%) | Shopify (30%) | Supplier portal (10%) |
+| **Cold Chain** | IoT sensors (50%) | ERP (40%) | Manual (10%) |
+
+### Getting Started: The 80/20 Approach
+
+Most customers start simple and add automation over time:
+
+```
+WEEK 1: Manual Entry
+────────────────────
+• Staff record key events in UI
+• Manufacturing, major shipments
+• ~5 minutes per event
+
+MONTH 1: Shopify Integration
+────────────────────────────
+• Enable fulfillment webhooks
+• Automatic shipping events
+• Zero ongoing effort
+
+MONTH 3: Supplier Portal
+────────────────────────
+• Invite key suppliers
+• They record upstream events
+• Build complete supply chain picture
+
+MONTH 6+: ERP Integration
+─────────────────────────
+• Connect SAP/Oracle/Dynamics
+• Full automation
+• Events flow automatically
+```
+
+---
+
 ## Data Model
 
 ### Prisma Schema
