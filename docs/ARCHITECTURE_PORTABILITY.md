@@ -1,10 +1,8 @@
 # DPP Portability & Data Ownership
 
-> ⚠️ **Implementation Status**: This document describes the TARGET architecture. Currently using `did:web` (not `did:key`), export features not yet implemented. See [DATA_SOVEREIGNTY.md](./DATA_SOVEREIGNTY.md) for current vs target state.
-
 ## Overview
 
-EuroComply is built on the principle that **organizations own their data**. Digital Product Passports and Verifiable Credentials belong to the organization (brand, manufacturer, distributor), not the platform. This document describes the target portability architecture.
+EuroComply is built on the principle that **organizations own their data**. Digital Product Passports and Verifiable Credentials belong to the organization (brand, manufacturer, distributor), not the platform. This document describes the portability architecture.
 
 ---
 
@@ -21,7 +19,7 @@ Our architecture is deliberately simple. We target SMEs (99% of EU businesses) w
 │  ─────────────────────────────                                  │
 │  • Compliance-First PIM (Golden Record model)                   │
 │  • W3C Verifiable Credentials (standard format)                 │
-│  • did:key identity (planned - currently did:web)               │
+│  • did:key identity (self-contained, portable)                  │
 │  • GS1 Digital Link QR codes (interoperable)                    │
 │  • JSON-LD data format (web standard)                           │
 │  • REST API (simple, well-documented)                           │
