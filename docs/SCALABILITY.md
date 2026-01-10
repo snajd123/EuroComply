@@ -10,14 +10,14 @@ EuroComply is designed to handle billions of QR code scans per day while maintai
 
 ## Scale Requirements
 
-| Metric | Target |
-|--------|--------|
-| QR scans per day | 1-10 billion |
-| Peak scans per second | 1+ million |
-| Scan latency (p99) | <100ms |
-| Concurrent PIM users | 10,000+ |
-| Products per organization | 100,000+ |
-| Total products | 10+ million |
+| Metric | Target | Extreme Scale |
+|--------|--------|---------------|
+| QR scans per day | 1-10 billion | 1+ trillion |
+| Peak scans per second | 1+ million | 10+ million |
+| Scan latency (p99) | <100ms | <100ms |
+| Concurrent PIM users | 10,000+ | 10,000+ |
+| Products per organization | 100,000+ | 100,000+ |
+| Total products | 10+ million | 100+ million |
 
 ---
 
@@ -419,6 +419,281 @@ async function revokeDPP(passportId: string, reason: string): Promise<void> {
 
 ---
 
+## Trillion-Scale Architecture (Cloudflare R2)
+
+For extreme scale beyond 100 billion scans per day, Hetzner's bandwidth limits become a constraint. At this scale, we upgrade to Cloudflare R2 as our origin storage.
+
+### When to Scale Beyond Hetzner
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  HETZNER BANDWIDTH LIMITS                                        │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Hetzner AX41 × 3 servers:                                      │
+│  • 20TB/month per server = 60TB/month total                     │
+│                                                                  │
+│  At 99% cache hit rate (Cloudflare serves 99% from edge):       │
+│  • 1% of traffic hits origin                                    │
+│  • Each DPP ~5KB average                                        │
+│                                                                  │
+│  SCALE CALCULATIONS:                                            │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │ Scans/Day    │ Origin Traffic/Month │ Fits in 60TB? │      │ │
+│  │──────────────│──────────────────────│───────────────│      │ │
+│  │ 1 billion    │ 1.5 TB               │ ✅ Yes        │      │ │
+│  │ 10 billion   │ 15 TB                │ ✅ Yes        │      │ │
+│  │ 100 billion  │ 150 TB               │ ❌ No         │      │ │
+│  │ 1 trillion   │ 1.5 PB               │ ❌ No         │      │ │
+│  └────────────────────────────────────────────────────────────┘ │
+│                                                                  │
+│  SOLUTION: At >100B scans/day, switch to Cloudflare R2 origin  │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Option 1: Increase Cache Hit Rate (Free)
+
+Before switching to R2, optimize cache hit rate to delay the transition:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  CACHE HIT RATE OPTIMIZATION                                     │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Cache Hit Rate │ Origin Traffic at 100B scans/day             │
+│  ─────────────────────────────────────────────────────          │
+│  99.0%          │ 1% × 100B × 5KB × 30 = 150 TB/month           │
+│  99.5%          │ 0.5% × 100B × 5KB × 30 = 75 TB/month          │
+│  99.9%          │ 0.1% × 100B × 5KB × 30 = 15 TB/month  ✅      │
+│  99.99%         │ 0.01% × 100B × 5KB × 30 = 1.5 TB/month ✅     │
+│                                                                  │
+│  HOW TO ACHIEVE 99.9%+ CACHE HIT:                               │
+│  • Set long cache TTL (7+ days)                                 │
+│  • DPPs rarely change after issuance                            │
+│  • Use stale-while-revalidate                                   │
+│  • Pre-warm cache for popular products                          │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Option 2: Cloudflare R2 as Origin (Trillion-Scale)
+
+For true trillion-scale with zero bandwidth concerns:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  CLOUDFLARE R2 ARCHITECTURE                                      │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  R2 = S3-compatible storage with ZERO EGRESS FEES               │
+│                                                                  │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  LAYER 1: Cloudflare Global CDN (Unchanged)              │    │
+│  │  • 300+ edge locations                                   │    │
+│  │  • Unlimited bandwidth                                   │    │
+│  │  • 99.9%+ cache hit rate                                │    │
+│  └──────────────────────────┬──────────────────────────────┘    │
+│                             │ (~0.1% cache miss)                 │
+│                             ▼                                    │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  LAYER 2: Cloudflare R2 (Replaces Hetzner)               │    │
+│  │  ─────────────────────────────────────────────────────   │    │
+│  │  • Storage: $0.015/GB/month                              │    │
+│  │  • Egress: $0.00 (FREE, unlimited)                       │    │
+│  │  • Operations: $0.36 per million Class A (writes)        │    │
+│  │               $0.36 per million Class B (reads)          │    │
+│  │                                                          │    │
+│  │  No bandwidth limits. Ever.                              │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                                                                  │
+│  WHY R2?                                                        │
+│  • Same Cloudflare network (lowest latency to CDN)              │
+│  • S3-compatible API (easy migration)                           │
+│  • Zero egress = predictable costs at any scale                 │
+│  • Automatic replication across Cloudflare's network            │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### R2 Cost Analysis at Trillion Scale
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  R2 COST AT 1 TRILLION SCANS/DAY                                │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  STORAGE                                                        │
+│  • 100 million DPPs × 15KB each = 1.5 TB                       │
+│  • Cost: 1,500 GB × $0.015 = $22.50/month                       │
+│                                                                  │
+│  OPERATIONS (at 99.9% cache hit)                                │
+│  • 1 trillion scans/day × 0.1% miss = 1 billion origin hits/day│
+│  • 30 billion reads/month                                       │
+│  • Cost: 30,000 × $0.36 = $10,800/month                        │
+│                                                                  │
+│  EGRESS                                                         │
+│  • 30 billion reads × 5KB = 150 PB/month                       │
+│  • Cost: $0.00 (R2 has no egress fees)                          │
+│                                                                  │
+│  CLOUDFLARE PRO                                                 │
+│  • $20/month                                                    │
+│                                                                  │
+│  ──────────────────────────────────────────────────────────     │
+│  TOTAL AT TRILLION SCALE: ~$10,850/month                       │
+│                                                                  │
+│  Compare to AWS CloudFront at 1T scans/day:                     │
+│  • ~$3,800,000/month (yes, $3.8 million)                       │
+│  • Savings: 99.7%                                               │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Tiered Scaling Strategy
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  TIERED INFRASTRUCTURE SCALING                                   │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  TIER 1: Startup (0 - 10B scans/day)                           │
+│  ────────────────────────────────────                           │
+│  Infrastructure: Cloudflare Pro + 3× Hetzner AX41               │
+│  Cost: ~$200/month (fixed)                                      │
+│  Capacity: 10 billion scans/day easily                          │
+│                                                                  │
+│  TIER 2: Scale (10B - 100B scans/day)                          │
+│  ─────────────────────────────────────                          │
+│  Infrastructure: Same + optimize cache to 99.9%                 │
+│  Cost: ~$200/month (fixed)                                      │
+│  Action: Tune cache TTL, add pre-warming                        │
+│                                                                  │
+│  TIER 3: Extreme (100B+ scans/day)                             │
+│  ─────────────────────────────────                              │
+│  Infrastructure: Cloudflare Pro + R2 (drop Hetzner)             │
+│  Cost: Scales with operations (~$500-2,000/month)               │
+│  Action: Migrate static files from Hetzner to R2                │
+│                                                                  │
+│  TIER 4: Planetary (1T+ scans/day)                             │
+│  ─────────────────────────────────                              │
+│  Infrastructure: Cloudflare Enterprise + R2                     │
+│  Cost: ~$10,000-15,000/month                                    │
+│  Action: Enterprise support, SLA guarantees                     │
+│                                                                  │
+│  KEY INSIGHT: We start with Hetzner ($200/month) and only       │
+│  migrate to R2 if we hit extreme scale. Most customers will     │
+│  never need Tier 3+.                                            │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Cost Comparison: All Scales
+
+| Scale | AWS CloudFront | Cloudflare + Hetzner | Cloudflare + R2 | Best Option |
+|-------|----------------|----------------------|-----------------|-------------|
+| 1M scans/day | ~$1,200/mo | ~$200/mo | ~$25/mo | Hetzner |
+| 10M scans/day | ~$4,000/mo | ~$200/mo | ~$30/mo | Hetzner |
+| 100M scans/day | ~$12,000/mo | ~$200/mo | ~$50/mo | Hetzner |
+| 1B scans/day | ~$38,000/mo | ~$200/mo | ~$130/mo | Hetzner |
+| 10B scans/day | ~$250,000/mo | ~$200/mo | ~$400/mo | Hetzner |
+| 100B scans/day | ~$2,500,000/mo | ❌ Exceeds limit | ~$2,500/mo | R2 |
+| 1T scans/day | ~$38,000,000/mo | ❌ Exceeds limit | ~$11,000/mo | R2 |
+
+**Key Insight:** Hetzner is most cost-effective up to ~50B scans/day. Beyond that, R2's unlimited egress becomes necessary.
+
+### R2 Migration Path
+
+When ready to migrate from Hetzner to R2:
+
+```typescript
+// R2 configuration
+const R2_CONFIG = {
+  endpoint: 'https://<account_id>.r2.cloudflarestorage.com',
+  bucket: 'eurocomply-dpp',
+  region: 'auto', // R2 automatically distributes globally
+};
+
+// DPP publishing to R2 (replaces pushToOrigins)
+async function publishToR2(params: { path: string; files: Record<string, string> }): Promise<void> {
+  const s3 = new S3Client({
+    endpoint: R2_CONFIG.endpoint,
+    region: R2_CONFIG.region,
+    credentials: {
+      accessKeyId: process.env.R2_ACCESS_KEY_ID!,
+      secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
+    },
+  });
+
+  await Promise.all(
+    Object.entries(params.files).map(([filename, content]) =>
+      s3.send(new PutObjectCommand({
+        Bucket: R2_CONFIG.bucket,
+        Key: `${params.path}/${filename}`,
+        Body: content,
+        ContentType: filename.endsWith('.json') ? 'application/json' : 'text/html',
+        CacheControl: 'public, max-age=604800', // 7 days
+      }))
+    )
+  );
+}
+
+// Cloudflare Worker for R2 serving (optional, for custom routing)
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const url = new URL(request.url);
+
+    // /01/{gtin} → gtin/{gtin}/index.html or dpp.json
+    const match = url.pathname.match(/^\/01\/(\d+)$/);
+    if (match) {
+      const gtin = match[1];
+      const wantsJson = request.headers.get('Accept')?.includes('application/json');
+      const key = `gtin/${gtin}/${wantsJson ? 'dpp.json' : 'index.html'}`;
+
+      const object = await env.DPP_BUCKET.get(key);
+      if (!object) {
+        return new Response('DPP not found', { status: 404 });
+      }
+
+      return new Response(object.body, {
+        headers: {
+          'Content-Type': wantsJson ? 'application/json' : 'text/html',
+          'Cache-Control': 'public, max-age=604800',
+        },
+      });
+    }
+
+    return new Response('Not found', { status: 404 });
+  },
+};
+```
+
+### Cloudflare Handles Everything
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  CLOUDFLARE CAPACITY                                             │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Can Cloudflare handle a trillion scans/day?                    │
+│                                                                  │
+│  YES. Here's why:                                               │
+│                                                                  │
+│  • Cloudflare handles 20%+ of all internet traffic              │
+│  • Peak capacity: 250+ Tbps                                      │
+│  • 330+ cities, 120+ countries                                  │
+│  • 1 trillion scans/day = ~12 million req/sec                   │
+│  • This is routine traffic for Cloudflare                       │
+│                                                                  │
+│  The ONLY bottleneck was Hetzner's bandwidth limit.             │
+│  With R2, there is no bottleneck.                               │
+│                                                                  │
+│  Our architecture can scale infinitely.                         │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
 ## Hetzner Server Configuration
 
 ### Recommended Setup
@@ -784,6 +1059,20 @@ enum PassportStatus {
 | Scan analytics dashboard | Medium | Planned |
 | Organization-level scan reports | Low | Planned |
 
+### Future: Trillion-Scale (R2 Migration)
+
+| Task | Complexity | Status |
+|------|------------|--------|
+| Monitor origin bandwidth usage | Low | Planned |
+| Set up Cloudflare R2 bucket | Low | Planned |
+| Implement R2 publishing function | Medium | Planned |
+| Create Cloudflare Worker for R2 routing | Medium | Planned |
+| Test R2 migration with subset of DPPs | Medium | Planned |
+| Migrate all DPPs from Hetzner to R2 | Medium | Planned |
+| Decommission Hetzner origins | Low | Planned |
+
+**Trigger:** Migrate to R2 when origin bandwidth consistently exceeds 40TB/month (67% of limit).
+
 ---
 
 ## Summary
@@ -793,13 +1082,17 @@ enum PassportStatus {
 │  SCALABILITY SUMMARY                                             │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  QR SCANS (READ PATH) - Cloudflare + Hetzner                    │
-│  ───────────────────────────────────────────                    │
-│  Capacity: Billions per day                                     │
+│  QR SCANS (READ PATH) - Cloudflare + Hetzner/R2                 │
+│  ──────────────────────────────────────────────                 │
+│  Capacity: Trillions per day                                    │
 │  Latency: <100ms globally                                       │
-│  Architecture: Cloudflare CDN → Hetzner static files           │
+│  Architecture: Cloudflare CDN → Hetzner/R2 static files        │
 │  Database involvement: Zero                                     │
-│  Cost: ~$200/month (fixed, regardless of volume)               │
+│                                                                  │
+│  Cost by scale:                                                 │
+│  • Up to 50B scans/day: ~$200/month (Hetzner)                  │
+│  • 100B+ scans/day: ~$2,500/month (R2)                         │
+│  • 1T scans/day: ~$11,000/month (R2)                           │
 │                                                                  │
 │  PIM OPERATIONS (WRITE PATH) - AWS                              │
 │  ─────────────────────────────────                              │
@@ -808,19 +1101,21 @@ enum PassportStatus {
 │  Cost: ~$300/month                                              │
 │  Scalable to: 10,000+ concurrent users                         │
 │                                                                  │
-│  TOTAL INFRASTRUCTURE                                           │
-│  ────────────────────                                           │
-│  Cost: ~$500/month                                              │
-│  Handles: Billions of scans + thousands of PIM users           │
-│  Savings vs AWS-only: 99%                                       │
+│  TOTAL INFRASTRUCTURE (at scale)                                │
+│  ───────────────────────────────                                │
+│  Startup (10B scans): ~$500/month                              │
+│  Enterprise (100B scans): ~$2,800/month                        │
+│  Planetary (1T scans): ~$11,300/month                          │
+│  Savings vs AWS-only: 99.7%                                     │
 │                                                                  │
 │  KEY INSIGHTS                                                   │
 │  ────────────                                                   │
 │  1. Separate read and write paths completely                    │
 │  2. DPPs are immutable → perfect for CDN caching               │
 │  3. Cloudflare offers unlimited bandwidth (free)               │
-│  4. Self-host origins in EU for GDPR compliance                │
-│  5. EU Registry will absorb read traffic long-term             │
+│  4. Hetzner for startup, R2 for extreme scale                  │
+│  5. Tiered scaling: costs only increase at 100B+ scans        │
+│  6. EU Registry will absorb read traffic long-term             │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -838,4 +1133,4 @@ enum PassportStatus {
 
 ---
 
-*Last Updated: January 2026*
+*Last Updated: January 10, 2026*

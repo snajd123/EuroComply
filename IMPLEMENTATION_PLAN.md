@@ -73,12 +73,17 @@ The **Golden Record** - a unified product model containing both commercial attri
 
 | Component | Choice | Rationale |
 |-----------|--------|-----------|
+| **Write Path (AWS)** | | |
 | Compute | AWS ECS Fargate | Serverless containers |
 | Database | AWS RDS PostgreSQL | Managed, Multi-AZ |
 | Cache | AWS ElastiCache Redis | Managed cluster |
-| Storage | AWS S3 + CloudFront | DAM with CDN |
+| Storage | AWS S3 | DAM storage |
 | Image Processing | AWS Lambda + Sharp | On-the-fly optimization |
 | Frontend | Vercel | Next.js hosting |
+| **Read Path (DPP Serving)** | | |
+| CDN | Cloudflare (Pro) | Unlimited bandwidth, free |
+| Origins (Tier 1) | Hetzner bare metal | EU-based, ~$200/month fixed |
+| Origins (Tier 2) | Cloudflare R2 | Trillion-scale, no egress fees |
 
 ---
 
@@ -595,8 +600,13 @@ This approach supports industries beyond ESPR compliance - any business needing 
 | Implement Cloudflare cache purge on update/revoke | Planned |
 | Revocation page rendering | Planned |
 | Content negotiation (HTML for browsers, JSON for APIs) | Planned |
+| **Trillion-Scale Preparation (Future)** | |
+| Monitor origin bandwidth usage | Planned |
+| Prepare Cloudflare R2 bucket for extreme scale | Planned |
+| Build R2 publishing function (S3-compatible) | Planned |
+| Create Cloudflare Worker for R2 routing | Planned |
 
-**Outcome:** Products at 100% completeness appear in DPP Ready list. Users review and issue DPPs as Verifiable Credentials with QR codes. DPPs are served via Cloudflare CDN + Hetzner origins for billion-scale reads at fixed cost (~$200/month).
+**Outcome:** Products at 100% completeness appear in DPP Ready list. Users review and issue DPPs as Verifiable Credentials with QR codes. DPPs are served via Cloudflare CDN + Hetzner origins for billion-scale reads at fixed cost (~$200/month). Architecture supports trillion-scale via R2 migration when needed.
 
 **Dependencies:** Phase 2 (completeness scoring, assets)
 
@@ -604,6 +614,7 @@ This approach supports industries beyond ESPR compliance - any business needing 
 - DPP VC schema includes `attestations[]` array from day one, even if empty. This enables Phase 5 integration without schema changes.
 - DPPs are pre-rendered to static files (JSON + HTML) and served via Cloudflare CDN with Hetzner bare-metal origins. This enables billions of QR scans/day at fixed cost (ESPR requires free access, so we can't use usage-based pricing).
 - Read path is completely separate from write path. QR scans never touch AWS or the database.
+- **Tiered scaling:** Start with Hetzner (up to ~50B scans/day at $200/month), migrate to Cloudflare R2 for extreme scale (100B+ scans/day at ~$2,500-11,000/month). See [SCALABILITY.md](docs/SCALABILITY.md) for details.
 
 See [SCALABILITY.md](docs/SCALABILITY.md) for full architecture.
 

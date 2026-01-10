@@ -1,6 +1,6 @@
 # EuroComply Infrastructure
 
-Hybrid infrastructure for EU/GDPR-compliant Digital Product Passport platform with billion-scale read capacity.
+Hybrid infrastructure for EU/GDPR-compliant Digital Product Passport platform with trillion-scale read capacity.
 
 ---
 
@@ -10,14 +10,14 @@ EuroComply uses a **dual-path architecture** that separates:
 - **Write Path (AWS)**: PIM operations, user management, DPP issuance
 - **Read Path (Cloudflare + Hetzner)**: Billion-scale QR code scans at fixed cost
 
-| Aspect | Write Path (AWS) | Read Path (Hetzner) |
-|--------|------------------|---------------------|
+| Aspect | Write Path (AWS) | Read Path (Hetzner/R2) |
+|--------|------------------|------------------------|
 | **Purpose** | PIM, API, management | DPP serving (QR scans) |
-| **Location** | eu-central-1 (Frankfurt) | Germany + Finland |
-| **Provider** | AWS | Cloudflare CDN + Hetzner |
+| **Location** | eu-central-1 (Frankfurt) | Germany + Finland / Global |
+| **Provider** | AWS | Cloudflare CDN + Hetzner (or R2 at scale) |
 | **Scaling** | Auto-scaling containers | Static files, CDN |
-| **Cost Model** | Usage-based | Fixed (~$200/month) |
-| **Capacity** | 10,000+ concurrent users | Billions of scans/day |
+| **Cost Model** | Usage-based | Fixed up to 50B scans/day |
+| **Capacity** | 10,000+ concurrent users | Trillions of scans/day |
 
 See [SCALABILITY.md](docs/SCALABILITY.md) for detailed architecture.
 
@@ -121,14 +121,21 @@ The read path handles all DPP serving (QR code scans) with fixed-cost infrastruc
 
 ### Why Not AWS for Reads?
 
-| Metric | AWS CloudFront | Cloudflare + Hetzner |
-|--------|----------------|----------------------|
-| 1B scans/day | ~$38,000/month | ~$200/month |
-| 10B scans/day | ~$250,000/month | ~$2,000/month |
-| Bandwidth cost | $0.085/GB | Unlimited (free) |
-| Scalability | Unlimited | Unlimited |
+| Metric | AWS CloudFront | Cloudflare + Hetzner | Cloudflare + R2 |
+|--------|----------------|----------------------|-----------------|
+| 1B scans/day | ~$38,000/month | ~$200/month | ~$130/month |
+| 10B scans/day | ~$250,000/month | ~$200/month | ~$400/month |
+| 100B scans/day | ~$2,500,000/month | ❌ Exceeds limit | ~$2,500/month |
+| 1T scans/day | ~$38,000,000/month | ❌ Exceeds limit | ~$11,000/month |
+| Bandwidth cost | $0.085/GB | Unlimited (free) | Unlimited (free) |
+| Scalability | Unlimited | Up to ~50B scans/day | Unlimited |
 
 **ESPR requires free DPP access.** We can't pass infrastructure costs to users. Self-hosting the read path solves this.
+
+**Scaling Strategy:**
+- Start with Hetzner (~$200/month fixed) up to 50B scans/day
+- Migrate to R2 when origin bandwidth exceeds 40TB/month
+- At trillion scale, R2 costs ~$11,000/month vs $38M/month on AWS
 
 ### Hetzner Origin Servers
 
@@ -362,11 +369,21 @@ Target Memory utilization: 80%
 │  MONTHLY INFRASTRUCTURE COST                                     │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  READ PATH (Cloudflare + Hetzner) - FIXED                       │
-│  ─────────────────────────────────────────                      │
+│  READ PATH - TIERED SCALING                                     │
+│  ─────────────────────────────                                  │
+│                                                                  │
+│  TIER 1: Startup (up to 50B scans/day) - Hetzner               │
+│  ─────────────────────────────────────────────────              │
 │  Cloudflare Pro:                    $20/month                   │
 │  Hetzner AX41 × 3:                  €150/month (~$165)          │
-│  Subtotal:                          ~$185/month                 │
+│  Subtotal:                          ~$185/month (FIXED)         │
+│                                                                  │
+│  TIER 2: Extreme (100B+ scans/day) - R2                        │
+│  ───────────────────────────────────────────                    │
+│  Cloudflare Pro:                    $20/month                   │
+│  R2 Storage (1.5TB):                ~$25/month                  │
+│  R2 Operations:                     ~$2,000-10,000/month        │
+│  Subtotal:                          ~$2,500-11,000/month        │
 │                                                                  │
 │  WRITE PATH (AWS) - SCALES WITH USERS                           │
 │  ─────────────────────────────────────                          │
@@ -374,10 +391,14 @@ Target Memory utilization: 80%
 │  Production (10K users):            ~$300/month                 │
 │  Enterprise (100K users):           ~$800/month                 │
 │                                                                  │
-│  TOTAL:                             ~$500-1,000/month           │
+│  TOTAL BY SCALE:                                                │
+│  • Startup (10B scans):            ~$500/month                 │
+│  • Scale (50B scans):              ~$500/month (Hetzner)       │
+│  • Extreme (100B scans):           ~$3,000/month (R2)          │
+│  • Planetary (1T scans):           ~$12,000/month (R2)         │
 │                                                                  │
-│  KEY INSIGHT: DPP scan volume doesn't affect cost.              │
-│  1M scans/day and 10B scans/day cost the same.                 │
+│  KEY INSIGHT: Start with Hetzner ($200/month fixed).            │
+│  Only migrate to R2 when you hit 50B+ scans/day.                │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -433,14 +454,18 @@ Target Memory utilization: 80%
 
 ### Cost Comparison: Old vs New Architecture
 
-| Scenario | AWS-Only | Hybrid (AWS + Hetzner) | Savings |
-|----------|----------|------------------------|---------|
-| 10K users, 1M scans/day | ~$500/month | ~$425/month | 15% |
-| 10K users, 100M scans/day | ~$4,500/month | ~$425/month | 91% |
-| 10K users, 1B scans/day | ~$38,000/month | ~$425/month | 99% |
-| Enterprise, 10B scans/day | ~$250,000/month | ~$425/month | 99.8% |
+| Scenario | AWS-Only | Hybrid (Hetzner) | Hybrid (R2) | Best Choice |
+|----------|----------|------------------|-------------|-------------|
+| 10K users, 1B scans/day | ~$38,500/month | ~$500/month | ~$430/month | Hetzner |
+| 10K users, 10B scans/day | ~$250,500/month | ~$500/month | ~$700/month | Hetzner |
+| 10K users, 100B scans/day | ~$2,500,500/month | ❌ Exceeds limit | ~$3,000/month | R2 |
+| Enterprise, 1T scans/day | ~$38,000,500/month | ❌ Exceeds limit | ~$11,500/month | R2 |
 
-**Note:** Hybrid cost is fixed regardless of scan volume. Cloudflare doesn't charge for bandwidth, and Hetzner's 60TB/month is more than enough for cache misses.
+**Notes:**
+- Hetzner costs fixed at ~$200/month for read path (60TB/month bandwidth limit)
+- R2 costs scale with operations but has zero egress fees
+- Switch to R2 when origin bandwidth exceeds 40TB/month consistently
+- At trillion scale: R2 saves 99.97% vs AWS CloudFront
 
 ---
 
@@ -621,5 +646,5 @@ See `infrastructure/` directory for Terraform configurations.
 
 ---
 
-**Last Updated**: 2026-01-07
-**Version**: 1.0
+**Last Updated**: 2026-01-10
+**Version**: 1.1
