@@ -54,15 +54,19 @@ EuroComply uses a modular architecture. Organizations enable the modules they ne
 | **Import** | AI-powered data import from any format | Core, PIM |
 | **Syndication** | Shopify integration, channel publishing | Core, PIM |
 
-### Plan-Based Access
+### All-Access Volume Pricing
 
-| Plan | Monthly | Annual | Products | Users | Key Features |
-|------|---------|--------|----------|-------|--------------|
-| **DPP Starter** | €99 | €990/yr | 100 | Unlimited | Core, Compliance, Basic DAM |
-| **DPP Professional** | €149 | €1,490/yr | 1,000 | Unlimited | + Basic PIM (3 families), CSV Import, 20 AI imports/mo, Attestation |
-| **PIM Standard** | €249 | €2,490/yr | 5,000 | Unlimited | + Full PIM, Unlimited AI, Bulk Ops, Export, Audit Log, Shopify, API |
-| **PIM Growth** | €499 | €4,990/yr | 25,000 | Unlimited | + Webhooks, Priority Support, 99.5% SLA |
-| **Enterprise** | Custom | Custom | 100,000+ | Unlimited | + Custom integrations, Dedicated Success, 99.9% SLA |
+Every paying customer gets the full platform. The only difference is **capacity**.
+
+| Plan | Monthly | Annual | Products | AI Imports | API | Support |
+|------|---------|--------|----------|------------|-----|---------|
+| **Growth** | €129 | €1,290/yr | 2,000 | 100/mo | Rate Limited | Email |
+| **Scale** | €399 | €3,990/yr | 20,000 | 1,000/mo | High Limits | Priority |
+| **Enterprise** | Custom | Custom | Unlimited | Custom | Custom | Dedicated + SLA |
+
+**All plans include:** Full PIM (Families, Variants, Completeness), Full Compliance (DPP, VCs, QR, Attestation), Shopify Sync, API Access, Unlimited Users, Permanent DPP Hosting.
+
+**Soft Overages:** Need more products? €10 per 100 additional SKUs - no forced tier jumps.
 
 ---
 
@@ -86,9 +90,9 @@ Users can import product data from any format. The AI extracts, maps, and valida
 - **Variants**: Parent-child product relationships with attribute inheritance
 - **Completeness Scoring**: Per-channel readiness scores (DPP: 85%, Shopify: 100%)
 - **Multi-Currency**: Support for EUR, USD, GBP, and other currencies
-- **Bulk Operations**: Edit, delete, or assign families to multiple products at once (PIM Standard+)
-- **Export**: Download product data as CSV, Excel, or JSON (PIM Standard+)
-- **Audit Log**: Track who changed what, when - essential for compliance (PIM Standard+)
+- **Bulk Operations**: Edit, delete, or assign families to multiple products at once
+- **Export**: Download product data as CSV, Excel, or JSON
+- **Audit Log**: Track who changed what, when - essential for compliance
 
 ### Digital Product Passports
 

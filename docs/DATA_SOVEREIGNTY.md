@@ -402,37 +402,35 @@ curl -X GET https://api.eurocomply.eu/v1/suppliers/export/viewer/prod_123 \
 
 ---
 
-## Pricing (Simplified)
+## Pricing (All-Access Volume Model)
 
 ```
 ┌────────────────────────────┬─────────┬─────────────────────────────┐
-│ Tier                       │ Price   │ Sovereignty Features        │
+│ Tier                       │ Price   │ Features                    │
 ├────────────────────────────┼─────────┼─────────────────────────────┤
-│ DPP Starter (100 products) │ €99/mo  │ ✅ Self-contained VCs       │
+│ Growth (2,000 products)    │ €129/mo │ ✅ ALL platform features    │
+│                            │         │ ✅ Self-contained VCs       │
 │                            │         │ ✅ One-click export         │
 │                            │         │ ✅ Offline verification     │
-├────────────────────────────┼─────────┼─────────────────────────────┤
-│ DPP Professional (1,000)   │ €149/mo │ All Starter features        │
-│                            │         │ ✅ Basic PIM (3 families)   │
-│                            │         │ ✅ Multi-party attestation  │
-├────────────────────────────┼─────────┼─────────────────────────────┤
-│ PIM Standard (5,000)       │ €249/mo │ All Professional features   │
-│                            │         │ ✅ Full PIM capabilities    │
-│                            │         │ ✅ Bulk ops, Export, Audit  │
+│                            │         │ ✅ Full PIM + Attestation   │
 │                            │         │ ✅ Shopify sync + API       │
+│                            │         │ ✅ 100 AI imports/month     │
 ├────────────────────────────┼─────────┼─────────────────────────────┤
-│ PIM Growth (25,000)        │ €499/mo │ All Standard features       │
-│                            │         │ ✅ Webhooks, 99.5% SLA      │
+│ Scale (20,000 products)    │ €399/mo │ ✅ ALL platform features    │
+│                            │         │ ✅ 1,000 AI imports/month   │
+│                            │         │ ✅ Higher API limits        │
+│                            │         │ ✅ Priority support         │
 ├────────────────────────────┼─────────┼─────────────────────────────┤
-│ Enterprise (100,000+)      │ Custom  │ All Growth features         │
-│                            │         │ ✅ Custom integrations      │
-│                            │         │ ✅ Dedicated support, 99.9% │
+│ Enterprise (Unlimited)     │ Custom  │ ✅ ALL platform features    │
+│                            │         │ ✅ Custom AI limits         │
+│                            │         │ ✅ SSO, 99.9% SLA           │
+│                            │         │ ✅ Dedicated support        │
 └────────────────────────────┴─────────┴─────────────────────────────┘
 
-**All tiers include unlimited users.**
+**All tiers include unlimited users and full sovereignty guarantees.**
 ```
 
-**Note**: All tiers get the same sovereignty guarantees (self-contained VCs, one-click export, offline verification). Higher tiers add more features and volume.
+**Note**: Every paying customer gets the complete platform. The only difference is capacity (number of products). No feature gates.
 
 ---
 

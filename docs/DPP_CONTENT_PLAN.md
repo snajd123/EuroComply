@@ -30,7 +30,7 @@ Creating ESPR-compliant Digital Product Passports requires **category-specific, 
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                      │
 │  1. ORGANIZATION ONBOARDING                                         │
-│     ├─ Sign up for plan (€99/€149/€249/€499 - unlimited users)      │
+│     ├─ Sign up for plan (€129/€399/Custom - unlimited users)        │
 │     └─ Immediate access after registration and payment              │
 │                                                                      │
 │  2. IDENTITY CREATION                                               │
@@ -422,15 +422,15 @@ Track where data comes from for transparency.
 /dashboard/products            - Product list (Golden Records)
 /dashboard/products/new        - Create new product
 /dashboard/products/:id        - Edit product
-/dashboard/products/bulk       - Bulk operations (edit, delete, assign family) [PIM Standard+]
+/dashboard/products/bulk       - Bulk operations (edit, delete, assign family) [All Plans]
 /dashboard/import              - AI import wizard
 /dashboard/families            - Product family schemas
 /dashboard/dpp-ready           - DPP Ready Products (100% complete, awaiting approval)
 /dashboard/passports           - Issued DPPs
 /dashboard/channels            - Shopify connections
-/dashboard/audit-log           - Audit log (who changed what, when) [PIM Standard+]
+/dashboard/audit-log           - Audit log (who changed what, when) [All Plans]
 /dashboard/settings            - Account, billing, export
-/dashboard/export              - Export products (CSV/JSON) and VCs [PIM Standard+]
+/dashboard/export              - Export products (CSV/JSON) and VCs [All Plans]
 ```
 
 ---
@@ -450,15 +450,15 @@ Track where data comes from for transparency.
 │  → AI-powered import (any file format)                          │
 │  → Shopify sync (import existing products)                      │
 │  → Manual entry with templates                                  │
-│  → Bulk operations for efficient management [PIM Standard+]     │
+│  → Bulk operations for efficient management [All Plans]     │
 │  → LCA estimation for carbon footprint                          │
 │                                                                  │
 │  GOLDEN RECORD MODEL                                            │
 │  → Single source of truth for each product                      │
 │  → Commercial data + compliance data unified                    │
 │  → Completeness scoring per channel                             │
-│  → Audit log tracks all changes [PIM Standard+]                 │
-│  → Export to CSV/JSON for reporting [PIM Standard+]             │
+│  → Audit log tracks all changes [All Plans]                 │
+│  → Export to CSV/JSON for reporting [All Plans]             │
 │  → DPP Ready list at 100% for review and approval               │
 │                                                                  │
 │  WHAT GETS ISSUED?                                              │

@@ -82,190 +82,124 @@ Retailers who only resell products from other brands are served through the free
 
 ## Pricing Model
 
-### Tier Overview
+### The All-Access Volume Model
+
+**Core Concept:** Stop selling features. Sell **capacity**.
+
+Every paying customer gets the full power of the platform. The only difference is how many products they manage. This eliminates friction and increases stickiness.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                           EUROCOMPLY PRICING TIERS                           │
+│                     EUROCOMPLY ALL-ACCESS PRICING                            │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  DPP TRACK (Compliance-focused)                                             │
-│  ───────────────────────────────                                            │
-│                                                                              │
-│  ┌─────────────────┐     ┌─────────────────┐                                │
-│  │  DPP STARTER    │     │ DPP PROFESSIONAL│                                │
-│  │  €99/mo         │ ──► │ €149/mo         │                                │
-│  │  100 products   │     │ 1,000 products  │                                │
-│  │  Generate DPPs  │     │ + Basic PIM     │                                │
-│  │  Permanent edit │     │ + Limited AI    │                                │
-│  │  Unlimited users│     │ + Attestation   │                                │
-│  └─────────────────┘     └─────────────────┘                                │
-│                                   │                                          │
-│                                   ▼                                          │
-│  PIM TRACK (Full platform)                                                  │
-│  ─────────────────────────                                                  │
-│                                                                              │
 │  ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐       │
-│  │  PIM + DPP      │     │ PIM + DPP       │     │  ENTERPRISE     │       │
-│  │  STANDARD       │ ──► │ GROWTH          │ ──► │                 │       │
-│  │  €249/mo        │     │ €499/mo         │     │ Custom          │       │
-│  │  5,000 products │     │ 25,000 products │     │ 100k+ products  │       │
-│  │  Full PIM       │     │ + Higher limits │     │ + SLA           │       │
-│  │  Full AI Import │     │ + Priority      │     │ + Custom        │       │
-│  │  Shopify Sync   │     │                 │     │                 │       │
-│  │  Unlimited users│     │ Unlimited users │     │ Unlimited users │       │
-│  │  API Access     │     │                 │     │                 │       │
+│  │     GROWTH      │     │      SCALE      │     │   ENTERPRISE    │       │
+│  │    €129/mo      │ ──► │    €399/mo      │ ──► │     Custom      │       │
+│  │  2,000 products │     │ 20,000 products │     │   Unlimited     │       │
+│  │                 │     │                 │     │                 │       │
+│  │  ALL FEATURES   │     │  ALL FEATURES   │     │  ALL FEATURES   │       │
+│  │  100 AI/month   │     │  1,000 AI/month │     │  + SLA & SSO    │       │
+│  │  Unlimited users│     │  Unlimited users│     │  Unlimited users│       │
 │  └─────────────────┘     └─────────────────┘     └─────────────────┘       │
+│                                                                              │
+│  WHY THIS MODEL?                                                            │
+│  ─────────────────                                                          │
+│  • No feature gates → faster conversion                                     │
+│  • Full integration on day 1 → higher stickiness                           │
+│  • Network effects → suppliers invite upstream partners                     │
+│  • Simpler sales → "How many products?" is the only question               │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Pricing Table
 
-| Plan | Monthly | Annual (2 months free) | Products | Users |
-|------|---------|------------------------|----------|-------|
-| **DPP Starter** | €99 | €990/year (€82/mo) | 100 | Unlimited |
-| **DPP Professional** | €149 | €1,490/year (€124/mo) | 1,000 | Unlimited |
-| **PIM + DPP Standard** | €249 | €2,490/year (€207/mo) | 5,000 | Unlimited |
-| **PIM + DPP Growth** | €499 | €4,990/year (€416/mo) | 25,000 | Unlimited |
-| **Enterprise** | Custom | Custom | 100,000+ | Unlimited |
+| Plan | Monthly | Annual (2 months free) | Products | AI Imports | API | Support |
+|------|---------|------------------------|----------|------------|-----|---------|
+| **Growth** | €129 | €1,290/yr (€107/mo) | 2,000 | 100/mo | Rate Limited | Email |
+| **Scale** | €399 | €3,990/yr (€332/mo) | 20,000 | 1,000/mo | High Limits | Priority |
+| **Enterprise** | Custom | Custom | Unlimited | Custom | Custom | Dedicated + SLA |
 
-### Feature Matrix
+### What's Included in ALL Plans
 
-| Feature | DPP Starter | DPP Pro | PIM Standard | PIM Growth | Enterprise |
-|---------|:-----------:|:-------:|:------------:|:----------:|:----------:|
-| **COMPLIANCE** | | | | | |
-| DPP Generation | ✓ | ✓ | ✓ | ✓ | ✓ |
-| VC Issuance (did:key) | ✓ | ✓ | ✓ | ✓ | ✓ |
-| QR Code Generation | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Public Verification | ✓ | ✓ | ✓ | ✓ | ✓ |
-| EBSI Anchoring (when available) | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Attestation (Multi-Party) | - | ✓ | ✓ | ✓ | ✓ |
-| | | | | | |
-| **PRODUCT MANAGEMENT** | | | | | |
-| Editing | Permanent | Permanent | Permanent | Permanent | Permanent |
-| DPP Hosting | Permanent | Permanent | Permanent | Permanent | Permanent |
-| Product Families | - | Basic (3) | Unlimited | Unlimited | Unlimited |
-| Variants | - | ✓ | ✓ | ✓ | ✓ |
-| Completeness Scoring | - | ✓ | ✓ | ✓ | ✓ |
-| Bulk Operations | - | - | ✓ | ✓ | ✓ |
-| Export (CSV/JSON) | - | - | ✓ | ✓ | ✓ |
-| Audit Log | - | - | ✓ | ✓ | ✓ |
-| | | | | | |
-| **DAM** | | | | | |
-| Image Upload | 5/product | 10/product | 20/product | 50/product | Unlimited |
-| Storage | 1 GB | 10 GB | 50 GB | 200 GB | Custom |
-| CDN Delivery | ✓ | ✓ | ✓ | ✓ | ✓ |
-| | | | | | |
-| **IMPORT** | | | | | |
-| Manual Entry | ✓ | ✓ | ✓ | ✓ | ✓ |
-| CSV Import | - | ✓ | ✓ | ✓ | ✓ |
-| AI Import (Claude) | - | 20/month | Unlimited | Unlimited | Unlimited |
-| | | | | | |
-| **INTEGRATIONS** | | | | | |
-| Shopify Sync | - | - | ✓ | ✓ | ✓ |
-| API Access | - | - | ✓ | ✓ | ✓ |
-| Webhooks | - | - | - | ✓ | ✓ |
-| Custom Integrations | - | - | - | - | ✓ |
-| | | | | | |
-| **SUPPORT** | | | | | |
-| Email Support | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Priority Support | - | - | ✓ | ✓ | ✓ |
-| Dedicated Success | - | - | - | - | ✓ |
-| SLA | - | - | - | 99.5% | 99.9% |
+Every paying customer gets the complete platform:
 
-### Tier Differentiation Summary
+| Feature Category | Growth | Scale | Enterprise |
+|------------------|:------:|:-----:|:----------:|
+| **Capacity** | **2,000 SKUs** | **20,000 SKUs** | **Unlimited** |
+| **Users** | Unlimited | Unlimited | Unlimited |
+| | | | |
+| **PIM Features** | | | |
+| Product Families | ✅ Included | ✅ Included | ✅ Included |
+| Variants | ✅ Included | ✅ Included | ✅ Included |
+| Completeness Scoring | ✅ Included | ✅ Included | ✅ Included |
+| Bulk Operations | ✅ Included | ✅ Included | ✅ Included |
+| Export (CSV/JSON) | ✅ Included | ✅ Included | ✅ Included |
+| Audit Log | ✅ Included | ✅ Included | ✅ Included |
+| | | | |
+| **Compliance (DPP)** | | | |
+| DPP Generation | ✅ Included | ✅ Included | ✅ Included |
+| W3C VCs & QR Codes | ✅ Included | ✅ Included | ✅ Included |
+| Multi-Party Attestation | ✅ Included | ✅ Included | ✅ Included |
+| Public Verification | ✅ Included | ✅ Included | ✅ Included |
+| Permanent DPP Hosting | ✅ Included | ✅ Included | ✅ Included |
+| | | | |
+| **Automation & AI** | | | |
+| AI Import (Claude) | 100/month | 1,000/month | Custom |
+| CSV/Excel Import | ✅ Included | ✅ Included | ✅ Included |
+| Shopify Sync | ✅ Included | ✅ Included | ✅ Included |
+| API Access | Rate Limited | High Limits | Custom Limits |
+| Webhooks | ✅ Included | ✅ Included | ✅ Included |
+| | | | |
+| **Support** | Email | Priority Email | Dedicated Manager |
+| **SLA** | - | - | 99.9% |
+| **SSO** | - | - | ✅ Included |
+
+### Why All-Access Works
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  WHAT DIFFERENTIATES EACH TIER                                   │
+│  OLD MODEL (Feature Rationing)                                   │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  DPP STARTER → DPP PROFESSIONAL                                 │
-│  • More products (100 → 1,000)                                  │
-│  • Basic PIM (3 families, variants, completeness)               │
-│  • CSV import + 20 AI imports/month                             │
-│  • Multi-party attestation                                       │
+│  Customer: "I have 500 products."                               │
+│  Sales: "You need Starter tier."                                │
+│  Customer: "But I need Shopify sync..."                         │
+│  Sales: "That's €150 more for features you don't need."        │
+│  Customer: *Looks for competitors*                              │
 │                                                                  │
-│  DPP PROFESSIONAL → PIM STANDARD                                │
-│  • More products (1,000 → 5,000)                                │
-│  • Unlimited product families                                    │
-│  • Unlimited AI imports                                          │
-│  • Bulk operations, export, audit log                           │
-│  • Shopify sync + API access                                    │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│  NEW MODEL (All-Access Volume)                                   │
+├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  PIM STANDARD → PIM GROWTH                                      │
-│  • More products (5,000 → 25,000)                               │
-│  • Webhooks for real-time integrations                          │
-│  • SLA guarantee (99.5%)                                        │
-│                                                                  │
-│  PIM GROWTH → ENTERPRISE                                        │
-│  • More products (25,000 → 100,000+)                            │
-│  • Custom integrations                                           │
-│  • Dedicated success manager                                     │
-│  • Higher SLA (99.9%)                                           │
+│  Customer: "I have 500 products."                               │
+│  Sales: "Growth plan. €129/month. Everything included."        │
+│  Customer: "AI, Shopify, Families, Attestation for €129?"       │
+│  Customer: "This is a no-brainer vs Akeneo (€25k)."            │
+│  *Signs up immediately*                                         │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### DPP Starter: Compliance-First Tier
+### Soft Overages (No Cliff Edges)
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  DPP STARTER (€99/mo) - HOW IT WORKS                             │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  INCLUDED FEATURES                                               │
-│  ─────────────────                                              │
-│  • 100 products with permanent editing                          │
-│  • Manual product data entry                                    │
-│  • Image upload (5 per product)                                 │
-│  • DPP generation with VC + QR code                             │
-│  • Public verification page                                     │
-│  • Permanent hosting (10+ years, ESPR compliant)                │
-│  • Unlimited users                                               │
-│                                                                  │
-│  NOT INCLUDED (upgrade to DPP Professional)                     │
-│  ──────────────────────────────────────────                     │
-│  • Product families and variants                                │
-│  • CSV import                                                    │
-│  • AI-powered import                                            │
-│  • Multi-party attestation                                      │
-│                                                                  │
-│  IDEAL FOR                                                       │
-│  ─────────                                                      │
-│  Small brands with <100 products who need basic DPP compliance  │
-│  without advanced product management features.                  │
-│                                                                  │
-│  UPGRADE PATH                                                    │
-│  → DPP Professional (€149/mo): +PIM, +AI imports, +Attestation  │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
+To prevent customers from hitting walls when they grow:
 
-### Volume Pricing (Beyond Included Products)
+| Plan | Included | Overage Rate |
+|------|----------|--------------|
+| Growth | 2,000 | €10 per 100 additional SKUs |
+| Scale | 20,000 | €10 per 100 additional SKUs |
+| Enterprise | Custom | Volume-based |
 
-| Tier | Included | Overage Price | Volume Discount |
-|------|----------|---------------|-----------------|
-| DPP Starter | 100 | €0.50/product/mo | - |
-| DPP Professional | 1,000 | €0.20/product/mo | 2,000+: €0.15 |
-| PIM Standard | 5,000 | €0.10/product/mo | 10,000+: €0.08 |
-| PIM Growth | 25,000 | €0.05/product/mo | 50,000+: €0.03 |
-| Enterprise | 100,000+ | Custom | Volume-based |
+**Example:** Growth customer with 2,350 products
+- 2,000 included in €129/mo
+- 350 overage = 4 × €10 = €40/mo
+- **Total: €169/mo** (not forced to jump to €399)
 
-**Example:** PIM Growth customer with 40,000 products
-- 25,000 included in €499/mo
-- 15,000 overage × €0.05 = €750/mo
-- **Total: €1,249/mo**
-
-### Add-ons
-
-| Add-on | Price | Available For |
-|--------|-------|---------------|
-| Priority Support | €50/mo | DPP Starter, DPP Pro |
-| API Access | €50/mo | DPP Pro only |
-| Extra AI Imports | €5/10 imports | DPP Pro |
-| Extra Storage | €5/10 GB | All tiers |
+This keeps customers on their current plan as they grow, upgrading only when the math makes sense.
 
 ---
 
@@ -691,48 +625,36 @@ At 500 customer scale (€220/month infrastructure amortized):
 │  MARGIN ANALYSIS BY TIER                                                     │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  DPP STARTER (€99/month, 100 products)                                      │
+│  GROWTH (€129/month, 2,000 products)                                        │
 │  ─────────────────────────────────────                                      │
 │  Infrastructure share:     €0.44                                            │
-│  S3 storage (1GB):         €0.02                                            │
-│  Bandwidth:                €0.15                                            │
+│  S3 storage (20GB):        €0.46                                            │
+│  Bandwidth:                €2.00                                            │
+│  AI imports (100):         €0.40                                            │
 │  ────────────────────────────────                                           │
-│  Total cost:               €0.61                                            │
-│  Revenue:                  €99.00                                           │
-│  Gross margin:             €98.39 (99%)                                     │
+│  Total cost:               €3.30                                            │
+│  Revenue:                  €129.00                                          │
+│  Gross margin:             €125.70 (97%)                                    │
 │                                                                              │
-│  DPP PROFESSIONAL (€149/month, 1,000 products)                              │
-│  ─────────────────────────────────────                                      │
-│  Infrastructure share:     €0.44                                            │
-│  S3 storage (10GB):        €0.23                                            │
-│  Bandwidth:                €1.00                                            │
-│  AI imports (20):          €0.08                                            │
-│  ────────────────────────────────                                           │
-│  Total cost:               €1.75                                            │
-│  Revenue:                  €149.00                                          │
-│  Gross margin:             €147.25 (99%)                                     │
-│                                                                              │
-│  PIM STANDARD (€249/month, 5,000 products)                                  │
-│  ─────────────────────────────────────                                      │
-│  Infrastructure share:     €0.44                                            │
-│  S3 storage (50GB):        €1.15                                            │
-│  Bandwidth:                €5.00                                            │
-│  AI imports (100 avg):     €0.40                                            │
-│  ────────────────────────────────                                           │
-│  Total cost:               €6.99                                            │
-│  Revenue:                  €249.00                                          │
-│  Gross margin:             €242.01 (97%)                                    │
-│                                                                              │
-│  PIM GROWTH (€499/month, 25,000 products)                                   │
+│  SCALE (€399/month, 20,000 products)                                        │
 │  ─────────────────────────────────────                                      │
 │  Infrastructure share:     €0.88                                            │
-│  S3 storage (250GB):       €5.75                                            │
-│  Bandwidth:                €25.00                                           │
-│  AI imports (500 avg):     €2.00                                            │
+│  S3 storage (200GB):       €4.60                                            │
+│  Bandwidth:                €20.00                                           │
+│  AI imports (1,000):       €4.00                                            │
 │  ────────────────────────────────                                           │
-│  Total cost:               €33.63                                           │
-│  Revenue:                  €499.00                                          │
-│  Gross margin:             €465.37 (93%)                                    │
+│  Total cost:               €29.48                                           │
+│  Revenue:                  €399.00                                          │
+│  Gross margin:             €369.52 (93%)                                    │
+│                                                                              │
+│  ALL-ACCESS BENEFIT                                                         │
+│  ─────────────────────────────────────                                      │
+│  By unlocking all features, we INCREASE LTV without increasing             │
+│  variable costs. Customers integrate deeper (Shopify, attestation),        │
+│  making EuroComply harder to replace.                                       │
+│                                                                              │
+│  The cost of providing Shopify sync or attestation to a Growth             │
+│  customer is essentially €0 - it's the same code path.                     │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -878,11 +800,12 @@ Brands and manufacturers pay for DPP creation. Retailers access DPPs for free be
 │  • Maintenance: €20,000/year                                    │
 │  • Total Year 1: €132,000+                                      │
 │                                                                  │
-│  Option C: EuroComply PIM + DPP Standard                        │
-│  • Monthly SaaS: €249                                           │
-│  • Total Year 1: €2,988                                         │
+│  Option C: EuroComply Growth Plan                               │
+│  • Monthly SaaS: €129                                           │
+│  • Total Year 1: €1,548                                         │
+│  • Full platform access from day 1                              │
 │                                                                  │
-│  EuroComply is 97%+ cheaper than alternatives.                  │
+│  EuroComply is 98%+ cheaper than alternatives.                  │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -919,12 +842,14 @@ Brands and manufacturers pay for DPP creation. Retailers access DPPs for free be
 
 | Metric | Target |
 |--------|--------|
-| Average Revenue Per User (ARPU) | €150/month |
-| Customer Acquisition Cost (CAC) | €500 |
-| Lifetime Value (LTV) | €3,600 (24 months) |
-| LTV:CAC Ratio | 7.2x |
+| Average Revenue Per User (ARPU) | €178/month |
+| Customer Acquisition Cost (CAC) | €400 |
+| Lifetime Value (LTV) | €4,272 (24 months) |
+| LTV:CAC Ratio | 10.7x |
 | Gross Margin | 95%+ (infrastructure only) |
-| Monthly Churn | 2% |
+| Monthly Churn | 1.5% |
+
+*Note: All-access model reduces churn because customers integrate deeper (Shopify, attestation, API) from day 1.*
 
 ---
 
@@ -988,9 +913,9 @@ Targeting SMEs and mid-market companies who:
 ```
 Awareness → Trial → Conversion → Expansion
     │          │         │           │
-    │          │         │           └── DPP Starter → PIM + DPP
-    │          │         └── Subscribe (starts at any tier)
-    │          └── 14-day free trial
+    │          │         │           └── Growth → Scale (volume-based)
+    │          │         └── Subscribe (Growth or Scale based on catalog size)
+    │          └── 14-day free trial (full platform access)
     └── Content, SEO, App Store, Partnerships
 ```
 
@@ -1004,7 +929,7 @@ Awareness → Trial → Conversion → Expansion
 |------|----------|-------|--------------|
 | Enterprise PIM | Akeneo, Salsify, inRiver | €50k+/year | Not competing |
 | Mid-Market PIM | Plytix, Sales Layer | €10k+/year | Adjacent |
-| **SME PIM + DPP** | EuroComply | €1,200-6,000/year | **Leader** |
+| **SME PIM + DPP** | EuroComply | €1,548-4,788/year | **Leader** |
 | DPP-Only Tools | Various | €500-2k/year | Partial overlap |
 
 ### Differentiation
@@ -1092,21 +1017,21 @@ Dormant Hosting addresses the ESPR requirement for 10-year data availability whi
 | Metric | Year 1 | Year 2 | Year 3 |
 |--------|--------|--------|--------|
 | Customers | 400 | 1,500 | 4,000 |
-| ARR | €1.0M | €3.6M | €9.7M |
-| MRR | €88k | €300k | €812k |
-| Gross Margin | 94% | 95% | 96% |
+| ARR | €0.9M | €3.2M | €8.5M |
+| MRR | €77k | €270k | €710k |
+| Gross Margin | 95% | 96% | 97% |
 | Headcount | 8 | 18 | 35 |
 
 ### Revenue by Tier (Year 3)
 
 | Tier | Customers | % of Base | MRR | % of Revenue |
 |------|-----------|-----------|-----|--------------|
-| DPP Starter | 1,600 | 40% | €158k | 19% |
-| DPP Professional | 1,200 | 30% | €179k | 22% |
-| PIM Standard | 800 | 20% | €199k | 25% |
-| PIM Growth | 320 | 8% | €160k | 20% |
-| Enterprise | 80 | 2% | €116k | 14% |
-| **Total** | **4,000** | **100%** | **€812k** | **100%** |
+| Growth | 3,200 | 80% | €413k | 58% |
+| Scale | 720 | 18% | €287k | 40% |
+| Enterprise | 80 | 2% | €120k | 17% |
+| **Total** | **4,000** | **100%** | **€710k** | **100%** |
+
+*Note: Simpler tier structure leads to faster sales cycles and higher conversion rates, offsetting slightly lower ARPU.*
 
 ---
 
@@ -1164,33 +1089,31 @@ Dormant Hosting addresses the ESPR requirement for 10-year data availability whi
 │                                                                  │
 │  TARGET MARKET: SMEs and Mid-Market                            │
 │  → Brands, manufacturers, distributors                          │
-│  → 100-50,000 SKUs                                              │
+│  → 100-20,000 SKUs (Growth/Scale), unlimited (Enterprise)      │
 │  → Can't afford enterprise solutions                           │
 │                                                                  │
-│  PRICING: 5-Tier SaaS Model (Unlimited Users All Tiers)        │
-│  → DPP Starter: €99/mo (100 products, compliance-only)         │
-│  → DPP Professional: €149/mo (1k products, basic PIM)          │
-│  → PIM Standard: €249/mo (5k products, full platform)          │
-│  → PIM Growth: €499/mo (25k products, high volume)             │
-│  → Enterprise: Custom (100k+ products)                          │
+│  PRICING: All-Access Volume Model                               │
+│  → Growth: €129/mo (2,000 products, ALL features)              │
+│  → Scale: €399/mo (20,000 products, ALL features)              │
+│  → Enterprise: Custom (unlimited, + SLA & SSO)                 │
+│  → Soft overages: €10/100 SKUs (no cliff edges)                │
 │                                                                  │
-│  KEY FEATURES:                                                  │
-│  → AI-powered import (any file format)                         │
-│  → Product families with dynamic attributes                    │
-│  → Completeness scoring per channel                            │
-│  → DPP Ready list with manual review and approval              │
-│  → Multi-party attestation with cryptographic signatures       │
-│  → Shopify syndication                                         │
+│  ALL PLANS INCLUDE:                                             │
+│  → Full PIM (families, variants, completeness)                 │
+│  → Full Compliance (DPP, VCs, QR, attestation)                 │
+│  → AI-powered import (100-1,000/mo based on tier)              │
+│  → Shopify sync + API access                                   │
+│  → Unlimited users                                              │
 │                                                                  │
 │  DIFFERENTIATION:                                               │
 │  → Only PIM with native DPP compliance                         │
-│  → Multi-party attestation (unique feature)                    │
-│  → AI import from any format                                   │
-│  → Affordable for SMEs                                          │
+│  → ALL features unlocked (no feature gates)                    │
+│  → Enterprise power at SME prices                              │
 │  → No lock-in (portable VCs with did:key)                      │
 │                                                                  │
 │  MARGINS:                                                       │
-│  → 94-98% gross margin (infrastructure costs minimal)          │
+│  → 93-97% gross margin (infrastructure costs minimal)          │
+│  → All-access increases LTV without increasing costs           │
 │  → Real costs: headcount (support, development)                │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘

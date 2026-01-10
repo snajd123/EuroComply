@@ -636,32 +636,37 @@ EuroComply/
 
 ## 9. Pricing Tiers & Module Access
 
-| Plan | Monthly | Annual | Products | Users |
-|------|---------|--------|----------|-------|
-| **DPP Starter** | €99 | €990/yr | 100 | Unlimited |
-| **DPP Professional** | €149 | €1,490/yr | 1,000 | Unlimited |
-| **PIM + DPP Standard** | €249 | €2,490/yr | 5,000 | Unlimited |
-| **PIM + DPP Growth** | €499 | €4,990/yr | 25,000 | Unlimited |
-| **Enterprise** | Custom | Custom | 100,000+ | Unlimited |
+### All-Access Volume Pricing
+
+| Plan | Monthly | Annual | Products | AI Imports | Users |
+|------|---------|--------|----------|------------|-------|
+| **Growth** | €129 | €1,290/yr | 2,000 | 100/mo | Unlimited |
+| **Scale** | €399 | €3,990/yr | 20,000 | 1,000/mo | Unlimited |
+| **Enterprise** | Custom | Custom | Unlimited | Custom | Unlimited |
+
+**Soft Overages:** €10 per 100 additional SKUs (no forced tier jumps)
 
 ### Module Access by Tier
 
-| Module | Starter | Pro | Standard | Growth | Enterprise |
-|--------|:-------:|:---:|:--------:|:------:|:----------:|
-| Core (Auth, Billing) | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Compliance (DPP, VCs) | ✓ | ✓ | ✓ | ✓ | ✓ |
-| DAM (Basic) | ✓ | ✓ | ✓ | ✓ | ✓ |
-| PIM (Families, Variants) | - | Basic (3) | Full | Full | Full |
-| Bulk Operations | - | - | ✓ | ✓ | ✓ |
-| Export (CSV/JSON) | - | - | ✓ | ✓ | ✓ |
-| Audit Log | - | - | ✓ | ✓ | ✓ |
-| Import (CSV) | - | ✓ | ✓ | ✓ | ✓ |
-| Import (AI) | - | 20/mo | Unlimited | Unlimited | Unlimited |
-| Attestation (Multi-Party) | - | ✓ | ✓ | ✓ | ✓ |
-| Syndication (Shopify) | - | - | ✓ | ✓ | ✓ |
-| API Access | - | - | ✓ | ✓ | ✓ |
-| Webhooks | - | - | - | ✓ | ✓ |
-| Custom Integrations | - | - | - | - | ✓ |
+Every paying customer gets **ALL features**. The only difference is capacity.
+
+| Module | Growth | Scale | Enterprise |
+|--------|:------:|:-----:|:----------:|
+| Core (Auth, Billing) | ✓ | ✓ | ✓ |
+| Compliance (DPP, VCs) | ✓ | ✓ | ✓ |
+| DAM (Full) | ✓ | ✓ | ✓ |
+| PIM (Families, Variants) | ✓ | ✓ | ✓ |
+| Bulk Operations | ✓ | ✓ | ✓ |
+| Export (CSV/JSON) | ✓ | ✓ | ✓ |
+| Audit Log | ✓ | ✓ | ✓ |
+| Import (CSV) | ✓ | ✓ | ✓ |
+| Import (AI) | 100/mo | 1,000/mo | Custom |
+| Attestation (Multi-Party) | ✓ | ✓ | ✓ |
+| Syndication (Shopify) | ✓ | ✓ | ✓ |
+| API Access | Rate Limited | High Limits | Custom |
+| Webhooks | ✓ | ✓ | ✓ |
+| SSO | - | - | ✓ |
+| SLA | - | - | 99.9% |
 
 See [BUSINESS_MODEL.md](docs/BUSINESS_MODEL.md) for full cost analysis and margin details.
 
@@ -683,7 +688,7 @@ See [BUSINESS_MODEL.md](docs/BUSINESS_MODEL.md) for full cost analysis and margi
 | Metric | Year 1 | Year 2 | Year 3 |
 |--------|--------|--------|--------|
 | Customers | 400 | 1,500 | 4,000 |
-| ARR | €1.0M | €3.6M | €9.7M |
+| ARR | €0.9M | €3.2M | €8.5M |
 | Active Products | 100k | 400k | 1M |
 | DPPs Issued | 50k | 200k | 500k |
 

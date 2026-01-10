@@ -53,12 +53,13 @@ The key differentiator from enterprise competitors (SAP, Siemens) is **self-serv
 │                              ▼                                      │
 │  STEP 3: SELECT PLAN (2 min)                                       │
 │  ┌─────────────────────────────────────────────────────────────────┐│
-│  │ ┌───────────┐ ┌───────────┐ ┌───────────┐ ┌───────────┐        ││
-│  │ │DPP STARTER│ │ DPP PRO   │ │PIM STNDRD │ │PIM GROWTH │        ││
-│  │ │  €99/mo   │ │  €149/mo  │ │  €249/mo  │ │  €499/mo  │        ││
-│  │ │100 product│ │1k products│ │5k products│ │25k product│        ││
-│  │ │ [Select]  │ │ [Select]  │ │ [Select]  │ │ [Select]  │        ││
-│  │ └───────────┘ └───────────┘ └───────────┘ └───────────┘        ││
+│  │ ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐    ││
+│  │ │     GROWTH      │ │      SCALE      │ │   ENTERPRISE    │    ││
+│  │ │    €129/mo      │ │    €399/mo      │ │     Custom      │    ││
+│  │ │  2,000 products │ │ 20,000 products │ │    Unlimited    │    ││
+│  │ │  ALL FEATURES   │ │  ALL FEATURES   │ │  ALL + SLA/SSO  │    ││
+│  │ │    [Select]     │ │    [Select]     │ │    [Contact]    │    ││
+│  │ └─────────────────┘ └─────────────────┘ └─────────────────┘    ││
 │  │                                                                  ││
 │  │ → Stripe Checkout redirect                                      ││
 │  └─────────────────────────────────────────────────────────────────┘│
@@ -285,11 +286,9 @@ enum OrganizationType {
 }
 
 enum SubscriptionPlan {
-  DPP_STARTER       // €99/mo, 100 products, unlimited users
-  DPP_PROFESSIONAL  // €149/mo, 1,000 products, unlimited users
-  PIM_STANDARD      // €249/mo, 5,000 products, unlimited users
-  PIM_GROWTH        // €499/mo, 25,000 products, unlimited users
-  ENTERPRISE        // Custom, 100k+ products, unlimited users
+  GROWTH            // €129/mo, 2,000 products, ALL features, unlimited users
+  SCALE             // €399/mo, 20,000 products, ALL features, unlimited users
+  ENTERPRISE        // Custom, unlimited products, ALL features + SLA/SSO
 }
 
 enum SubscriptionStatus {
