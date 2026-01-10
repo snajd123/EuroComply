@@ -408,28 +408,28 @@ curl -X GET https://api.eurocomply.eu/v1/suppliers/export/viewer/prod_123 \
 ┌────────────────────────────┬─────────┬─────────────────────────────┐
 │ Tier                       │ Price   │ Sovereignty Features        │
 ├────────────────────────────┼─────────┼─────────────────────────────┤
-│ DPP Starter                │ €29/mo  │ ✅ Self-contained VCs       │
+│ DPP Starter (100 products) │ €29/mo  │ ✅ Self-contained VCs       │
 │                            │         │ ✅ One-click export         │
 │                            │         │ ✅ Offline verification     │
 ├────────────────────────────┼─────────┼─────────────────────────────┤
-│ DPP Professional           │ €99/mo  │ All Starter features        │
+│ DPP Professional (1,000)   │ €99/mo  │ All Starter features        │
 │                            │         │ ✅ Basic PIM (3 families)   │
 │                            │         │ ✅ Multi-party attestation  │
 ├────────────────────────────┼─────────┼─────────────────────────────┤
-│ PIM Standard               │ €199/mo │ All Professional features   │
+│ PIM Standard (5,000)       │ €199/mo │ All Professional features   │
 │                            │         │ ✅ Full PIM capabilities    │
 │                            │         │ ✅ Bulk ops, Export, Audit  │
 │                            │         │ ✅ Shopify sync + API       │
 ├────────────────────────────┼─────────┼─────────────────────────────┤
-│ PIM Growth                 │ €499/mo │ All Standard features       │
-│                            │         │ ✅ 20,000 products          │
+│ PIM Growth (25,000)        │ €499/mo │ All Standard features       │
 │                            │         │ ✅ Webhooks, 99.5% SLA      │
 ├────────────────────────────┼─────────┼─────────────────────────────┤
-│ Enterprise                 │ Custom  │ All Growth features         │
-│                            │         │ ✅ 100,000+ products        │
+│ Enterprise (100,000+)      │ Custom  │ All Growth features         │
 │                            │         │ ✅ Custom integrations      │
 │                            │         │ ✅ Dedicated support, 99.9% │
 └────────────────────────────┴─────────┴─────────────────────────────┘
+
+**All tiers include unlimited users.**
 ```
 
 **Note**: All tiers get the same sovereignty guarantees (self-contained VCs, one-click export, offline verification). Higher tiers add more features and volume.

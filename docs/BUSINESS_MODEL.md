@@ -95,10 +95,10 @@ Retailers who only resell products from other brands are served through the free
 │  ┌─────────────────┐     ┌─────────────────┐                                │
 │  │  DPP STARTER    │     │ DPP PROFESSIONAL│                                │
 │  │  €29/mo         │ ──► │ €99/mo          │                                │
-│  │  50 products    │     │ 500 products    │                                │
+│  │  100 products   │     │ 1,000 products  │                                │
 │  │  Generate DPPs  │     │ + Basic PIM     │                                │
 │  │  Session-only   │     │ + Limited AI    │                                │
-│  │                 │     │ + Attestation   │                                │
+│  │  Unlimited users│     │ + Attestation   │                                │
 │  └─────────────────┘     └─────────────────┘                                │
 │                                   │                                          │
 │                                   ▼                                          │
@@ -109,11 +109,11 @@ Retailers who only resell products from other brands are served through the free
 │  │  PIM + DPP      │     │ PIM + DPP       │     │  ENTERPRISE     │       │
 │  │  STANDARD       │ ──► │ GROWTH          │ ──► │                 │       │
 │  │  €199/mo        │     │ €499/mo         │     │ Custom          │       │
-│  │  2,000 products │     │ 20,000 products │     │ 100k+ products  │       │
+│  │  5,000 products │     │ 25,000 products │     │ 100k+ products  │       │
 │  │  Full PIM       │     │ + Higher limits │     │ + SLA           │       │
 │  │  Full AI Import │     │ + Priority      │     │ + Custom        │       │
 │  │  Shopify Sync   │     │                 │     │                 │       │
-│  │  Attestation    │     │                 │     │                 │       │
+│  │  Unlimited users│     │ Unlimited users │     │ Unlimited users │       │
 │  │  API Access     │     │                 │     │                 │       │
 │  └─────────────────┘     └─────────────────┘     └─────────────────┘       │
 │                                                                              │
@@ -124,10 +124,10 @@ Retailers who only resell products from other brands are served through the free
 
 | Plan | Monthly | Annual (2 months free) | Products | Users |
 |------|---------|------------------------|----------|-------|
-| **DPP Starter** | €29 | €290/year (€24/mo) | 50 | 1 |
-| **DPP Professional** | €99 | €990/year (€82/mo) | 500 | 3 |
-| **PIM + DPP Standard** | €199 | €1,990/year (€166/mo) | 2,000 | 5 |
-| **PIM + DPP Growth** | €499 | €4,990/year (€416/mo) | 20,000 | 10 |
+| **DPP Starter** | €29 | €290/year (€24/mo) | 100 | Unlimited |
+| **DPP Professional** | €99 | €990/year (€82/mo) | 1,000 | Unlimited |
+| **PIM + DPP Standard** | €199 | €1,990/year (€166/mo) | 5,000 | Unlimited |
+| **PIM + DPP Growth** | €499 | €4,990/year (€416/mo) | 25,000 | Unlimited |
 | **Enterprise** | Custom | Custom | 100,000+ | Unlimited |
 
 ### Feature Matrix
@@ -187,21 +187,19 @@ Retailers who only resell products from other brands are served through the free
 │  • Multi-party attestation                                       │
 │                                                                  │
 │  DPP PROFESSIONAL → PIM STANDARD                                │
-│  • More products (500 → 2,000)                                  │
+│  • More products (1,000 → 5,000)                                │
 │  • Unlimited product families                                    │
 │  • Unlimited AI imports                                          │
 │  • Bulk operations, export, audit log                           │
 │  • Shopify sync + API access                                    │
 │                                                                  │
 │  PIM STANDARD → PIM GROWTH                                      │
-│  • More products (2,000 → 20,000)                               │
-│  • More users (5 → 10)                                          │
+│  • More products (5,000 → 25,000)                               │
 │  • Webhooks for real-time integrations                          │
 │  • SLA guarantee (99.5%)                                        │
 │                                                                  │
 │  PIM GROWTH → ENTERPRISE                                        │
-│  • More products (20,000 → 100,000+)                            │
-│  • Unlimited users                                               │
+│  • More products (25,000 → 100,000+)                            │
 │  • Custom integrations                                           │
 │  • Dedicated success manager                                     │
 │  • Higher SLA (99.9%)                                           │
@@ -240,14 +238,14 @@ Retailers who only resell products from other brands are served through the free
 
 | Tier | Included | Overage Price | Volume Discount |
 |------|----------|---------------|-----------------|
-| DPP Starter | 50 | €0.50/product/mo | - |
-| DPP Professional | 500 | €0.20/product/mo | 1,000+: €0.15 |
-| PIM Standard | 2,000 | €0.10/product/mo | 5,000+: €0.08 |
-| PIM Growth | 20,000 | €0.05/product/mo | 50,000+: €0.03 |
+| DPP Starter | 100 | €0.50/product/mo | - |
+| DPP Professional | 1,000 | €0.20/product/mo | 2,000+: €0.15 |
+| PIM Standard | 5,000 | €0.10/product/mo | 10,000+: €0.08 |
+| PIM Growth | 25,000 | €0.05/product/mo | 50,000+: €0.03 |
 | Enterprise | 100,000+ | Custom | Volume-based |
 
-**Example:** PIM Growth customer with 35,000 products
-- 20,000 included in €499/mo
+**Example:** PIM Growth customer with 40,000 products
+- 25,000 included in €499/mo
 - 15,000 overage × €0.05 = €750/mo
 - **Total: €1,249/mo**
 
@@ -255,7 +253,6 @@ Retailers who only resell products from other brands are served through the free
 
 | Add-on | Price | Available For |
 |--------|-------|---------------|
-| Additional Users | €10/user/mo | All tiers |
 | Priority Support | €50/mo | DPP Starter, DPP Pro |
 | API Access | €50/mo | DPP Pro only |
 | Extra AI Imports | €5/10 imports | DPP Pro |
@@ -509,48 +506,48 @@ At 500 customer scale (€220/month infrastructure amortized):
 │  MARGIN ANALYSIS BY TIER                                                     │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  DPP STARTER (€29/month, 50 products)                                       │
+│  DPP STARTER (€29/month, 100 products)                                      │
 │  ─────────────────────────────────────                                      │
 │  Infrastructure share:     €0.44                                            │
-│  S3 storage (0.5GB):       €0.01                                            │
-│  Bandwidth:                €0.10                                            │
+│  S3 storage (1GB):         €0.02                                            │
+│  Bandwidth:                €0.15                                            │
 │  ────────────────────────────────                                           │
-│  Total cost:               €0.55                                            │
+│  Total cost:               €0.61                                            │
 │  Revenue:                  €29.00                                           │
-│  Gross margin:             €28.45 (98%)                                     │
+│  Gross margin:             €28.39 (98%)                                     │
 │                                                                              │
-│  DPP PROFESSIONAL (€99/month, 500 products)                                 │
+│  DPP PROFESSIONAL (€99/month, 1,000 products)                               │
 │  ─────────────────────────────────────                                      │
 │  Infrastructure share:     €0.44                                            │
-│  S3 storage (5GB):         €0.12                                            │
-│  Bandwidth:                €0.50                                            │
+│  S3 storage (10GB):        €0.23                                            │
+│  Bandwidth:                €1.00                                            │
 │  AI imports (20):          €0.08                                            │
 │  ────────────────────────────────                                           │
-│  Total cost:               €1.14                                            │
+│  Total cost:               €1.75                                            │
 │  Revenue:                  €99.00                                           │
-│  Gross margin:             €97.86 (99%)                                     │
+│  Gross margin:             €97.25 (98%)                                     │
 │                                                                              │
-│  PIM STANDARD (€199/month, 2,000 products)                                  │
+│  PIM STANDARD (€199/month, 5,000 products)                                  │
 │  ─────────────────────────────────────                                      │
 │  Infrastructure share:     €0.44                                            │
-│  S3 storage (20GB):        €0.46                                            │
-│  Bandwidth:                €2.00                                            │
+│  S3 storage (50GB):        €1.15                                            │
+│  Bandwidth:                €5.00                                            │
 │  AI imports (100 avg):     €0.40                                            │
 │  ────────────────────────────────                                           │
-│  Total cost:               €3.30                                            │
+│  Total cost:               €6.99                                            │
 │  Revenue:                  €199.00                                          │
-│  Gross margin:             €195.70 (98%)                                    │
+│  Gross margin:             €192.01 (96%)                                    │
 │                                                                              │
-│  PIM GROWTH (€499/month, 20,000 products)                                   │
+│  PIM GROWTH (€499/month, 25,000 products)                                   │
 │  ─────────────────────────────────────                                      │
 │  Infrastructure share:     €0.88                                            │
-│  S3 storage (200GB):       €4.60                                            │
-│  Bandwidth:                €20.00                                           │
+│  S3 storage (250GB):       €5.75                                            │
+│  Bandwidth:                €25.00                                           │
 │  AI imports (500 avg):     €2.00                                            │
 │  ────────────────────────────────                                           │
-│  Total cost:               €27.48                                           │
+│  Total cost:               €33.63                                           │
 │  Revenue:                  €499.00                                          │
-│  Gross margin:             €471.52 (94%)                                    │
+│  Gross margin:             €465.37 (93%)                                    │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -879,7 +876,27 @@ Awareness → Trial → Conversion → Expansion
    - Self-host the data
    - Move to another provider
    - Upload to decentralized storage
+   - **Opt for Dormant Hosting** (see below)
 4. **VCs still verify** - did:key is self-contained, no EuroComply dependency
+
+### Dormant Hosting (Optional)
+
+When an organization cancels their subscription but wants to keep their DPP QR codes working, they can opt for Dormant Hosting:
+
+| Feature | Description |
+|---------|-------------|
+| **Purpose** | Keep QR codes working after subscription ends |
+| **Cost** | €99/year or €500 one-time (per 10,000 SKUs) |
+| **What's Included** | Static DPP pages remain accessible, QR codes continue working |
+| **What's Disabled** | PIM editing, new DPP issuance, AI import, Shopify sync |
+| **Data Retention** | 10+ years (ESPR compliance requirement) |
+
+**This is optional.** Organizations can also:
+- Export all data and self-host (free)
+- Move to another VC-compatible provider
+- Use the 30-day grace period to migrate
+
+Dormant Hosting addresses the ESPR requirement for 10-year data availability while providing a low-cost option for organizations that no longer need active product management but want to maintain compliance for products already in market.
 
 ---
 
@@ -965,11 +982,11 @@ Awareness → Trial → Conversion → Expansion
 │  → 100-50,000 SKUs                                              │
 │  → Can't afford enterprise solutions                           │
 │                                                                  │
-│  PRICING: 5-Tier SaaS Model                                     │
-│  → DPP Starter: €29/mo (compliance-only, session-based)        │
-│  → DPP Professional: €99/mo (basic PIM + limited AI)           │
-│  → PIM Standard: €199/mo (full platform, 2k products)          │
-│  → PIM Growth: €499/mo (high volume, 20k products)             │
+│  PRICING: 5-Tier SaaS Model (Unlimited Users All Tiers)        │
+│  → DPP Starter: €29/mo (100 products, compliance-only)         │
+│  → DPP Professional: €99/mo (1k products, basic PIM)           │
+│  → PIM Standard: €199/mo (5k products, full platform)          │
+│  → PIM Growth: €499/mo (25k products, high volume)             │
 │  → Enterprise: Custom (100k+ products)                          │
 │                                                                  │
 │  KEY FEATURES:                                                  │

@@ -287,6 +287,21 @@ export/
 
 ## Hosting Options After Export
 
+### Option 0: Dormant Hosting (Stay with EuroComply)
+
+If you cancel your active subscription but want QR codes to keep working without managing your own hosting:
+
+```
+Dormant Hosting Plan:
+  • €99/year OR €500 one-time (per 10,000 SKUs)
+  • Static DPP pages remain accessible
+  • QR codes continue working
+  • No editing, no new DPPs, no imports
+  • 10+ year retention (ESPR compliant)
+```
+
+This is optional - you can always export and self-host instead. Dormant Hosting is for organizations that want a "set and forget" solution for products already in market.
+
 ### Option 1: Static File Hosting
 
 Simplest option - just serve the JSON files.

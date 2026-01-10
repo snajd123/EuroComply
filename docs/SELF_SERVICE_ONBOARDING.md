@@ -56,7 +56,7 @@ The key differentiator from enterprise competitors (SAP, Siemens) is **self-serv
 │  │ ┌───────────┐ ┌───────────┐ ┌───────────┐ ┌───────────┐        ││
 │  │ │DPP STARTER│ │ DPP PRO   │ │PIM STNDRD │ │PIM GROWTH │        ││
 │  │ │  €29/mo   │ │  €99/mo   │ │  €199/mo  │ │  €499/mo  │        ││
-│  │ │50 products│ │500 product│ │2000 prodct│ │20k product│        ││
+│  │ │100 product│ │1k products│ │5k products│ │25k product│        ││
 │  │ │ [Select]  │ │ [Select]  │ │ [Select]  │ │ [Select]  │        ││
 │  │ └───────────┘ └───────────┘ └───────────┘ └───────────┘        ││
 │  │                                                                  ││
@@ -110,12 +110,12 @@ import Stripe from 'stripe';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-// Pricing tiers
+// Pricing tiers (all plans include unlimited users)
 const PLANS = {
-  dpp_starter: { priceId: 'price_dpp_starter_monthly', productLimit: 50 },
-  dpp_professional: { priceId: 'price_dpp_professional_monthly', productLimit: 500 },
-  pim_standard: { priceId: 'price_pim_standard_monthly', productLimit: 2000 },
-  pim_growth: { priceId: 'price_pim_growth_monthly', productLimit: 20000 },
+  dpp_starter: { priceId: 'price_dpp_starter_monthly', productLimit: 100 },
+  dpp_professional: { priceId: 'price_dpp_professional_monthly', productLimit: 1000 },
+  pim_standard: { priceId: 'price_pim_standard_monthly', productLimit: 5000 },
+  pim_growth: { priceId: 'price_pim_growth_monthly', productLimit: 25000 },
 };
 
 // Create checkout session
@@ -285,11 +285,11 @@ enum OrganizationType {
 }
 
 enum SubscriptionPlan {
-  DPP_STARTER       // €29/mo, 50 products
-  DPP_PROFESSIONAL  // €99/mo, 500 products
-  PIM_STANDARD      // €199/mo, 2000 products
-  PIM_GROWTH        // €499/mo, 20000 products
-  ENTERPRISE        // Custom, 100k+ products
+  DPP_STARTER       // €29/mo, 100 products, unlimited users
+  DPP_PROFESSIONAL  // €99/mo, 1,000 products, unlimited users
+  PIM_STANDARD      // €199/mo, 5,000 products, unlimited users
+  PIM_GROWTH        // €499/mo, 25,000 products, unlimited users
+  ENTERPRISE        // Custom, 100k+ products, unlimited users
 }
 
 enum SubscriptionStatus {

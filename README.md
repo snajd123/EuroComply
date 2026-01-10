@@ -56,13 +56,13 @@ EuroComply uses a modular architecture. Organizations enable the modules they ne
 
 ### Plan-Based Access
 
-| Plan | Monthly | Annual | Products | Key Features |
-|------|---------|--------|----------|--------------|
-| **DPP Starter** | €29 | €290/yr | 50 | Core, Compliance, Basic DAM (session-only storage) |
-| **DPP Professional** | €99 | €990/yr | 500 | + Basic PIM (3 families), CSV Import, 20 AI imports/mo, Attestation |
-| **PIM Standard** | €199 | €1,990/yr | 2,000 | + Full PIM, Unlimited AI, Bulk Ops, Export, Audit Log, Shopify, API |
-| **PIM Growth** | €499 | €4,990/yr | 20,000 | + Webhooks, Priority Support, 99.5% SLA |
-| **Enterprise** | Custom | Custom | 100,000+ | + Custom integrations, Dedicated Success, 99.9% SLA |
+| Plan | Monthly | Annual | Products | Users | Key Features |
+|------|---------|--------|----------|-------|--------------|
+| **DPP Starter** | €29 | €290/yr | 100 | Unlimited | Core, Compliance, Basic DAM (session-only storage) |
+| **DPP Professional** | €99 | €990/yr | 1,000 | Unlimited | + Basic PIM (3 families), CSV Import, 20 AI imports/mo, Attestation |
+| **PIM Standard** | €199 | €1,990/yr | 5,000 | Unlimited | + Full PIM, Unlimited AI, Bulk Ops, Export, Audit Log, Shopify, API |
+| **PIM Growth** | €499 | €4,990/yr | 25,000 | Unlimited | + Webhooks, Priority Support, 99.5% SLA |
+| **Enterprise** | Custom | Custom | 100,000+ | Unlimited | + Custom integrations, Dedicated Success, 99.9% SLA |
 
 ---
 
