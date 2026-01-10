@@ -9,15 +9,16 @@ Hybrid infrastructure for EU/GDPR-compliant Digital Product Passport platform wi
 EuroComply uses a **dual-path architecture** that separates:
 - **Write Path (AWS)**: PIM operations, user management, DPP issuance
 - **Read Path (Cloudflare + Hetzner)**: Billion-scale QR code scans at fixed cost
+- **EPCIS Path (OpenEPCIS Stack)**: Supply chain event tracking with Kafka + OpenSearch
 
-| Aspect | Write Path (AWS) | Read Path (Hetzner/R2) |
-|--------|------------------|------------------------|
-| **Purpose** | PIM, API, management | DPP serving (QR scans) |
-| **Location** | eu-central-1 (Frankfurt) | Germany + Finland / Global |
-| **Provider** | AWS | Cloudflare CDN + Hetzner (or R2 at scale) |
-| **Scaling** | Auto-scaling containers | Static files, CDN |
-| **Cost Model** | Usage-based | Fixed up to 50B scans/day |
-| **Capacity** | 10,000+ concurrent users | Trillions of scans/day |
+| Aspect | Write Path (AWS) | Read Path (Hetzner/R2) | EPCIS Path (OpenEPCIS) |
+|--------|------------------|------------------------|------------------------|
+| **Purpose** | PIM, API, management | DPP serving (QR scans) | Supply chain events |
+| **Location** | eu-central-1 (Frankfurt) | Germany + Finland / Global | eu-central-1 (with AWS) |
+| **Provider** | AWS | Cloudflare CDN + Hetzner (or R2 at scale) | OpenEPCIS + Kafka + OpenSearch |
+| **Scaling** | Auto-scaling containers | Static files, CDN | Kafka partitions |
+| **Cost Model** | Usage-based | Fixed up to 50B scans/day | ~$400-800/month (prod) |
+| **Capacity** | 10,000+ concurrent users | Trillions of scans/day | Millions of events/day |
 
 See [SCALABILITY.md](docs/SCALABILITY.md) for detailed architecture.
 
@@ -197,6 +198,116 @@ AWS ECS (DPP issuance)
 | Service | Purpose | Configuration |
 |---------|---------|---------------|
 | **SQS** | Async job queues | Standard queues |
+
+---
+
+## OpenEPCIS Stack (EPCIS 2.0)
+
+EuroComply uses **OpenEPCIS** for GS1-compliant EPCIS 2.0 event tracking. See [EPCIS_INTEGRATION.md](docs/EPCIS_INTEGRATION.md) for full documentation.
+
+### Stack Components
+
+| Component | Technology | Purpose | Configuration |
+|-----------|------------|---------|---------------|
+| **OpenEPCIS Repository** | Quarkus/Java 21+ | EPCIS event storage | 2GB heap, REST API |
+| **Apache Kafka** | Event streaming | Async event ingestion | 3-node cluster (prod) |
+| **OpenSearch** | Search engine | Event indexing & queries | 2GB heap, 50GB storage |
+| **Zookeeper** | Coordination | Kafka cluster management | Single node (dev), 3-node (prod) |
+
+### Deployment Options
+
+#### Development (Docker Compose)
+
+```yaml
+# Included in docker/docker-compose.yml
+services:
+  openepcis:
+    image: openepcis/epcis-repository-ce:latest
+    ports: ["9000:9000"]
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - OPENSEARCH_HOSTS=http://opensearch:9200
+    depends_on: [kafka, opensearch]
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    ports: ["9092:9092"]
+
+  opensearch:
+    image: opensearchproject/opensearch:2.11.0
+    ports: ["9200:9200"]
+```
+
+**Dev resources:** ~4GB RAM total
+
+#### Production (Kubernetes)
+
+| Component | Replicas | Resources | Storage |
+|-----------|----------|-----------|---------|
+| OpenEPCIS | 2-4 | 2 vCPU, 4GB RAM | - |
+| Kafka | 3 | 2 vCPU, 4GB RAM | 100GB SSD |
+| OpenSearch | 3 | 2 vCPU, 4GB RAM | 200GB SSD |
+| Zookeeper | 3 | 0.5 vCPU, 1GB RAM | 10GB SSD |
+
+### Infrastructure Costs
+
+| Environment | Monthly Cost | Notes |
+|-------------|--------------|-------|
+| **Development** | ~$0 (local Docker) | Part of dev machine |
+| **Staging** | ~$100/month | Single node each, AWS ECS |
+| **Production** | ~$400-800/month | HA cluster, EKS or self-managed |
+
+### Integration Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     EPCIS EVENT FLOW                              │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  EuroComply API          OpenEPCIS Stack                        │
+│  ─────────────          ─────────────────                       │
+│                                                                  │
+│  ┌─────────────┐        ┌─────────────────────────────────────┐ │
+│  │ EPCIS       │  REST  │                                     │ │
+│  │ Service     │───────▶│  OpenEPCIS Repository               │ │
+│  │ (TypeScript)│        │  (Quarkus/Java 21+)                 │ │
+│  └─────────────┘        │                                     │ │
+│                         │  • GS1 EPCIS 2.0 compliant         │ │
+│                         │  • All event types supported        │ │
+│                         │  • ESPR carbon extensions           │ │
+│                         └──────────┬──────────────────────────┘ │
+│                                    │                             │
+│                         ┌──────────▼──────────────────────────┐ │
+│                         │  Apache Kafka                       │ │
+│                         │  • Async event ingestion            │ │
+│                         │  • High throughput                  │ │
+│                         └──────────┬──────────────────────────┘ │
+│                                    │                             │
+│                         ┌──────────▼──────────────────────────┐ │
+│                         │  OpenSearch                         │ │
+│                         │  • Event indexing                   │ │
+│                         │  • Fast timeline queries            │ │
+│                         └─────────────────────────────────────┘ │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Environment Variables
+
+```env
+# ===========================================
+# OpenEPCIS Configuration
+# ===========================================
+OPENEPCIS_URL=http://openepcis:9000
+OPENEPCIS_TIMEOUT=30000
+OPENEPCIS_RETRY_ATTEMPTS=3
+
+# Kafka (for OpenEPCIS)
+KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+
+# OpenSearch (for OpenEPCIS)
+OPENSEARCH_HOSTS=http://opensearch:9200
+```
 
 ### Security
 

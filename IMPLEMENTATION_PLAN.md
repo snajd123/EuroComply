@@ -898,7 +898,23 @@ The **EU DPP Registry** launches July 2026 as the central index of all DPPs:
 
 ### EPCIS 2.0 Integration (Core Feature)
 
-EPCIS 2.0 is integrated **from day one** as a core feature. See [EPCIS_INTEGRATION.md](docs/EPCIS_INTEGRATION.md) for full documentation.
+EPCIS 2.0 is integrated **from day one** as a core feature, powered by **OpenEPCIS** - an open-source, GS1-compliant EPCIS 2.0 repository. See [EPCIS_INTEGRATION.md](docs/EPCIS_INTEGRATION.md) for full documentation.
+
+#### Chosen Implementation: OpenEPCIS
+
+| Component | Technology | Purpose |
+|-----------|------------|---------|
+| **OpenEPCIS Repository** | Quarkus/Java 21+ | GS1-certified EPCIS 2.0 event storage |
+| **Apache Kafka** | Event streaming | Async event ingestion, high throughput |
+| **OpenSearch** | Search engine | Fast event queries, timeline views |
+
+**Why OpenEPCIS?**
+- Apache 2.0 license (no vendor lock-in)
+- GS1-compliant EPCIS 2.0 implementation
+- Designed for high-throughput event capture
+- Supports all EPCIS event types and ESPR extensions
+
+#### Features
 
 | Feature | Description |
 |---------|-------------|
@@ -974,8 +990,12 @@ model EpcisEvent {
 | Add Registry registration to DPP issuance | Q3 2026 | Planned |
 | Auto-register all new DPPs | Q3 2026 | Planned |
 | Batch register existing DPPs | Q4 2026 | Planned |
-| **EPCIS (Core Feature)** | | |
+| **EPCIS (Core Feature - OpenEPCIS Stack)** | | |
+| Deploy OpenEPCIS repository (Quarkus/Java 21+) | Phase 4 | Planned |
+| Configure Apache Kafka for event streaming | Phase 4 | Planned |
+| Set up OpenSearch for event indexing | Phase 4 | Planned |
 | Add EPCIS tables to Prisma schema | Phase 4 | Planned |
+| Build OpenEPCIS client wrapper (TypeScript) | Phase 4 | Planned |
 | Implement EPCIS event capture API | Phase 4 | Planned |
 | Build event query API (GS1 2.0 compatible) | Phase 4 | Planned |
 | Implement automatic DPP-to-event linking | Phase 4 | Planned |
@@ -984,8 +1004,9 @@ model EpcisEvent {
 | Event entry form (manual entry) | Phase 4 | Planned |
 | Add lifecycle tab to DPP public page | Phase 4 | Planned |
 | Carbon footprint visualization | Phase 4 | Planned |
+| OpenEPCIS Kubernetes production deployment | Phase 4 | Planned |
 | ERP integration guide (SAP, Oracle) | Phase 6 | Planned |
-| External EPCIS repository linking | Phase 6 | Planned |
+| External EPCIS repository linking (IBM, SAP) | Phase 6 | Planned |
 
 ---
 
