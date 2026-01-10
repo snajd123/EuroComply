@@ -14,18 +14,27 @@ The **Golden Record** - a unified product model containing both commercial attri
 
 ### Target Market
 
-**Primary (ESPR Compliance)**
-- Brands, manufacturers, distributors managing 100-5,000 SKUs
+**Growth Segment (€129/month)**
+- Small to medium brands and manufacturers with 100-2,000 SKUs
+- First-time PIM users or organizations migrating from spreadsheets
+- Annual revenue: €1M-€20M
+
+**Scale Segment (€399/month)**
+- Mid-market distributors and larger brands with 2,000-20,000 SKUs
 - First movers in textiles, batteries, electronics, furniture
-- Organizations needing both PIM and compliance functionality
+- Annual revenue: €20M-€200M
+
+**Enterprise Segment (Custom)**
+- Large organizations with 20,000+ SKUs requiring custom integrations
+- SSO, SLA guarantees, dedicated account management
+- Annual revenue: €200M+
 
 **Secondary (PIM-First)**
 - Industries not yet subject to ESPR but needing structured product data
 - Food & beverage, cosmetics, industrial goods, specialty retail
-- Organizations wanting future-proof product management with optional DPP readiness
 
 **NOT Target**
-- Enterprise (they have SAP, Akeneo, custom solutions)
+- Fortune 500 enterprises (they have SAP, Akeneo, custom solutions)
 
 ---
 
@@ -149,7 +158,7 @@ The database uses a hybrid relational/JSONB approach:
 Organization (Tenant)
 ├── type: BRAND | MANUFACTURER | DISTRIBUTOR
 ├── enabledModules: ["core", "compliance", "pim", ...]
-├── plan: DPP_STARTER | DPP_PROFESSIONAL | PIM_DPP | ENTERPRISE
+├── plan: GROWTH | SCALE | ENTERPRISE
 └── settings (billing, integrations)
 
 ProductFamily (Attribute Schema)
@@ -209,6 +218,24 @@ Passport (DPP)
 ├── qrCodeUrl
 ├── attestations: AttestationRef[] (linked attestation VCs)
 └── status: DRAFT | ACTIVE | REVOKED
+
+Subscription
+├── organizationId
+├── plan: GROWTH | SCALE | ENTERPRISE
+├── status: TRIALING | ACTIVE | PAST_DUE | CANCELED | DORMANT
+├── trialEndsAt: DateTime (14 days from signup)
+├── currentPeriodEnd: DateTime
+├── productCount: number (for overage calculation)
+├── stripeSubscriptionId
+└── canceledAt?: DateTime
+
+DormantHosting
+├── organizationId
+├── previousPlan: GROWTH | SCALE | ENTERPRISE
+├── productCount: number (at time of cancellation)
+├── billingType: ANNUAL | ONE_TIME
+├── expiresAt?: DateTime (null if one-time)
+└── status: ACTIVE | EXPIRED
 
 Contributor (Third-Party Attestor)
 ├── email, companyName
@@ -347,7 +374,7 @@ Phase 7: Retailer Access    ──► Public API and widget
 
 ### Phase 1: Core + Schema
 
-**Goal:** Establish foundation - auth, multi-tenancy, and complete database schema
+**Goal:** Establish foundation - auth, multi-tenancy, billing, and complete database schema
 
 | Task | Status |
 |------|--------|
@@ -357,13 +384,25 @@ Phase 7: Retailer Access    ──► Public API and widget
 | Build Organization model with multi-tenancy (row-level security) | Planned |
 | Implement User/Team management within organizations | Planned |
 | Create API key management (hashed keys, scopes) | Planned |
+| **Billing & Subscriptions** | |
 | Set up Stripe billing integration (subscriptions, usage metering) | Planned |
+| Implement 14-day free trial with full platform access | Planned |
+| Build volume overage billing (€10 per 100 additional SKUs) | Planned |
+| Implement subscription cancellation workflow (30-day grace period) | Planned |
+| Build data export package generation for cancellation | Planned |
+| Implement Dormant Hosting option (€99/year for churned customers) | Planned |
+| **API & Rate Limiting** | |
+| Configure tier-based API rate limits (Growth: 100/min, Scale: 500/min, Enterprise: custom) | Planned |
+| Implement rate limit middleware with Redis | Planned |
+| **Enterprise Features** | |
+| Implement SSO integration (SAML/OIDC) for Enterprise tier | Planned |
+| **Infrastructure** | |
 | Implement audit log infrastructure (event logging for all actions) | Planned |
 | Basic login/signup UI | Planned |
 | Organization settings page | Planned |
 | Audit log viewer UI | Planned |
 
-**Outcome:** Users can sign up, create organizations, and manage subscriptions. Database schema supports all future features. Audit log captures all actions for compliance.
+**Outcome:** Users can sign up, start free trial, manage subscriptions with overage billing, and export data on cancellation. Enterprise customers can use SSO. Database schema supports all future features.
 
 **Key Decision:** Design attestation models NOW (Contributor, DataRequest, Contribution, ContributionVersion) even though implementation is Phase 5. This prevents schema rework later.
 
