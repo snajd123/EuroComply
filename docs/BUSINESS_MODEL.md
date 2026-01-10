@@ -836,7 +836,7 @@ Brands and manufacturers pay for DPP creation. Retailers access DPPs for free be
 | Gross Margin | 95%+ (infrastructure only) |
 | Monthly Churn | 1.5% |
 
-*Note: All-access model reduces churn because customers integrate deeper (Shopify, attestation, API) from day 1.*
+Full platform access from initial subscription increases integration depth and reduces churn.
 
 ---
 
@@ -1018,7 +1018,7 @@ Dormant Hosting addresses the ESPR requirement for 10-year data availability whi
 | Enterprise | 80 | 2% | €120k | 17% |
 | **Total** | **4,000** | **100%** | **€710k** | **100%** |
 
-*Note: Simpler tier structure leads to faster sales cycles and higher conversion rates, offsetting slightly lower ARPU.*
+Simplified tier structure accelerates sales cycles and improves conversion rates.
 
 ---
 

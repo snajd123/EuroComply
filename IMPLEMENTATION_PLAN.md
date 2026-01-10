@@ -636,7 +636,7 @@ EuroComply/
 
 ## 9. Pricing Tiers & Module Access
 
-### All-Access Volume Pricing
+### Volume-Based Pricing
 
 | Plan | Monthly | Annual | Products | AI Imports | Users |
 |------|---------|--------|----------|------------|-------|
@@ -644,11 +644,11 @@ EuroComply/
 | **Scale** | €399 | €3,990/yr | 20,000 | 1,000/mo | Unlimited |
 | **Enterprise** | Custom | Custom | Unlimited | Custom | Unlimited |
 
-**Soft Overages:** €10 per 100 additional SKUs (no forced tier jumps)
+**Volume Overages:** €10 per 100 additional SKUs beyond plan limits.
 
 ### Module Access by Tier
 
-Every paying customer gets **ALL features**. The only difference is capacity.
+All customers receive full platform access. Tier differentiation is based solely on catalog capacity.
 
 | Module | Growth | Scale | Enterprise |
 |--------|:------:|:-----:|:----------:|

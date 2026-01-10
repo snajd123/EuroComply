@@ -402,13 +402,13 @@ curl -X GET https://api.eurocomply.eu/v1/suppliers/export/viewer/prod_123 \
 
 ---
 
-## Pricing (All-Access Volume Model)
+## Pricing
 
 ```
 ┌────────────────────────────┬─────────┬─────────────────────────────┐
 │ Tier                       │ Price   │ Features                    │
 ├────────────────────────────┼─────────┼─────────────────────────────┤
-│ Growth (2,000 products)    │ €129/mo │ ✅ ALL platform features    │
+│ Growth (2,000 products)    │ €129/mo │ ✅ Full platform access     │
 │                            │         │ ✅ Self-contained VCs       │
 │                            │         │ ✅ One-click export         │
 │                            │         │ ✅ Offline verification     │
@@ -416,21 +416,21 @@ curl -X GET https://api.eurocomply.eu/v1/suppliers/export/viewer/prod_123 \
 │                            │         │ ✅ Shopify sync + API       │
 │                            │         │ ✅ 100 AI imports/month     │
 ├────────────────────────────┼─────────┼─────────────────────────────┤
-│ Scale (20,000 products)    │ €399/mo │ ✅ ALL platform features    │
+│ Scale (20,000 products)    │ €399/mo │ ✅ Full platform access     │
 │                            │         │ ✅ 1,000 AI imports/month   │
 │                            │         │ ✅ Higher API limits        │
 │                            │         │ ✅ Priority support         │
 ├────────────────────────────┼─────────┼─────────────────────────────┤
-│ Enterprise (Unlimited)     │ Custom  │ ✅ ALL platform features    │
+│ Enterprise (Unlimited)     │ Custom  │ ✅ Full platform access     │
 │                            │         │ ✅ Custom AI limits         │
 │                            │         │ ✅ SSO, 99.9% SLA           │
 │                            │         │ ✅ Dedicated support        │
 └────────────────────────────┴─────────┴─────────────────────────────┘
 
-**All tiers include unlimited users and full sovereignty guarantees.**
+**All tiers include unlimited users and full data sovereignty guarantees.**
 ```
 
-**Note**: Every paying customer gets the complete platform. The only difference is capacity (number of products). No feature gates.
+All customers receive full platform access. Tier differentiation is based solely on catalog capacity.
 
 ---
 

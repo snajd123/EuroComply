@@ -54,9 +54,9 @@ EuroComply uses a modular architecture. Organizations enable the modules they ne
 | **Import** | AI-powered data import from any format | Core, PIM |
 | **Syndication** | Shopify integration, channel publishing | Core, PIM |
 
-### All-Access Volume Pricing
+### Volume-Based Pricing
 
-Every paying customer gets the full platform. The only difference is **capacity**.
+All customers receive full platform access. Tier differentiation is based solely on catalog capacity.
 
 | Plan | Monthly | Annual | Products | AI Imports | API | Support |
 |------|---------|--------|----------|------------|-----|---------|
@@ -64,9 +64,9 @@ Every paying customer gets the full platform. The only difference is **capacity*
 | **Scale** | €399 | €3,990/yr | 20,000 | 1,000/mo | High Limits | Priority |
 | **Enterprise** | Custom | Custom | Unlimited | Custom | Custom | Dedicated + SLA |
 
-**All plans include:** Full PIM (Families, Variants, Completeness), Full Compliance (DPP, VCs, QR, Attestation), Shopify Sync, API Access, Unlimited Users, Permanent DPP Hosting.
+**Included in all plans:** Full PIM (Families, Variants, Completeness), Full Compliance (DPP, VCs, QR, Attestation), Shopify Sync, API Access, Unlimited Users, Permanent DPP Hosting.
 
-**Soft Overages:** Need more products? €10 per 100 additional SKUs - no forced tier jumps.
+**Volume Overages:** €10 per 100 additional SKUs beyond plan limits.
 
 ---
 
