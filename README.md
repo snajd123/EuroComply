@@ -58,7 +58,7 @@ EuroComply uses a modular architecture. Organizations enable the modules they ne
 
 | Plan | Monthly | Annual | Products | Users | Key Features |
 |------|---------|--------|----------|-------|--------------|
-| **DPP Starter** | €29 | €290/yr | 100 | Unlimited | Core, Compliance, Basic DAM (session-only storage) |
+| **DPP Starter** | €29 | €290/yr | 100 | Unlimited | Core, Compliance, Basic DAM (30-day edit window) |
 | **DPP Professional** | €99 | €990/yr | 1,000 | Unlimited | + Basic PIM (3 families), CSV Import, 20 AI imports/mo, Attestation |
 | **PIM Standard** | €199 | €1,990/yr | 5,000 | Unlimited | + Full PIM, Unlimited AI, Bulk Ops, Export, Audit Log, Shopify, API |
 | **PIM Growth** | €499 | €4,990/yr | 25,000 | Unlimited | + Webhooks, Priority Support, 99.5% SLA |

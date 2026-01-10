@@ -97,7 +97,7 @@ Retailers who only resell products from other brands are served through the free
 │  │  €29/mo         │ ──► │ €99/mo          │                                │
 │  │  100 products   │     │ 1,000 products  │                                │
 │  │  Generate DPPs  │     │ + Basic PIM     │                                │
-│  │  Session-only   │     │ + Limited AI    │                                │
+│  │  30-day edit    │     │ + Limited AI    │                                │
 │  │  Unlimited users│     │ + Attestation   │                                │
 │  └─────────────────┘     └─────────────────┘                                │
 │                                   │                                          │
@@ -143,7 +143,8 @@ Retailers who only resell products from other brands are served through the free
 | Attestation (Multi-Party) | - | ✓ | ✓ | ✓ | ✓ |
 | | | | | | |
 | **PRODUCT MANAGEMENT** | | | | | |
-| Product Storage | 30 days | Permanent | Permanent | Permanent | Permanent |
+| Editing Window | 30 days | Permanent | Permanent | Permanent | Permanent |
+| DPP Hosting | Permanent | Permanent | Permanent | Permanent | Permanent |
 | Product Families | - | Basic (3) | Unlimited | Unlimited | Unlimited |
 | Variants | - | ✓ | ✓ | ✓ | ✓ |
 | Completeness Scoring | - | ✓ | ✓ | ✓ | ✓ |
@@ -181,7 +182,7 @@ Retailers who only resell products from other brands are served through the free
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
 │  DPP STARTER → DPP PROFESSIONAL                                 │
-│  • Product storage (30 days → permanent)                        │
+│  • Editing window (30 days → permanent)                         │
 │  • Basic PIM (3 families, variants, completeness)               │
 │  • CSV import + 20 AI imports/month                             │
 │  • Multi-party attestation                                       │
