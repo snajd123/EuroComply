@@ -48,6 +48,7 @@ EuroComply uses a modular architecture. Organizations enable the modules they ne
 |--------|-------------|------------|
 | **Core** | Authentication, organizations, billing | - |
 | **Compliance** | DPP generation, walt.id credentials, lifecycle tracking | Core |
+| **Attestation** | Third-party data contributions with cryptographic signatures | Core, Compliance |
 | **PIM** | Product families, variants, completeness scoring | Core |
 | **DAM** | Digital asset management, image optimization | Core |
 | **Import** | AI-powered data import from any format | Core, PIM |
@@ -77,7 +78,9 @@ Users can import product data from any format. The AI extracts, maps, and valida
 
 ### Product Information Management
 
-- **Product Families**: Define attribute schemas per product type (Apparel, Electronics, etc.)
+- **Product Families**: Define attribute schemas per product type
+- **Industry Templates**: Start from pre-built templates (ESPR Textiles, Electronics, Food & Beverage, etc.) or build from scratch
+- **Template Customization**: Modify templates - add fields, remove optional fields, adjust validation
 - **Dynamic Attributes**: Flexible JSONB storage for category-specific data
 - **Variants**: Parent-child product relationships with attribute inheritance
 - **Completeness Scoring**: Per-channel readiness scores (DPP: 85%, Shopify: 100%)
@@ -90,6 +93,34 @@ Users can import product data from any format. The AI extracts, maps, and valida
 - **Verifiable Credentials**: W3C VCs signed with did:key for tamper evidence
 - **Portable**: Organizations own their credentials, can export anytime
 - **QR Codes**: GS1 Digital Link compatible
+
+### Multi-Party Attestation
+
+Request and receive product data from third parties (manufacturers, certifiers, labs, suppliers) with cryptographic proof of origin:
+
+- **Data Requests**: Invite third parties via email to contribute specific product data
+- **Contributor Portal**: Third parties sign up, get their own did:key, and contribute data
+- **Cryptographic Signatures**: Every contribution is signed with the contributor's DID
+- **Linked Verifiable Credentials**: Each attestation is its own VC, linked to the main DPP
+- **Review Workflow**: Customer reviews and approves contributions before inclusion
+- **Expiry & Revocation**: Track attestation validity, get notified when certifications expire
+- **Trust Transparency**: DPP displays which data is self-claimed vs. third-party attested
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    ATTESTATION FLOW                              │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  CUSTOMER                    CONTRIBUTOR                         │
+│  ─────────                   ───────────                        │
+│  1. Request data ──────────► 2. Receive email invitation        │
+│                              3. Sign up (get did:key)           │
+│  6. Review & approve ◄────── 4. Enter data                      │
+│  7. Issue DPP with           5. Sign with DID                   │
+│     linked attestations                                          │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
 
 ### E-commerce Syndication
 
@@ -163,13 +194,28 @@ Organization (tenant)
 │       └── attributes: JSONB (overrides parent)
 ├── ProductFamilies (attribute schemas)
 │   ├── attributeSchema: JSONB (field definitions)
-│   └── completenessRules: JSONB (per-channel requirements)
+│   ├── completenessRules: JSONB (per-channel requirements)
+│   └── templateId?: references ProductFamilyTemplate
+├── ProductFamilyTemplates (industry presets)
+│   ├── attributeSchema: JSONB (default fields)
+│   └── industry: ESPR | FOOD | COSMETICS | INDUSTRIAL | CUSTOM
 ├── Assets (DAM)
 │   └── ProductAssets (many-to-many with roles)
 ├── Channels (Shopify connections)
 │   └── ChannelListings (product sync status)
 ├── ImportJobs (AI import tracking)
-└── Passports (issued DPPs with VCs)
+├── Passports (issued DPPs with VCs)
+│   └── attestations: linked attestation VCs
+├── DataRequests (invitations to contribute)
+│   └── requestedFields, visibility, expiry settings
+└── Contributions (third-party attestations)
+    ├── contributorId, fields[], status
+    └── versions: signed ContributionVersions with VCs
+
+Contributors (third-party attestors - cross-organization)
+├── email, companyName, type
+├── did, didKeyId (their own did:key)
+└── verificationLevel: SELF_ATTESTED | DOMAIN_VERIFIED
 ```
 
 ### Hybrid Schema Design
@@ -192,10 +238,12 @@ EuroComply/
 │   │   └── src/
 │   │       ├── core/        # Auth, org, billing
 │   │       ├── compliance/  # Passports, lifecycle
+│   │       ├── attestation/ # Multi-party contributions
 │   │       ├── pim/         # Families, variants, scoring
 │   │       ├── dam/         # Assets
 │   │       ├── import/      # AI import
-│   │       └── syndication/ # Shopify connector
+│   │       ├── syndication/ # Shopify connector
+│   │       └── retailer/    # Retailer access, public API
 │   └── frontend/            # Next.js dashboard
 ├── packages/
 │   ├── database/            # Prisma schema
@@ -335,6 +383,7 @@ Organizations own their data. Full portability guaranteed:
 | [BUSINESS_MODEL.md](./docs/BUSINESS_MODEL.md) | Pricing and business model |
 | [ARCHITECTURE_PORTABILITY.md](./docs/ARCHITECTURE_PORTABILITY.md) | Data portability architecture |
 | [VERIFIABLE_CREDENTIALS.md](./docs/VERIFIABLE_CREDENTIALS.md) | VC/DID technical details |
+| [MULTI_PARTY_ATTESTATION.md](./docs/MULTI_PARTY_ATTESTATION.md) | Third-party data contribution architecture |
 | [INFRASTRUCTURE.md](./INFRASTRUCTURE.md) | AWS infrastructure guide |
 | [ECOMMERCE_INTEGRATIONS.md](./docs/ECOMMERCE_INTEGRATIONS.md) | Shopify integration guide |
 
