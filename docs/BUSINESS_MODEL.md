@@ -23,21 +23,33 @@ EuroComply is a Compliance-First Product Information Management (PIM) platform. 
 │                    CUSTOMER SEGMENTS                             │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  SEGMENT A: DPP-ONLY CUSTOMERS                                  │
-│  ─────────────────────────────                                  │
-│  Already have product data managed elsewhere (ERP, spreadsheets,│
-│  existing PIM). Just need the compliance layer.                 │
+│  GROWTH SEGMENT (€129/month)                                    │
+│  ───────────────────────────                                    │
+│  Small to medium brands and manufacturers with catalogs         │
+│  up to 2,000 products. Typically first-time PIM users or        │
+│  organizations migrating from spreadsheets.                     │
 │                                                                  │
-│  • Compliance-Only: Has data elsewhere, needs DPP output        │
-│  • Compliance-Growth: Some data management, growing needs       │
+│  • Annual revenue: €1M-€20M                                     │
+│  • Products: 100-2,000 SKUs                                     │
+│  • Team size: 1-5 users managing product data                   │
 │                                                                  │
-│  SEGMENT B: PIM + DPP CUSTOMERS                                 │
-│  ─────────────────────────────                                  │
-│  Need both product data management AND compliance.              │
-│  Single platform for everything.                                │
+│  SCALE SEGMENT (€399/month)                                     │
+│  ──────────────────────────                                     │
+│  Mid-market distributors and larger brands with extensive       │
+│  catalogs requiring high-volume data management.                │
 │                                                                  │
-│  • PIM-Lite: Small catalog, wants one tool for everything       │
-│  • PIM-Pro: Larger catalog, needs AI import, multi-channel      │
+│  • Annual revenue: €20M-€200M                                   │
+│  • Products: 2,000-20,000 SKUs                                  │
+│  • Team size: 5-20 users across departments                     │
+│                                                                  │
+│  ENTERPRISE SEGMENT (Custom)                                    │
+│  ───────────────────────────                                    │
+│  Large organizations requiring custom integrations,             │
+│  dedicated support, and SLA guarantees.                         │
+│                                                                  │
+│  • Annual revenue: €200M+                                       │
+│  • Products: 20,000+ SKUs                                       │
+│  • Requirements: SSO, SLA, dedicated account management         │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -82,15 +94,13 @@ Retailers who only resell products from other brands are served through the free
 
 ## Pricing Model
 
-### The All-Access Volume Model
+### Volume-Based Pricing
 
-**Core Concept:** Stop selling features. Sell **capacity**.
-
-Every paying customer gets the full power of the platform. The only difference is how many products they manage. This eliminates friction and increases stickiness.
+EuroComply uses a volume-based pricing model where all customers receive full platform access. Tier differentiation is based solely on catalog capacity, not feature availability.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                     EUROCOMPLY ALL-ACCESS PRICING                            │
+│                         EUROCOMPLY PRICING TIERS                             │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │  ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐       │
@@ -98,17 +108,10 @@ Every paying customer gets the full power of the platform. The only difference i
 │  │    €129/mo      │ ──► │    €399/mo      │ ──► │     Custom      │       │
 │  │  2,000 products │     │ 20,000 products │     │   Unlimited     │       │
 │  │                 │     │                 │     │                 │       │
-│  │  ALL FEATURES   │     │  ALL FEATURES   │     │  ALL FEATURES   │       │
+│  │  Full Platform  │     │  Full Platform  │     │  Full Platform  │       │
 │  │  100 AI/month   │     │  1,000 AI/month │     │  + SLA & SSO    │       │
 │  │  Unlimited users│     │  Unlimited users│     │  Unlimited users│       │
 │  └─────────────────┘     └─────────────────┘     └─────────────────┘       │
-│                                                                              │
-│  WHY THIS MODEL?                                                            │
-│  ─────────────────                                                          │
-│  • No feature gates → faster conversion                                     │
-│  • Full integration on day 1 → higher stickiness                           │
-│  • Network effects → suppliers invite upstream partners                     │
-│  • Simpler sales → "How many products?" is the only question               │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -156,50 +159,34 @@ Every paying customer gets the complete platform:
 | **SLA** | - | - | 99.9% |
 | **SSO** | - | - | ✅ Included |
 
-### Why All-Access Works
+### Pricing Rationale
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  OLD MODEL (Feature Rationing)                                   │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  Customer: "I have 500 products."                               │
-│  Sales: "You need Starter tier."                                │
-│  Customer: "But I need Shopify sync..."                         │
-│  Sales: "That's €150 more for features you don't need."        │
-│  Customer: *Looks for competitors*                              │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────────┐
-│  NEW MODEL (All-Access Volume)                                   │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  Customer: "I have 500 products."                               │
-│  Sales: "Growth plan. €129/month. Everything included."        │
-│  Customer: "AI, Shopify, Families, Attestation for €129?"       │
-│  Customer: "This is a no-brainer vs Akeneo (€25k)."            │
-│  *Signs up immediately*                                         │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
+The volume-based pricing model offers several strategic advantages:
 
-### Soft Overages (No Cliff Edges)
+| Benefit | Description |
+|---------|-------------|
+| **Reduced Sales Friction** | Single question ("How many products?") simplifies purchasing decisions |
+| **Higher Platform Adoption** | Full feature access from day one increases integration depth |
+| **Network Effects** | Universal attestation access encourages supplier chain participation |
+| **Lower Churn** | Deep integration with Shopify, API, and attestation increases switching costs |
 
-To prevent customers from hitting walls when they grow:
+### Volume Overages
 
-| Plan | Included | Overage Rate |
-|------|----------|--------------|
+Customers exceeding their included product limits are billed incrementally rather than requiring tier upgrades:
+
+| Plan | Included Products | Overage Rate |
+|------|-------------------|--------------|
 | Growth | 2,000 | €10 per 100 additional SKUs |
 | Scale | 20,000 | €10 per 100 additional SKUs |
-| Enterprise | Custom | Volume-based |
+| Enterprise | Custom | Volume-based pricing |
 
-**Example:** Growth customer with 2,350 products
-- 2,000 included in €129/mo
-- 350 overage = 4 × €10 = €40/mo
-- **Total: €169/mo** (not forced to jump to €399)
+**Example Calculation:**
+- Growth plan base: €129/month (includes 2,000 products)
+- Customer has 2,350 products
+- Overage: 350 products = 4 units × €10 = €40/month
+- **Total monthly cost: €169**
 
-This keeps customers on their current plan as they grow, upgrading only when the math makes sense.
+This approach enables gradual scaling without forcing premature tier transitions.
 
 ---
 
@@ -647,14 +634,14 @@ At 500 customer scale (€220/month infrastructure amortized):
 │  Revenue:                  €399.00                                          │
 │  Gross margin:             €369.52 (93%)                                    │
 │                                                                              │
-│  ALL-ACCESS BENEFIT                                                         │
+│  VOLUME MODEL ECONOMICS                                                     │
 │  ─────────────────────────────────────                                      │
-│  By unlocking all features, we INCREASE LTV without increasing             │
-│  variable costs. Customers integrate deeper (Shopify, attestation),        │
-│  making EuroComply harder to replace.                                       │
+│  Full platform access increases customer lifetime value without             │
+│  proportional cost increases. Feature delivery costs remain constant        │
+│  regardless of which features customers utilize.                            │
 │                                                                              │
-│  The cost of providing Shopify sync or attestation to a Growth             │
-│  customer is essentially €0 - it's the same code path.                     │
+│  Marginal cost of additional features (Shopify sync, attestation):         │
+│  Negligible - shared infrastructure, identical code paths.                  │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1080,41 +1067,44 @@ Dormant Hosting addresses the ESPR requirement for 10-year data availability whi
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    EUROCOMPLY MODEL                              │
+│                    EUROCOMPLY BUSINESS MODEL                     │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  POSITIONING: Compliance-First PIM                              │
-│  → Product data management + DPP in one platform               │
-│  → Single "Golden Record" for commercial + compliance data      │
+│  POSITIONING                                                    │
+│  Compliance-First Product Information Management platform       │
+│  combining product data management with Digital Product         │
+│  Passports in a unified "Golden Record" architecture.           │
 │                                                                  │
-│  TARGET MARKET: SMEs and Mid-Market                            │
-│  → Brands, manufacturers, distributors                          │
-│  → 100-20,000 SKUs (Growth/Scale), unlimited (Enterprise)      │
-│  → Can't afford enterprise solutions                           │
+│  TARGET MARKET                                                  │
+│  SMEs and mid-market organizations (brands, manufacturers,      │
+│  distributors) with 100-20,000+ SKUs requiring ESPR compliance │
+│  without enterprise-level investment.                           │
 │                                                                  │
-│  PRICING: All-Access Volume Model                               │
-│  → Growth: €129/mo (2,000 products, ALL features)              │
-│  → Scale: €399/mo (20,000 products, ALL features)              │
-│  → Enterprise: Custom (unlimited, + SLA & SSO)                 │
-│  → Soft overages: €10/100 SKUs (no cliff edges)                │
+│  PRICING STRUCTURE                                              │
+│  Volume-based tiers with full platform access:                  │
+│  • Growth: €129/month (2,000 products)                         │
+│  • Scale: €399/month (20,000 products)                         │
+│  • Enterprise: Custom pricing (unlimited, SLA, SSO)            │
+│  • Volume overages: €10 per 100 additional SKUs                │
 │                                                                  │
-│  ALL PLANS INCLUDE:                                             │
-│  → Full PIM (families, variants, completeness)                 │
-│  → Full Compliance (DPP, VCs, QR, attestation)                 │
-│  → AI-powered import (100-1,000/mo based on tier)              │
-│  → Shopify sync + API access                                   │
-│  → Unlimited users                                              │
+│  PLATFORM CAPABILITIES                                          │
+│  • Product Information Management (families, variants)          │
+│  • Digital Product Passport generation (W3C VCs)               │
+│  • Multi-party attestation with cryptographic signatures       │
+│  • AI-powered data import                                       │
+│  • E-commerce syndication (Shopify)                            │
+│  • API access and webhooks                                      │
 │                                                                  │
-│  DIFFERENTIATION:                                               │
-│  → Only PIM with native DPP compliance                         │
-│  → ALL features unlocked (no feature gates)                    │
-│  → Enterprise power at SME prices                              │
-│  → No lock-in (portable VCs with did:key)                      │
+│  COMPETITIVE DIFFERENTIATION                                    │
+│  • Native DPP compliance (not an add-on)                       │
+│  • Volume-based pricing with full feature access               │
+│  • Portable credentials (did:key, no vendor lock-in)           │
+│  • SME-accessible price point                                  │
 │                                                                  │
-│  MARGINS:                                                       │
-│  → 93-97% gross margin (infrastructure costs minimal)          │
-│  → All-access increases LTV without increasing costs           │
-│  → Real costs: headcount (support, development)                │
+│  UNIT ECONOMICS                                                 │
+│  • Gross margin: 93-97%                                        │
+│  • Infrastructure costs: <5% of revenue                        │
+│  • Primary cost driver: personnel (support, development)       │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
