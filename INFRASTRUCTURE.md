@@ -437,8 +437,10 @@ Target Memory utilization: 80%
 |----------|----------|------------------------|---------|
 | 10K users, 1M scans/day | ~$500/month | ~$425/month | 15% |
 | 10K users, 100M scans/day | ~$4,500/month | ~$425/month | 91% |
-| 10K users, 1B scans/day | ~$38,000/month | ~$500/month | 99% |
-| Enterprise, 10B scans/day | ~$250,000/month | ~$2,000/month | 99% |
+| 10K users, 1B scans/day | ~$38,000/month | ~$425/month | 99% |
+| Enterprise, 10B scans/day | ~$250,000/month | ~$425/month | 99.8% |
+
+**Note:** Hybrid cost is fixed regardless of scan volume. Cloudflare doesn't charge for bandwidth, and Hetzner's 60TB/month is more than enough for cache misses.
 
 ---
 

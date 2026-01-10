@@ -249,7 +249,9 @@ See [SCALABILITY.md](./SCALABILITY.md) for technical details.
 | 1 million | ~$1,200/month | ~$200/month | 83% |
 | 100 million | ~$12,000/month | ~$200/month | 98% |
 | 1 billion | ~$38,000/month | ~$200/month | 99.5% |
-| 10 billion | ~$250,000/month | ~$500/month | 99.8% |
+| 10 billion | ~$250,000/month | ~$200/month | 99.9% |
+
+**Cost is truly fixed** - Cloudflare doesn't charge for bandwidth, and Hetzner includes 60TB/month (we use <20TB even at 10B scans/day due to 99%+ cache hit rate).
 
 ### Compute: ECS Fargate
 

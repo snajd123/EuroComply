@@ -349,9 +349,15 @@ async function revokeDPP(passportId: string, reason: string): Promise<void> {
 |-------|----------------|----------------------|---------|
 | 1M scans/day | ~$1,200/month | ~$200/month | 83% |
 | 10M scans/day | ~$4,000/month | ~$200/month | 95% |
-| 100M scans/day | ~$12,000/month | ~$300/month | 97% |
-| 1B scans/day | ~$38,000/month | ~$500/month | 99% |
-| 10B scans/day | ~$250,000/month | ~$2,000/month | 99% |
+| 100M scans/day | ~$12,000/month | ~$200/month | 98% |
+| 1B scans/day | ~$38,000/month | ~$200/month | 99.5% |
+| 10B scans/day | ~$250,000/month | ~$200/month | 99.9% |
+
+**Why is the cost fixed?**
+- Cloudflare: Unlimited bandwidth (free)
+- Hetzner: 60TB/month included across 3 servers
+- At 99% cache hit rate, origins see only 1% of traffic
+- 10B scans × 1% × 5KB = 15TB/month (well under 60TB limit)
 
 ### Detailed Cost Breakdown (Self-Hosted)
 
