@@ -858,31 +858,93 @@ See [BUSINESS_MODEL.md](docs/BUSINESS_MODEL.md) for full cost analysis and margi
 
 ---
 
-## 11. EU Registry Integration (Future)
+## 11. EU Integration (EBSI & DPP Registry)
 
-### What is the EU Registry?
+EuroComply is architected for seamless transition to EU-managed infrastructure. See [EU_INTEGRATION.md](docs/EU_INTEGRATION.md) for full details.
 
-The **System Registry** (formally the Registry of Digital Product Passports) is a central database managed by the European Commission. It acts as a lookup index enabling:
+### Already Compliant
 
-- **Customs Automation:** Bulk verification of products entering the EU
-- **Market Surveillance:** Regulators can query product patterns
-- **Resilience:** Record of products even if manufacturer disappears
+| Standard | Status | Notes |
+|----------|--------|-------|
+| W3C Verifiable Credentials | ✅ Complete | Same format EU uses |
+| GS1 GTIN | ✅ Complete | Product identification |
+| GS1 Digital Link | ✅ Complete | URL structure |
+| JSON-LD | ✅ Complete | Data format |
+| did:key | ✅ Complete | Portable identities |
 
-### Timeline
+### EBSI Integration (2025-2026)
 
-| Milestone | Date |
-|-----------|------|
-| EU publishes Registry API specs | 2025-2026 |
-| EuroComply implements Registry client | 2026 |
-| First products registered | 2027 |
+**EBSI** (European Blockchain Services Infrastructure) provides EU-anchored trust:
 
-### Architecture Readiness
+| Phase | Timeline | Tasks |
+|-------|----------|-------|
+| Preparation | Q2-Q3 2025 | Apply for conformance, integrate EBSI libraries |
+| did:ebsi | Q3-Q4 2025 | Add did:ebsi alongside did:key (same keys) |
+| Production | Q1 2026 | Organizations can register on EU Trusted Issuers Registry |
 
-Our architecture is ready for Registry integration:
-- GS1 standards (GTIN for product identification)
-- Operator data (organization details)
-- Accessible URLs (public DPP endpoints)
-- Open formats (W3C VCs, JSON-LD)
+**Key Insight:** did:ebsi uses the same cryptographic keys as did:key. Migration is registration, not replacement.
+
+### EU DPP Registry (2026-2027)
+
+The **EU DPP Registry** launches July 2026 as the central index of all DPPs:
+
+| Phase | Timeline | Tasks |
+|-------|----------|-------|
+| Preparation | Q1-Q2 2026 | Monitor API specs, build client library |
+| Integration | Q3-Q4 2026 | Auto-register new DPPs on issuance |
+| Full Operation | 2027 | All DPPs indexed, dual-path serving |
+
+**Key Insight:** EU Registry is an index pointing to our infrastructure. We remain the DPP content host.
+
+### EPCIS 2.0 Integration (Future)
+
+EPCIS 2.0 (GS1 supply chain events) for lifecycle tracking:
+- Link DPPs to EPCIS repositories
+- Display manufacturing, shipping, repair events
+- Optional: Host EPCIS repository for customers
+
+### Data Model Additions
+
+```prisma
+model OrganizationWallet {
+  // Existing: did:key
+  didKey          String   @unique
+
+  // NEW: did:ebsi (after EBSI registration)
+  didEbsi         String?  @unique
+  ebsiRegisteredAt DateTime?
+  ebsiTirEntry    String?
+}
+
+model Passport {
+  // NEW: EU Registry integration
+  euRegistryId    String?  @unique
+  euRegisteredAt  DateTime?
+  euRegistryStatus EuRegistryStatus @default(NOT_REGISTERED)
+
+  // NEW: EPCIS link
+  epcisRepositoryUrl String?
+}
+```
+
+### Implementation Tasks
+
+| Task | Phase | Status |
+|------|-------|--------|
+| **EBSI Preparation** | | |
+| Apply for EBSI conformance testing | Q2 2025 | Planned |
+| Integrate @cef-ebsi/verifiable-credential library | Q2 2025 | Planned |
+| Implement did:ebsi resolver | Q3 2025 | Planned |
+| Add did:ebsi to OrganizationWallet schema | Q3 2025 | Planned |
+| Build EBSI registration UI | Q3 2025 | Planned |
+| **EU Registry** | | |
+| Build EU Registry client library | Q2 2026 | Planned |
+| Add Registry registration to DPP issuance | Q3 2026 | Planned |
+| Auto-register all new DPPs | Q3 2026 | Planned |
+| Batch register existing DPPs | Q4 2026 | Planned |
+| **EPCIS** | | |
+| Add EPCIS repository link to DPP | 2027 | Planned |
+| Build EPCIS query client | 2027 | Planned |
 
 ---
 
@@ -892,13 +954,14 @@ Our architecture is ready for Registry integration:
 |----------|-------------|
 | [README.md](./README.md) | Platform overview and setup |
 | [BUSINESS_MODEL.md](./docs/BUSINESS_MODEL.md) | Pricing and market positioning |
-| [SCALABILITY.md](./docs/SCALABILITY.md) | Billion-scale DPP serving architecture |
+| [SCALABILITY.md](./docs/SCALABILITY.md) | Trillion-scale DPP serving architecture |
+| [EU_INTEGRATION.md](./docs/EU_INTEGRATION.md) | EBSI and EU DPP Registry integration |
 | [USER_MANAGEMENT.md](./docs/USER_MANAGEMENT.md) | User roles, permissions, and version control workflow |
 | [DATA_SOVEREIGNTY.md](./docs/DATA_SOVEREIGNTY.md) | Data ownership architecture |
 | [VERIFIABLE_CREDENTIALS.md](./docs/VERIFIABLE_CREDENTIALS.md) | VC/DID technical details |
 | [MULTI_PARTY_ATTESTATION.md](./docs/MULTI_PARTY_ATTESTATION.md) | Third-party data contribution architecture |
 | [ECOMMERCE_INTEGRATIONS.md](./docs/ECOMMERCE_INTEGRATIONS.md) | Shopify integration guide |
-| [INFRASTRUCTURE.md](./INFRASTRUCTURE.md) | AWS deployment guide |
+| [INFRASTRUCTURE.md](./INFRASTRUCTURE.md) | AWS + Hetzner deployment guide |
 
 ---
 

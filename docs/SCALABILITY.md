@@ -959,7 +959,9 @@ Cloudflare Dashboard provides:
 
 ## EU Registry Integration (Future)
 
-When the EU DPP Registry launches (expected 2026-2027):
+When the EU DPP Registry launches (expected July 2026), we'll integrate seamlessly.
+
+**See [EU_INTEGRATION.md](./EU_INTEGRATION.md) for full EBSI and EU Registry integration details.**
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -969,20 +971,25 @@ When the EU DPP Registry launches (expected 2026-2027):
 │  PHASE 1 (Now): Self-Hosted Read Path                           │
 │  • Cloudflare + Hetzner serves all DPP traffic                  │
 │  • ~$200/month for unlimited scale                              │
+│  • did:key for portable identities                              │
 │                                                                  │
-│  PHASE 2 (2026-2027): EU Registry as Option                     │
-│  • Register DPPs with EU Registry                               │
-│  • EU Registry can serve DPP data directly                      │
-│  • Our hosted version remains as backup/management              │
+│  PHASE 2 (2025-2026): EBSI Integration                          │
+│  • Add did:ebsi alongside did:key (same keys)                   │
+│  • Organizations can register on EU Trusted Issuers Registry    │
+│  • EU-anchored trust for customs/regulators                     │
 │                                                                  │
-│  PHASE 3 (Long-term): EU Registry Primary                       │
-│  • EU Registry becomes the canonical source                     │
-│  • We focus on issuance/management (write path)                 │
-│  • Read traffic shifts to EU infrastructure                     │
-│  • Our costs drop even further                                  │
+│  PHASE 3 (2026-2027): EU Registry Integration                   │
+│  • Register DPPs with EU Registry on issuance                   │
+│  • EU Registry indexes our DPPs (points to our URLs)            │
+│  • Dual-path: direct access + EU discovery                      │
 │                                                                  │
-│  KEY POINT: We're not locked into self-hosting forever.         │
-│  EU Registry will eventually absorb public read traffic.        │
+│  PHASE 4 (Long-term): Dual Operation                            │
+│  • We handle high-volume consumer scans (CDN)                   │
+│  • EU Registry handles official lookups (customs, etc.)         │
+│  • Both systems interoperate                                    │
+│                                                                  │
+│  KEY POINT: EU Registry is an index, not a replacement.         │
+│  We remain the authoritative DPP content host.                  │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -1127,8 +1134,10 @@ enum PassportStatus {
 | Document | Description |
 |----------|-------------|
 | [INFRASTRUCTURE.md](../INFRASTRUCTURE.md) | Full infrastructure guide (AWS + Hetzner) |
+| [EU_INTEGRATION.md](./EU_INTEGRATION.md) | EBSI and EU DPP Registry integration |
 | [ARCHITECTURE_PORTABILITY.md](./ARCHITECTURE_PORTABILITY.md) | Data ownership and portability |
 | [DATA_SOVEREIGNTY.md](./DATA_SOVEREIGNTY.md) | EU data residency |
+| [VERIFIABLE_CREDENTIALS.md](./VERIFIABLE_CREDENTIALS.md) | VC/DID technical details (did:key, did:ebsi) |
 | [IMPLEMENTATION_PLAN.md](../IMPLEMENTATION_PLAN.md) | Full implementation roadmap |
 
 ---
