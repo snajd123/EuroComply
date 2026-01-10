@@ -188,7 +188,33 @@ Passport (DPP)
 ├── data: JSONB (CIRPASS schema)
 ├── vcJwt (Verifiable Credential)
 ├── qrCodeUrl
+├── attestations: AttestationRef[] (linked attestation VCs)
 └── status: DRAFT | ACTIVE | REVOKED
+
+Contributor (Third-Party Attestor)
+├── email, companyName
+├── type: CERTIFIER | MANUFACTURER | SUPPLIER | LAB | AUDITOR | OTHER
+├── did, didKeyId (their own did:key)
+└── verificationLevel: SELF_ATTESTED | DOMAIN_VERIFIED
+
+DataRequest (Invitation to Contribute)
+├── organizationId, productId
+├── contributorEmail, requestedFields[]
+├── visibility: FULL_PRODUCT | REQUESTED_FIELDS_ONLY
+├── expiry settings (suggestedExpiry, allowNoExpiry, requireExpiry)
+└── status: PENDING | ACCEPTED | COMPLETED | EXPIRED | DECLINED
+
+Contribution (Attested Data)
+├── productId, contributorId, requestId?
+├── fields[] (which fields covered)
+├── status: DRAFT | PENDING_REVIEW | APPROVED | REJECTED | REVOKED
+└── versions: ContributionVersion[]
+
+ContributionVersion (Signed Version)
+├── version: number, data: JSONB
+├── dataHash, signature (signed with contributor DID)
+├── vcId, vcJwt (attestation VC)
+└── expiresAt? (null = never)
 ```
 
 ---
@@ -215,6 +241,11 @@ Passport (DPP)
 │   ├── /lifecycle      # Event tracking
 │   └── /verify         # Public verification (no auth)
 │
+├── attestation/
+│   ├── /data-requests  # Create/manage data requests
+│   ├── /contributions  # Review/approve contributions
+│   └── /contributors   # Contributor management
+│
 ├── dam/
 │   ├── /assets         # Asset CRUD
 │   └── /upload         # Upload endpoint
@@ -232,6 +263,9 @@ Passport (DPP)
 │   ├── /register       # Retailer registration (free)
 │   ├── /me             # Retailer profile
 │   └── /saved          # Saved products
+│
+├── contribute/
+│   └── /:token           # Public contributor portal (no auth, token-based)
 │
 └── public/
     ├── /dpp/gtin/:gtin           # Lookup by GTIN
@@ -361,6 +395,26 @@ router.use('/syndication', requireModule('syndication'), syndicationRoutes);
 
 **Outcome:** Retailers can search, browse, and display DPPs without technical expertise.
 
+### Phase 7: Multi-Party Attestation
+
+**Goal:** Enable third-party data contributions with cryptographic signatures
+
+| Task | Status |
+|------|--------|
+| Contributor model and authentication (did:key per contributor) | Planned |
+| DataRequest model and email invitation system | Planned |
+| Contribution and ContributionVersion models with versioning | Planned |
+| Contributor portal with configurable product visibility | Planned |
+| Signature and attestation VC generation | Planned |
+| Customer review and approval workflow | Planned |
+| Link approved attestations to DPP VC | Planned |
+| Notification system (expiry, revocation, new versions) | Planned |
+| Attestation display in DPP verification view | Planned |
+
+**Outcome:** Customers can request data from manufacturers, certifiers, labs, and suppliers. Contributors sign their data with their own DID, creating a chain of trust in the final DPP.
+
+See [MULTI_PARTY_ATTESTATION.md](docs/MULTI_PARTY_ATTESTATION.md) for full architecture.
+
 ---
 
 ## 7. Directory Structure
@@ -373,6 +427,7 @@ EuroComply/
 │   │       ├── core/            # Auth, org, billing
 │   │       ├── pim/             # Families, products, variants
 │   │       ├── compliance/      # Passports, lifecycle
+│   │       ├── attestation/     # Multi-party data contributions
 │   │       ├── dam/             # Assets, upload
 │   │       ├── import/          # AI import, job processing
 │   │       ├── syndication/     # Shopify, sync jobs
@@ -492,6 +547,7 @@ Our architecture is ready for Registry integration:
 | [BUSINESS_MODEL.md](./docs/BUSINESS_MODEL.md) | Pricing and market positioning |
 | [DATA_SOVEREIGNTY.md](./docs/DATA_SOVEREIGNTY.md) | Data ownership architecture |
 | [VERIFIABLE_CREDENTIALS.md](./docs/VERIFIABLE_CREDENTIALS.md) | VC/DID technical details |
+| [MULTI_PARTY_ATTESTATION.md](./docs/MULTI_PARTY_ATTESTATION.md) | Third-party data contribution architecture |
 | [ECOMMERCE_INTEGRATIONS.md](./docs/ECOMMERCE_INTEGRATIONS.md) | Shopify integration guide |
 | [INFRASTRUCTURE.md](./INFRASTRUCTURE.md) | AWS deployment guide |
 

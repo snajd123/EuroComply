@@ -606,7 +606,154 @@ async function approveDppIssuance(productId: string, organization: Organization)
 
 ---
 
-## 13. Summary
+## 13. Multi-Party Attestations
+
+DPPs can include **attestations from third parties** (manufacturers, certifiers, labs, suppliers). Each attestation is a separate VC, linked to the main DPP.
+
+See [MULTI_PARTY_ATTESTATION.md](./MULTI_PARTY_ATTESTATION.md) for full architecture.
+
+### Attestation VC Structure
+
+When a third party (e.g., certifier, manufacturer, lab) contributes data:
+
+```json
+{
+  "@context": [
+    "https://www.w3.org/2018/credentials/v1",
+    "https://eurocomply.eu/contexts/attestation/v1"
+  ],
+  "id": "urn:uuid:attestation-abc123",
+  "type": ["VerifiableCredential", "ProductDataAttestation"],
+  "issuer": "did:key:zContributor...",
+  "issuanceDate": "2026-01-10T12:00:00Z",
+  "expirationDate": "2027-06-01T00:00:00Z",
+  "credentialSubject": {
+    "id": "urn:eurocomply:product:prod_xyz",
+    "gtin": "1234567890123",
+    "attestationType": "CERTIFICATION",
+    "attestedFields": ["certifications"],
+    "data": {
+      "certifications": [
+        {
+          "type": "GOTS",
+          "certificateNumber": "CU-123456",
+          "issuedDate": "2025-06-01",
+          "expiresDate": "2027-06-01"
+        }
+      ]
+    },
+    "dataHash": "sha256:e3b0c44298fc1c149afbf4c8...",
+    "version": 1
+  },
+  "proof": {
+    "type": "JsonWebSignature2020",
+    "created": "2026-01-10T12:00:00Z",
+    "verificationMethod": "did:key:zContributor...#key-1",
+    "proofPurpose": "assertionMethod",
+    "jws": "eyJhbGci..."
+  }
+}
+```
+
+### DPP with Linked Attestations
+
+The final DPP references all approved attestation VCs:
+
+```json
+{
+  "@context": [...],
+  "type": ["VerifiableCredential", "DigitalProductPassport"],
+  "issuer": "did:key:zCustomer...",
+  "credentialSubject": {
+    "id": "urn:gtin:1234567890123",
+    "productName": "Organic Cotton T-Shirt",
+    "materials": { ... },
+    "certifications": [ ... ]
+  },
+
+  "attestations": [
+    {
+      "id": "urn:uuid:attestation-abc123",
+      "issuer": {
+        "did": "did:key:zCertifier...",
+        "name": "Control Union Certifications",
+        "type": "CERTIFIER",
+        "verificationLevel": "DOMAIN_VERIFIED"
+      },
+      "attestedFields": ["certifications"],
+      "signedAt": "2026-01-10T12:00:00Z",
+      "expiresAt": "2027-06-01T00:00:00Z",
+      "credential": "eyJhbGci..."
+    },
+    {
+      "id": "urn:uuid:attestation-def456",
+      "issuer": {
+        "did": "did:key:zManufacturer...",
+        "name": "EcoTextiles GmbH",
+        "type": "MANUFACTURER",
+        "verificationLevel": "SELF_ATTESTED"
+      },
+      "attestedFields": ["materials"],
+      "signedAt": "2026-01-08T12:00:00Z",
+      "expiresAt": null,
+      "credential": "eyJhbGci..."
+    }
+  ],
+
+  "proof": { ... }
+}
+```
+
+### Attestation Trust Levels
+
+| Level | Description | Display |
+|-------|-------------|---------|
+| SELF_ATTESTED | Contributor signed up and claims identity | "Self-attested" |
+| DOMAIN_VERIFIED | Email domain matches claimed organization | "Domain verified (example.com)" |
+
+### Verification of Attestations
+
+When verifying a DPP with attestations:
+
+1. Verify the main DPP signature (customer's did:key)
+2. For each attestation:
+   - Extract the embedded attestation VC JWT
+   - Verify the attestation signature (contributor's did:key)
+   - Check expiration date
+3. Display trust level for each attested field
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ MATERIALS                                           ✓ ATTESTED │
+│ 95% Organic Cotton, 5% Elastane                                │
+│                                                                 │
+│ Attested by: EcoTextiles GmbH (MANUFACTURER)                   │
+│ DID: did:key:z6Mk... • SELF_ATTESTED                           │
+│ Signed: 2026-01-08 • Never expires                             │
+│ ✓ Signature Valid                                              │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
+│ CARBON FOOTPRINT                                ⚠️ SELF-CLAIMED │
+│ 5.2 kgCO2e                                                      │
+│                                                                 │
+│ Claimed by: Fashion Brand GmbH (product owner)                 │
+│ No third-party attestation                                     │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Key Points
+
+- **Linked VCs**: Each attestation is its own VC, not embedded data
+- **Independent verification**: Each attestation can be verified separately
+- **Expiry tracking**: Attestations can expire (e.g., when certifications expire)
+- **Revocation**: Contributors can revoke their attestations
+- **Versioning**: Attestations maintain version history with signatures
+- **Any field**: Third parties can attest any product field, not just certifications
+
+---
+
+## 14. Summary
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -645,7 +792,7 @@ async function approveDppIssuance(productId: string, organization: Organization)
 
 ---
 
-## 14. References
+## 15. References
 
 - [W3C Verifiable Credentials Data Model](https://www.w3.org/TR/vc-data-model/)
 - [W3C Decentralized Identifiers (DIDs)](https://www.w3.org/TR/did-core/)
@@ -653,7 +800,8 @@ async function approveDppIssuance(productId: string, organization: Organization)
 - [walt.id Documentation](https://docs.walt.id/)
 - [ESPR Regulation](https://eur-lex.europa.eu/eli/reg/2024/1781)
 - [eIDAS 2.0 Framework](https://digital-strategy.ec.europa.eu/en/policies/eidas-regulation)
+- [MULTI_PARTY_ATTESTATION.md](./MULTI_PARTY_ATTESTATION.md) - Third-party attestation architecture
 
 ---
 
-*Last Updated: 2026-01-08*
+*Last Updated: January 2026*
