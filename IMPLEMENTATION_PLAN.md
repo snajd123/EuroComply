@@ -251,8 +251,22 @@ User (Organization Member)
 ├── scopes: Scope[] (COMMERCIAL, COMPLIANCE, ADMIN)
 ├── reportsToId? (approval hierarchy)
 ├── allowedProductTags[], allowedFamilyIds[] (guest restrictions)
-├── did, didKeyId (user's personal did:key for signing)
+├── walletId? (references UserWallet)
 └── isActive, invitedAt, lastLoginAt
+
+UserWallet (User Identity & Keys)
+├── userId (unique)
+├── type: MANAGED | EUDI | EXTERNAL
+├── did?, keyId? (for MANAGED wallets)
+├── eudiDid?, eudiSubject?, connectionState? (for EUDI wallets)
+├── activeDid (which DID to use for signing)
+└── connectedAt, lastUsedAt
+
+OrganizationWallet (Organization Identity)
+├── organizationId (unique)
+├── did, keyId (walt.id managed key)
+├── leiCode? (Legal Entity Identifier for future)
+└── createdAt
 
 ProductVersion (Git-Style Version Control)
 ├── productId, version (1, 2, 3...)
@@ -455,14 +469,19 @@ Phase 7: Retailer Access    ──► Public API and widget
 | Implement approval routing logic (by scope and hierarchy) | Planned |
 | Build approval inbox API and UI | Planned |
 | Product history tab with version timeline | Planned |
-| **User Identity & Signing** | |
-| Integrate user DID generation via walt.id Custodian | Planned |
-| Auto-generate user did:key on first signing action | Planned |
-| Implement per-version signing on publish/approve | Planned |
+| **Wallet Architecture (EUDI-Ready)** | |
+| Create WalletProvider interface (abstraction for all wallet types) | Planned |
+| Implement ManagedWalletProvider (walt.id Custodian backend) | Planned |
+| Add UserWallet and OrganizationWallet models to schema | Planned |
+| Build WalletFactory for provider instantiation | Planned |
+| Auto-generate managed wallet on first signing action | Planned |
+| Implement per-version signing through wallet interface | Planned |
 | Signature verification display in history view | Planned |
-| Include user DIDs in data export package | Planned |
+| Include user wallets in data export package | Planned |
+| Stub EUDIWalletProvider interface (implementation when EUDI launches) | Planned |
+| Wallet settings UI (view wallet, future: connect EUDI) | Planned |
 
-**Outcome:** Users can sign up, start free trial, manage subscriptions with overage billing, and export data on cancellation. Enterprise customers can use SSO. Organizations can invite team members with role-based access control, and all product changes are version-controlled with cryptographic signatures. Database schema supports all future features.
+**Outcome:** Users can sign up, start free trial, manage subscriptions with overage billing, and export data on cancellation. Enterprise customers can use SSO. Organizations can invite team members with role-based access control, and all product changes are version-controlled with cryptographic signatures. Wallet abstraction enables future EUDI integration without code changes. Database schema supports all future features.
 
 **Key Decision:** Design attestation models NOW (Contributor, DataRequest, Contribution, ContributionVersion) even though implementation is Phase 5. This prevents schema rework later.
 

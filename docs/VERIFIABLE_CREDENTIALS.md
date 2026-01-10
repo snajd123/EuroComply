@@ -255,9 +255,87 @@ DPP Issued ───────────────────────
   References: v3 as the source version
 ```
 
-All user DIDs are stored in walt.id Custodian alongside organization keys, using the same infrastructure and security model.
+All DIDs are managed through a **Wallet abstraction** that enables future integration with external wallets (including EUDI).
 
-See [USER_MANAGEMENT.md](./USER_MANAGEMENT.md) for full details on user roles, permissions, and version control workflow.
+### 4.3.1 Wallet Architecture (EUDI-Ready)
+
+Keys and credentials are accessed through a unified **WalletProvider** interface:
+
+```typescript
+interface WalletProvider {
+  getDid(): Promise<string>;
+  sign(payload: SignablePayload): Promise<SignedResult>;
+  storeCredential(vc: VerifiableCredential): Promise<void>;
+  getCredentials(filter?: CredentialFilter): Promise<VerifiableCredential[]>;
+}
+
+// Same code works for all wallet types
+const wallet = await WalletFactory.getProvider(user.wallet);
+const signed = await wallet.sign(versionData);
+```
+
+#### Supported Wallet Types
+
+| Type | Storage | Signing | Use Case |
+|------|---------|---------|----------|
+| **MANAGED** | walt.id Custodian | Server-side (automatic) | Default for all users |
+| **EUDI** | User's EU Digital Identity Wallet | User confirms on phone | Higher trust requirements |
+| **EXTERNAL** | Third-party wallet | User-controlled | Full self-sovereignty |
+
+#### Why This Design
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  EUDI-READY ARCHITECTURE                                         │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Application Code (unchanged)                                   │
+│  ─────────────────────────────                                  │
+│  const signed = await wallet.sign(data);                        │
+│                                                                  │
+│         │                                                        │
+│         ▼                                                        │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │              WalletProvider Interface                        ││
+│  └─────────────────────────────────────────────────────────────┘│
+│         │              │              │                          │
+│         ▼              ▼              ▼                          │
+│  ┌───────────┐  ┌───────────┐  ┌───────────┐                    │
+│  │  MANAGED  │  │   EUDI    │  │ EXTERNAL  │                    │
+│  │ (walt.id) │  │(OpenID4VP)│  │(WalletCon)│                    │
+│  └───────────┘  └───────────┘  └───────────┘                    │
+│                                                                  │
+│  When EUDI launches:                                            │
+│  1. Implement EUDIWalletProvider (same interface)               │
+│  2. Add "Connect EUDI" button in settings                       │
+│  3. Done - all existing code works automatically                │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### OpenID4VC Protocol (EUDI Standard)
+
+EUDI Wallets use **OpenID for Verifiable Credentials** (OpenID4VC):
+
+- **OpenID4VCI**: Receiving credentials into wallet
+- **OpenID4VP**: Presenting credentials / signing requests
+
+```
+EuroComply                              EUDI Wallet
+    │                                        │
+    │  1. "Please sign this product update"  │
+    │  (OpenID4VP request)                   │
+    │───────────────────────────────────────►│
+    │                                        │ (User sees notification)
+    │                                        │ (User confirms with biometrics)
+    │  2. Signed response                    │
+    │◄───────────────────────────────────────│
+    │                                        │
+    │  3. Verify against EBSI registry       │
+    │  (government trust anchor)             │
+```
+
+See [USER_MANAGEMENT.md](./USER_MANAGEMENT.md) for full details on user roles, wallet configuration, and version control workflow.
 
 ### 4.4 The DPP as a Verifiable Credential
 
