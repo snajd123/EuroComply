@@ -898,31 +898,32 @@ The **EU DPP Registry** launches July 2026 as the central index of all DPPs:
 
 ### EPCIS 2.0 Integration (Core Feature)
 
-EPCIS 2.0 is integrated **from day one** as a core feature, powered by **OpenEPCIS** - an open-source, GS1-compliant EPCIS 2.0 repository. See [EPCIS_INTEGRATION.md](docs/EPCIS_INTEGRATION.md) for full documentation.
+EPCIS 2.0 is integrated **from day one** as a core feature. EuroComply acts as an **"Accessing Application"** - we **read** EPCIS events from customer/supplier repositories, we don't host them. See [EPCIS_INTEGRATION.md](docs/EPCIS_INTEGRATION.md) for full documentation.
 
-#### Chosen Implementation: OpenEPCIS
+#### Our Role: Reader & Visualizer
 
-| Component | Technology | Purpose |
-|-----------|------------|---------|
-| **OpenEPCIS Repository** | Quarkus/Java 21+ | GS1-certified EPCIS 2.0 event storage |
-| **Apache Kafka** | Event streaming | Async event ingestion, high throughput |
-| **OpenSearch** | Search engine | Fast event queries, timeline views |
+| What We DON'T Do | What We DO |
+|------------------|------------|
+| ❌ Host EPCIS repositories | ✅ Query customer repositories |
+| ❌ Run Kafka/OpenSearch | ✅ Transform JSON → beautiful UI |
+| ❌ Store supply chain events | ✅ Cache for performance |
+| ❌ Build capturing systems | ✅ Build visualization layer |
 
-**Why OpenEPCIS?**
-- Apache 2.0 license (no vendor lock-in)
-- GS1-compliant EPCIS 2.0 implementation
-- Designed for high-throughput event capture
-- Supports all EPCIS event types and ESPR extensions
+**Why this approach?**
+- **Zero infrastructure cost** for EPCIS (we don't run it)
+- **Data sovereignty** - events stay in customer/supplier systems
+- **Works with ANY EPCIS 2.0 repository** - IBM, SAP, TraceLink, OpenEPCIS, etc.
+- **Focus on our value** - visualization, not plumbing
 
-#### Features
+#### Components
 
-| Feature | Description |
-|---------|-------------|
-| **Event Capture** | REST API for all 4 EPCIS event types |
-| **Auto-Linking** | Events automatically linked to DPPs by GTIN |
-| **Carbon Tracking** | ESPR extensions for carbon footprint per event |
-| **Lifecycle UI** | Timeline view on DPP public pages |
-| **IoT Support** | Sensor data (temperature, humidity, shock) |
+| Component | Purpose |
+|-----------|---------|
+| **EPCIS Query Client** | Simple HTTP client to query any EPCIS 2.0 repository |
+| **Story Builder** | Transform raw EPCIS JSON into human-readable timelines |
+| **Repository Manager** | Configure connections to customer/supplier EPCIS repos |
+| **Location Master** | GLN → human-readable location name resolution |
+| **Carbon Aggregator** | Calculate total footprint from transport events |
 
 **Why core from day one?**
 - ESPR requires supply chain traceability
@@ -949,29 +950,37 @@ model Passport {
   euRegisteredAt  DateTime?
   euRegistryStatus EuRegistryStatus @default(NOT_REGISTERED)
 
-  // NEW: EPCIS integration
-  epcisEvents         PassportEpcisEvent[]
-  externalEpcisUrl    String?  // For external EPCIS repos
-  totalCarbonFootprint Float?  // Aggregated from events
-  lastEventTime       DateTime?
-  eventCount          Int      @default(0)
+  // NEW: EPCIS integration (reader model - no storage, just config)
+  epcisEnabled          Boolean  @default(false)
+  totalCarbonFootprint  Float?   // Cached from queries
+  lastEventTime         DateTime?
+  eventCount            Int      @default(0)
 }
 
-// NEW: EPCIS Event storage
-model EpcisEvent {
+// NEW: EPCIS Repository connections (customer configures their repos)
+model EpcisRepository {
   id              String   @id @default(cuid())
   organizationId  String
-  eventId         String   @unique
-  eventType       EpcisEventType  // OBJECT, AGGREGATION, etc.
-  eventTime       DateTime
-  epcList         String[]
-  bizStep         String?
-  disposition     String?
-  readPoint       String?
-  carbonFootprint Float?   // ESPR extension
-  transportMode   String?
-  rawEvent        Json
-  passportEvents  PassportEpcisEvent[]
+  name            String   // "Factory EPCIS", "DHL Tracking", etc.
+  baseUrl         String   // https://epcis.supplier.com
+  authType        String   // 'oauth2', 'apikey', 'basic'
+  credentials     String   // Encrypted JSON
+  isActive        Boolean  @default(true)
+  lastChecked     DateTime?
+  lastError       String?
+}
+
+// NEW: Location master data (for GLN resolution)
+model EpcisLocation {
+  id              String   @id @default(cuid())
+  organizationId  String
+  gln             String   @unique  // Global Location Number
+  name            String
+  type            String   // warehouse, factory, store, etc.
+  city            String?
+  country         String   // ISO 3166-1 alpha-2
+  latitude        Float?
+  longitude       Float?
 }
 ```
 
@@ -990,23 +999,25 @@ model EpcisEvent {
 | Add Registry registration to DPP issuance | Q3 2026 | Planned |
 | Auto-register all new DPPs | Q3 2026 | Planned |
 | Batch register existing DPPs | Q4 2026 | Planned |
-| **EPCIS (Core Feature - OpenEPCIS Stack)** | | |
-| Deploy OpenEPCIS repository (Quarkus/Java 21+) | Phase 4 | Planned |
-| Configure Apache Kafka for event streaming | Phase 4 | Planned |
-| Set up OpenSearch for event indexing | Phase 4 | Planned |
+| **EPCIS (Core Feature - Reader/Visualizer)** | | |
+| Build EPCIS 2.0 REST query client | Phase 4 | Planned |
+| Support OAuth 2.0 and API key authentication | Phase 4 | Planned |
+| Add repository connection management API | Phase 4 | Planned |
+| Create connection test endpoint | Phase 4 | Planned |
+| Build Story Builder service | Phase 4 | Planned |
+| Implement bizStep → human text mapping | Phase 4 | Planned |
+| Add GLN → location resolution (Location Master) | Phase 4 | Planned |
+| Carbon footprint aggregation from events | Phase 4 | Planned |
+| Multi-repository event merging | Phase 4 | Planned |
 | Add EPCIS tables to Prisma schema | Phase 4 | Planned |
-| Build OpenEPCIS client wrapper (TypeScript) | Phase 4 | Planned |
-| Implement EPCIS event capture API | Phase 4 | Planned |
-| Build event query API (GS1 2.0 compatible) | Phase 4 | Planned |
-| Implement automatic DPP-to-event linking | Phase 4 | Planned |
-| Add ESPR extensions (carbon, transport) | Phase 4 | Planned |
-| Product lifecycle timeline UI | Phase 4 | Planned |
-| Event entry form (manual entry) | Phase 4 | Planned |
+| Product lifecycle timeline UI component | Phase 4 | Planned |
+| Repository connection settings UI | Phase 4 | Planned |
 | Add lifecycle tab to DPP public page | Phase 4 | Planned |
 | Carbon footprint visualization | Phase 4 | Planned |
-| OpenEPCIS Kubernetes production deployment | Phase 4 | Planned |
-| ERP integration guide (SAP, Oracle) | Phase 6 | Planned |
-| External EPCIS repository linking (IBM, SAP) | Phase 6 | Planned |
+| Simple event entry portal (manual fallback) | Phase 5 | Planned |
+| Supplier invitation workflow | Phase 5 | Planned |
+| Excel/CSV event upload | Phase 5 | Planned |
+| OpenEPCIS deployment guide (for customers) | Phase 5 | Planned |
 
 ---
 

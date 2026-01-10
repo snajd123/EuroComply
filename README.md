@@ -103,9 +103,9 @@ Users can import product data from any format. The AI extracts, maps, and valida
 - **Portable**: Organizations own their credentials, can export anytime
 - **QR Codes**: GS1 Digital Link compatible
 
-### Supply Chain Lifecycle Tracking (EPCIS 2.0 + OpenEPCIS)
+### Supply Chain Lifecycle Tracking (EPCIS 2.0)
 
-Track the complete journey of every product with GS1 EPCIS 2.0 integration, powered by **OpenEPCIS**:
+Track the complete journey of every product with GS1 EPCIS 2.0 integration. EuroComply acts as a **reader/visualizer** - we query events from customer/supplier EPCIS repositories and transform them into beautiful timelines:
 
 - **Manufacturing Events**: When and where products are created
 - **Shipping & Receiving**: Full logistics chain with locations
@@ -113,24 +113,24 @@ Track the complete journey of every product with GS1 EPCIS 2.0 integration, powe
 - **Repairs & Refurbishment**: Service history for circular economy
 - **End-of-Life**: Recycling and disposal tracking
 
-**Powered by OpenEPCIS Stack:**
+**Our Role: Accessing Application**
 
-| Component | Technology | Purpose |
-|-----------|------------|---------|
-| **OpenEPCIS** | Quarkus/Java 21+ | GS1-compliant EPCIS 2.0 repository |
-| **Apache Kafka** | Event streaming | Real-time event pipelines |
-| **OpenSearch** | Search/indexing | Fast event queries and aggregations |
+| What We DON'T Do | What We DO |
+|------------------|------------|
+| ❌ Host EPCIS repositories | ✅ Query customer/supplier repositories |
+| ❌ Store supply chain events | ✅ Transform JSON → beautiful timelines |
+| ❌ Run Kafka/OpenSearch | ✅ Aggregate carbon from events |
+
+**Compatible with any EPCIS 2.0 repository**: OpenEPCIS, IBM Sterling, SAP, TraceLink, GS1 Cloud
 
 **Where does the data come from?**
 
 | Source | How It Works |
 |--------|--------------|
-| **ERP/WMS Systems** | SAP, Oracle, Dynamics push events via webhooks |
-| **Manual Entry** | Staff record events in our UI (shipping, receiving) |
-| **IoT Sensors** | Temperature loggers, GPS trackers, RFID readers |
-| **Shopify** | Fulfillment webhooks auto-generate shipping events |
-| **Suppliers** | Supplier portal for upstream supply chain events |
-| **3PL Providers** | DHL, FedEx tracking integration |
+| **Customer EPCIS** | Query events from customer's EPCIS repository |
+| **Supplier EPCIS** | Query events from supplier's repository (if access granted) |
+| **Logistics EPCIS** | Query tracking from DHL, FedEx repositories |
+| **Manual Fallback** | Simple portal for suppliers without EPCIS |
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -217,14 +217,15 @@ Lookup is supported by GTIN/EAN, brand and SKU combination, or item-level serial
 | Identity | walt.id | DID/VC infrastructure |
 | AI | Claude API | Document parsing, data extraction |
 
-### EPCIS Stack (OpenEPCIS)
+### EPCIS Integration (Reader Model)
 
 | Component | Technology | Purpose |
 |-----------|------------|---------|
-| Repository | [OpenEPCIS](https://github.com/openepcis/epcis-repository-ce) | GS1 EPCIS 2.0 compliant event store |
-| Runtime | Quarkus/Java 21+ | Native compilation, fast startup |
-| Streaming | Apache Kafka | Event pipelines, pub/sub |
-| Search | OpenSearch | Event indexing, fast queries |
+| Query Client | TypeScript/HTTP | Query any EPCIS 2.0 repository |
+| Story Builder | TypeScript | Transform JSON → human-readable timelines |
+| Location Master | PostgreSQL | GLN → location name resolution |
+
+**Note:** We don't host EPCIS infrastructure. We query customer/supplier repositories via standardized EPCIS 2.0 REST API. Compatible with OpenEPCIS, IBM, SAP, TraceLink, and any GS1-compliant implementation.
 
 ### Frontend
 

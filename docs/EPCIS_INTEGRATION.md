@@ -24,6 +24,83 @@ EPCIS 2.0 is the **GS1 standard for supply chain event data**. While DPPs contai
 
 ---
 
+## EuroComply's Role: Accessing Application
+
+### The Key Insight
+
+EuroComply is an **"Accessing Application"** in GS1 terminology - we **read** EPCIS events, we don't **capture** them.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  EPCIS ECOSYSTEM ROLES                                           │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  CAPTURING APPLICATIONS (Write Events)                          │
+│  ──────────────────────────────────────                         │
+│  These systems WRITE events to EPCIS repositories:              │
+│  • Factory MES systems → "Product manufactured"                 │
+│  • Warehouse WMS → "Product shipped/received"                   │
+│  • Logistics/3PL systems → "In transit" events                  │
+│  • Repair centers → "Product repaired"                          │
+│  • Recycling facilities → "End of life"                         │
+│                                                                  │
+│  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐            │
+│  │ Factory │  │Warehouse│  │Logistics│  │ Repair  │            │
+│  │   MES   │  │   WMS   │  │   TMS   │  │ Center  │            │
+│  └────┬────┘  └────┬────┘  └────┬────┘  └────┬────┘            │
+│       │            │            │            │                   │
+│       └────────────┴─────┬──────┴────────────┘                   │
+│                          │ WRITE                                │
+│                          ▼                                      │
+│              ┌─────────────────────────┐                        │
+│              │    EPCIS Repository     │                        │
+│              │  (Customer/Supplier     │                        │
+│              │   infrastructure)       │                        │
+│              └───────────┬─────────────┘                        │
+│                          │ READ                                 │
+│                          ▼                                      │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │                                                              ││
+│  │  ACCESSING APPLICATIONS (Read Events)                       ││
+│  │  ────────────────────────────────────                       ││
+│  │  These systems READ events from EPCIS repositories:         ││
+│  │                                                              ││
+│  │  ┌─────────────────────────────────────────────────────┐   ││
+│  │  │               🌟 EUROCOMPLY 🌟                       │   ││
+│  │  │  • Query customer EPCIS repositories                │   ││
+│  │  │  • Transform raw JSON into beautiful timelines      │   ││
+│  │  │  • Aggregate carbon footprint from events           │   ││
+│  │  │  • Display lifecycle in DPP public pages            │   ││
+│  │  └─────────────────────────────────────────────────────┘   ││
+│  │                                                              ││
+│  │  Also: Regulatory auditors, analytics platforms, etc.       ││
+│  │                                                              ││
+│  └─────────────────────────────────────────────────────────────┘│
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Why This Model?
+
+**We are essentially building a specialized "web browser" for the product's life.**
+
+Just as a web browser doesn't host websites but renders content from remote servers, EuroComply doesn't host EPCIS data but visualizes it from customer/supplier repositories.
+
+| What We DON'T Do | What We DO |
+|------------------|------------|
+| ❌ Host EPCIS repositories | ✅ Query customer repositories |
+| ❌ Run Kafka/OpenSearch | ✅ Transform JSON → beautiful UI |
+| ❌ Store supply chain events | ✅ Cache for performance |
+| ❌ Build capturing systems | ✅ Build visualization layer |
+
+**Benefits of this approach:**
+- **Zero infrastructure cost** for EPCIS (we don't run it)
+- **Data sovereignty** - events stay in customer/supplier systems
+- **Works with ANY EPCIS 2.0 repository** - IBM, SAP, TraceLink, OpenEPCIS, etc.
+- **Focus on our value** - visualization, not plumbing
+
+---
+
 ## EPCIS 2.0 Overview
 
 ### What is EPCIS?
@@ -292,635 +369,255 @@ const coldChainEvent: ObjectEvent = {
 
 ---
 
-## ESPR-Specific Extensions
-
-For ESPR compliance, we extend EPCIS with sustainability data:
-
-```typescript
-// ESPR extension namespace
-const ESPR_NAMESPACE = 'https://eurocomply.eu/epcis/espr';
-
-interface EsprExtension {
-  // Carbon footprint for this event
-  carbonFootprint?: {
-    value: number;      // kg CO2e
-    scope: 1 | 2 | 3;   // GHG Protocol scope
-    methodology: string;
-  };
-
-  // Energy consumption
-  energyConsumption?: {
-    value: number;
-    uom: 'KWH' | 'MJ';
-    source?: 'renewable' | 'grid' | 'mixed';
-    renewablePercentage?: number;
-  };
-
-  // Transport details
-  transport?: {
-    mode: 'road' | 'rail' | 'sea' | 'air' | 'multimodal';
-    distance?: number;  // km
-    vehicleType?: string;
-    fuelType?: string;
-    emptyRunPercentage?: number;
-  };
-
-  // Repair/refurbishment details
-  repair?: {
-    type: 'repair' | 'refurbishment' | 'remanufacturing';
-    componentsReplaced?: string[];
-    originalCondition?: string;
-    resultingCondition?: string;
-  };
-
-  // Recycling/end-of-life
-  endOfLife?: {
-    type: 'recycling' | 'incineration' | 'landfill' | 'reuse';
-    materialsRecovered?: Array<{
-      material: string;
-      weight: number;
-      uom: string;
-    }>;
-    recyclingFacility?: string;
-  };
-}
-
-// Example: Shipping with carbon footprint
-const shippingWithCarbon: ObjectEvent & { espr: EsprExtension } = {
-  type: 'ObjectEvent',
-  eventTime: '2026-01-10T14:00:00.000+01:00',
-  eventTimeZoneOffset: '+01:00',
-  epcList: ['urn:epc:id:sscc:4012345.0000000001'],
-  action: 'OBSERVE',
-  bizStep: 'urn:epcglobal:cbv:bizstep:shipping',
-  readPoint: 'urn:epc:id:sgln:4012345.00002.0',
-  espr: {
-    carbonFootprint: {
-      value: 12.5,
-      scope: 3,
-      methodology: 'GHG Protocol',
-    },
-    transport: {
-      mode: 'road',
-      distance: 450,
-      vehicleType: 'truck_40t',
-      fuelType: 'diesel',
-    },
-  },
-};
-```
-
----
-
 ## Architecture
 
-### OpenEPCIS: Our Chosen EPCIS Repository
-
-We use **OpenEPCIS** ([github.com/openepcis/epcis-repository-ce](https://github.com/openepcis/epcis-repository-ce)) as our EPCIS 2.0 repository - an open-source, GS1-compliant implementation.
-
-**Why OpenEPCIS?**
-
-| Feature | Benefit |
-|---------|---------|
-| **Open Source** | Apache 2.0 license, no vendor lock-in |
-| **GS1 Compliant** | Full EPCIS 2.0 specification support |
-| **High Performance** | Quarkus/Java 21+ native compilation |
-| **Scalable** | Apache Kafka for event streaming, OpenSearch for indexing |
-| **Production Ready** | Battle-tested, actively maintained |
-| **Docker/Kubernetes** | Easy deployment with containers |
-
-### Architecture Overview
+### EuroComply as EPCIS Reader
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  EUROCOMPLY + OPENEPCIS ARCHITECTURE                             │
+│  EUROCOMPLY EPCIS ARCHITECTURE (Reader/Visualizer Model)         │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│                    EVENT SOURCES                                │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐     │  │
-│  │  │   ERP   │  │   WMS   │  │   IoT   │  │  Manual │     │  │
-│  │  │ (SAP)   │  │ System  │  │ Sensors │  │  Entry  │     │  │
-│  │  └────┬────┘  └────┬────┘  └────┬────┘  └────┬────┘     │  │
-│  └───────┼────────────┼────────────┼────────────┼───────────┘  │
-│          │            │            │            │               │
-│          └────────────┴─────┬──────┴────────────┘               │
-│                             │                                   │
-│                             ▼                                   │
-│  ┌─────────────────────────────────────────────────────────────┐│
-│  │                  EUROCOMPLY API LAYER                        ││
-│  │  ┌─────────────────────────────────────────────────────────┐││
-│  │  │  /api/v1/epcis/capture                                  │││
-│  │  │  • Validates incoming events                            │││
-│  │  │  • Adds ESPR extensions (carbon, transport)             │││
-│  │  │  • Links events to DPPs by GTIN                         │││
-│  │  │  • Forwards to OpenEPCIS                                │││
-│  │  └─────────────────────────────────────────────────────────┘││
-│  └──────────────────────────────┬──────────────────────────────┘│
-│                                 │                                │
-│                                 ▼                                │
-│  ┌─────────────────────────────────────────────────────────────┐│
-│  │                    OPENEPCIS STACK                           ││
-│  │  ┌─────────────────────────────────────────────────────────┐││
-│  │  │              OpenEPCIS Repository                       │││
-│  │  │              (Quarkus/Java 21+)                         │││
-│  │  │  • GS1 EPCIS 2.0 REST API                              │││
-│  │  │  • JSON-LD support                                      │││
-│  │  │  • All 4 event types                                    │││
-│  │  │  • Sensor data (IoT)                                    │││
-│  │  └───────────────┬───────────────────┬─────────────────────┘││
-│  │                  │                   │                       ││
-│  │    ┌─────────────▼───────┐   ┌───────▼─────────────┐        ││
-│  │    │    Apache Kafka     │   │     OpenSearch      │        ││
-│  │    │  ─────────────────  │   │  ─────────────────  │        ││
-│  │    │  Event streaming    │   │  Event indexing     │        ││
-│  │    │  Pub/sub messaging  │   │  Fast queries       │        ││
-│  │    │  Event pipelines    │   │  Aggregations       │        ││
-│  │    └─────────────────────┘   └─────────────────────┘        ││
-│  └─────────────────────────────────────────────────────────────┘│
-│                                 │                                │
-│                                 ▼                                │
-│  ┌─────────────────────────────────────────────────────────────┐│
-│  │                 EUROCOMPLY PROCESSING                        ││
-│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       ││
-│  │  │   Carbon     │  │  DPP Event   │  │  Real-time   │       ││
-│  │  │  Calculator  │  │   Linker     │  │  Webhooks    │       ││
-│  │  │  (Aggregate) │  │  (by GTIN)   │  │  (Partners)  │       ││
-│  │  └──────────────┘  └──────────────┘  └──────────────┘       ││
-│  └─────────────────────────────────────────────────────────────┘│
-│                                 │                                │
-│                                 ▼                                │
-│                      ┌─────────────────────┐                    │
-│                      │    DPP Lifecycle    │                    │
-│                      │    Display (UI)     │                    │
-│                      └─────────────────────┘                    │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Integration Options
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  DEPLOYMENT OPTIONS                                              │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  OPTION A: EuroComply-Managed OpenEPCIS (Recommended)           │
-│  ─────────────────────────────────────────────────────────────  │
-│  • We deploy and manage OpenEPCIS stack                         │
-│  • Full lifecycle visibility in our UI                          │
-│  • Automatic carbon footprint aggregation                       │
-│  • Works out-of-box for customers                               │
-│  • EuroComply API wraps OpenEPCIS                               │
-│                                                                  │
-│  ┌─────────────┐     ┌─────────────────────┐                    │
-│  │  Customer   │────▶│  EuroComply API     │                    │
-│  │  ERP/WMS    │     │  ↓                  │                    │
-│  └─────────────┘     │  OpenEPCIS + Kafka  │                    │
-│                      │  + OpenSearch       │                    │
-│                      └──────────┬──────────┘                    │
-│                                 ▼                                │
-│                      ┌─────────────────────┐                    │
-│                      │  DPP with lifecycle │                    │
-│                      └─────────────────────┘                    │
-│                                                                  │
-│  OPTION B: Customer Self-Hosted OpenEPCIS                       │
+│  CUSTOMER/SUPPLIER SYSTEMS (They write events)                  │
 │  ─────────────────────────────────────────────                  │
-│  • Customer deploys OpenEPCIS in their infrastructure           │
-│  • Data stays in their network (data sovereignty)               │
-│  • EuroComply queries their OpenEPCIS instance                  │
-│  • We provide deployment guides                                 │
 │                                                                  │
-│  ┌─────────────┐     ┌─────────────────────┐                    │
-│  │  Customer   │────▶│  Customer's         │                    │
-│  │  ERP/WMS    │     │  OpenEPCIS Stack    │                    │
-│  └─────────────┘     └──────────┬──────────┘                    │
-│                                 │ query                         │
-│                      ┌──────────┴──────────┐                    │
-│                      │  EuroComply DPP     │                    │
-│                      │  (links + queries)  │                    │
-│                      └─────────────────────┘                    │
-│                                                                  │
-│  OPTION C: Link to Existing EPCIS (Enterprise)                  │
-│  ─────────────────────────────────────────                      │
-│  • Customer has IBM/SAP/TraceLink EPCIS                         │
-│  • DPP links to their repository URL                            │
-│  • We query on-demand for lifecycle display                     │
-│  • Supports EPCIS 2.0 REST API                                  │
-│                                                                  │
-│  RECOMMENDATION: Option A (managed) for most customers          │
-│  Option B for data sovereignty, Option C for enterprises        │
+│  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐       │
+│  │ Factory EPCIS │  │ Logistics     │  │ Warehouse     │       │
+│  │ Repository    │  │ EPCIS Repo    │  │ EPCIS Repo    │       │
+│  │ (OpenEPCIS)   │  │ (SAP)         │  │ (IBM)         │       │
+│  └───────┬───────┘  └───────┬───────┘  └───────┬───────┘       │
+│          │                  │                  │                 │
+│          │   EPCIS 2.0 REST API (Standard)    │                 │
+│          │   GET /epcis/events?EQ_epc=...     │                 │
+│          │                  │                  │                 │
+│          └──────────────────┼──────────────────┘                 │
+│                             │                                    │
+│                             ▼                                    │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │                   EUROCOMPLY PLATFORM                        ││
+│  │                                                              ││
+│  │  ┌─────────────────────────────────────────────────────┐   ││
+│  │  │              EPCIS QUERY CLIENT                      │   ││
+│  │  │  • Simple HTTP client (no infrastructure needed)     │   ││
+│  │  │  • Queries multiple repositories                     │   ││
+│  │  │  • Handles authentication (OAuth 2.0 / API keys)     │   ││
+│  │  │  • Caches results for performance                    │   ││
+│  │  └─────────────────────────┬───────────────────────────┘   ││
+│  │                            │                                ││
+│  │                            ▼                                ││
+│  │  ┌─────────────────────────────────────────────────────┐   ││
+│  │  │              STORY BUILDER (Our Value)               │   ││
+│  │  │  • Transforms raw EPCIS JSON → beautiful timelines   │   ││
+│  │  │  • Resolves GLN → human-readable location names      │   ││
+│  │  │  • Aggregates carbon footprint from transport events │   ││
+│  │  │  • Merges events from multiple repositories          │   ││
+│  │  │  • Adds context and visual presentation              │   ││
+│  │  └─────────────────────────┬───────────────────────────┘   ││
+│  │                            │                                ││
+│  │                            ▼                                ││
+│  │  ┌─────────────────────────────────────────────────────┐   ││
+│  │  │              DPP LIFECYCLE DISPLAY                   │   ││
+│  │  │  • Public DPP pages with lifecycle tab               │   ││
+│  │  │  • Mobile-friendly timeline visualization            │   ││
+│  │  │  • Carbon footprint summary                          │   ││
+│  │  │  • Export to PDF/CSV                                 │   ││
+│  │  └─────────────────────────────────────────────────────┘   ││
+│  │                                                              ││
+│  └─────────────────────────────────────────────────────────────┘│
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### Data Flow
+### Repository Connection Model
+
+Customers configure their EPCIS repository connection(s):
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  EPCIS DATA FLOW WITH OPENEPCIS                                  │
+│  REPOSITORY CONNECTION SETUP                                     │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  1. EVENT CAPTURE                                               │
-│  ─────────────────                                              │
-│  ┌─────────────┐     POST /api/v1/epcis/capture                 │
-│  │  ERP/WMS    │ ────────────────────────────────────┐          │
-│  │  IoT/Manual │                                     │          │
-│  └─────────────┘                                     │          │
-│                                                      ▼          │
-│                              ┌────────────────────────────────┐ │
-│                              │  EuroComply API               │ │
-│                              │  • Validate event             │ │
-│                              │  • Add ESPR extensions        │ │
-│                              │  • Store DPP link reference   │ │
-│                              └───────────────┬────────────────┘ │
-│                                              │                  │
-│  2. FORWARD TO OPENEPCIS                     ▼                  │
-│  ───────────────────────     ┌────────────────────────────────┐ │
-│                              │  OpenEPCIS REST API           │ │
-│                              │  POST /epcis/capture          │ │
-│                              └───────────────┬────────────────┘ │
-│                                              │                  │
-│  3. EVENT PROCESSING                         ▼                  │
-│  ───────────────────    ┌──────────────────────────────────────┐│
-│                         │            Apache Kafka              ││
-│                         │  ┌────────────────────────────────┐  ││
-│                         │  │  Topic: epcis.events.captured  │  ││
-│                         │  └───────────────┬────────────────┘  ││
-│                         └──────────────────┼───────────────────┘│
-│                                            │                    │
-│                    ┌───────────────────────┼───────────────────┐│
-│                    │                       │                   ││
-│                    ▼                       ▼                   ▼│
-│           ┌──────────────┐       ┌──────────────┐    ┌─────────┐│
-│           │  OpenSearch  │       │   Carbon     │    │ Webhook ││
-│           │  Indexer     │       │  Calculator  │    │ Sender  ││
-│           │  (Query)     │       │  (EuroComply)│    │         ││
-│           └──────────────┘       └──────────────┘    └─────────┘│
+│  Organization: TextilCo GmbH                                    │
 │                                                                  │
-│  4. QUERY & DISPLAY                                             │
-│  ─────────────────                                              │
-│  ┌─────────────┐     GET /api/v1/products/{gtin}/lifecycle     │
-│  │  DPP Public │ ─────────────────────────────────────┐        │
-│  │  Page       │                                      │        │
-│  └─────────────┘                                      ▼        │
-│                              ┌────────────────────────────────┐ │
-│                              │  EuroComply API               │ │
-│                              │  → Query OpenEPCIS            │ │
-│                              │  → Add carbon summary         │ │
-│                              │  → Return lifecycle timeline  │ │
-│                              └────────────────────────────────┘ │
+│  EPCIS Repositories:                                            │
+│  ─────────────────────                                          │
+│                                                                  │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  Repository 1: Factory EPCIS                             │   │
+│  │  URL: https://epcis.factory.textilco.de                  │   │
+│  │  Auth: OAuth 2.0 (client credentials)                    │   │
+│  │  Events: Manufacturing, quality control                  │   │
+│  │  Status: ● Connected                                     │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  Repository 2: Logistics Partner (DHL)                   │   │
+│  │  URL: https://epcis-api.dhl.com/v2                       │   │
+│  │  Auth: API Key                                           │   │
+│  │  Events: Shipping, in-transit, delivery                  │   │
+│  │  Status: ● Connected                                     │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  Repository 3: Supplier (Cotton Farm)                    │   │
+│  │  URL: https://epcis.supplier.example.com                 │   │
+│  │  Auth: OAuth 2.0                                         │   │
+│  │  Events: Raw material sourcing                           │   │
+│  │  Status: ○ Pending supplier setup                        │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│  [+ Add Repository]                                             │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### OpenEPCIS Deployment
+### EPCIS Query Client
 
-#### Docker Compose Setup
-
-```yaml
-# docker-compose.openepcis.yml
-# OpenEPCIS stack for EuroComply
-
-version: '3.8'
-
-services:
-  # ============================================
-  # OpenEPCIS Repository (Core)
-  # ============================================
-  openepcis:
-    image: openepcis/epcis-repository:latest
-    container_name: openepcis-repository
-    ports:
-      - "9000:9000"
-    environment:
-      # Quarkus settings
-      QUARKUS_HTTP_PORT: 9000
-      QUARKUS_LOG_LEVEL: INFO
-
-      # Kafka connection
-      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      MP_MESSAGING_INCOMING_EPCIS_EVENTS_BOOTSTRAP_SERVERS: kafka:9092
-
-      # OpenSearch connection
-      QUARKUS_OPENSEARCH_HOSTS: opensearch:9200
-
-      # Memory settings (adjust for production)
-      JAVA_OPTS: "-Xms512m -Xmx2g"
-    depends_on:
-      - kafka
-      - opensearch
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/q/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-    networks:
-      - epcis-network
-
-  # ============================================
-  # Apache Kafka (Event Streaming)
-  # ============================================
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.5.0
-    container_name: epcis-zookeeper
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-    volumes:
-      - zookeeper-data:/var/lib/zookeeper/data
-    networks:
-      - epcis-network
-
-  kafka:
-    image: confluentinc/cp-kafka:7.5.0
-    container_name: epcis-kafka
-    ports:
-      - "9092:9092"
-    environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: true
-      KAFKA_LOG_RETENTION_HOURS: 168  # 7 days
-    volumes:
-      - kafka-data:/var/lib/kafka/data
-    depends_on:
-      - zookeeper
-    networks:
-      - epcis-network
-
-  # ============================================
-  # OpenSearch (Event Indexing & Query)
-  # ============================================
-  opensearch:
-    image: opensearchproject/opensearch:2.11.0
-    container_name: epcis-opensearch
-    ports:
-      - "9200:9200"
-    environment:
-      - discovery.type=single-node
-      - plugins.security.disabled=true  # Enable in production with certs
-      - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx1g
-      - bootstrap.memory_lock=true
-    ulimits:
-      memlock:
-        soft: -1
-        hard: -1
-    volumes:
-      - opensearch-data:/usr/share/opensearch/data
-    networks:
-      - epcis-network
-
-  opensearch-dashboards:
-    image: opensearchproject/opensearch-dashboards:2.11.0
-    container_name: epcis-opensearch-dashboards
-    ports:
-      - "5601:5601"
-    environment:
-      - OPENSEARCH_HOSTS=["http://opensearch:9200"]
-      - DISABLE_SECURITY_DASHBOARDS_PLUGIN=true
-    depends_on:
-      - opensearch
-    networks:
-      - epcis-network
-
-networks:
-  epcis-network:
-    driver: bridge
-
-volumes:
-  zookeeper-data:
-  kafka-data:
-  opensearch-data:
-```
-
-#### Kubernetes Deployment
-
-```yaml
-# kubernetes/openepcis-deployment.yml
-# Production-ready OpenEPCIS on Kubernetes
-
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: openepcis-repository
-  namespace: eurocomply
-spec:
-  replicas: 3  # High availability
-  selector:
-    matchLabels:
-      app: openepcis
-  template:
-    metadata:
-      labels:
-        app: openepcis
-    spec:
-      containers:
-      - name: openepcis
-        image: openepcis/epcis-repository:latest
-        ports:
-        - containerPort: 9000
-        env:
-        - name: KAFKA_BOOTSTRAP_SERVERS
-          value: "kafka-cluster.eurocomply.svc:9092"
-        - name: QUARKUS_OPENSEARCH_HOSTS
-          value: "opensearch-cluster.eurocomply.svc:9200"
-        resources:
-          requests:
-            memory: "1Gi"
-            cpu: "500m"
-          limits:
-            memory: "4Gi"
-            cpu: "2000m"
-        livenessProbe:
-          httpGet:
-            path: /q/health/live
-            port: 9000
-          initialDelaySeconds: 30
-          periodSeconds: 10
-        readinessProbe:
-          httpGet:
-            path: /q/health/ready
-            port: 9000
-          initialDelaySeconds: 10
-          periodSeconds: 5
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: openepcis
-  namespace: eurocomply
-spec:
-  selector:
-    app: openepcis
-  ports:
-  - port: 9000
-    targetPort: 9000
-  type: ClusterIP
-```
-
-#### Infrastructure Requirements
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  OPENEPCIS INFRASTRUCTURE REQUIREMENTS                           │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  COMPONENT            MINIMUM        RECOMMENDED     PRODUCTION │
-│  ────────────────────────────────────────────────────────────── │
-│                                                                  │
-│  OpenEPCIS Repository                                           │
-│    CPU                1 core         2 cores         4 cores    │
-│    Memory             1 GB           2 GB            4 GB       │
-│    Instances          1              1               3 (HA)     │
-│                                                                  │
-│  Apache Kafka                                                   │
-│    CPU                1 core         2 cores         4 cores    │
-│    Memory             1 GB           2 GB            8 GB       │
-│    Disk               10 GB          50 GB           200 GB     │
-│    Brokers            1              1               3 (HA)     │
-│                                                                  │
-│  OpenSearch                                                     │
-│    CPU                2 cores        4 cores         8 cores    │
-│    Memory             2 GB           4 GB            16 GB      │
-│    Disk               20 GB          100 GB          500 GB     │
-│    Nodes              1              1               3 (HA)     │
-│                                                                  │
-│  ESTIMATED COSTS (Cloud)                                        │
-│  ────────────────────────────────────────────────────────────── │
-│                                                                  │
-│  Development:   ~$100/month  (small VMs, shared resources)      │
-│  Staging:       ~$300/month  (dedicated, single instances)      │
-│  Production:    ~$800/month  (HA setup, managed services)       │
-│                                                                  │
-│  NOTE: Use managed Kafka (Confluent Cloud, AWS MSK) and         │
-│  managed OpenSearch (AWS OpenSearch Service, Elastic Cloud)     │
-│  for production to reduce operational overhead.                 │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-#### EuroComply → OpenEPCIS Integration
+The query interface is standardized across ALL EPCIS 2.0 repositories:
 
 ```typescript
-// src/services/openepcis-client.ts
-// Client for communicating with OpenEPCIS repository
+// src/services/epcis-query-client.ts
+// Simple HTTP client - no Kafka, no OpenSearch, no infrastructure
 
-import { EpcisEvent } from '@/types/epcis';
-
-interface OpenEpcisConfig {
-  baseUrl: string;           // e.g., http://openepcis:9000
-  timeout: number;
-  retryAttempts: number;
+interface EpcisRepository {
+  id: string;
+  name: string;
+  baseUrl: string;          // e.g., https://epcis.supplier.com
+  authType: 'oauth2' | 'apikey' | 'basic';
+  credentials: {
+    clientId?: string;
+    clientSecret?: string;
+    apiKey?: string;
+    username?: string;
+    password?: string;
+  };
 }
 
-class OpenEpcisClient {
-  private config: OpenEpcisConfig;
+interface EpcisQueryOptions {
+  epc?: string;              // Filter by product EPC
+  eventTimeGE?: Date;        // Events after this time
+  eventTimeLT?: Date;        // Events before this time
+  bizStep?: string;          // Filter by business step
+  eventType?: string[];      // Filter by event type
+  limit?: number;            // Max results
+}
 
-  constructor(config: OpenEpcisConfig) {
-    this.config = config;
-  }
-
-  // Capture events (forward from EuroComply API)
-  async capture(events: EpcisEvent[]): Promise<CaptureResponse> {
-    const epcisDocument = {
-      '@context': [
-        'https://ref.gs1.org/standards/epcis/2.0.0/epcis-context.jsonld',
-        'https://eurocomply.eu/epcis/espr-context.jsonld',  // ESPR extensions
-      ],
-      type: 'EPCISDocument',
-      schemaVersion: '2.0',
-      creationDate: new Date().toISOString(),
-      epcisBody: {
-        eventList: events,
-      },
-    };
-
-    const response = await fetch(`${this.config.baseUrl}/epcis/capture`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'GS1-EPCIS-Version': '2.0',
-        'GS1-CBV-Version': '2.0',
-      },
-      body: JSON.stringify(epcisDocument),
-    });
-
-    if (!response.ok) {
-      throw new OpenEpcisError(`Capture failed: ${response.status}`);
-    }
-
-    return {
-      captureId: response.headers.get('Location')?.split('/').pop() || '',
-      status: 'accepted',
-    };
-  }
-
-  // Query events by EPC (product identifier)
-  async queryByEpc(epc: string): Promise<EpcisEvent[]> {
-    const params = new URLSearchParams({
-      match_anyEPC: epc,
-      orderBy: 'eventTime',
-      orderDirection: 'DESC',
-      perPage: '100',
-    });
-
-    const response = await fetch(
-      `${this.config.baseUrl}/epcis/events?${params}`,
-      {
-        headers: {
-          'Accept': 'application/json',
-          'GS1-EPCIS-Version': '2.0',
-        },
-      }
-    );
-
-    if (!response.ok) {
-      throw new OpenEpcisError(`Query failed: ${response.status}`);
-    }
-
-    const data = await response.json();
-    return data.epcisBody?.eventList || [];
-  }
-
-  // Query events by time range
-  async queryByTimeRange(
-    startTime: Date,
-    endTime: Date,
-    options?: QueryOptions
+class EpcisQueryClient {
+  /**
+   * Query events from an EPCIS 2.0 repository
+   *
+   * The EPCIS 2.0 REST API is standardized - this same code works with:
+   * - OpenEPCIS (open source)
+   * - IBM Sterling Supply Chain
+   * - SAP EPCIS
+   * - TraceLink
+   * - Any GS1-compliant repository
+   */
+  async queryEvents(
+    repository: EpcisRepository,
+    options: EpcisQueryOptions
   ): Promise<EpcisEvent[]> {
-    const params = new URLSearchParams({
-      eventTime_GE: startTime.toISOString(),
-      eventTime_LT: endTime.toISOString(),
-      ...(options?.bizStep && { match_bizStep: options.bizStep }),
-      ...(options?.location && { match_readPoint: options.location }),
-      perPage: String(options?.limit || 100),
-    });
+    // Build query parameters (standard EPCIS 2.0 query syntax)
+    const params = new URLSearchParams();
 
+    if (options.epc) {
+      params.set('EQ_epc', options.epc);  // Exact match
+      // Or use MATCH_anyEPC for flexible matching
+    }
+
+    if (options.eventTimeGE) {
+      params.set('GE_eventTime', options.eventTimeGE.toISOString());
+    }
+
+    if (options.eventTimeLT) {
+      params.set('LT_eventTime', options.eventTimeLT.toISOString());
+    }
+
+    if (options.bizStep) {
+      params.set('EQ_bizStep', options.bizStep);
+    }
+
+    if (options.eventType?.length) {
+      params.set('eventType', options.eventType.join(','));
+    }
+
+    params.set('perPage', String(options.limit || 100));
+    params.set('orderBy', 'eventTime');
+    params.set('orderDirection', 'DESC');
+
+    // Get auth token
+    const authHeader = await this.getAuthHeader(repository);
+
+    // Standard EPCIS 2.0 REST endpoint
     const response = await fetch(
-      `${this.config.baseUrl}/epcis/events?${params}`,
+      `${repository.baseUrl}/epcis/events?${params}`,
       {
         headers: {
           'Accept': 'application/json',
           'GS1-EPCIS-Version': '2.0',
+          'GS1-CBV-Version': '2.0',
+          ...authHeader,
         },
       }
     );
+
+    if (!response.ok) {
+      throw new EpcisQueryError(
+        `Query failed: ${response.status} ${response.statusText}`,
+        repository.name
+      );
+    }
 
     const data = await response.json();
     return data.epcisBody?.eventList || [];
   }
 
-  // Get single event by ID
-  async getEvent(eventId: string): Promise<EpcisEvent | null> {
+  /**
+   * Query events from multiple repositories and merge
+   */
+  async queryAllRepositories(
+    repositories: EpcisRepository[],
+    options: EpcisQueryOptions
+  ): Promise<EpcisEvent[]> {
+    // Query all repositories in parallel
+    const results = await Promise.allSettled(
+      repositories.map(repo => this.queryEvents(repo, options))
+    );
+
+    // Collect successful results
+    const allEvents: EpcisEvent[] = [];
+
+    for (const result of results) {
+      if (result.status === 'fulfilled') {
+        allEvents.push(...result.value);
+      } else {
+        // Log failed repository but continue
+        console.warn('Repository query failed:', result.reason);
+      }
+    }
+
+    // Sort by eventTime (merge from multiple sources)
+    return allEvents.sort((a, b) =>
+      new Date(b.eventTime).getTime() - new Date(a.eventTime).getTime()
+    );
+  }
+
+  /**
+   * Get a single event by ID
+   */
+  async getEvent(
+    repository: EpcisRepository,
+    eventId: string
+  ): Promise<EpcisEvent | null> {
+    const authHeader = await this.getAuthHeader(repository);
+
     const response = await fetch(
-      `${this.config.baseUrl}/epcis/events/${encodeURIComponent(eventId)}`,
+      `${repository.baseUrl}/epcis/events/${encodeURIComponent(eventId)}`,
       {
         headers: {
           'Accept': 'application/json',
           'GS1-EPCIS-Version': '2.0',
+          ...authHeader,
         },
       }
     );
@@ -930,202 +627,393 @@ class OpenEpcisClient {
     }
 
     if (!response.ok) {
-      throw new OpenEpcisError(`Get event failed: ${response.status}`);
+      throw new EpcisQueryError(`Get event failed: ${response.status}`);
     }
 
     return response.json();
   }
 
-  // Health check
-  async healthCheck(): Promise<boolean> {
-    try {
-      const response = await fetch(`${this.config.baseUrl}/q/health`);
-      return response.ok;
-    } catch {
-      return false;
+  private async getAuthHeader(
+    repository: EpcisRepository
+  ): Promise<Record<string, string>> {
+    switch (repository.authType) {
+      case 'apikey':
+        return { 'X-API-Key': repository.credentials.apiKey! };
+
+      case 'oauth2':
+        const token = await this.getOAuthToken(repository);
+        return { 'Authorization': `Bearer ${token}` };
+
+      case 'basic':
+        const creds = btoa(
+          `${repository.credentials.username}:${repository.credentials.password}`
+        );
+        return { 'Authorization': `Basic ${creds}` };
+
+      default:
+        return {};
     }
+  }
+
+  private async getOAuthToken(repository: EpcisRepository): Promise<string> {
+    // Implementation of OAuth 2.0 client credentials flow
+    // Cache tokens to avoid unnecessary requests
+    // ...
   }
 }
 
-// Singleton instance
-export const openepcisClient = new OpenEpcisClient({
-  baseUrl: process.env.OPENEPCIS_URL || 'http://openepcis:9000',
-  timeout: 30000,
-  retryAttempts: 3,
-});
+export const epcisClient = new EpcisQueryClient();
+```
+
+### Story Builder: Our Value Proposition
+
+The Story Builder transforms raw EPCIS JSON into human-readable stories:
+
+```typescript
+// src/services/story-builder.ts
+// This is where EuroComply adds value!
+
+interface LifecycleStory {
+  product: {
+    gtin: string;
+    name: string;
+    image?: string;
+  };
+  timeline: TimelineEntry[];
+  summary: {
+    totalEvents: number;
+    firstEvent: Date;
+    lastEvent: Date;
+    carbonFootprint: number;
+    countriesVisited: string[];
+    distanceTraveled: number;
+  };
+}
+
+interface TimelineEntry {
+  id: string;
+  timestamp: Date;
+  title: string;           // Human-readable: "Manufactured in Berlin"
+  description: string;     // "Product was created at TextilCo Factory"
+  location: {
+    name: string;          // "TextilCo Factory" (resolved from GLN)
+    city?: string;
+    country: string;
+    coordinates?: { lat: number; lng: number };
+  };
+  icon: string;            // 🏭 📦 🚛 🏪 ♻️
+  carbon?: {
+    value: number;
+    unit: 'kg CO2e';
+    breakdown?: string;
+  };
+  details?: Record<string, unknown>;  // Additional event data
+  rawEvent: EpcisEvent;    // Original EPCIS event
+}
+
+class StoryBuilder {
+  /**
+   * Transform raw EPCIS events into a beautiful product story
+   */
+  async buildStory(
+    gtin: string,
+    events: EpcisEvent[],
+    locationMaster: Map<string, LocationInfo>
+  ): Promise<LifecycleStory> {
+    const timeline: TimelineEntry[] = [];
+    let totalCarbon = 0;
+    const countries = new Set<string>();
+    let totalDistance = 0;
+
+    for (const event of events) {
+      // Transform each event into a timeline entry
+      const entry = await this.transformEvent(event, locationMaster);
+      timeline.push(entry);
+
+      // Aggregate carbon
+      if (entry.carbon?.value) {
+        totalCarbon += entry.carbon.value;
+      }
+
+      // Track countries
+      if (entry.location.country) {
+        countries.add(entry.location.country);
+      }
+
+      // Track distance (from transport events)
+      if (event.espr?.transport?.distance) {
+        totalDistance += event.espr.transport.distance;
+      }
+    }
+
+    // Sort timeline chronologically
+    timeline.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+
+    return {
+      product: await this.getProductInfo(gtin),
+      timeline,
+      summary: {
+        totalEvents: events.length,
+        firstEvent: timeline[0]?.timestamp || new Date(),
+        lastEvent: timeline[timeline.length - 1]?.timestamp || new Date(),
+        carbonFootprint: totalCarbon,
+        countriesVisited: Array.from(countries),
+        distanceTraveled: totalDistance,
+      },
+    };
+  }
+
+  /**
+   * Transform a raw EPCIS event into a human-readable timeline entry
+   */
+  private async transformEvent(
+    event: EpcisEvent,
+    locationMaster: Map<string, LocationInfo>
+  ): Promise<TimelineEntry> {
+    // Get the business step in human-readable form
+    const { title, icon, description } = this.getBizStepInfo(event.bizStep);
+
+    // Resolve location from GLN to human-readable
+    const location = await this.resolveLocation(
+      event.readPoint || event.bizLocation,
+      locationMaster
+    );
+
+    // Build description
+    const fullDescription = this.buildDescription(event, location, description);
+
+    // Calculate carbon if transport data available
+    const carbon = this.extractCarbon(event);
+
+    return {
+      id: event.eventId || crypto.randomUUID(),
+      timestamp: new Date(event.eventTime),
+      title: `${title} in ${location.city || location.country}`,
+      description: fullDescription,
+      location,
+      icon,
+      carbon,
+      rawEvent: event,
+    };
+  }
+
+  /**
+   * Map EPCIS business steps to human-readable info
+   */
+  private getBizStepInfo(bizStep: string): {
+    title: string;
+    icon: string;
+    description: string;
+  } {
+    const mapping: Record<string, { title: string; icon: string; description: string }> = {
+      'urn:epcglobal:cbv:bizstep:commissioning': {
+        title: 'Manufactured',
+        icon: '🏭',
+        description: 'Product was created',
+      },
+      'urn:epcglobal:cbv:bizstep:shipping': {
+        title: 'Shipped',
+        icon: '📦',
+        description: 'Product was dispatched',
+      },
+      'urn:epcglobal:cbv:bizstep:transporting': {
+        title: 'In Transit',
+        icon: '🚛',
+        description: 'Product is being transported',
+      },
+      'urn:epcglobal:cbv:bizstep:receiving': {
+        title: 'Received',
+        icon: '📥',
+        description: 'Product arrived at destination',
+      },
+      'urn:epcglobal:cbv:bizstep:retail_selling': {
+        title: 'Sold',
+        icon: '🏪',
+        description: 'Product was sold to consumer',
+      },
+      'urn:epcglobal:cbv:bizstep:repairing': {
+        title: 'Repaired',
+        icon: '🔧',
+        description: 'Product was repaired',
+      },
+      'urn:epcglobal:cbv:bizstep:recycling': {
+        title: 'Recycled',
+        icon: '♻️',
+        description: 'Product reached end of life',
+      },
+    };
+
+    return mapping[bizStep] || {
+      title: 'Event',
+      icon: '📌',
+      description: 'Lifecycle event recorded',
+    };
+  }
+
+  /**
+   * Resolve GLN to human-readable location
+   */
+  private async resolveLocation(
+    gln: string | undefined,
+    locationMaster: Map<string, LocationInfo>
+  ): Promise<TimelineEntry['location']> {
+    if (!gln) {
+      return { name: 'Unknown Location', country: 'Unknown' };
+    }
+
+    // Check local master data first
+    const known = locationMaster.get(gln);
+    if (known) {
+      return {
+        name: known.name,
+        city: known.city,
+        country: known.country,
+        coordinates: known.coordinates,
+      };
+    }
+
+    // Could also query GS1 resolver service for unknown GLNs
+    // For now, return the GLN as-is
+    return {
+      name: `Location ${gln}`,
+      country: 'Unknown',
+    };
+  }
+
+  private extractCarbon(event: EpcisEvent): TimelineEntry['carbon'] | undefined {
+    // Check for ESPR carbon extension
+    if (event.espr?.carbonFootprint) {
+      return {
+        value: event.espr.carbonFootprint.value,
+        unit: 'kg CO2e',
+        breakdown: `Scope ${event.espr.carbonFootprint.scope}`,
+      };
+    }
+
+    // Calculate from transport data if available
+    if (event.espr?.transport) {
+      const distance = event.espr.transport.distance || 0;
+      const mode = event.espr.transport.mode;
+      const carbonFactor = this.getCarbonFactor(mode);
+      const estimatedCarbon = distance * carbonFactor;
+
+      if (estimatedCarbon > 0) {
+        return {
+          value: Math.round(estimatedCarbon * 100) / 100,
+          unit: 'kg CO2e',
+          breakdown: `${distance} km by ${mode}`,
+        };
+      }
+    }
+
+    return undefined;
+  }
+
+  private getCarbonFactor(mode: string): number {
+    // kg CO2e per km (approximate averages)
+    const factors: Record<string, number> = {
+      'road': 0.0001,   // ~100g per km
+      'rail': 0.00003,  // ~30g per km
+      'sea': 0.00001,   // ~10g per km
+      'air': 0.0005,    // ~500g per km
+    };
+    return factors[mode] || 0.0001;
+  }
+}
+
+export const storyBuilder = new StoryBuilder();
 ```
 
 ---
 
-## Data Sources: Where Events Come From
+## The "Empty Shell" Challenge
 
-The most common question: **"How do we actually get supply chain events?"**
+### The Problem
 
-### Overview
+If suppliers don't write events to EPCIS repositories, we have nothing to display.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  EPCIS DATA SOURCES                                              │
+│  THE "EMPTY SHELL" RISK                                          │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  SOURCE                  METHOD              AUTOMATION LEVEL   │
-│  ────────────────────────────────────────────────────────────   │
+│  Scenario: Customer sets up DPP, connects EPCIS repository      │
 │                                                                  │
-│  ERP/WMS Systems         Webhooks/API        ████████████ High  │
-│  (SAP, Oracle, Dynamics)                                        │
+│  Expected:                                                       │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  PRODUCT LIFECYCLE                                       │   │
+│  │  ● Jan 8 - Raw materials sourced (Gujarat, India)       │   │
+│  │  ● Jan 9 - Fabric woven (Textile Mill, Bangladesh)      │   │
+│  │  ● Jan 10 - Manufactured (Berlin, Germany)              │   │
+│  │  ● Jan 11 - Shipped to distribution                     │   │
+│  │  ● Jan 12 - Received at warehouse                       │   │
+│  └─────────────────────────────────────────────────────────┘   │
 │                                                                  │
-│  Shopify/E-commerce      Fulfillment hooks   ████████████ High  │
+│  Reality (if suppliers don't participate):                      │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  PRODUCT LIFECYCLE                                       │   │
+│  │                                                          │   │
+│  │  No lifecycle events found.                             │   │
+│  │                                                          │   │
+│  │  [?] Why is this empty?                                 │   │
+│  └─────────────────────────────────────────────────────────┘   │
 │                                                                  │
-│  IoT Sensors             MQTT/HTTP push      ████████████ High  │
-│  (temp, GPS, RFID)                                              │
-│                                                                  │
-│  3PL Providers           Tracking API        ████████░░░░ Med   │
-│  (DHL, FedEx, UPS)                                              │
-│                                                                  │
-│  Supplier Portal         Manual + forms      ████░░░░░░░░ Low   │
-│                                                                  │
-│  Staff Manual Entry      Our UI              ████░░░░░░░░ Low   │
+│  THIS IS A BUSINESS PROBLEM, NOT A TECHNICAL ONE                │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### 1. ERP/WMS Systems (Most Common)
+### The Solution: Supplier Onboarding
 
-Large companies already track inventory movements in their ERP. We capture these events.
-
-```typescript
-// SAP sends webhook when shipment is created
-// POST https://api.eurocomply.eu/v1/epcis/capture
-
-// Middleware transforms SAP IDoc to EPCIS
-const sapShipmentToEpcis = (sapEvent: SapDelivery): ObjectEvent => ({
-  type: 'ObjectEvent',
-  eventTime: sapEvent.ERDAT + 'T' + sapEvent.ERZET,
-  eventTimeZoneOffset: '+01:00',
-  epcList: sapEvent.ITEMS.map(item =>
-    `urn:epc:id:sgtin:${gtinToEpc(item.EAN11)}`
-  ),
-  action: 'OBSERVE',
-  bizStep: 'urn:epcglobal:cbv:bizstep:shipping',
-  disposition: 'urn:epcglobal:cbv:disp:in_transit',
-  readPoint: `urn:epc:id:sgln:${sapEvent.WERKS}`, // Plant GLN
-});
-
-// Common ERP integrations:
-// - SAP S/4HANA: IDocs → Middleware → EPCIS API
-// - Oracle EBS: Business events → Integration Cloud → EPCIS API
-// - Microsoft Dynamics: Power Automate → EPCIS API
-// - NetSuite: SuiteScript → EPCIS API
-```
-
-**Setup effort:** Medium (one-time integration per ERP)
-**Ongoing effort:** Zero (fully automated)
-
-### 2. E-commerce Platforms (Shopify, etc.)
-
-Fulfillment events from e-commerce platforms are captured automatically.
-
-```typescript
-// Shopify sends fulfillment webhook
-// POST https://api.eurocomply.eu/webhooks/shopify/fulfillment
-
-interface ShopifyFulfillmentWebhook {
-  id: number;
-  order_id: number;
-  status: 'success';
-  tracking_number: string;
-  tracking_company: string;
-  line_items: Array<{
-    sku: string;
-    barcode: string; // GTIN
-    quantity: number;
-  }>;
-  destination: {
-    city: string;
-    country_code: string;
-  };
-}
-
-// Automatically creates:
-// 1. ObjectEvent (shipping) for each product
-// 2. Links to DPP by GTIN
-// 3. Calculates estimated carbon (based on carrier/destination)
-```
-
-**Setup effort:** Low (enable in Shopify app settings)
-**Ongoing effort:** Zero (fully automated)
-
-### 3. IoT Sensors
-
-For cold chain, asset tracking, or quality monitoring.
-
-```typescript
-// Temperature logger sends readings every 5 minutes
-// POST https://api.eurocomply.eu/v1/epcis/sensor
-
-interface SensorPayload {
-  deviceId: string;
-  containerId: string;  // SSCC of shipment
-  timestamp: string;
-  readings: {
-    temperature: number;  // Celsius
-    humidity?: number;    // Percent
-    location?: { lat: number; lng: number };
-    shock?: number;       // G-force
-  };
-}
-
-// Creates ObjectEvent with sensorElementList
-// Alerts if temperature exceeds threshold
-// Aggregates into trip summary for DPP
-```
-
-**Supported devices:**
-- Bluetooth loggers (Testo, Sensitech)
-- GPS trackers (CalAmp, Geotab)
-- RFID readers (Zebra, Impinj)
-- Custom IoT (via MQTT or HTTP)
-
-**Setup effort:** Medium (device configuration)
-**Ongoing effort:** Zero (fully automated)
-
-### 4. 3PL/Logistics Providers
-
-Track shipments through carrier APIs.
-
-```typescript
-// Poll DHL tracking API for shipment updates
-// Or receive push notifications via webhook
-
-interface CarrierTrackingEvent {
-  trackingNumber: string;
-  timestamp: string;
-  status: 'picked_up' | 'in_transit' | 'delivered' | 'exception';
-  location: {
-    city: string;
-    country: string;
-    coordinates?: { lat: number; lng: number };
-  };
-}
-
-// Supported carriers:
-// - DHL Express/Freight (push webhooks)
-// - FedEx (Track API)
-// - UPS (Tracking API)
-// - DB Schenker (EDI)
-// - Maersk (TradeLens API)
-```
-
-**Setup effort:** Medium (API credentials per carrier)
-**Ongoing effort:** Low (occasional API updates)
-
-### 5. Supplier Portal
-
-Suppliers record upstream events through our web portal.
+This is solved through **business processes**, not infrastructure:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  SUPPLIER EVENT ENTRY                                            │
+│  SUPPLIER ONBOARDING STRATEGY                                    │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  TIER 1: Large Suppliers (Already have EPCIS)                   │
+│  ─────────────────────────────────────────────                  │
+│  • They already run SAP, IBM, or TraceLink EPCIS                │
+│  • Just need to grant EuroComply read access                    │
+│  • Setup: OAuth 2.0 client credentials                          │
+│  • Effort: 1 hour configuration                                 │
+│                                                                  │
+│  TIER 2: Medium Suppliers (Have ERP, no EPCIS)                  │
+│  ─────────────────────────────────────────────                  │
+│  • They have SAP/Oracle/Dynamics but no EPCIS                   │
+│  • Options:                                                     │
+│    a) Deploy lightweight OpenEPCIS (open source, free)          │
+│    b) Use cloud EPCIS service (GS1 Cloud, etc.)                │
+│    c) Send events to customer's EPCIS via webhook               │
+│  • Effort: 1-2 weeks integration                                │
+│                                                                  │
+│  TIER 3: Small Suppliers (Manual)                               │
+│  ────────────────────────────────                               │
+│  • No ERP or EPCIS capability                                   │
+│  • Options:                                                     │
+│    a) EuroComply provides simple web portal for manual entry    │
+│    b) Events entered by customer based on delivery notes        │
+│    c) Excel upload → EPCIS conversion                           │
+│  • Effort: Training + manual process                            │
+│                                                                  │
+│  SUCCESS FACTORS                                                │
+│  ───────────────                                                │
+│  • Make it a procurement requirement                            │
+│  • Start with Tier 1 suppliers (quick wins)                     │
+│  • Provide templates and integration guides                     │
+│  • ESPR deadline creates urgency                                │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Fallback: Manual Event Capture
+
+For suppliers who can't write to EPCIS, we provide a lightweight capture portal:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  SUPPLIER EVENT ENTRY (Manual Fallback)                          │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
 │  You've been invited by TextileCo to record supply chain        │
@@ -1153,86 +1041,10 @@ Suppliers record upstream events through our web portal.
 │                              │  Submit Event   │                │
 │                              └─────────────────┘                │
 │                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-**Setup effort:** Low (send email invite)
-**Ongoing effort:** Depends on supplier (their manual work)
-
-### 6. Manual Entry (Our UI)
-
-For events not captured by systems.
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  RECORD LIFECYCLE EVENT                                          │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  Product:     Blue Cotton T-Shirt (GTIN: 4012345012345)         │
-│                                                                  │
-│  Event Type:  ○ Manufactured    ● Shipped    ○ Received         │
-│               ○ Repaired        ○ Recycled   ○ Other            │
-│                                                                  │
-│  Date/Time:   [2026-01-10] [14:00]                              │
-│                                                                  │
-│  From:        [Berlin Warehouse ▼]                              │
-│  To:          [Munich DC ▼]                                     │
-│                                                                  │
-│  Transport:   ● Road  ○ Rail  ○ Sea  ○ Air                      │
-│  Distance:    [450] km  (auto-calculated ✓)                     │
-│                                                                  │
-│  ☑ Calculate carbon automatically (4.2 kg CO2e)                 │
-│                                                                  │
-│  Notes:       [Overnight express delivery               ]       │
-│                                                                  │
-│                     [Cancel]  [Record Event]                    │
+│  Note: These events are stored in the customer's EPCIS          │
+│  repository, not in EuroComply.                                 │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
-```
-
-**Use cases:**
-- Small operations without ERP
-- One-off events (repairs, returns)
-- Correcting automated data
-- End-of-life/recycling events
-
-### Typical Customer Journeys
-
-| Customer Type | Primary Source | Secondary | Manual |
-|--------------|----------------|-----------|--------|
-| **Enterprise (SAP)** | ERP webhooks (90%) | 3PL tracking (8%) | Exceptions (2%) |
-| **Mid-size (Shopify)** | Shopify fulfillment (70%) | Supplier portal (20%) | Staff entry (10%) |
-| **Small Brand** | Manual entry (60%) | Shopify (30%) | Supplier portal (10%) |
-| **Cold Chain** | IoT sensors (50%) | ERP (40%) | Manual (10%) |
-
-### Getting Started: The 80/20 Approach
-
-Most customers start simple and add automation over time:
-
-```
-WEEK 1: Manual Entry
-────────────────────
-• Staff record key events in UI
-• Manufacturing, major shipments
-• ~5 minutes per event
-
-MONTH 1: Shopify Integration
-────────────────────────────
-• Enable fulfillment webhooks
-• Automatic shipping events
-• Zero ongoing effort
-
-MONTH 3: Supplier Portal
-────────────────────────
-• Invite key suppliers
-• They record upstream events
-• Build complete supply chain picture
-
-MONTH 6+: ERP Integration
-─────────────────────────
-• Connect SAP/Oracle/Dynamics
-• Full automation
-• Events flow automatically
 ```
 
 ---
@@ -1242,100 +1054,31 @@ MONTH 6+: ERP Integration
 ### Prisma Schema
 
 ```prisma
-// EPCIS Event Types
-enum EpcisEventType {
-  OBJECT_EVENT
-  AGGREGATION_EVENT
-  TRANSFORMATION_EVENT
-  TRANSACTION_EVENT
-}
+// Repository connection (customer configures their EPCIS endpoints)
+model EpcisRepository {
+  id              String        @id @default(cuid())
+  organizationId  String
+  organization    Organization  @relation(fields: [organizationId], references: [id])
 
-// Action types
-enum EpcisAction {
-  ADD
-  OBSERVE
-  DELETE
-}
+  name            String        // "Factory EPCIS", "DHL Tracking", etc.
+  baseUrl         String        // https://epcis.supplier.com
+  authType        String        // 'oauth2', 'apikey', 'basic'
 
-// Main EPCIS Event table
-model EpcisEvent {
-  id                    String          @id @default(cuid())
-  organizationId        String
-  organization          Organization    @relation(fields: [organizationId], references: [id])
+  // Encrypted credentials
+  credentials     String        // Encrypted JSON
 
-  // Event identification
-  eventId               String          @unique  // URN format
-  eventType             EpcisEventType
-  action                EpcisAction
+  // Connection status
+  isActive        Boolean       @default(true)
+  lastChecked     DateTime?
+  lastError       String?
 
-  // Timing
-  eventTime             DateTime
-  eventTimeZoneOffset   String
-  recordTime            DateTime        @default(now())
-
-  // What
-  epcList               String[]        // Array of EPC URNs
-  parentId              String?         // For aggregation events
-  childEpcs             String[]        // For aggregation events
-  inputEpcList          String[]        // For transformation events
-  outputEpcList         String[]        // For transformation events
-
-  // Where
-  readPoint             String?         // GLN or geo URI
-  bizLocation           String?         // GLN
-
-  // Why
-  bizStep               String?         // CBV business step
-  disposition           String?         // CBV disposition
-
-  // Business transactions
-  bizTransactions       Json?           // Array of {type, id}
-
-  // Sensor data
-  sensorData            Json?           // EPCIS 2.0 sensor elements
-
-  // ESPR extensions
-  carbonFootprint       Float?          // kg CO2e
-  carbonScope           Int?            // 1, 2, or 3
-  energyConsumption     Float?          // kWh
-  transportMode         String?         // road, rail, sea, air
-  transportDistance     Float?          // km
-
-  // Full event in JSON-LD format
-  rawEvent              Json
-
-  // Indexing
-  createdAt             DateTime        @default(now())
-  updatedAt             DateTime        @updatedAt
-
-  // Relations
-  passportEvents        PassportEpcisEvent[]
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 
   @@index([organizationId])
-  @@index([eventTime])
-  @@index([bizStep])
-  @@index([epcList])
-  @@index([readPoint])
 }
 
-// Link table: DPP <-> EPCIS Events
-model PassportEpcisEvent {
-  id            String      @id @default(cuid())
-  passportId    String
-  passport      Passport    @relation(fields: [passportId], references: [id])
-  epcisEventId  String
-  epcisEvent    EpcisEvent  @relation(fields: [epcisEventId], references: [id])
-
-  // Linking metadata
-  linkedAt      DateTime    @default(now())
-  linkReason    String?     // 'auto_gtin_match', 'manual', 'batch_match'
-
-  @@unique([passportId, epcisEventId])
-  @@index([passportId])
-  @@index([epcisEventId])
-}
-
-// Location master data
+// Location master data (for GLN resolution)
 model EpcisLocation {
   id              String        @id @default(cuid())
   organizationId  String
@@ -1365,21 +1108,42 @@ model EpcisLocation {
   @@index([country])
 }
 
+// Event cache (optional, for performance)
+model EpcisEventCache {
+  id              String        @id @default(cuid())
+  organizationId  String
+
+  // Event identification
+  eventId         String        @unique  // Original EPCIS event ID
+  repositoryId    String        // Which repository this came from
+
+  // Cached data
+  eventType       String
+  eventTime       DateTime
+  epcList         String[]      // Product identifiers
+  bizStep         String?
+  rawEvent        Json          // Full event JSON
+
+  // Cache management
+  cachedAt        DateTime      @default(now())
+  expiresAt       DateTime      // When to refresh
+
+  @@index([organizationId])
+  @@index([eventTime])
+  @@index([epcList])
+}
+
 // Extend Passport model
 model Passport {
   // ... existing fields ...
 
-  // EPCIS integration
-  epcisEvents       PassportEpcisEvent[]
+  // EPCIS integration (no storage, just configuration)
+  epcisEnabled          Boolean   @default(false)
 
-  // External EPCIS repository (if not using EuroComply's)
-  externalEpcisUrl  String?  // e.g., https://epcis.customer.com
-  externalEpcisAuth String?  // Encrypted auth token
-
-  // Aggregated lifecycle data (cached)
-  totalCarbonFootprint   Float?   // Sum of all event carbon footprints
-  lastEventTime          DateTime?
-  eventCount             Int      @default(0)
+  // Cached lifecycle summary (refreshed on demand)
+  lastEventTime         DateTime?
+  eventCount            Int       @default(0)
+  totalCarbonFootprint  Float?
 }
 ```
 
@@ -1438,102 +1202,44 @@ const DISPOSITIONS = {
 
 ## API Design
 
-### EPCIS 2.0 REST API
+### EPCIS Query API (EuroComply Endpoints)
 
 ```typescript
 // Base URL: /api/v1/epcis
 
-// ===== CAPTURE INTERFACE =====
+// ===== REPOSITORY MANAGEMENT =====
 
-// POST /capture - Capture one or more events
-interface CaptureRequest {
-  '@context': string[];
-  type: 'EPCISDocument';
-  schemaVersion: '2.0';
-  creationDate: string;
-  epcisBody: {
-    eventList: EpcisEvent[];
-  };
-}
-
-// Response: 202 Accepted (async processing)
-interface CaptureResponse {
-  success: true;
-  data: {
-    captureId: string;
-    eventsReceived: number;
-    status: 'processing';
-  };
-}
-
-// POST /capture/events - Capture single event (simplified)
-// Accepts individual event without EPCIS document wrapper
-
-// GET /capture/{captureId} - Get capture status
-interface CaptureStatus {
-  captureId: string;
-  status: 'processing' | 'completed' | 'error';
-  eventsProcessed: number;
-  errors?: Array<{ eventId: string; error: string }>;
-}
-
+// GET /repositories - List configured repositories
+// POST /repositories - Add a new repository connection
+// PUT /repositories/{id} - Update repository config
+// DELETE /repositories/{id} - Remove repository
+// POST /repositories/{id}/test - Test connection
 
 // ===== QUERY INTERFACE =====
 
-// GET /events - Query events
-interface EventQueryParams {
-  // Time range
-  eventTime_GE?: string;  // Greater than or equal
-  eventTime_LT?: string;  // Less than
-  recordTime_GE?: string;
-  recordTime_LT?: string;
-
-  // What
-  match_epc?: string;           // Exact EPC match
-  match_anyEPC?: string[];      // Any of these EPCs
-  match_epcClass?: string;      // Class-level match
-
-  // Where
-  match_readPoint?: string;     // Exact location
-  match_bizLocation?: string;
-
-  // Why
-  match_bizStep?: string;
-  match_disposition?: string;
-
-  // Event type
-  eventType?: EpcisEventType[];
-  action?: EpcisAction[];
-
-  // Pagination
-  perPage?: number;  // Default 30, max 100
-  nextPageToken?: string;
-
-  // Format
-  format?: 'json' | 'json-ld';
-}
-
-// GET /events/{eventId} - Get single event
-// Returns full EPCIS event in JSON-LD format
-
-// GET /eventTypes - List supported event types
-
-// GET /vocabularies - Get CBV vocabularies (bizSteps, dispositions)
-
-
-// ===== EUROCOMPLY EXTENSIONS =====
-
 // GET /products/{gtin}/lifecycle
-// Get all events for a product (by GTIN)
+// Query events from all configured repositories
 interface ProductLifecycleResponse {
   success: true;
   data: {
     gtin: string;
-    eventCount: number;
-    firstEvent: string;  // ISO date
-    lastEvent: string;
-    totalCarbonFootprint: number;
-    events: EpcisEvent[];
+    product: {
+      name: string;
+      image?: string;
+    };
+    story: {
+      timeline: TimelineEntry[];
+      summary: {
+        totalEvents: number;
+        firstEvent: string;
+        lastEvent: string;
+        carbonFootprint: number;
+        countriesVisited: string[];
+        distanceTraveled: number;
+      };
+    };
+    // Raw events (optional, for debugging)
+    rawEvents?: EpcisEvent[];
   };
 }
 
@@ -1564,44 +1270,34 @@ interface CarbonSummaryResponse {
   };
 }
 
-// POST /products/{gtin}/link-event
-// Manually link an EPCIS event to a DPP
-interface LinkEventRequest {
-  eventId: string;
-  reason?: string;
-}
-```
-
-### Webhook Events
-
-```typescript
-// EPCIS webhooks for real-time notifications
-
-interface EpcisWebhook {
-  type: 'epcis.event.captured';
-  timestamp: string;
-  data: {
-    eventId: string;
-    eventType: EpcisEventType;
-    epcList: string[];
-    bizStep: string;
-    organizationId: string;
-
-    // Quick summary
-    summary: string;  // e.g., "Product shipped from Berlin warehouse"
-  };
+// GET /events
+// Query raw events (admin/debug)
+interface EventQueryParams {
+  repositoryId?: string;      // Filter by repository
+  epc?: string;               // Filter by product
+  eventTimeGE?: string;       // Events after
+  eventTimeLT?: string;       // Events before
+  bizStep?: string;           // Filter by business step
+  limit?: number;             // Max results (default 100)
 }
 
-// Webhook registration
-// POST /webhooks
-interface WebhookRegistration {
-  url: string;
-  events: string[];  // ['epcis.event.captured', 'epcis.carbon.threshold']
-  filters?: {
-    bizSteps?: string[];
-    eventTypes?: EpcisEventType[];
-    locations?: string[];
-  };
+// ===== LOCATION MASTER =====
+
+// GET /locations - List known locations
+// POST /locations - Add location (GLN mapping)
+// PUT /locations/{gln} - Update location
+// DELETE /locations/{gln} - Remove location
+
+interface LocationRequest {
+  gln: string;
+  name: string;
+  type: 'factory' | 'warehouse' | 'store' | 'supplier' | 'other';
+  streetAddress?: string;
+  city?: string;
+  postalCode?: string;
+  country: string;  // ISO 3166-1 alpha-2
+  latitude?: number;
+  longitude?: number;
 }
 ```
 
@@ -1622,26 +1318,26 @@ interface WebhookRegistration {
 │                                                                  │
 │  ──────────────────────────────────────────────────────────────│
 │                                                                  │
-│  ● Jan 10, 2026 08:00 - MANUFACTURED                           │
+│  🏭 Jan 10, 2026 08:00 - MANUFACTURED                           │
 │  │ Factory: TextilCo GmbH, Berlin                               │
 │  │ Carbon: 2.5 kg CO2e (Scope 1)                               │
 │  │ Energy: 3.2 kWh (85% renewable)                             │
 │  │                                                              │
-│  ● Jan 10, 2026 10:00 - PACKED                                 │
+│  📦 Jan 10, 2026 10:00 - PACKED                                 │
 │  │ Location: Berlin Warehouse                                   │
 │  │ Container: SSCC 340123450000000001                          │
 │  │                                                              │
-│  ● Jan 10, 2026 14:00 - SHIPPED                                │
+│  🚛 Jan 10, 2026 14:00 - SHIPPED                                │
 │  │ From: Berlin → To: Munich                                    │
 │  │ Mode: Road (450 km)                                         │
 │  │ Carbon: 4.2 kg CO2e (Scope 3)                               │
 │  │ Temperature: 4°C - 8°C ✓                                    │
 │  │                                                              │
-│  ● Jan 11, 2026 09:00 - RECEIVED                               │
+│  📥 Jan 11, 2026 09:00 - RECEIVED                               │
 │  │ Location: Munich Distribution Center                        │
 │  │ Condition: Good                                              │
 │  │                                                              │
-│  ● Jan 12, 2026 11:00 - SOLD                                   │
+│  🏪 Jan 12, 2026 11:00 - SOLD                                   │
 │  │ Retailer: EcoFashion Store                                  │
 │  │ Invoice: INV-2026-00123                                     │
 │  │ Carbon: 1.8 kg CO2e (Scope 3)                               │
@@ -1650,69 +1346,58 @@ interface WebhookRegistration {
 │    Recommended: Textile recycling                               │
 │    Nearest facility: Munich Recycling GmbH (2.3 km)            │
 │                                                                  │
+│  ──────────────────────────────────────────────────────────────│
+│  Data sources: TextilCo EPCIS, DHL Tracking, Internal WMS      │
+│  Last refreshed: 2 minutes ago  [↻ Refresh]                    │
+│                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### Event Entry Form
+### Repository Connection Settings
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  ADD LIFECYCLE EVENT                                             │
+│  EPCIS REPOSITORY CONNECTIONS                                    │
+│  Settings > Integrations > EPCIS                                │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  Event Type:  ┌──────────────────────────┐                      │
-│               │ ▼ Shipping              │                       │
-│               └──────────────────────────┘                      │
+│  Connected Repositories                                         │
+│  ─────────────────────────                                      │
 │                                                                  │
-│  Products:    ┌──────────────────────────────────────────────┐ │
-│               │ GTIN: 4012345012345 - Blue Cotton T-Shirt    │ │
-│               │ + Add more products                          │ │
-│               └──────────────────────────────────────────────┘ │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  ● Factory EPCIS                              [Edit] [×] │   │
+│  │  URL: https://epcis.factory.textilco.de                  │   │
+│  │  Auth: OAuth 2.0                                         │   │
+│  │  Status: Connected (last check: 5 min ago)               │   │
+│  │  Events: Manufacturing, Quality Control                  │   │
+│  └─────────────────────────────────────────────────────────┘   │
 │                                                                  │
-│  Date & Time: ┌──────────────────────────┐                      │
-│               │ 2026-01-10 14:00        │                       │
-│               └──────────────────────────┘                      │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  ● DHL Logistics                              [Edit] [×] │   │
+│  │  URL: https://epcis-api.dhl.com/v2                       │   │
+│  │  Auth: API Key                                           │   │
+│  │  Status: Connected                                       │   │
+│  │  Events: Shipping, In-Transit, Delivery                  │   │
+│  └─────────────────────────────────────────────────────────┘   │
 │                                                                  │
-│  From:        ┌──────────────────────────────────────────────┐ │
-│               │ ▼ Berlin Warehouse (GLN: 4012345000010)      │ │
-│               └──────────────────────────────────────────────┘ │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  ○ Supplier Portal (Cotton Farm)              [Edit] [×] │   │
+│  │  URL: https://epcis.supplier.example.com                 │   │
+│  │  Auth: OAuth 2.0                                         │   │
+│  │  Status: Pending supplier setup                          │   │
+│  │  Events: Raw Material Sourcing                           │   │
+│  └─────────────────────────────────────────────────────────┘   │
 │                                                                  │
-│  To:          ┌──────────────────────────────────────────────┐ │
-│               │ ▼ Munich Distribution (GLN: 4012345000020)   │ │
-│               └──────────────────────────────────────────────┘ │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │                   [+ Add Repository]                     │   │
+│  └─────────────────────────────────────────────────────────┘   │
 │                                                                  │
-│  ┌─ TRANSPORT DETAILS ────────────────────────────────────────┐│
-│  │                                                             ││
-│  │  Mode:      ⚫ Road  ○ Rail  ○ Sea  ○ Air                  ││
-│  │                                                             ││
-│  │  Distance:  ┌──────┐ km                                    ││
-│  │             │ 450  │                                       ││
-│  │             └──────┘                                       ││
-│  │                                                             ││
-│  │  Vehicle:   ┌──────────────────────────┐                   ││
-│  │             │ ▼ Truck (40t)            │                   ││
-│  │             └──────────────────────────┘                   ││
-│  │                                                             ││
-│  │  ☑ Calculate carbon footprint automatically                ││
-│  │    Estimated: 4.2 kg CO2e                                  ││
-│  │                                                             ││
-│  └─────────────────────────────────────────────────────────────┘│
+│  ─────────────────────────────────────────────────────────────  │
 │                                                                  │
-│  ┌─ SENSOR DATA (Optional) ───────────────────────────────────┐│
-│  │                                                             ││
-│  │  Temperature:  Min ┌────┐  Max ┌────┐  °C                  ││
-│  │                    │ 4  │      │ 8  │                      ││
-│  │                    └────┘      └────┘                      ││
-│  │                                                             ││
-│  │  Humidity:     ┌────┐ %                                    ││
-│  │                │ 65 │                                      ││
-│  │                └────┘                                      ││
-│  │                                                             ││
-│  └─────────────────────────────────────────────────────────────┘│
-│                                                                  │
-│                     ┌────────────┐  ┌────────────────┐         │
-│                     │   Cancel   │  │  Record Event  │         │
-│                     └────────────┘  └────────────────┘         │
+│  Don't have an EPCIS repository?                               │
+│  • Deploy OpenEPCIS (free, open source) [Learn more →]         │
+│  • Use GS1 Cloud EPCIS service [Learn more →]                  │
+│  • Enter events manually [Use simple portal →]                  │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -1755,23 +1440,6 @@ interface WebhookRegistration {
 │                                                                  │
 │  [View full timeline →]                                         │
 │                                                                  │
-│  ─────────────────────────────────────────────────────────────  │
-│                                                                  │
-│  CARBON TAB:                                                    │
-│  ───────────                                                    │
-│                                                                  │
-│  Total Carbon Footprint: 8.5 kg CO2e                           │
-│                                                                  │
-│  Breakdown:                                                     │
-│  ┌────────────────────────────────────────────────────────┐    │
-│  │ Manufacturing     ████████████░░░░░░░░░░░░░  29%        │    │
-│  │ Transport         █████████████████████░░░░  51%        │    │
-│  │ Retail            ████████░░░░░░░░░░░░░░░░░  20%        │    │
-│  └────────────────────────────────────────────────────────┘    │
-│                                                                  │
-│  Compared to category average:                                  │
-│  ██████████████████░░░░░░░░░░░░░░░░░░░░░ 42% lower             │
-│                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -1779,245 +1447,53 @@ interface WebhookRegistration {
 
 ## Implementation Plan
 
-### Phase 1: OpenEPCIS Infrastructure (Now)
+### Phase 1: EPCIS Query Client
 
 | Task | Priority | Complexity | Status |
 |------|----------|------------|--------|
-| Deploy OpenEPCIS via Docker Compose | High | Low | 📋 Planned |
-| Configure Apache Kafka for event streaming | High | Medium | 📋 Planned |
-| Set up OpenSearch for event indexing | High | Medium | 📋 Planned |
-| Create docker-compose.openepcis.yml | High | Low | 📋 Planned |
-| Test OpenEPCIS REST API endpoints | High | Low | 📋 Planned |
-| Configure health checks and monitoring | Medium | Low | 📋 Planned |
+| Build EPCIS 2.0 REST query client | High | Low | 📋 Planned |
+| Support OAuth 2.0 and API key auth | High | Low | 📋 Planned |
+| Add repository connection management | High | Medium | 📋 Planned |
+| Create connection test endpoint | High | Low | 📋 Planned |
+| Handle query pagination | Medium | Low | 📋 Planned |
 
-### Phase 2: EuroComply Integration Layer
+### Phase 2: Story Builder
 
 | Task | Priority | Complexity | Status |
 |------|----------|------------|--------|
-| Build OpenEPCIS client (TypeScript) | High | Medium | 📋 Planned |
-| Implement EuroComply EPCIS capture API | High | Medium | 📋 Planned |
-| Add ESPR extensions (carbon, transport) | High | Low | 📋 Planned |
-| Build EPC/GTIN converter utilities | High | Low | 📋 Planned |
-| Create GS1 CBV vocabulary constants | High | Low | 📋 Planned |
-| Implement automatic DPP-to-event linking | High | Medium | 📋 Planned |
-| Add EPCIS reference tables to Prisma | High | Low | 📋 Planned |
-| Connect to Kafka for event notifications | Medium | Medium | 📋 Planned |
+| Build Story Builder service | High | Medium | 📋 Planned |
+| Implement bizStep → human text mapping | High | Low | 📋 Planned |
+| Add GLN → location resolution | High | Medium | 📋 Planned |
+| Carbon footprint aggregation | High | Medium | 📋 Planned |
+| Multi-repository event merging | Medium | Medium | 📋 Planned |
 
 ### Phase 3: UI/UX
 
 | Task | Priority | Complexity | Status |
 |------|----------|------------|--------|
 | Product lifecycle timeline component | High | Medium | 📋 Planned |
-| Event entry form (manual entry) | High | Medium | 📋 Planned |
-| Location management UI | Medium | Low | 📋 Planned |
+| Repository connection settings UI | High | Medium | 📋 Planned |
 | Add lifecycle tab to DPP public page | High | Medium | 📋 Planned |
 | Carbon footprint visualization | High | Medium | 📋 Planned |
-| Event history export (CSV, EPCIS XML/JSON) | Medium | Low | 📋 Planned |
+| Location master data management | Medium | Low | 📋 Planned |
 
-### Phase 4: External Integrations
+### Phase 4: Supplier Onboarding
 
 | Task | Priority | Complexity | Status |
 |------|----------|------------|--------|
-| ERP integration guide (SAP, Oracle) | Medium | Low | 📋 Planned |
-| Webhook system for real-time events | Medium | Medium | 📋 Planned |
-| IoT sensor data ingestion API | Low | Medium | 📋 Planned |
-| Support customer self-hosted OpenEPCIS | Medium | Medium | 📋 Planned |
-| Link to existing EPCIS (IBM, SAP) | Medium | Medium | 📋 Planned |
-| Shopify fulfillment event sync | Medium | Medium | 📋 Planned |
+| Simple event entry portal (manual fallback) | Medium | Medium | 📋 Planned |
+| Supplier invitation workflow | Medium | Low | 📋 Planned |
+| Excel/CSV event upload | Medium | Medium | 📋 Planned |
+| OpenEPCIS deployment guide | Medium | Low | 📋 Planned |
 
 ### Phase 5: Advanced Features
 
 | Task | Priority | Complexity | Status |
 |------|----------|------------|--------|
-| Automated carbon calculation from events | Medium | High | 📋 Planned |
-| Transport route optimization suggestions | Low | High | 📋 Planned |
-| Batch event upload (CSV/Excel) | Medium | Low | 📋 Planned |
-| Event verification (attestation) | Low | High | 📋 Planned |
-| Circular economy event types (repair, recycle) | Medium | Low | 📋 Planned |
-| Kubernetes deployment for production | Medium | Medium | 📋 Planned |
-
-### OpenEPCIS Quick Start
-
-```bash
-# 1. Start the OpenEPCIS stack
-cd infrastructure/
-docker compose -f docker-compose.openepcis.yml up -d
-
-# 2. Verify services are running
-docker compose ps
-
-# 3. Check OpenEPCIS health
-curl http://localhost:9000/q/health
-
-# 4. Test event capture
-curl -X POST http://localhost:9000/epcis/capture \
-  -H "Content-Type: application/json" \
-  -H "GS1-EPCIS-Version: 2.0" \
-  -d @test-event.json
-
-# 5. Query events
-curl "http://localhost:9000/epcis/events?perPage=10"
-```
-
----
-
-## Integration Examples
-
-### ERP Integration (SAP)
-
-```typescript
-// SAP SD/MM sends shipment events
-// Typical integration via SAP BTP or middleware
-
-// Webhook from SAP
-const sapShipmentEvent = {
-  header: {
-    documentNumber: '0080000123',
-    documentType: 'DELIVERY',
-    createdAt: '2026-01-10T14:00:00+01:00',
-  },
-  items: [
-    { material: '4012345012345', quantity: 100, unit: 'EA' },
-  ],
-  shipping: {
-    shipFrom: { plant: '1000', name: 'Berlin Factory' },
-    shipTo: { customer: '0000100001', name: 'Munich DC' },
-    carrier: 'DHL',
-    trackingNumber: '1234567890',
-  },
-};
-
-// Transform to EPCIS
-async function transformSapToEpcis(sapEvent: SapShipment): Promise<ObjectEvent> {
-  return {
-    type: 'ObjectEvent',
-    eventTime: sapEvent.header.createdAt,
-    eventTimeZoneOffset: '+01:00',
-    epcList: sapEvent.items.map(item =>
-      `urn:epc:id:sgtin:${gtinToSgtin(item.material)}`
-    ),
-    action: 'OBSERVE',
-    bizStep: 'urn:epcglobal:cbv:bizstep:shipping',
-    disposition: 'urn:epcglobal:cbv:disp:in_transit',
-    readPoint: `urn:epc:id:sgln:${plantToGln(sapEvent.shipping.shipFrom.plant)}`,
-    bizLocation: `urn:epc:id:sgln:${customerToGln(sapEvent.shipping.shipTo.customer)}`,
-  };
-}
-```
-
-### IoT Sensor Integration
-
-```typescript
-// IoT device sends sensor readings
-// Typical: MQTT broker → EuroComply API
-
-interface SensorReading {
-  deviceId: string;
-  timestamp: string;
-  readings: {
-    temperature?: number;
-    humidity?: number;
-    location?: { lat: number; lng: number };
-    shock?: number;
-  };
-  containerId: string; // SSCC
-}
-
-// Transform to EPCIS with sensor data
-async function createSensorEvent(reading: SensorReading): Promise<ObjectEvent> {
-  return {
-    type: 'ObjectEvent',
-    eventTime: reading.timestamp,
-    eventTimeZoneOffset: '+00:00',
-    epcList: [`urn:epc:id:sscc:${reading.containerId}`],
-    action: 'OBSERVE',
-    bizStep: 'urn:epcglobal:cbv:bizstep:transporting',
-    readPoint: reading.readings.location
-      ? `geo:${reading.readings.location.lat},${reading.readings.location.lng}`
-      : undefined,
-    sensorElementList: [
-      {
-        sensorMetadata: {
-          time: reading.timestamp,
-          deviceID: `urn:epc:id:giai:0614141.${reading.deviceId}`,
-        },
-        sensorReport: [
-          reading.readings.temperature !== undefined && {
-            type: 'gs1:Temperature',
-            value: reading.readings.temperature,
-            uom: 'CEL',
-          },
-          reading.readings.humidity !== undefined && {
-            type: 'gs1:Humidity',
-            value: reading.readings.humidity,
-            uom: 'P1',
-          },
-        ].filter(Boolean),
-      },
-    ],
-  };
-}
-```
-
-### Shopify Fulfillment Sync
-
-```typescript
-// Shopify sends fulfillment webhook
-// Transform to EPCIS shipping event
-
-interface ShopifyFulfillment {
-  id: number;
-  order_id: number;
-  status: 'pending' | 'open' | 'success' | 'cancelled' | 'failure';
-  created_at: string;
-  tracking_number?: string;
-  tracking_company?: string;
-  line_items: Array<{
-    sku: string;
-    quantity: number;
-    gtin?: string;
-  }>;
-  destination: {
-    country_code: string;
-    city: string;
-  };
-}
-
-async function handleShopifyFulfillment(fulfillment: ShopifyFulfillment): Promise<void> {
-  if (fulfillment.status !== 'success') return;
-
-  // Find products with DPPs
-  const productsWithDpp = fulfillment.line_items.filter(item => item.gtin);
-
-  if (productsWithDpp.length === 0) return;
-
-  // Create EPCIS event
-  const event: ObjectEvent = {
-    type: 'ObjectEvent',
-    eventTime: fulfillment.created_at,
-    eventTimeZoneOffset: '+00:00',
-    epcList: productsWithDpp.map(item =>
-      `urn:epc:id:sgtin:${gtinToEpc(item.gtin!)}`
-    ),
-    action: 'OBSERVE',
-    bizStep: 'urn:epcglobal:cbv:bizstep:shipping',
-    disposition: 'urn:epcglobal:cbv:disp:in_transit',
-    readPoint: 'urn:eurocomply:shopify:fulfillment',
-  };
-
-  // Add tracking reference
-  if (fulfillment.tracking_number) {
-    event.bizTransactionList = [
-      {
-        type: 'urn:epcglobal:cbv:btt:desadv',
-        bizTransaction: fulfillment.tracking_number,
-      },
-    ];
-  }
-
-  await epcisClient.capture([event]);
-}
-```
+| Event caching for performance | Medium | Medium | 📋 Planned |
+| Webhook notifications for new events | Low | Medium | 📋 Planned |
+| Event export (EPCIS JSON, CSV) | Medium | Low | 📋 Planned |
+| Real-time event streaming (optional) | Low | High | 📋 Planned |
 
 ---
 
@@ -2029,92 +1505,50 @@ async function handleShopifyFulfillment(fulfillment: ShopifyFulfillment): Promis
 # .env
 
 # ===========================================
-# OpenEPCIS Configuration
+# EPCIS Query Configuration
 # ===========================================
 
-# OpenEPCIS Repository Connection
-OPENEPCIS_URL=http://openepcis:9000        # Internal Docker network
-OPENEPCIS_EXTERNAL_URL=https://epcis.eurocomply.eu  # Public URL (if exposed)
-OPENEPCIS_TIMEOUT_MS=30000
-OPENEPCIS_RETRY_ATTEMPTS=3
-
-# Apache Kafka (Event Streaming)
-KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-KAFKA_CONSUMER_GROUP=eurocomply-epcis
-KAFKA_EPCIS_TOPIC=epcis.events.captured
-
-# OpenSearch (Event Indexing)
-OPENSEARCH_URL=http://opensearch:9200
-OPENSEARCH_INDEX_PREFIX=epcis-
-
-# ===========================================
-# EuroComply EPCIS Settings
-# ===========================================
+# Feature flag
 EPCIS_ENABLED=true
-EPCIS_AUTO_LINK=true               # Auto-link events to DPPs by GTIN
 
-# Deployment mode
-# - managed: EuroComply hosts OpenEPCIS (default)
-# - external: Customer hosts their own OpenEPCIS
-# - thirdparty: Customer uses IBM/SAP/TraceLink EPCIS
-EPCIS_MODE=managed
+# Query settings
+EPCIS_QUERY_TIMEOUT_MS=30000
+EPCIS_QUERY_RETRY_ATTEMPTS=3
+EPCIS_DEFAULT_PAGE_SIZE=100
 
-# Carbon calculation
-CARBON_CALCULATION_ENABLED=true
-CARBON_ROAD_KG_PER_KM=0.00012      # kg CO2e per km per kg
+# Caching (optional, for performance)
+EPCIS_CACHE_ENABLED=true
+EPCIS_CACHE_TTL_SECONDS=300  # 5 minutes
+
+# Carbon calculation factors (kg CO2e per km)
+CARBON_ROAD_KG_PER_KM=0.0001
 CARBON_RAIL_KG_PER_KM=0.00003
 CARBON_SEA_KG_PER_KM=0.00001
-CARBON_AIR_KG_PER_KM=0.00050
-
-# External EPCIS (for customer-hosted or third-party)
-EPCIS_EXTERNAL_ENABLED=true
-EPCIS_EXTERNAL_URL=                # Customer's EPCIS URL
-EPCIS_EXTERNAL_API_KEY=            # API key for external EPCIS
-
-# Webhooks (notify partners of events)
-EPCIS_WEBHOOK_SECRET=whsec_...     # For signing webhook payloads
-EPCIS_WEBHOOK_RETRY_COUNT=3
-EPCIS_WEBHOOK_TIMEOUT_MS=5000
-```
-
-### Docker Environment
-
-```bash
-# docker-compose.openepcis.yml environment overrides
-
-# Development
-QUARKUS_LOG_LEVEL=DEBUG
-OPENSEARCH_JAVA_OPTS=-Xms256m -Xmx512m
-
-# Production
-QUARKUS_LOG_LEVEL=INFO
-OPENSEARCH_JAVA_OPTS=-Xms2g -Xmx4g
-KAFKA_LOG_RETENTION_HOURS=720  # 30 days
+CARBON_AIR_KG_PER_KM=0.0005
 ```
 
 ---
 
 ## GS1 Compliance
 
-### EPCIS 2.0 Conformance
+### EPCIS 2.0 Query Conformance
 
-EuroComply's EPCIS implementation is designed for GS1 conformance:
+EuroComply as an Accessing Application supports:
 
 | Requirement | Status |
 |-------------|--------|
 | JSON-LD format support | ✅ Planned |
-| REST capture interface | ✅ Planned |
 | REST query interface | ✅ Planned |
 | All 4 event types | ✅ Planned |
 | CBV 2.0 business vocabulary | ✅ Planned |
-| Sensor data support | ✅ Planned |
+| Sensor data display | ✅ Planned |
 | OAuth 2.0 authentication | ✅ Planned |
 | GS1 Digital Link in events | ✅ Planned |
 
 ### EPC URN Formats
 
 ```typescript
-// Supported EPC formats
+// Supported EPC formats for querying
 
 // SGTIN (Serialized GTIN) - individual products
 // urn:epc:id:sgtin:<company>.<item>.<serial>
@@ -2131,10 +1565,6 @@ const sscc = 'urn:epc:id:sscc:0614141.1234567890';
 // SGLN (Serialized GLN) - locations
 // urn:epc:id:sgln:<company>.<location>.<extension>
 const sgln = 'urn:epc:id:sgln:0614141.00001.0';
-
-// GIAI (Global Individual Asset Identifier) - equipment/devices
-// urn:epc:id:giai:<company>.<asset>
-const giai = 'urn:epc:id:giai:0614141.SENSOR001';
 
 // Conversion utilities
 function gtinToSgtin(gtin: string, serial: string): string {
@@ -2161,48 +1591,50 @@ function sgtinToGtin(sgtin: string): { gtin: string; serial: string } {
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  EPCIS 2.0 INTEGRATION SUMMARY (with OpenEPCIS)                  │
+│  EPCIS 2.0 INTEGRATION SUMMARY (Reader/Visualizer Model)         │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  WHAT WE'RE BUILDING                                            │
-│  ─────────────────────                                          │
-│  OpenEPCIS-powered EPCIS 2.0 integrated from day one            │
-│  • OpenEPCIS repository (open source, Apache 2.0)               │
-│  • Apache Kafka for event streaming                             │
-│  • OpenSearch for fast querying                                 │
-│  • All 4 event types + IoT sensor data                          │
-│  • ESPR carbon footprint extensions                             │
-│  • Automatic DPP linking by GTIN                                │
+│  OUR ROLE: ACCESSING APPLICATION                                │
+│  ────────────────────────────────                               │
+│  We READ events from customer/supplier repositories             │
+│  We DON'T host EPCIS infrastructure                             │
 │                                                                  │
-│  TECHNOLOGY STACK                                               │
-│  ─────────────────                                              │
-│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐            │
-│  │  OpenEPCIS   │ │ Apache Kafka │ │  OpenSearch  │            │
-│  │  (Quarkus)   │ │ (Streaming)  │ │  (Indexing)  │            │
-│  │  Java 21+    │ │ Pub/Sub      │ │  Fast Query  │            │
-│  └──────────────┘ └──────────────┘ └──────────────┘            │
+│  WHAT WE BUILD                                                  │
+│  ─────────────                                                  │
+│  • Simple EPCIS 2.0 REST query client                           │
+│  • Story Builder (JSON → beautiful timelines)                   │
+│  • Multi-repository aggregation                                 │
+│  • Carbon footprint calculation                                 │
+│  • GLN → location name resolution                               │
 │                                                                  │
-│  WHY OPENEPCIS?                                                 │
-│  ───────────────                                                │
-│  • Open source - no vendor lock-in                              │
-│  • GS1 certified EPCIS 2.0 compliance                          │
-│  • Production-ready and battle-tested                           │
-│  • Easy Docker/Kubernetes deployment                            │
-│  • Active community and maintenance                             │
+│  INFRASTRUCTURE COST: $0                                        │
+│  ────────────────────────                                       │
+│  No Kafka, no OpenSearch, no EPCIS hosting                      │
+│  Just HTTP requests to customer repositories                    │
 │                                                                  │
-│  DEPLOYMENT OPTIONS                                             │
-│  ────────────────────                                           │
-│  A. EuroComply-managed OpenEPCIS (default)                     │
-│  B. Customer self-hosted OpenEPCIS (data sovereignty)          │
-│  C. Link to existing EPCIS (SAP, IBM, TraceLink)               │
+│  COMPATIBLE WITH ANY EPCIS 2.0 REPOSITORY                       │
+│  ──────────────────────────────────────────                     │
+│  • OpenEPCIS (open source)                                      │
+│  • IBM Sterling Supply Chain                                    │
+│  • SAP EPCIS                                                    │
+│  • TraceLink                                                    │
+│  • GS1 Cloud                                                    │
+│  • Any GS1-compliant implementation                             │
 │                                                                  │
-│  KEY DIFFERENTIATOR                                             │
-│  ────────────────────                                           │
-│  DPP + EPCIS in one platform                                    │
-│  • Static product info (DPP)                                    │
-│  • Dynamic lifecycle events (OpenEPCIS)                         │
-│  • Unified carbon footprint view                                │
-│  • Single source of truth                                       │
+│  OUR VALUE PROPOSITION                                          │
+│  ──────────────────────                                         │
+│  "Specialized web browser for product lifecycle"                │
+│  • Transform raw JSON into human-readable stories               │
+│  • Beautiful timeline visualization in DPP pages                │
+│  • Aggregate carbon footprint from transport events             │
+│  • Single view across multiple supply chain systems             │
+│                                                                  │
+│  KEY CHALLENGE: SUPPLIER ONBOARDING                             │
+│  ────────────────────────────────────                           │
+│  If suppliers don't write EPCIS events, we have nothing         │
+│  to display. This is a BUSINESS problem, not technical.         │
+│  Solution: Make EPCIS a procurement requirement + provide       │
+│  easy onboarding tools (manual portal, CSV upload, guides).     │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -2211,23 +1643,20 @@ function sgtinToGtin(sgtin: string): { gtin: string; serial: string } {
 
 ## References
 
-### OpenEPCIS
-- [OpenEPCIS Repository (GitHub)](https://github.com/openepcis/epcis-repository-ce) - Our chosen EPCIS implementation
-- [OpenEPCIS Documentation](https://openepcis.io/docs/)
-- [OpenEPCIS Docker Images](https://hub.docker.com/r/openepcis/epcis-repository)
-
-### GS1 Standards
+### EPCIS 2.0 Query API
 - [GS1 EPCIS 2.0 Standard](https://www.gs1.org/standards/epcis)
-- [EPCIS 2.0 Specification (PDF)](https://ref.gs1.org/standards/epcis/)
+- [EPCIS 2.0 REST Binding Specification](https://ref.gs1.org/standards/epcis/)
 - [GS1 Core Business Vocabulary (CBV)](https://www.gs1.org/standards/epcis/cbv)
+
+### EPCIS Repository Options (for customers/suppliers)
+- [OpenEPCIS](https://github.com/openepcis/epcis-repository-ce) - Open source, Apache 2.0
+- [GS1 Cloud EPCIS](https://www.gs1.org/services/gs1-cloud) - Managed service
+- IBM Sterling Supply Chain - Enterprise
+- SAP EPCIS - Enterprise
+- TraceLink - Pharma focused
+
+### Related Standards
 - [GS1 Digital Link Standard](https://www.gs1.org/standards/gs1-digital-link)
-
-### Infrastructure
-- [Apache Kafka Documentation](https://kafka.apache.org/documentation/)
-- [OpenSearch Documentation](https://opensearch.org/docs/latest/)
-- [Quarkus Framework](https://quarkus.io/) (OpenEPCIS runtime)
-
-### Regulations
 - [ESPR Regulation](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32024R1781)
 - [GHG Protocol](https://ghgprotocol.org/)
 
