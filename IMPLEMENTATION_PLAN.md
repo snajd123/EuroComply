@@ -14,10 +14,18 @@ The **Golden Record** - a unified product model containing both commercial attri
 
 ### Target Market
 
-- **Brands, manufacturers, distributors** managing 100-5,000 SKUs
+**Primary (ESPR Compliance)**
+- Brands, manufacturers, distributors managing 100-5,000 SKUs
 - First movers in textiles, batteries, electronics, furniture
 - Organizations needing both PIM and compliance functionality
-- NOT enterprise (they have SAP, Akeneo, custom solutions)
+
+**Secondary (PIM-First)**
+- Industries not yet subject to ESPR but needing structured product data
+- Food & beverage, cosmetics, industrial goods, specialty retail
+- Organizations wanting future-proof product management with optional DPP readiness
+
+**NOT Target**
+- Enterprise (they have SAP, Akeneo, custom solutions)
 
 ---
 
@@ -148,7 +156,18 @@ ProductFamily (Attribute Schema)
 ├── name: "Apparel", "Electronics", etc.
 ├── attributeSchema: JSONB (field definitions)
 ├── dppRequirements: String[] (fields needed for DPP)
-└── completenessRules: JSONB (per-channel requirements)
+├── completenessRules: JSONB (per-channel requirements)
+├── templateId?: references ProductFamilyTemplate (if created from template)
+└── isCustom: boolean (true if created from scratch)
+
+ProductFamilyTemplate (Industry Templates)
+├── name: "ESPR Textiles", "ESPR Electronics", "Food & Beverage", etc.
+├── industry: "ESPR" | "FOOD" | "COSMETICS" | "INDUSTRIAL" | "CUSTOM"
+├── attributeSchema: JSONB (default fields for this industry)
+├── dppRequirements: String[] (regulatory requirements, if any)
+├── description: string (explains what this template is for)
+├── isRegulated: boolean (true if ESPR/compliance requirements apply)
+└── version: number (templates can be updated)
 
 Product (Golden Record)
 ├── Core fields: sku, gtin, name, status
@@ -231,7 +250,8 @@ ContributionVersion (Signed Version)
 │   └── /billing        # Subscription, usage
 │
 ├── pim/
-│   ├── /families       # Product family schemas
+│   ├── /templates      # ProductFamily templates (browse, preview)
+│   ├── /families       # Product family schemas (CRUD, from template or scratch)
 │   ├── /products       # Product CRUD
 │   ├── /variants       # Variant management
 │   └── /completeness   # Scoring rules
@@ -331,7 +351,8 @@ Phase 7: Retailer Access    ──► Public API and widget
 
 | Task | Status |
 |------|--------|
-| Design complete Prisma schema (all entities including Contributor, Contribution, Attestation) | Planned |
+| Design complete Prisma schema (all entities including ProductFamilyTemplate, Contributor, Contribution, Attestation) | Planned |
+| Seed ProductFamilyTemplate with industry presets (ESPR Textiles, ESPR Electronics, Food & Beverage, etc.) | Planned |
 | Implement authentication (JWT sessions, password hashing) | Planned |
 | Build Organization model with multi-tenancy (row-level security) | Planned |
 | Implement User/Team management within organizations | Planned |
@@ -352,7 +373,10 @@ Phase 7: Retailer Access    ──► Public API and widget
 
 | Task | Status |
 |------|--------|
+| Implement ProductFamilyTemplate system with industry presets | Planned |
+| Build "Create Family" wizard (from template or from scratch) | Planned |
 | Implement ProductFamily model with dynamic attribute schemas | Planned |
+| Template modification UI (add/remove/customize fields) | Planned |
 | Build Product CRUD API with JSONB validation | Planned |
 | Implement completeness scoring algorithm (per-channel) | Planned |
 | Build AG Grid frontend with virtualization (10k+ rows) | Planned |
@@ -367,6 +391,23 @@ Phase 7: Retailer Access    ──► Public API and widget
 **Outcome:** Users can manage products with dynamic attributes, see completeness scores, upload assets. Core PIM functionality complete.
 
 **Dependencies:** Phase 1 (auth, org, schema)
+
+**Key Design: ProductFamily Templates**
+
+ProductFamily creation supports two paths:
+
+1. **From Template** (recommended for most users)
+   - Browse industry templates: ESPR Textiles, ESPR Electronics, Food & Beverage, Cosmetics, Industrial, etc.
+   - Templates include pre-configured fields, validation rules, and compliance requirements
+   - Users can modify templates: add fields, remove optional fields, customize validation
+   - Original template reference is kept for future updates/suggestions
+
+2. **From Scratch** (for custom industries)
+   - Build family with no pre-populated fields
+   - Define custom attributes, data types, and validation rules
+   - Useful for industries without ESPR requirements or niche verticals
+
+This approach supports industries beyond ESPR compliance - any business needing structured product data management can use EuroComply, with or without DPP issuance.
 
 ---
 
