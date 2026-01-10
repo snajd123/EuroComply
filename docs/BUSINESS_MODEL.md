@@ -765,6 +765,13 @@ Brands and manufacturers pay for DPP creation. Retailers access DPPs for free be
 │  ├── Rate-limited job queue (BullMQ)                           │
 │  └── DPP metadata in metafields                                 │
 │                                                                  │
+│  ROLE-BASED ACCESS CONTROL                                      │
+│  ├── Four authority levels (Viewer → Manager)                  │
+│  ├── Scope-based permissions (Commercial, Compliance, Admin)   │
+│  ├── Git-style version control with approval workflow          │
+│  ├── Guest partner access with product filtering               │
+│  └── Cryptographic chain of custody (per-user DIDs)            │
+│                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 

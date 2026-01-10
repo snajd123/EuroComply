@@ -184,7 +184,82 @@ Organization DID: did:key:z6MkhaXgBZDvvvRhta4LjXRJzLKNqVj3yQTpCFbRc8GwAdfS
                                         └── Self-contained, portable identity
 ```
 
-### 4.3 The DPP as a Verifiable Credential
+### 4.3 User-Level DIDs (Chain of Custody)
+
+In addition to Organization DIDs (for issuing DPPs), each user within an organization has their own did:key for internal chain of custody:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           DID HIERARCHY                                      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ORGANIZATION DID (did:key:zOrg...)                                         │
+│  └── Purpose: Issue DPPs (external, public-facing)                          │
+│  └── Stored: walt.id Custodian (org-level key)                              │
+│  └── Signs: DigitalProductPassport VCs                                      │
+│                                                                              │
+│  USER DIDs (did:key:zUser...)                                               │
+│  └── Purpose: Sign product versions (internal chain of custody)             │
+│  └── Stored: walt.id Custodian (per-user keys)                              │
+│  └── Signs: ProductVersion snapshots on approval/publish                    │
+│                                                                              │
+│  CONTRIBUTOR DIDs (did:key:zContributor...)                                 │
+│  └── Purpose: Sign third-party attestations                                 │
+│  └── Stored: walt.id Custodian (per-contributor keys)                       │
+│  └── Signs: Attestation VCs for product data contributions                  │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### What Gets Signed
+
+| Entity | Signed By | DID Type | When |
+|--------|-----------|----------|------|
+| ProductVersion | User (Editor/Manager) | User DID | On publish/approve |
+| DigitalProductPassport | Organization | Org DID | On DPP issuance |
+| Attestation | Third-party Contributor | Contributor DID | On attestation submit |
+
+#### User DID Lifecycle
+
+1. **User invited to organization** - No DID yet (created on first signing action)
+2. **First signing action** - System generates did:key via walt.id Custodian
+3. **Ongoing work** - Same DID used for all future signatures
+4. **User leaves** - User deactivated, DID remains for audit trail
+5. **Data export** - User DIDs included in export package
+
+#### Chain of Custody Example
+
+```
+Product: Organic Cotton T-Shirt (TSH-001)
+
+v3 (LIVE) ──────────────────────────────────────────────────────
+│ Signed by: Sarah Chen (EDITOR)
+│ DID: did:key:z6MkSarah...
+│ Signature: eyJhbGciOiJFZERTQSJ9...
+│ Changes: Updated fiber composition
+
+v2 ─────────────────────────────────────────────────────────────
+│ Signed by: John Smith (MANAGER)
+│ DID: did:key:z6MkJohn...
+│ Signature: eyJhbGciOiJFZERTQSJ9...
+│ Approved submission from: Maria Garcia (CONTRIBUTOR)
+
+v1 ─────────────────────────────────────────────────────────────
+  Created by: Admin
+  DID: did:key:z6MkAdmin...
+  Signature: eyJhbGciOiJFZERTQSJ9...
+
+DPP Issued ─────────────────────────────────────────────────────
+  Signed by: Organization
+  DID: did:key:z6MkOrg...
+  References: v3 as the source version
+```
+
+All user DIDs are stored in walt.id Custodian alongside organization keys, using the same infrastructure and security model.
+
+See [USER_MANAGEMENT.md](./USER_MANAGEMENT.md) for full details on user roles, permissions, and version control workflow.
+
+### 4.4 The DPP as a Verifiable Credential
 
 When a product reaches 100% DPP completeness, it appears in the **DPP Ready list** for review. When the organization approves issuance, the DPP is signed and becomes a portable VC:
 

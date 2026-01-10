@@ -243,6 +243,43 @@ Contributor (Third-Party Attestor)
 ├── did, didKeyId (their own did:key)
 └── verificationLevel: SELF_ATTESTED | DOMAIN_VERIFIED
 
+User (Organization Member)
+├── email, name, passwordHash?
+├── organizationId
+├── userType: INTERNAL | GUEST_PARTNER | TRANSACTIONAL_PARTNER
+├── authority: VIEWER | CONTRIBUTOR | EDITOR | MANAGER
+├── scopes: Scope[] (COMMERCIAL, COMPLIANCE, ADMIN)
+├── reportsToId? (approval hierarchy)
+├── allowedProductTags[], allowedFamilyIds[] (guest restrictions)
+├── did, didKeyId (user's personal did:key for signing)
+└── isActive, invitedAt, lastLoginAt
+
+ProductVersion (Git-Style Version Control)
+├── productId, version (1, 2, 3...)
+├── status: DRAFT | PENDING_REVIEW | APPROVED | REJECTED | SUPERSEDED
+├── commercialData: JSONB (snapshot of commercial fields)
+├── complianceData: JSONB (snapshot of compliance fields)
+├── changesSummary[], dataDiff: JSONB
+├── createdById, createdAt
+├── reviewedById?, reviewedAt?, reviewNotes?
+├── signedById?, signerDid?, signature?, signedAt?
+└── Unique: [productId, version]
+
+MagicLink (Passwordless Auth)
+├── token (unique, cryptographically random)
+├── userId
+├── expiresAt? (null = never expires)
+├── usedAt?, revokedAt?
+└── createdAt
+
+AuditLog (Event Logging)
+├── organizationId
+├── userId?, userEmail?, userName?
+├── action: string ("product.version.published", "user.invited", etc.)
+├── resourceType, resourceId?
+├── metadata: JSONB
+└── ipAddress?, userAgent?, createdAt
+
 DataRequest (Invitation to Contribute)
 ├── organizationId, productId
 ├── contributorEmail, requestedFields[]
@@ -401,8 +438,31 @@ Phase 7: Retailer Access    ──► Public API and widget
 | Basic login/signup UI | Planned |
 | Organization settings page | Planned |
 | Audit log viewer UI | Planned |
+| **User Management & Roles** | |
+| Extend Prisma schema with User, ProductVersion, MagicLink, AuditLog models | Planned |
+| Implement user invitation flow (email + magic link, configurable expiry) | Planned |
+| Build authority (VIEWER/CONTRIBUTOR/EDITOR/MANAGER) validation middleware | Planned |
+| Build scope (COMMERCIAL/COMPLIANCE/ADMIN) validation middleware | Planned |
+| User CRUD API endpoints (invite, update role/scope, deactivate) | Planned |
+| Team settings UI (list members, invite, edit roles, deactivate) | Planned |
+| Guest partner restrictions (filter by product tags/families) | Planned |
+| **Version Control Workflow** | |
+| Implement ProductVersion model with git-style versioning | Planned |
+| Build checkout/checkin workflow for product editing | Planned |
+| Implement version diff generation between versions | Planned |
+| Build publish endpoint for EDITOR/MANAGER (sign-on-save) | Planned |
+| Build submit-for-review endpoint for CONTRIBUTOR (sign-on-approval) | Planned |
+| Implement approval routing logic (by scope and hierarchy) | Planned |
+| Build approval inbox API and UI | Planned |
+| Product history tab with version timeline | Planned |
+| **User Identity & Signing** | |
+| Integrate user DID generation via walt.id Custodian | Planned |
+| Auto-generate user did:key on first signing action | Planned |
+| Implement per-version signing on publish/approve | Planned |
+| Signature verification display in history view | Planned |
+| Include user DIDs in data export package | Planned |
 
-**Outcome:** Users can sign up, start free trial, manage subscriptions with overage billing, and export data on cancellation. Enterprise customers can use SSO. Database schema supports all future features.
+**Outcome:** Users can sign up, start free trial, manage subscriptions with overage billing, and export data on cancellation. Enterprise customers can use SSO. Organizations can invite team members with role-based access control, and all product changes are version-controlled with cryptographic signatures. Database schema supports all future features.
 
 **Key Decision:** Design attestation models NOW (Contributor, DataRequest, Contribution, ContributionVersion) even though implementation is Phase 5. This prevents schema rework later.
 
@@ -767,6 +827,7 @@ Our architecture is ready for Registry integration:
 |----------|-------------|
 | [README.md](./README.md) | Platform overview and setup |
 | [BUSINESS_MODEL.md](./docs/BUSINESS_MODEL.md) | Pricing and market positioning |
+| [USER_MANAGEMENT.md](./docs/USER_MANAGEMENT.md) | User roles, permissions, and version control workflow |
 | [DATA_SOVEREIGNTY.md](./docs/DATA_SOVEREIGNTY.md) | Data ownership architecture |
 | [VERIFIABLE_CREDENTIALS.md](./docs/VERIFIABLE_CREDENTIALS.md) | VC/DID technical details |
 | [MULTI_PARTY_ATTESTATION.md](./docs/MULTI_PARTY_ATTESTATION.md) | Third-party data contribution architecture |
