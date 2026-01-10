@@ -103,15 +103,23 @@ Users can import product data from any format. The AI extracts, maps, and valida
 - **Portable**: Organizations own their credentials, can export anytime
 - **QR Codes**: GS1 Digital Link compatible
 
-### Supply Chain Lifecycle Tracking (EPCIS 2.0)
+### Supply Chain Lifecycle Tracking (EPCIS 2.0 + OpenEPCIS)
 
-Track the complete journey of every product with GS1 EPCIS 2.0 integration:
+Track the complete journey of every product with GS1 EPCIS 2.0 integration, powered by **OpenEPCIS**:
 
 - **Manufacturing Events**: When and where products are created
 - **Shipping & Receiving**: Full logistics chain with locations
 - **Transport Carbon**: Automatic CO2 calculation per shipment
 - **Repairs & Refurbishment**: Service history for circular economy
 - **End-of-Life**: Recycling and disposal tracking
+
+**Powered by OpenEPCIS Stack:**
+
+| Component | Technology | Purpose |
+|-----------|------------|---------|
+| **OpenEPCIS** | Quarkus/Java 21+ | GS1-compliant EPCIS 2.0 repository |
+| **Apache Kafka** | Event streaming | Real-time event pipelines |
+| **OpenSearch** | Search/indexing | Fast event queries and aggregations |
 
 **Where does the data come from?**
 
@@ -208,6 +216,15 @@ Lookup is supported by GTIN/EAN, brand and SKU combination, or item-level serial
 | Cache/Queue | Redis + BullMQ | Caching, job processing |
 | Identity | walt.id | DID/VC infrastructure |
 | AI | Claude API | Document parsing, data extraction |
+
+### EPCIS Stack (OpenEPCIS)
+
+| Component | Technology | Purpose |
+|-----------|------------|---------|
+| Repository | [OpenEPCIS](https://github.com/openepcis/epcis-repository-ce) | GS1 EPCIS 2.0 compliant event store |
+| Runtime | Quarkus/Java 21+ | Native compilation, fast startup |
+| Streaming | Apache Kafka | Event pipelines, pub/sub |
+| Search | OpenSearch | Event indexing, fast queries |
 
 ### Frontend
 

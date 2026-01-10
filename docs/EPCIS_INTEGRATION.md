@@ -374,59 +374,142 @@ const shippingWithCarbon: ObjectEvent & { espr: EsprExtension } = {
 
 ## Architecture
 
+### OpenEPCIS: Our Chosen EPCIS Repository
+
+We use **OpenEPCIS** ([github.com/openepcis/epcis-repository-ce](https://github.com/openepcis/epcis-repository-ce)) as our EPCIS 2.0 repository - an open-source, GS1-compliant implementation.
+
+**Why OpenEPCIS?**
+
+| Feature | Benefit |
+|---------|---------|
+| **Open Source** | Apache 2.0 license, no vendor lock-in |
+| **GS1 Compliant** | Full EPCIS 2.0 specification support |
+| **High Performance** | Quarkus/Java 21+ native compilation |
+| **Scalable** | Apache Kafka for event streaming, OpenSearch for indexing |
+| **Production Ready** | Battle-tested, actively maintained |
+| **Docker/Kubernetes** | Easy deployment with containers |
+
+### Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  EUROCOMPLY + OPENEPCIS ARCHITECTURE                             │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│                    EVENT SOURCES                                │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐     │  │
+│  │  │   ERP   │  │   WMS   │  │   IoT   │  │  Manual │     │  │
+│  │  │ (SAP)   │  │ System  │  │ Sensors │  │  Entry  │     │  │
+│  │  └────┬────┘  └────┬────┘  └────┬────┘  └────┬────┘     │  │
+│  └───────┼────────────┼────────────┼────────────┼───────────┘  │
+│          │            │            │            │               │
+│          └────────────┴─────┬──────┴────────────┘               │
+│                             │                                   │
+│                             ▼                                   │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │                  EUROCOMPLY API LAYER                        ││
+│  │  ┌─────────────────────────────────────────────────────────┐││
+│  │  │  /api/v1/epcis/capture                                  │││
+│  │  │  • Validates incoming events                            │││
+│  │  │  • Adds ESPR extensions (carbon, transport)             │││
+│  │  │  • Links events to DPPs by GTIN                         │││
+│  │  │  • Forwards to OpenEPCIS                                │││
+│  │  └─────────────────────────────────────────────────────────┘││
+│  └──────────────────────────────┬──────────────────────────────┘│
+│                                 │                                │
+│                                 ▼                                │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │                    OPENEPCIS STACK                           ││
+│  │  ┌─────────────────────────────────────────────────────────┐││
+│  │  │              OpenEPCIS Repository                       │││
+│  │  │              (Quarkus/Java 21+)                         │││
+│  │  │  • GS1 EPCIS 2.0 REST API                              │││
+│  │  │  • JSON-LD support                                      │││
+│  │  │  • All 4 event types                                    │││
+│  │  │  • Sensor data (IoT)                                    │││
+│  │  └───────────────┬───────────────────┬─────────────────────┘││
+│  │                  │                   │                       ││
+│  │    ┌─────────────▼───────┐   ┌───────▼─────────────┐        ││
+│  │    │    Apache Kafka     │   │     OpenSearch      │        ││
+│  │    │  ─────────────────  │   │  ─────────────────  │        ││
+│  │    │  Event streaming    │   │  Event indexing     │        ││
+│  │    │  Pub/sub messaging  │   │  Fast queries       │        ││
+│  │    │  Event pipelines    │   │  Aggregations       │        ││
+│  │    └─────────────────────┘   └─────────────────────┘        ││
+│  └─────────────────────────────────────────────────────────────┘│
+│                                 │                                │
+│                                 ▼                                │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │                 EUROCOMPLY PROCESSING                        ││
+│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       ││
+│  │  │   Carbon     │  │  DPP Event   │  │  Real-time   │       ││
+│  │  │  Calculator  │  │   Linker     │  │  Webhooks    │       ││
+│  │  │  (Aggregate) │  │  (by GTIN)   │  │  (Partners)  │       ││
+│  │  └──────────────┘  └──────────────┘  └──────────────┘       ││
+│  └─────────────────────────────────────────────────────────────┘│
+│                                 │                                │
+│                                 ▼                                │
+│                      ┌─────────────────────┐                    │
+│                      │    DPP Lifecycle    │                    │
+│                      │    Display (UI)     │                    │
+│                      └─────────────────────┘                    │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
 ### Integration Options
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  EPCIS INTEGRATION OPTIONS                                       │
+│  DEPLOYMENT OPTIONS                                              │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  OPTION A: EuroComply-Hosted EPCIS Repository (Recommended)     │
+│  OPTION A: EuroComply-Managed OpenEPCIS (Recommended)           │
 │  ─────────────────────────────────────────────────────────────  │
-│  • We host EPCIS 2.0 compliant repository                       │
+│  • We deploy and manage OpenEPCIS stack                         │
 │  • Full lifecycle visibility in our UI                          │
 │  • Automatic carbon footprint aggregation                       │
 │  • Works out-of-box for customers                               │
-│  • REST API for event capture                                   │
+│  • EuroComply API wraps OpenEPCIS                               │
 │                                                                  │
 │  ┌─────────────┐     ┌─────────────────────┐                    │
-│  │  Customer   │────▶│  EuroComply EPCIS   │                    │
-│  │  ERP/WMS    │     │  Repository         │                    │
-│  └─────────────┘     └──────────┬──────────┘                    │
-│                                 │                                │
+│  │  Customer   │────▶│  EuroComply API     │                    │
+│  │  ERP/WMS    │     │  ↓                  │                    │
+│  └─────────────┘     │  OpenEPCIS + Kafka  │                    │
+│                      │  + OpenSearch       │                    │
+│                      └──────────┬──────────┘                    │
 │                                 ▼                                │
 │                      ┌─────────────────────┐                    │
-│                      │  DPP with embedded  │                    │
-│                      │  lifecycle link     │                    │
+│                      │  DPP with lifecycle │                    │
 │                      └─────────────────────┘                    │
 │                                                                  │
-│  OPTION B: Link to External EPCIS Repository                    │
+│  OPTION B: Customer Self-Hosted OpenEPCIS                       │
 │  ─────────────────────────────────────────────                  │
-│  • Customer has existing EPCIS (IBM, SAP, TraceLink)            │
+│  • Customer deploys OpenEPCIS in their infrastructure           │
+│  • Data stays in their network (data sovereignty)               │
+│  • EuroComply queries their OpenEPCIS instance                  │
+│  • We provide deployment guides                                 │
+│                                                                  │
+│  ┌─────────────┐     ┌─────────────────────┐                    │
+│  │  Customer   │────▶│  Customer's         │                    │
+│  │  ERP/WMS    │     │  OpenEPCIS Stack    │                    │
+│  └─────────────┘     └──────────┬──────────┘                    │
+│                                 │ query                         │
+│                      ┌──────────┴──────────┐                    │
+│                      │  EuroComply DPP     │                    │
+│                      │  (links + queries)  │                    │
+│                      └─────────────────────┘                    │
+│                                                                  │
+│  OPTION C: Link to Existing EPCIS (Enterprise)                  │
+│  ─────────────────────────────────────────                      │
+│  • Customer has IBM/SAP/TraceLink EPCIS                         │
 │  • DPP links to their repository URL                            │
 │  • We query on-demand for lifecycle display                     │
-│  • No data duplication                                          │
+│  • Supports EPCIS 2.0 REST API                                  │
 │                                                                  │
-│  ┌─────────────┐     ┌─────────────────────┐                    │
-│  │  Customer   │────▶│  Customer's EPCIS   │                    │
-│  │  ERP/WMS    │     │  (SAP, IBM, etc.)   │                    │
-│  └─────────────┘     └──────────┬──────────┘                    │
-│                                 │                                │
-│                                 ▼                                │
-│                      ┌─────────────────────┐                    │
-│                      │  EuroComply DPP     │                    │
-│                      │  links + queries    │                    │
-│                      └─────────────────────┘                    │
-│                                                                  │
-│  OPTION C: Embedded Key Events (Hybrid)                         │
-│  ─────────────────────────────────────────                      │
-│  • Store essential events directly in DPP                       │
-│  • Manufacturing, key milestones                                │
-│  • Link to full EPCIS for detailed history                      │
-│  • Works offline                                                │
-│                                                                  │
-│  RECOMMENDATION: Option A (hosted) as default                   │
-│  with Option B for enterprise customers with existing EPCIS     │
+│  RECOMMENDATION: Option A (managed) for most customers          │
+│  Option B for data sovereignty, Option C for enterprises        │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -435,45 +518,441 @@ const shippingWithCarbon: ObjectEvent & { espr: EsprExtension } = {
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  EPCIS DATA FLOW                                                 │
+│  EPCIS DATA FLOW WITH OPENEPCIS                                  │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│                    EVENT SOURCES                                │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │                                                           │  │
-│  │  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐     │  │
-│  │  │   ERP   │  │   WMS   │  │   IoT   │  │  Manual │     │  │
-│  │  │ System  │  │ System  │  │ Sensors │  │  Entry  │     │  │
-│  │  └────┬────┘  └────┬────┘  └────┬────┘  └────┬────┘     │  │
-│  │       │            │            │            │           │  │
-│  └───────┼────────────┼────────────┼────────────┼───────────┘  │
-│          │            │            │            │               │
-│          └────────────┴─────┬──────┴────────────┘               │
-│                             │                                   │
-│                             ▼                                   │
-│              ┌─────────────────────────────┐                   │
-│              │   EUROCOMPLY EPCIS API      │                   │
-│              │   /api/v1/epcis/capture     │                   │
-│              └──────────────┬──────────────┘                   │
-│                             │                                   │
-│          ┌──────────────────┼──────────────────┐               │
-│          │                  │                  │               │
-│          ▼                  ▼                  ▼               │
-│  ┌─────────────┐   ┌─────────────┐   ┌─────────────┐          │
-│  │   Event     │   │   Carbon    │   │  Real-time  │          │
-│  │   Store     │   │  Calculator │   │  Webhooks   │          │
-│  │ (PostgreSQL)│   │  (Aggregate)│   │ (Partners)  │          │
-│  └──────┬──────┘   └──────┬──────┘   └─────────────┘          │
-│         │                 │                                    │
-│         └────────┬────────┘                                    │
-│                  │                                             │
-│                  ▼                                             │
-│         ┌─────────────────┐                                    │
-│         │   DPP Lifecycle │                                    │
-│         │   Display       │                                    │
-│         └─────────────────┘                                    │
+│  1. EVENT CAPTURE                                               │
+│  ─────────────────                                              │
+│  ┌─────────────┐     POST /api/v1/epcis/capture                 │
+│  │  ERP/WMS    │ ────────────────────────────────────┐          │
+│  │  IoT/Manual │                                     │          │
+│  └─────────────┘                                     │          │
+│                                                      ▼          │
+│                              ┌────────────────────────────────┐ │
+│                              │  EuroComply API               │ │
+│                              │  • Validate event             │ │
+│                              │  • Add ESPR extensions        │ │
+│                              │  • Store DPP link reference   │ │
+│                              └───────────────┬────────────────┘ │
+│                                              │                  │
+│  2. FORWARD TO OPENEPCIS                     ▼                  │
+│  ───────────────────────     ┌────────────────────────────────┐ │
+│                              │  OpenEPCIS REST API           │ │
+│                              │  POST /epcis/capture          │ │
+│                              └───────────────┬────────────────┘ │
+│                                              │                  │
+│  3. EVENT PROCESSING                         ▼                  │
+│  ───────────────────    ┌──────────────────────────────────────┐│
+│                         │            Apache Kafka              ││
+│                         │  ┌────────────────────────────────┐  ││
+│                         │  │  Topic: epcis.events.captured  │  ││
+│                         │  └───────────────┬────────────────┘  ││
+│                         └──────────────────┼───────────────────┘│
+│                                            │                    │
+│                    ┌───────────────────────┼───────────────────┐│
+│                    │                       │                   ││
+│                    ▼                       ▼                   ▼│
+│           ┌──────────────┐       ┌──────────────┐    ┌─────────┐│
+│           │  OpenSearch  │       │   Carbon     │    │ Webhook ││
+│           │  Indexer     │       │  Calculator  │    │ Sender  ││
+│           │  (Query)     │       │  (EuroComply)│    │         ││
+│           └──────────────┘       └──────────────┘    └─────────┘│
+│                                                                  │
+│  4. QUERY & DISPLAY                                             │
+│  ─────────────────                                              │
+│  ┌─────────────┐     GET /api/v1/products/{gtin}/lifecycle     │
+│  │  DPP Public │ ─────────────────────────────────────┐        │
+│  │  Page       │                                      │        │
+│  └─────────────┘                                      ▼        │
+│                              ┌────────────────────────────────┐ │
+│                              │  EuroComply API               │ │
+│                              │  → Query OpenEPCIS            │ │
+│                              │  → Add carbon summary         │ │
+│                              │  → Return lifecycle timeline  │ │
+│                              └────────────────────────────────┘ │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
+```
+
+### OpenEPCIS Deployment
+
+#### Docker Compose Setup
+
+```yaml
+# docker-compose.openepcis.yml
+# OpenEPCIS stack for EuroComply
+
+version: '3.8'
+
+services:
+  # ============================================
+  # OpenEPCIS Repository (Core)
+  # ============================================
+  openepcis:
+    image: openepcis/epcis-repository:latest
+    container_name: openepcis-repository
+    ports:
+      - "9000:9000"
+    environment:
+      # Quarkus settings
+      QUARKUS_HTTP_PORT: 9000
+      QUARKUS_LOG_LEVEL: INFO
+
+      # Kafka connection
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      MP_MESSAGING_INCOMING_EPCIS_EVENTS_BOOTSTRAP_SERVERS: kafka:9092
+
+      # OpenSearch connection
+      QUARKUS_OPENSEARCH_HOSTS: opensearch:9200
+
+      # Memory settings (adjust for production)
+      JAVA_OPTS: "-Xms512m -Xmx2g"
+    depends_on:
+      - kafka
+      - opensearch
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/q/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - epcis-network
+
+  # ============================================
+  # Apache Kafka (Event Streaming)
+  # ============================================
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: epcis-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
+    networks:
+      - epcis-network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: epcis-kafka
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: true
+      KAFKA_LOG_RETENTION_HOURS: 168  # 7 days
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    depends_on:
+      - zookeeper
+    networks:
+      - epcis-network
+
+  # ============================================
+  # OpenSearch (Event Indexing & Query)
+  # ============================================
+  opensearch:
+    image: opensearchproject/opensearch:2.11.0
+    container_name: epcis-opensearch
+    ports:
+      - "9200:9200"
+    environment:
+      - discovery.type=single-node
+      - plugins.security.disabled=true  # Enable in production with certs
+      - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx1g
+      - bootstrap.memory_lock=true
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    networks:
+      - epcis-network
+
+  opensearch-dashboards:
+    image: opensearchproject/opensearch-dashboards:2.11.0
+    container_name: epcis-opensearch-dashboards
+    ports:
+      - "5601:5601"
+    environment:
+      - OPENSEARCH_HOSTS=["http://opensearch:9200"]
+      - DISABLE_SECURITY_DASHBOARDS_PLUGIN=true
+    depends_on:
+      - opensearch
+    networks:
+      - epcis-network
+
+networks:
+  epcis-network:
+    driver: bridge
+
+volumes:
+  zookeeper-data:
+  kafka-data:
+  opensearch-data:
+```
+
+#### Kubernetes Deployment
+
+```yaml
+# kubernetes/openepcis-deployment.yml
+# Production-ready OpenEPCIS on Kubernetes
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openepcis-repository
+  namespace: eurocomply
+spec:
+  replicas: 3  # High availability
+  selector:
+    matchLabels:
+      app: openepcis
+  template:
+    metadata:
+      labels:
+        app: openepcis
+    spec:
+      containers:
+      - name: openepcis
+        image: openepcis/epcis-repository:latest
+        ports:
+        - containerPort: 9000
+        env:
+        - name: KAFKA_BOOTSTRAP_SERVERS
+          value: "kafka-cluster.eurocomply.svc:9092"
+        - name: QUARKUS_OPENSEARCH_HOSTS
+          value: "opensearch-cluster.eurocomply.svc:9200"
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "4Gi"
+            cpu: "2000m"
+        livenessProbe:
+          httpGet:
+            path: /q/health/live
+            port: 9000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /q/health/ready
+            port: 9000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: openepcis
+  namespace: eurocomply
+spec:
+  selector:
+    app: openepcis
+  ports:
+  - port: 9000
+    targetPort: 9000
+  type: ClusterIP
+```
+
+#### Infrastructure Requirements
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  OPENEPCIS INFRASTRUCTURE REQUIREMENTS                           │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  COMPONENT            MINIMUM        RECOMMENDED     PRODUCTION │
+│  ────────────────────────────────────────────────────────────── │
+│                                                                  │
+│  OpenEPCIS Repository                                           │
+│    CPU                1 core         2 cores         4 cores    │
+│    Memory             1 GB           2 GB            4 GB       │
+│    Instances          1              1               3 (HA)     │
+│                                                                  │
+│  Apache Kafka                                                   │
+│    CPU                1 core         2 cores         4 cores    │
+│    Memory             1 GB           2 GB            8 GB       │
+│    Disk               10 GB          50 GB           200 GB     │
+│    Brokers            1              1               3 (HA)     │
+│                                                                  │
+│  OpenSearch                                                     │
+│    CPU                2 cores        4 cores         8 cores    │
+│    Memory             2 GB           4 GB            16 GB      │
+│    Disk               20 GB          100 GB          500 GB     │
+│    Nodes              1              1               3 (HA)     │
+│                                                                  │
+│  ESTIMATED COSTS (Cloud)                                        │
+│  ────────────────────────────────────────────────────────────── │
+│                                                                  │
+│  Development:   ~$100/month  (small VMs, shared resources)      │
+│  Staging:       ~$300/month  (dedicated, single instances)      │
+│  Production:    ~$800/month  (HA setup, managed services)       │
+│                                                                  │
+│  NOTE: Use managed Kafka (Confluent Cloud, AWS MSK) and         │
+│  managed OpenSearch (AWS OpenSearch Service, Elastic Cloud)     │
+│  for production to reduce operational overhead.                 │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### EuroComply → OpenEPCIS Integration
+
+```typescript
+// src/services/openepcis-client.ts
+// Client for communicating with OpenEPCIS repository
+
+import { EpcisEvent } from '@/types/epcis';
+
+interface OpenEpcisConfig {
+  baseUrl: string;           // e.g., http://openepcis:9000
+  timeout: number;
+  retryAttempts: number;
+}
+
+class OpenEpcisClient {
+  private config: OpenEpcisConfig;
+
+  constructor(config: OpenEpcisConfig) {
+    this.config = config;
+  }
+
+  // Capture events (forward from EuroComply API)
+  async capture(events: EpcisEvent[]): Promise<CaptureResponse> {
+    const epcisDocument = {
+      '@context': [
+        'https://ref.gs1.org/standards/epcis/2.0.0/epcis-context.jsonld',
+        'https://eurocomply.eu/epcis/espr-context.jsonld',  // ESPR extensions
+      ],
+      type: 'EPCISDocument',
+      schemaVersion: '2.0',
+      creationDate: new Date().toISOString(),
+      epcisBody: {
+        eventList: events,
+      },
+    };
+
+    const response = await fetch(`${this.config.baseUrl}/epcis/capture`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'GS1-EPCIS-Version': '2.0',
+        'GS1-CBV-Version': '2.0',
+      },
+      body: JSON.stringify(epcisDocument),
+    });
+
+    if (!response.ok) {
+      throw new OpenEpcisError(`Capture failed: ${response.status}`);
+    }
+
+    return {
+      captureId: response.headers.get('Location')?.split('/').pop() || '',
+      status: 'accepted',
+    };
+  }
+
+  // Query events by EPC (product identifier)
+  async queryByEpc(epc: string): Promise<EpcisEvent[]> {
+    const params = new URLSearchParams({
+      match_anyEPC: epc,
+      orderBy: 'eventTime',
+      orderDirection: 'DESC',
+      perPage: '100',
+    });
+
+    const response = await fetch(
+      `${this.config.baseUrl}/epcis/events?${params}`,
+      {
+        headers: {
+          'Accept': 'application/json',
+          'GS1-EPCIS-Version': '2.0',
+        },
+      }
+    );
+
+    if (!response.ok) {
+      throw new OpenEpcisError(`Query failed: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data.epcisBody?.eventList || [];
+  }
+
+  // Query events by time range
+  async queryByTimeRange(
+    startTime: Date,
+    endTime: Date,
+    options?: QueryOptions
+  ): Promise<EpcisEvent[]> {
+    const params = new URLSearchParams({
+      eventTime_GE: startTime.toISOString(),
+      eventTime_LT: endTime.toISOString(),
+      ...(options?.bizStep && { match_bizStep: options.bizStep }),
+      ...(options?.location && { match_readPoint: options.location }),
+      perPage: String(options?.limit || 100),
+    });
+
+    const response = await fetch(
+      `${this.config.baseUrl}/epcis/events?${params}`,
+      {
+        headers: {
+          'Accept': 'application/json',
+          'GS1-EPCIS-Version': '2.0',
+        },
+      }
+    );
+
+    const data = await response.json();
+    return data.epcisBody?.eventList || [];
+  }
+
+  // Get single event by ID
+  async getEvent(eventId: string): Promise<EpcisEvent | null> {
+    const response = await fetch(
+      `${this.config.baseUrl}/epcis/events/${encodeURIComponent(eventId)}`,
+      {
+        headers: {
+          'Accept': 'application/json',
+          'GS1-EPCIS-Version': '2.0',
+        },
+      }
+    );
+
+    if (response.status === 404) {
+      return null;
+    }
+
+    if (!response.ok) {
+      throw new OpenEpcisError(`Get event failed: ${response.status}`);
+    }
+
+    return response.json();
+  }
+
+  // Health check
+  async healthCheck(): Promise<boolean> {
+    try {
+      const response = await fetch(`${this.config.baseUrl}/q/health`);
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }
+}
+
+// Singleton instance
+export const openepcisClient = new OpenEpcisClient({
+  baseUrl: process.env.OPENEPCIS_URL || 'http://openepcis:9000',
+  timeout: 30000,
+  retryAttempts: 3,
+});
 ```
 
 ---
@@ -1300,48 +1779,85 @@ interface WebhookRegistration {
 
 ## Implementation Plan
 
-### Phase 1: Core EPCIS Repository (Now)
+### Phase 1: OpenEPCIS Infrastructure (Now)
 
 | Task | Priority | Complexity | Status |
 |------|----------|------------|--------|
-| Add EPCIS tables to Prisma schema | High | Low | Planned |
-| Implement EPCIS event capture API | High | Medium | Planned |
-| Build event query API (GS1 2.0 compatible) | High | Medium | Planned |
-| Create GS1 CBV vocabulary constants | High | Low | Planned |
-| Build EPC/GTIN converter utilities | High | Low | Planned |
-| Implement automatic DPP-to-event linking | High | Medium | Planned |
-| Add ESPR extension fields (carbon, transport) | High | Low | Planned |
+| Deploy OpenEPCIS via Docker Compose | High | Low | 📋 Planned |
+| Configure Apache Kafka for event streaming | High | Medium | 📋 Planned |
+| Set up OpenSearch for event indexing | High | Medium | 📋 Planned |
+| Create docker-compose.openepcis.yml | High | Low | 📋 Planned |
+| Test OpenEPCIS REST API endpoints | High | Low | 📋 Planned |
+| Configure health checks and monitoring | Medium | Low | 📋 Planned |
 
-### Phase 2: UI/UX
-
-| Task | Priority | Complexity | Status |
-|------|----------|------------|--------|
-| Product lifecycle timeline component | High | Medium | Planned |
-| Event entry form (manual entry) | High | Medium | Planned |
-| Location management UI | Medium | Low | Planned |
-| Add lifecycle tab to DPP public page | High | Medium | Planned |
-| Carbon footprint visualization | High | Medium | Planned |
-| Event history export (CSV, EPCIS XML/JSON) | Medium | Low | Planned |
-
-### Phase 3: Integrations
+### Phase 2: EuroComply Integration Layer
 
 | Task | Priority | Complexity | Status |
 |------|----------|------------|--------|
-| ERP integration guide (SAP, Oracle) | Medium | Low | Planned |
-| Webhook system for real-time events | Medium | Medium | Planned |
-| IoT sensor data ingestion API | Low | Medium | Planned |
-| External EPCIS repository linking | Medium | Medium | Planned |
-| Shopify fulfillment event sync | Medium | Medium | Planned |
+| Build OpenEPCIS client (TypeScript) | High | Medium | 📋 Planned |
+| Implement EuroComply EPCIS capture API | High | Medium | 📋 Planned |
+| Add ESPR extensions (carbon, transport) | High | Low | 📋 Planned |
+| Build EPC/GTIN converter utilities | High | Low | 📋 Planned |
+| Create GS1 CBV vocabulary constants | High | Low | 📋 Planned |
+| Implement automatic DPP-to-event linking | High | Medium | 📋 Planned |
+| Add EPCIS reference tables to Prisma | High | Low | 📋 Planned |
+| Connect to Kafka for event notifications | Medium | Medium | 📋 Planned |
 
-### Phase 4: Advanced Features
+### Phase 3: UI/UX
 
 | Task | Priority | Complexity | Status |
 |------|----------|------------|--------|
-| Automated carbon calculation | Medium | High | Planned |
-| Transport route optimization suggestions | Low | High | Planned |
-| Batch event upload (CSV/Excel) | Medium | Low | Planned |
-| Event verification (attestation) | Low | High | Planned |
-| Circular economy event types (repair, recycle) | Medium | Low | Planned |
+| Product lifecycle timeline component | High | Medium | 📋 Planned |
+| Event entry form (manual entry) | High | Medium | 📋 Planned |
+| Location management UI | Medium | Low | 📋 Planned |
+| Add lifecycle tab to DPP public page | High | Medium | 📋 Planned |
+| Carbon footprint visualization | High | Medium | 📋 Planned |
+| Event history export (CSV, EPCIS XML/JSON) | Medium | Low | 📋 Planned |
+
+### Phase 4: External Integrations
+
+| Task | Priority | Complexity | Status |
+|------|----------|------------|--------|
+| ERP integration guide (SAP, Oracle) | Medium | Low | 📋 Planned |
+| Webhook system for real-time events | Medium | Medium | 📋 Planned |
+| IoT sensor data ingestion API | Low | Medium | 📋 Planned |
+| Support customer self-hosted OpenEPCIS | Medium | Medium | 📋 Planned |
+| Link to existing EPCIS (IBM, SAP) | Medium | Medium | 📋 Planned |
+| Shopify fulfillment event sync | Medium | Medium | 📋 Planned |
+
+### Phase 5: Advanced Features
+
+| Task | Priority | Complexity | Status |
+|------|----------|------------|--------|
+| Automated carbon calculation from events | Medium | High | 📋 Planned |
+| Transport route optimization suggestions | Low | High | 📋 Planned |
+| Batch event upload (CSV/Excel) | Medium | Low | 📋 Planned |
+| Event verification (attestation) | Low | High | 📋 Planned |
+| Circular economy event types (repair, recycle) | Medium | Low | 📋 Planned |
+| Kubernetes deployment for production | Medium | Medium | 📋 Planned |
+
+### OpenEPCIS Quick Start
+
+```bash
+# 1. Start the OpenEPCIS stack
+cd infrastructure/
+docker compose -f docker-compose.openepcis.yml up -d
+
+# 2. Verify services are running
+docker compose ps
+
+# 3. Check OpenEPCIS health
+curl http://localhost:9000/q/health
+
+# 4. Test event capture
+curl -X POST http://localhost:9000/epcis/capture \
+  -H "Content-Type: application/json" \
+  -H "GS1-EPCIS-Version: 2.0" \
+  -d @test-event.json
+
+# 5. Query events
+curl "http://localhost:9000/epcis/events?perPage=10"
+```
 
 ---
 
@@ -1513,10 +2029,35 @@ async function handleShopifyFulfillment(fulfillment: ShopifyFulfillment): Promis
 # .env
 
 # ===========================================
-# EPCIS Configuration
+# OpenEPCIS Configuration
+# ===========================================
+
+# OpenEPCIS Repository Connection
+OPENEPCIS_URL=http://openepcis:9000        # Internal Docker network
+OPENEPCIS_EXTERNAL_URL=https://epcis.eurocomply.eu  # Public URL (if exposed)
+OPENEPCIS_TIMEOUT_MS=30000
+OPENEPCIS_RETRY_ATTEMPTS=3
+
+# Apache Kafka (Event Streaming)
+KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+KAFKA_CONSUMER_GROUP=eurocomply-epcis
+KAFKA_EPCIS_TOPIC=epcis.events.captured
+
+# OpenSearch (Event Indexing)
+OPENSEARCH_URL=http://opensearch:9200
+OPENSEARCH_INDEX_PREFIX=epcis-
+
+# ===========================================
+# EuroComply EPCIS Settings
 # ===========================================
 EPCIS_ENABLED=true
 EPCIS_AUTO_LINK=true               # Auto-link events to DPPs by GTIN
+
+# Deployment mode
+# - managed: EuroComply hosts OpenEPCIS (default)
+# - external: Customer hosts their own OpenEPCIS
+# - thirdparty: Customer uses IBM/SAP/TraceLink EPCIS
+EPCIS_MODE=managed
 
 # Carbon calculation
 CARBON_CALCULATION_ENABLED=true
@@ -1525,13 +2066,30 @@ CARBON_RAIL_KG_PER_KM=0.00003
 CARBON_SEA_KG_PER_KM=0.00001
 CARBON_AIR_KG_PER_KM=0.00050
 
-# External EPCIS (for linking to customer repositories)
+# External EPCIS (for customer-hosted or third-party)
 EPCIS_EXTERNAL_ENABLED=true
+EPCIS_EXTERNAL_URL=                # Customer's EPCIS URL
+EPCIS_EXTERNAL_API_KEY=            # API key for external EPCIS
 
-# Webhooks
+# Webhooks (notify partners of events)
 EPCIS_WEBHOOK_SECRET=whsec_...     # For signing webhook payloads
 EPCIS_WEBHOOK_RETRY_COUNT=3
 EPCIS_WEBHOOK_TIMEOUT_MS=5000
+```
+
+### Docker Environment
+
+```bash
+# docker-compose.openepcis.yml environment overrides
+
+# Development
+QUARKUS_LOG_LEVEL=DEBUG
+OPENSEARCH_JAVA_OPTS=-Xms256m -Xmx512m
+
+# Production
+QUARKUS_LOG_LEVEL=INFO
+OPENSEARCH_JAVA_OPTS=-Xms2g -Xmx4g
+KAFKA_LOG_RETENTION_HOURS=720  # 30 days
 ```
 
 ---
@@ -1603,36 +2161,46 @@ function sgtinToGtin(sgtin: string): { gtin: string; serial: string } {
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  EPCIS 2.0 INTEGRATION SUMMARY                                   │
+│  EPCIS 2.0 INTEGRATION SUMMARY (with OpenEPCIS)                  │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
 │  WHAT WE'RE BUILDING                                            │
 │  ─────────────────────                                          │
-│  Full EPCIS 2.0 repository integrated from day one              │
-│  • GS1 compliant REST API                                       │
-│  • All 4 event types                                            │
-│  • IoT sensor data support                                      │
+│  OpenEPCIS-powered EPCIS 2.0 integrated from day one            │
+│  • OpenEPCIS repository (open source, Apache 2.0)               │
+│  • Apache Kafka for event streaming                             │
+│  • OpenSearch for fast querying                                 │
+│  • All 4 event types + IoT sensor data                          │
 │  • ESPR carbon footprint extensions                             │
 │  • Automatic DPP linking by GTIN                                │
 │                                                                  │
-│  WHY IT MATTERS                                                 │
-│  ───────────────                                                │
-│  • ESPR requires supply chain traceability                      │
-│  • Carbon footprint needs transport events                      │
-│  • Repair/refurbishment history mandatory                       │
-│  • Customers expect lifecycle visibility                        │
+│  TECHNOLOGY STACK                                               │
+│  ─────────────────                                              │
+│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐            │
+│  │  OpenEPCIS   │ │ Apache Kafka │ │  OpenSearch  │            │
+│  │  (Quarkus)   │ │ (Streaming)  │ │  (Indexing)  │            │
+│  │  Java 21+    │ │ Pub/Sub      │ │  Fast Query  │            │
+│  └──────────────┘ └──────────────┘ └──────────────┘            │
 │                                                                  │
-│  INTEGRATION OPTIONS                                            │
+│  WHY OPENEPCIS?                                                 │
+│  ───────────────                                                │
+│  • Open source - no vendor lock-in                              │
+│  • GS1 certified EPCIS 2.0 compliance                          │
+│  • Production-ready and battle-tested                           │
+│  • Easy Docker/Kubernetes deployment                            │
+│  • Active community and maintenance                             │
+│                                                                  │
+│  DEPLOYMENT OPTIONS                                             │
 │  ────────────────────                                           │
-│  A. EuroComply-hosted (default)                                 │
-│  B. Link to external EPCIS (SAP, IBM)                          │
-│  C. Hybrid with key events embedded                             │
+│  A. EuroComply-managed OpenEPCIS (default)                     │
+│  B. Customer self-hosted OpenEPCIS (data sovereignty)          │
+│  C. Link to existing EPCIS (SAP, IBM, TraceLink)               │
 │                                                                  │
 │  KEY DIFFERENTIATOR                                             │
 │  ────────────────────                                           │
 │  DPP + EPCIS in one platform                                    │
 │  • Static product info (DPP)                                    │
-│  • Dynamic lifecycle events (EPCIS)                             │
+│  • Dynamic lifecycle events (OpenEPCIS)                         │
 │  • Unified carbon footprint view                                │
 │  • Single source of truth                                       │
 │                                                                  │
@@ -1643,10 +2211,23 @@ function sgtinToGtin(sgtin: string): { gtin: string; serial: string } {
 
 ## References
 
+### OpenEPCIS
+- [OpenEPCIS Repository (GitHub)](https://github.com/openepcis/epcis-repository-ce) - Our chosen EPCIS implementation
+- [OpenEPCIS Documentation](https://openepcis.io/docs/)
+- [OpenEPCIS Docker Images](https://hub.docker.com/r/openepcis/epcis-repository)
+
+### GS1 Standards
 - [GS1 EPCIS 2.0 Standard](https://www.gs1.org/standards/epcis)
 - [EPCIS 2.0 Specification (PDF)](https://ref.gs1.org/standards/epcis/)
 - [GS1 Core Business Vocabulary (CBV)](https://www.gs1.org/standards/epcis/cbv)
 - [GS1 Digital Link Standard](https://www.gs1.org/standards/gs1-digital-link)
+
+### Infrastructure
+- [Apache Kafka Documentation](https://kafka.apache.org/documentation/)
+- [OpenSearch Documentation](https://opensearch.org/docs/latest/)
+- [Quarkus Framework](https://quarkus.io/) (OpenEPCIS runtime)
+
+### Regulations
 - [ESPR Regulation](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32024R1781)
 - [GHG Protocol](https://ghgprotocol.org/)
 
