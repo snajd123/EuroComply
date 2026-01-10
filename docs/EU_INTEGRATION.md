@@ -560,106 +560,69 @@ type EsprCategory =
 
 ## EPCIS 2.0 Integration
 
-### What is EPCIS?
+EuroComply integrates EPCIS 2.0 (Electronic Product Code Information Services) as a **core feature from day one** for complete supply chain event tracking and product lifecycle visibility.
 
-**EPCIS** (Electronic Product Code Information Services) is a GS1 standard for sharing supply chain event data. Version 2.0 is the EU-recommended standard for DPP supply chain events.
+**See [EPCIS_INTEGRATION.md](./EPCIS_INTEGRATION.md) for full documentation.**
 
-### Why EPCIS for DPPs?
+### Quick Overview
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  EPCIS USE CASES FOR DPP                                         │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  WHAT EPCIS CAPTURES:                                           │
-│  ─────────────────────                                          │
-│  • Manufacturing events (product created)                        │
-│  • Shipping events (product moved)                               │
-│  • Transformation events (raw materials → finished good)         │
-│  • Aggregation events (items packed into cases)                  │
-│  • Disaggregation events (cases unpacked)                        │
-│                                                                  │
-│  ESPR REQUIREMENTS:                                             │
-│  ──────────────────                                             │
-│  • Supply chain traceability                                    │
-│  • Carbon footprint tracking (by transport)                     │
-│  • Repair/refurbishment history                                 │
-│  • Recycling/end-of-life events                                 │
-│                                                                  │
-│  INTEGRATION APPROACH:                                          │
-│  ─────────────────────                                          │
-│  • DPP VC contains static product info                          │
-│  • EPCIS repository contains dynamic event history              │
-│  • DPP links to EPCIS repository for full lifecycle             │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
+| Aspect | Digital Product Passport | EPCIS 2.0 |
+|--------|-------------------------|-----------|
+| **Purpose** | Static product information | Dynamic lifecycle events |
+| **Data Type** | Materials, certifications | Manufacturing, shipping, repairs |
+| **Changes** | Rarely | Constantly (new events added) |
+| **Format** | W3C Verifiable Credential | GS1 EPCIS 2.0 JSON-LD |
 
-### EPCIS Architecture
+### Key Features
 
-```typescript
-// EPCIS 2.0 Event Types
-interface EpcisEvent {
-  eventType: 'ObjectEvent' | 'AggregationEvent' | 'TransformationEvent' | 'TransactionEvent';
-  eventTime: Date;
-  eventTimeZoneOffset: string;
-  epcList: string[];  // GS1 EPCs (GTIN + serial)
-  action: 'ADD' | 'OBSERVE' | 'DELETE';
-  bizStep: string;    // e.g., 'urn:epcglobal:cbv:bizstep:commissioning'
-  disposition: string;
-  readPoint: string;  // Location
-  bizLocation: string;
+- **All 4 EPCIS Event Types**: ObjectEvent, AggregationEvent, TransformationEvent, TransactionEvent
+- **The 4 Ws**: What (GTIN+serial), When (timestamp), Where (GLN), Why (business context)
+- **IoT Sensor Data**: Temperature, humidity, shock monitoring
+- **ESPR Extensions**: Carbon footprint, energy consumption, transport mode
+- **GS1 Compliant**: REST API, JSON-LD format, CBV 2.0 vocabulary
 
-  // ESPR-specific extensions
-  extensions?: {
-    carbonFootprint?: number;  // kg CO2e for this event
-    energyConsumption?: number;
-    transportMode?: 'road' | 'rail' | 'sea' | 'air';
-  };
-}
-
-// EuroComply EPCIS Repository Link
-interface DppEpcisLink {
-  passportId: string;
-  gtin: string;
-  epcisRepositoryUrl: string;  // e.g., 'https://epcis.supplier.com'
-  epcisQueryEndpoint: string;  // e.g., '/epcis/query/SimpleEventQuery'
-  accessToken?: string;        // For authenticated EPCIS access
-}
-```
-
-### EPCIS Integration Options
+### Integration Options
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │  EPCIS INTEGRATION OPTIONS                                       │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  OPTION A: Link to External EPCIS (Recommended)                 │
-│  ──────────────────────────────────────────────                 │
-│  • Customer has existing EPCIS repository                       │
-│  • DPP links to their repository URL                            │
-│  • We query on-demand for lifecycle data                        │
-│  • No data duplication                                          │
+│  OPTION A: EuroComply-Hosted EPCIS (Default)                    │
+│  ─────────────────────────────────────────────                  │
+│  • Full EPCIS 2.0 repository included                           │
+│  • Automatic DPP-to-event linking by GTIN                       │
+│  • REST API for event capture                                   │
+│  • Lifecycle timeline in DPP UI                                 │
 │                                                                  │
-│  OPTION B: EuroComply-Hosted EPCIS                              │
+│  OPTION B: Link to External EPCIS                               │
 │  ─────────────────────────────────                              │
-│  • Customers without EPCIS can use ours                         │
-│  • We host EPCIS 2.0 compliant repository                       │
-│  • Additional cost for storage/bandwidth                        │
-│  • Full lifecycle visibility in our UI                          │
-│                                                                  │
-│  OPTION C: Hybrid (Phase 1)                                     │
-│  ──────────────────────────                                     │
-│  • Store key events in DPP itself (embedded)                    │
-│  • Manufacturing date, origin, basic lifecycle                  │
-│  • Link to EPCIS for detailed history                           │
-│  • Works without full EPCIS integration                         │
-│                                                                  │
-│  RECOMMENDATION: Start with C, add A/B as customer demand       │
+│  • For customers with existing EPCIS (SAP, IBM)                 │
+│  • DPP links to their repository                                │
+│  • We query on-demand for lifecycle display                     │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+### Carbon Footprint Tracking
+
+EPCIS events include carbon footprint data for ESPR compliance:
+
+```typescript
+// Each transport event includes carbon data
+{
+  type: 'ObjectEvent',
+  bizStep: 'shipping',
+  espr: {
+    carbonFootprint: { value: 4.2, scope: 3 },
+    transport: { mode: 'road', distance: 450 }
+  }
+}
+```
+
+The DPP aggregates all event carbon footprints for total product impact.
+
+→ **Full documentation: [EPCIS_INTEGRATION.md](./EPCIS_INTEGRATION.md)**
 
 ---
 

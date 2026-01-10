@@ -896,12 +896,23 @@ The **EU DPP Registry** launches July 2026 as the central index of all DPPs:
 
 **Key Insight:** EU Registry is an index pointing to our infrastructure. We remain the DPP content host.
 
-### EPCIS 2.0 Integration (Future)
+### EPCIS 2.0 Integration (Core Feature)
 
-EPCIS 2.0 (GS1 supply chain events) for lifecycle tracking:
-- Link DPPs to EPCIS repositories
-- Display manufacturing, shipping, repair events
-- Optional: Host EPCIS repository for customers
+EPCIS 2.0 is integrated **from day one** as a core feature. See [EPCIS_INTEGRATION.md](docs/EPCIS_INTEGRATION.md) for full documentation.
+
+| Feature | Description |
+|---------|-------------|
+| **Event Capture** | REST API for all 4 EPCIS event types |
+| **Auto-Linking** | Events automatically linked to DPPs by GTIN |
+| **Carbon Tracking** | ESPR extensions for carbon footprint per event |
+| **Lifecycle UI** | Timeline view on DPP public pages |
+| **IoT Support** | Sensor data (temperature, humidity, shock) |
+
+**Why core from day one?**
+- ESPR requires supply chain traceability
+- Carbon footprint tracking needs transport events
+- Repair/refurbishment history is mandatory
+- Customers expect full lifecycle visibility
 
 ### Data Model Additions
 
@@ -922,8 +933,29 @@ model Passport {
   euRegisteredAt  DateTime?
   euRegistryStatus EuRegistryStatus @default(NOT_REGISTERED)
 
-  // NEW: EPCIS link
-  epcisRepositoryUrl String?
+  // NEW: EPCIS integration
+  epcisEvents         PassportEpcisEvent[]
+  externalEpcisUrl    String?  // For external EPCIS repos
+  totalCarbonFootprint Float?  // Aggregated from events
+  lastEventTime       DateTime?
+  eventCount          Int      @default(0)
+}
+
+// NEW: EPCIS Event storage
+model EpcisEvent {
+  id              String   @id @default(cuid())
+  organizationId  String
+  eventId         String   @unique
+  eventType       EpcisEventType  // OBJECT, AGGREGATION, etc.
+  eventTime       DateTime
+  epcList         String[]
+  bizStep         String?
+  disposition     String?
+  readPoint       String?
+  carbonFootprint Float?   // ESPR extension
+  transportMode   String?
+  rawEvent        Json
+  passportEvents  PassportEpcisEvent[]
 }
 ```
 
@@ -942,9 +974,18 @@ model Passport {
 | Add Registry registration to DPP issuance | Q3 2026 | Planned |
 | Auto-register all new DPPs | Q3 2026 | Planned |
 | Batch register existing DPPs | Q4 2026 | Planned |
-| **EPCIS** | | |
-| Add EPCIS repository link to DPP | 2027 | Planned |
-| Build EPCIS query client | 2027 | Planned |
+| **EPCIS (Core Feature)** | | |
+| Add EPCIS tables to Prisma schema | Phase 4 | Planned |
+| Implement EPCIS event capture API | Phase 4 | Planned |
+| Build event query API (GS1 2.0 compatible) | Phase 4 | Planned |
+| Implement automatic DPP-to-event linking | Phase 4 | Planned |
+| Add ESPR extensions (carbon, transport) | Phase 4 | Planned |
+| Product lifecycle timeline UI | Phase 4 | Planned |
+| Event entry form (manual entry) | Phase 4 | Planned |
+| Add lifecycle tab to DPP public page | Phase 4 | Planned |
+| Carbon footprint visualization | Phase 4 | Planned |
+| ERP integration guide (SAP, Oracle) | Phase 6 | Planned |
+| External EPCIS repository linking | Phase 6 | Planned |
 
 ---
 
@@ -956,6 +997,7 @@ model Passport {
 | [BUSINESS_MODEL.md](./docs/BUSINESS_MODEL.md) | Pricing and market positioning |
 | [SCALABILITY.md](./docs/SCALABILITY.md) | Trillion-scale DPP serving architecture |
 | [EU_INTEGRATION.md](./docs/EU_INTEGRATION.md) | EBSI and EU DPP Registry integration |
+| [EPCIS_INTEGRATION.md](./docs/EPCIS_INTEGRATION.md) | EPCIS 2.0 supply chain event tracking |
 | [USER_MANAGEMENT.md](./docs/USER_MANAGEMENT.md) | User roles, permissions, and version control workflow |
 | [DATA_SOVEREIGNTY.md](./docs/DATA_SOVEREIGNTY.md) | Data ownership architecture |
 | [VERIFIABLE_CREDENTIALS.md](./docs/VERIFIABLE_CREDENTIALS.md) | VC/DID technical details |
