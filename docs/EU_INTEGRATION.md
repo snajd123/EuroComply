@@ -564,6 +564,18 @@ EuroComply integrates EPCIS 2.0 (Electronic Product Code Information Services) a
 
 **See [EPCIS_INTEGRATION.md](./EPCIS_INTEGRATION.md) for full documentation.**
 
+### Our Role: Accessing Application
+
+EuroComply is an **"Accessing Application"** in GS1 terminology - we **read** EPCIS events from customer/supplier repositories, we don't host them.
+
+| What We DON'T Do | What We DO |
+|------------------|------------|
+| ❌ Host EPCIS repositories | ✅ Query customer/supplier repositories |
+| ❌ Run Kafka/OpenSearch | ✅ Transform JSON → beautiful timelines |
+| ❌ Store supply chain events | ✅ Aggregate carbon from events |
+
+**Compatible with any EPCIS 2.0 repository**: OpenEPCIS, IBM Sterling, SAP, TraceLink, GS1 Cloud
+
 ### Quick Overview
 
 | Aspect | Digital Product Passport | EPCIS 2.0 |
@@ -580,29 +592,6 @@ EuroComply integrates EPCIS 2.0 (Electronic Product Code Information Services) a
 - **IoT Sensor Data**: Temperature, humidity, shock monitoring
 - **ESPR Extensions**: Carbon footprint, energy consumption, transport mode
 - **GS1 Compliant**: REST API, JSON-LD format, CBV 2.0 vocabulary
-
-### Integration Options
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  EPCIS INTEGRATION OPTIONS                                       │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  OPTION A: EuroComply-Hosted EPCIS (Default)                    │
-│  ─────────────────────────────────────────────                  │
-│  • Full EPCIS 2.0 repository included                           │
-│  • Automatic DPP-to-event linking by GTIN                       │
-│  • REST API for event capture                                   │
-│  • Lifecycle timeline in DPP UI                                 │
-│                                                                  │
-│  OPTION B: Link to External EPCIS                               │
-│  ─────────────────────────────────                              │
-│  • For customers with existing EPCIS (SAP, IBM)                 │
-│  • DPP links to their repository                                │
-│  • We query on-demand for lifecycle display                     │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
 
 ### Carbon Footprint Tracking
 
