@@ -16,6 +16,32 @@ EuroComply is a Compliance-First Product Information Management (PIM) platform. 
 | **Manufacturers** | Producers with primary product data | 100-10,000 SKUs |
 | **Distributors** | Wholesalers aggregating products | 500-50,000 SKUs |
 
+### Customer Segments
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    CUSTOMER SEGMENTS                             │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  SEGMENT A: DPP-ONLY CUSTOMERS                                  │
+│  ─────────────────────────────                                  │
+│  Already have product data managed elsewhere (ERP, spreadsheets,│
+│  existing PIM). Just need the compliance layer.                 │
+│                                                                  │
+│  • Compliance-Only: Has data elsewhere, needs DPP output        │
+│  • Compliance-Growth: Some data management, growing needs       │
+│                                                                  │
+│  SEGMENT B: PIM + DPP CUSTOMERS                                 │
+│  ─────────────────────────────                                  │
+│  Need both product data management AND compliance.              │
+│  Single platform for everything.                                │
+│                                                                  │
+│  • PIM-Lite: Small catalog, wants one tool for everything       │
+│  • PIM-Pro: Larger catalog, needs AI import, multi-channel      │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
 ### Customer Profile
 
 ```
@@ -56,40 +82,477 @@ Retailers who only resell products from other brands are served through the free
 
 ## Pricing Model
 
-### SaaS Subscription Tiers
+### Tier Overview
 
-Organizations pay monthly based on features needed and product volume.
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           EUROCOMPLY PRICING TIERS                           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  DPP TRACK (Compliance-focused)                                             │
+│  ───────────────────────────────                                            │
+│                                                                              │
+│  ┌─────────────────┐     ┌─────────────────┐                                │
+│  │  DPP STARTER    │     │ DPP PROFESSIONAL│                                │
+│  │  €29/mo         │ ──► │ €99/mo          │                                │
+│  │  50 products    │     │ 500 products    │                                │
+│  │  Generate DPPs  │     │ + Basic PIM     │                                │
+│  │  Session-only   │     │ + Limited AI    │                                │
+│  │                 │     │ + Attestation   │                                │
+│  └─────────────────┘     └─────────────────┘                                │
+│                                   │                                          │
+│                                   ▼                                          │
+│  PIM TRACK (Full platform)                                                  │
+│  ─────────────────────────                                                  │
+│                                                                              │
+│  ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐       │
+│  │  PIM + DPP      │     │ PIM + DPP       │     │  ENTERPRISE     │       │
+│  │  STANDARD       │ ──► │ GROWTH          │ ──► │                 │       │
+│  │  €199/mo        │     │ €499/mo         │     │ Custom          │       │
+│  │  2,000 products │     │ 20,000 products │     │ 100k+ products  │       │
+│  │  Full PIM       │     │ + Higher limits │     │ + SLA           │       │
+│  │  Full AI Import │     │ + Priority      │     │ + Custom        │       │
+│  │  Shopify Sync   │     │                 │     │                 │       │
+│  │  Attestation    │     │                 │     │                 │       │
+│  │  API Access     │     │                 │     │                 │       │
+│  └─────────────────┘     └─────────────────┘     └─────────────────┘       │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
-| Plan | Monthly | Products | Features |
-|------|---------|----------|----------|
-| **DPP Starter** | €49 | 100 | Core, Compliance, Basic DAM, Manual entry |
-| **DPP Professional** | €149 | 500 | + Full DAM, CSV Import, Priority support |
-| **PIM + DPP** | €299 | 2,000 | + PIM, AI Import, Shopify Sync, API access |
-| **Enterprise** | Custom | Unlimited | + Custom integrations, Dedicated support, SLA |
+### Pricing Table
 
-### Module Breakdown
+| Plan | Monthly | Annual (2 months free) | Products | Users |
+|------|---------|------------------------|----------|-------|
+| **DPP Starter** | €29 | €290/year (€24/mo) | 50 | 1 |
+| **DPP Professional** | €99 | €990/year (€82/mo) | 500 | 3 |
+| **PIM + DPP Standard** | €199 | €1,990/year (€166/mo) | 2,000 | 5 |
+| **PIM + DPP Growth** | €499 | €4,990/year (€416/mo) | 20,000 | 10 |
+| **Enterprise** | Custom | Custom | 100,000+ | Unlimited |
 
-| Module | DPP Starter | DPP Professional | PIM + DPP | Enterprise |
-|--------|:-----------:|:----------------:|:---------:|:----------:|
-| Core (Auth, Billing) | Y | Y | Y | Y |
-| Compliance (DPP, VCs) | Y | Y | Y | Y |
-| DAM (Basic) | Y | Y | Y | Y |
-| DAM (Full) | - | Y | Y | Y |
-| Import (CSV) | - | Y | Y | Y |
-| Import (AI) | - | - | Y | Y |
-| PIM (Families, Variants) | - | - | Y | Y |
-| Syndication (Shopify) | - | - | Y | Y |
-| API Access | - | - | Y | Y |
-| Custom Integrations | - | - | - | Y |
+### Feature Matrix
+
+| Feature | DPP Starter | DPP Pro | PIM Standard | PIM Growth | Enterprise |
+|---------|:-----------:|:-------:|:------------:|:----------:|:----------:|
+| **COMPLIANCE** | | | | | |
+| DPP Generation | ✓ | ✓ | ✓ | ✓ | ✓ |
+| VC Issuance (did:key) | ✓ | ✓ | ✓ | ✓ | ✓ |
+| QR Code Generation | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Public Verification | ✓ | ✓ | ✓ | ✓ | ✓ |
+| EBSI Anchoring (when available) | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Attestation (Multi-Party) | - | ✓ | ✓ | ✓ | ✓ |
+| | | | | | |
+| **PRODUCT MANAGEMENT** | | | | | |
+| Product Storage | 30 days | Permanent | Permanent | Permanent | Permanent |
+| Product Families | - | Basic (3) | Unlimited | Unlimited | Unlimited |
+| Variants | - | ✓ | ✓ | ✓ | ✓ |
+| Completeness Scoring | - | ✓ | ✓ | ✓ | ✓ |
+| | | | | | |
+| **DAM** | | | | | |
+| Image Upload | 5/product | 10/product | 20/product | 50/product | Unlimited |
+| Storage | 1 GB | 10 GB | 50 GB | 200 GB | Custom |
+| CDN Delivery | ✓ | ✓ | ✓ | ✓ | ✓ |
+| | | | | | |
+| **IMPORT** | | | | | |
+| Manual Entry | ✓ | ✓ | ✓ | ✓ | ✓ |
+| CSV Import | - | ✓ | ✓ | ✓ | ✓ |
+| AI Import (Claude) | - | 20/month | Unlimited | Unlimited | Unlimited |
+| | | | | | |
+| **INTEGRATIONS** | | | | | |
+| Shopify Sync | - | - | ✓ | ✓ | ✓ |
+| API Access | - | - | ✓ | ✓ | ✓ |
+| Webhooks | - | - | - | ✓ | ✓ |
+| Custom Integrations | - | - | - | - | ✓ |
+| | | | | | |
+| **SUPPORT** | | | | | |
+| Email Support | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Priority Support | - | - | ✓ | ✓ | ✓ |
+| Dedicated Success | - | - | - | - | ✓ |
+| SLA | - | - | - | 99.5% | 99.9% |
+
+### DPP Starter: Session-Only Model
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  DPP STARTER - HOW IT WORKS                                      │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  1. User enters product data (manual form)                      │
+│  2. User uploads images                                          │
+│  3. System generates DPP + VC + QR code                         │
+│  4. User downloads complete package:                             │
+│     • DPP data (JSON)                                           │
+│     • Verifiable Credential (JWT)                               │
+│     • QR code (PNG/SVG)                                         │
+│     • Public verification URL                                    │
+│  5. Product data stored for 30 days (for edits/regeneration)    │
+│  6. After 30 days: DPP remains valid, product data deleted      │
+│                                                                  │
+│  Use case: Small brands with few products, just need DPP        │
+│  compliance without ongoing product management.                  │
+│                                                                  │
+│  Upgrade path: When they want to manage products long-term,     │
+│  they upgrade to DPP Professional and import their DPPs.        │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Volume Pricing (Beyond Included Products)
+
+| Tier | Included | Overage Price | Volume Discount |
+|------|----------|---------------|-----------------|
+| DPP Starter | 50 | €0.50/product/mo | - |
+| DPP Professional | 500 | €0.20/product/mo | 1,000+: €0.15 |
+| PIM Standard | 2,000 | €0.10/product/mo | 5,000+: €0.08 |
+| PIM Growth | 20,000 | €0.05/product/mo | 50,000+: €0.03 |
+| Enterprise | 100,000+ | Custom | Volume-based |
+
+**Example:** PIM Growth customer with 35,000 products
+- 20,000 included in €499/mo
+- 15,000 overage × €0.05 = €750/mo
+- **Total: €1,249/mo**
 
 ### Add-ons
 
-| Add-on | Price | Description |
-|--------|-------|-------------|
-| Additional Products | €0.10/product/mo | Beyond plan limit |
-| Additional Users | €10/user/mo | Beyond 3 included |
-| API Overage | €0.001/call | Beyond 100k calls/mo |
-| Priority Support | €50/mo | 4-hour response SLA |
+| Add-on | Price | Available For |
+|--------|-------|---------------|
+| Additional Users | €10/user/mo | All tiers |
+| Priority Support | €50/mo | DPP Starter, DPP Pro |
+| API Access | €50/mo | DPP Pro only |
+| Extra AI Imports | €5/10 imports | DPP Pro |
+| Extra Storage | €5/10 GB | All tiers |
+
+---
+
+## Infrastructure Cost Analysis
+
+### AWS Services Used
+
+EuroComply runs on AWS with the following services:
+
+| Service | Purpose |
+|---------|---------|
+| ECS Fargate | API servers, background workers, identity service |
+| RDS PostgreSQL | Primary database |
+| ElastiCache Redis | Session cache, rate limiting, job queue |
+| S3 | Digital Asset Management (images, documents) |
+| CloudFront | CDN for asset delivery |
+| ALB | Load balancing |
+| Route 53 | DNS |
+| CloudWatch | Monitoring and logging |
+| Secrets Manager | API keys, credentials |
+
+### Compute: ECS Fargate
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  ECS FARGATE PRICING (eu-west-1)                                 │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Per vCPU per hour:      $0.04048                               │
+│  Per GB memory per hour: $0.004445                              │
+│                                                                  │
+│  API Server Task (always running):                              │
+│  • 0.5 vCPU, 1GB RAM                                            │
+│  • Monthly: 730 hours × ($0.04048 × 0.5 + $0.004445 × 1)        │
+│  • = 730 × $0.024685 = $18.02/month per task                    │
+│                                                                  │
+│  Minimum setup (2 tasks for redundancy):                        │
+│  • 2 × $18.02 = $36.04/month                                    │
+│                                                                  │
+│  Background workers (BullMQ - 1 task):                          │
+│  • 0.25 vCPU, 0.5GB RAM = $9.01/month                          │
+│                                                                  │
+│  Identity service (walt.id - 1 task):                           │
+│  • 0.25 vCPU, 0.5GB RAM = $9.01/month                          │
+│                                                                  │
+│  BASELINE COMPUTE: ~$72/month (~€67/month)                      │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Database: RDS PostgreSQL
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  RDS POSTGRESQL PRICING (eu-west-1)                              │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  INSTANCE PRICING                                               │
+│  ─────────────────                                              │
+│  db.t3.micro:  $0.018/hour × 730 = $13.14/month                │
+│  db.t3.small:  $0.036/hour × 730 = $26.28/month                │
+│  db.t3.medium: $0.072/hour × 730 = $52.56/month                │
+│  db.r6g.large: $0.252/hour × 730 = $183.96/month               │
+│                                                                  │
+│  STORAGE (gp3): $0.114/GB/month                                 │
+│                                                                  │
+│  STORAGE PER PRODUCT                                            │
+│  ─────────────────                                              │
+│  • Product record: ~2KB (relational) + ~3KB (JSONB) = 5KB       │
+│  • DPP/VC: ~8KB (JWT) + ~2KB (metadata) = 10KB                  │
+│  • Total per product with DPP: ~15KB                            │
+│                                                                  │
+│  SCALE ESTIMATES                                                │
+│  ─────────────────                                              │
+│  • 1,000 products = 15MB                                        │
+│  • 10,000 products = 150MB                                      │
+│  • 100,000 products = 1.5GB                                     │
+│  • 1,000,000 products = 15GB                                    │
+│                                                                  │
+│  SETUP BY SCALE                                                 │
+│  ─────────────────                                              │
+│  Starter:    db.t3.micro, 20GB   = ~$15/month                  │
+│  Growth:     db.t3.small, 100GB  = ~$38/month                  │
+│  Scale:      db.t3.medium Multi-AZ, 500GB = ~$219/month        │
+│  Enterprise: db.r6g.large Multi-AZ, 2TB   = ~$824/month        │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Cache: ElastiCache Redis
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  ELASTICACHE REDIS PRICING (eu-west-1)                           │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  cache.t3.micro (0.5GB):   $0.017/hour × 730 = $12.41/month    │
+│  cache.t3.small (1.37GB):  $0.034/hour × 730 = $24.82/month    │
+│  cache.t3.medium (3.09GB): $0.068/hour × 730 = $49.64/month    │
+│                                                                  │
+│  Usage: Session cache, rate limiting, BullMQ job queue          │
+│  For <1000 customers: t3.micro sufficient                       │
+│                                                                  │
+│  BASELINE: ~$12/month (~€11/month)                              │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Storage: S3
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  S3 PRICING (eu-west-1)                                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  S3 Standard Storage: $0.023/GB/month                           │
+│                                                                  │
+│  STORAGE PER PRODUCT (DAM)                                      │
+│  ─────────────────────────                                      │
+│  • Average 5 images per product                                 │
+│  • Original: ~2MB each = 10MB                                   │
+│  • Thumbnails (3 sizes): ~0.6MB                                 │
+│  • Total per product: ~10.6MB                                   │
+│                                                                  │
+│  STORAGE COSTS                                                  │
+│  ─────────────────────────                                      │
+│  • 100 products = 1GB → $0.023/month                           │
+│  • 1,000 products = 10GB → $0.23/month                         │
+│  • 10,000 products = 100GB → $2.30/month                       │
+│  • 100,000 products = 1TB → $23/month                          │
+│  • 1,000,000 products = 10TB → $230/month                      │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### CDN: CloudFront
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  CLOUDFRONT PRICING                                              │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Data Transfer Out (Europe):                                    │
+│  • First 10TB: $0.085/GB                                        │
+│  • Next 40TB: $0.080/GB                                         │
+│                                                                  │
+│  BANDWIDTH ESTIMATES                                            │
+│  ─────────────────────────                                      │
+│  • DPP verification page view: ~500KB (images + data)          │
+│  • Product page (retailer widget): ~200KB                       │
+│                                                                  │
+│  SCALE ESTIMATES                                                │
+│  ─────────────────────────                                      │
+│  • 100 products, low traffic: ~$0.50/month                     │
+│  • 1,000 products, moderate: ~$5/month                         │
+│  • 10,000 products, moderate: ~$50/month                       │
+│  • 100,000 products, high: ~$500/month                         │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Claude API (AI Import)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  CLAUDE API PRICING (Haiku for extraction)                       │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Claude 3 Haiku:                                                │
+│  • Input: $0.25/million tokens                                  │
+│  • Output: $1.25/million tokens                                 │
+│                                                                  │
+│  PER IMPORT OPERATION                                           │
+│  ─────────────────────────                                      │
+│  CSV/Excel mapping (1000 rows): ~$0.004 per import             │
+│  PDF extraction (2 pages): ~$0.002 per document                │
+│  Image extraction: ~$0.001 per image                           │
+│                                                                  │
+│  MONTHLY ESTIMATES                                              │
+│  ─────────────────────────                                      │
+│  • Light user (20 imports): ~$0.08/month                       │
+│  • Medium user (100 imports): ~$0.40/month                     │
+│  • Heavy user (500 imports): ~$2.00/month                      │
+│                                                                  │
+│  AI costs are negligible relative to subscription price         │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Other AWS Services
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  OTHER AWS COSTS                                                 │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Route 53 (DNS): $0.50/month                                    │
+│  ACM (SSL Certificates): Free                                   │
+│  CloudWatch (Logs 10GB + Alarms): ~$6/month                    │
+│  Secrets Manager (5 secrets): $2/month                         │
+│  ALB (Load Balancer): ~$21/month                               │
+│                                                                  │
+│  MISC TOTAL: ~$30/month                                         │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Total Infrastructure Cost by Scale
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  INFRASTRUCTURE COST SUMMARY (Monthly, in USD)                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│                        │ STARTUP    │ GROWTH     │ SCALE      │ ENTERPRISE │
+│                        │ <100 cust  │ 100-500    │ 500-2000   │ 2000+      │
+│  ──────────────────────┼────────────┼────────────┼────────────┼────────────│
+│  ECS Fargate           │ $72        │ $108       │ $180       │ $360       │
+│  RDS PostgreSQL        │ $15        │ $38        │ $219       │ $824       │
+│  ElastiCache Redis     │ $12        │ $25        │ $50        │ $100       │
+│  S3 Storage            │ $1         │ $5         │ $25        │ $250       │
+│  CloudFront            │ $5         │ $25        │ $100       │ $500       │
+│  ALB + Misc            │ $30        │ $35        │ $50        │ $100       │
+│  ──────────────────────┼────────────┼────────────┼────────────┼────────────│
+│  TOTAL                 │ $135       │ $236       │ $624       │ $2,134     │
+│  (~EUR)                │ €125       │ €220       │ €580       │ €1,980     │
+│                                                                              │
+│  ──────────────────────────────────────────────────────────────────────────│
+│                                                                              │
+│  COST PER CUSTOMER                                                          │
+│  ──────────────────────┼────────────┼────────────┼────────────┼────────────│
+│  Customers             │ 50         │ 300        │ 1,000      │ 3,000      │
+│  Infra per customer    │ €2.50      │ €0.73      │ €0.58      │ €0.66      │
+│                                                                              │
+│  Note: Per-customer infra cost drops dramatically with scale               │
+│  Real costs are headcount (support, development) not infrastructure        │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Margin Analysis by Tier
+
+At 500 customer scale (€220/month infrastructure amortized):
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  MARGIN ANALYSIS BY TIER                                                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  DPP STARTER (€29/month, 50 products)                                       │
+│  ─────────────────────────────────────                                      │
+│  Infrastructure share:     €0.44                                            │
+│  S3 storage (0.5GB):       €0.01                                            │
+│  Bandwidth:                €0.10                                            │
+│  ────────────────────────────────                                           │
+│  Total cost:               €0.55                                            │
+│  Revenue:                  €29.00                                           │
+│  Gross margin:             €28.45 (98%)                                     │
+│                                                                              │
+│  DPP PROFESSIONAL (€99/month, 500 products)                                 │
+│  ─────────────────────────────────────                                      │
+│  Infrastructure share:     €0.44                                            │
+│  S3 storage (5GB):         €0.12                                            │
+│  Bandwidth:                €0.50                                            │
+│  AI imports (20):          €0.08                                            │
+│  ────────────────────────────────                                           │
+│  Total cost:               €1.14                                            │
+│  Revenue:                  €99.00                                           │
+│  Gross margin:             €97.86 (99%)                                     │
+│                                                                              │
+│  PIM STANDARD (€199/month, 2,000 products)                                  │
+│  ─────────────────────────────────────                                      │
+│  Infrastructure share:     €0.44                                            │
+│  S3 storage (20GB):        €0.46                                            │
+│  Bandwidth:                €2.00                                            │
+│  AI imports (100 avg):     €0.40                                            │
+│  ────────────────────────────────                                           │
+│  Total cost:               €3.30                                            │
+│  Revenue:                  €199.00                                          │
+│  Gross margin:             €195.70 (98%)                                    │
+│                                                                              │
+│  PIM GROWTH (€499/month, 20,000 products)                                   │
+│  ─────────────────────────────────────                                      │
+│  Infrastructure share:     €0.88                                            │
+│  S3 storage (200GB):       €4.60                                            │
+│  Bandwidth:                €20.00                                           │
+│  AI imports (500 avg):     €2.00                                            │
+│  ────────────────────────────────                                           │
+│  Total cost:               €27.48                                           │
+│  Revenue:                  €499.00                                          │
+│  Gross margin:             €471.52 (94%)                                    │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Enterprise Cost Model (High Volume)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  ENTERPRISE COST MODEL (1,000,000 products)                      │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  INFRASTRUCTURE COSTS                                           │
+│  ─────────────────────                                          │
+│  Database (RDS db.r6g.large Multi-AZ):                          │
+│  • 1M products × 15KB = 15GB data                              │
+│  • Instance + storage: ~€800/mo                                │
+│                                                                  │
+│  S3 Storage:                                                    │
+│  • 1M products × 10MB = 10TB                                   │
+│  • S3 Standard: ~€220/mo                                        │
+│                                                                  │
+│  Bandwidth:                                                     │
+│  • Assume 10% products accessed/mo = 100k views                │
+│  • CloudFront: ~€85/mo                                          │
+│                                                                  │
+│  Compute:                                                       │
+│  • Dedicated ECS tasks: ~€200/mo                               │
+│                                                                  │
+│  ─────────────────────                                          │
+│  Total Infrastructure: ~€1,300/mo                               │
+│                                                                  │
+│  SUGGESTED PRICING                                              │
+│  ─────────────────────                                          │
+│  Enterprise base: €2,000/mo + €0.02/product/mo                 │
+│  1M products: €2,000 + €20,000 = €22,000/mo                    │
+│  Margin: €22,000 - €1,300 = €20,700 (94%)                      │
+│                                                                  │
+│  Note: Real cost is support/success headcount, not infra       │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
@@ -161,6 +624,12 @@ Brands and manufacturers pay for DPP creation. Retailers access DPPs for free be
 │  ├── QR codes (GS1 Digital Link)                               │
 │  └── Public verification                                        │
 │                                                                  │
+│  MULTI-PARTY ATTESTATION                                        │
+│  ├── Invite third parties to contribute data                   │
+│  ├── Cryptographically signed attestations                     │
+│  ├── Linked to DPP as verifiable claims                        │
+│  └── Expiry tracking and notifications                         │
+│                                                                  │
 │  E-COMMERCE SYNDICATION                                         │
 │  ├── Shopify product sync                                       │
 │  ├── Rate-limited job queue (BullMQ)                           │
@@ -188,11 +657,11 @@ Brands and manufacturers pay for DPP creation. Retailers access DPPs for free be
 │  • Maintenance: €20,000/year                                    │
 │  • Total Year 1: €132,000+                                      │
 │                                                                  │
-│  Option C: EuroComply PIM + DPP                                 │
-│  • Monthly SaaS: €299                                           │
-│  • Total Year 1: €3,588                                         │
+│  Option C: EuroComply PIM + DPP Standard                        │
+│  • Monthly SaaS: €199                                           │
+│  • Total Year 1: €2,388                                         │
 │                                                                  │
-│  EuroComply is 95%+ cheaper than alternatives.                  │
+│  EuroComply is 97%+ cheaper than alternatives.                  │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -229,11 +698,11 @@ Brands and manufacturers pay for DPP creation. Retailers access DPPs for free be
 
 | Metric | Target |
 |--------|--------|
-| Average Revenue Per User (ARPU) | €200/month |
-| Customer Acquisition Cost (CAC) | €600 |
-| Lifetime Value (LTV) | €4,800 (24 months) |
-| LTV:CAC Ratio | 8.0x |
-| Gross Margin | 75% |
+| Average Revenue Per User (ARPU) | €150/month |
+| Customer Acquisition Cost (CAC) | €500 |
+| Lifetime Value (LTV) | €3,600 (24 months) |
+| LTV:CAC Ratio | 7.2x |
+| Gross Margin | 95%+ (infrastructure only) |
 | Monthly Churn | 2% |
 
 ---
@@ -314,7 +783,7 @@ Awareness → Trial → Conversion → Expansion
 |------|----------|-------|--------------|
 | Enterprise PIM | Akeneo, Salsify, inRiver | €50k+/year | Not competing |
 | Mid-Market PIM | Plytix, Sales Layer | €10k+/year | Adjacent |
-| **SME PIM + DPP** | EuroComply | €600-3,600/year | **Leader** |
+| **SME PIM + DPP** | EuroComply | €350-6,000/year | **Leader** |
 | DPP-Only Tools | Various | €500-2k/year | Partial overlap |
 
 ### Differentiation
@@ -324,6 +793,7 @@ Awareness → Trial → Conversion → Expansion
 | Product management | Full | None | Full |
 | DPP compliance | Addon | Basic | Native |
 | Verifiable credentials | None | None | W3C VCs |
+| Multi-party attestation | None | None | Native |
 | AI import | None | None | Any format |
 | E-commerce sync | Limited | None | Native |
 | SME pricing | Too expensive | Affordable | Affordable |
@@ -381,20 +851,21 @@ Awareness → Trial → Conversion → Expansion
 | Metric | Year 1 | Year 2 | Year 3 |
 |--------|--------|--------|--------|
 | Customers | 400 | 1,500 | 4,000 |
-| ARR | €1.0M | €3.6M | €9.6M |
-| MRR | €80k | €300k | €800k |
-| Gross Margin | 70% | 75% | 80% |
+| ARR | €0.8M | €2.7M | €7.2M |
+| MRR | €65k | €225k | €600k |
+| Gross Margin | 94% | 95% | 96% |
 | Headcount | 8 | 18 | 35 |
 
 ### Revenue by Tier (Year 3)
 
 | Tier | Customers | % of Base | MRR | % of Revenue |
 |------|-----------|-----------|-----|--------------|
-| DPP Starter | 2,000 | 50% | €98k | 12% |
-| DPP Professional | 1,200 | 30% | €179k | 22% |
-| PIM + DPP | 680 | 17% | €204k | 26% |
-| Enterprise | 120 | 3% | €320k | 40% |
-| **Total** | **4,000** | **100%** | **€801k** | **100%** |
+| DPP Starter | 1,600 | 40% | €46k | 8% |
+| DPP Professional | 1,200 | 30% | €119k | 20% |
+| PIM Standard | 800 | 20% | €159k | 27% |
+| PIM Growth | 320 | 8% | €160k | 27% |
+| Enterprise | 80 | 2% | €116k | 19% |
+| **Total** | **4,000** | **100%** | **€600k** | **100%** |
 
 ---
 
@@ -414,7 +885,7 @@ Awareness → Trial → Conversion → Expansion
 |----------|--------|--------|
 | Growth | MRR Growth Rate | 12% MoM |
 | Retention | Net Revenue Retention | 115% |
-| Efficiency | CAC Payback Period | 5 months |
+| Efficiency | CAC Payback Period | 4 months |
 | Engagement | Weekly Active Users | 75% |
 
 ---
@@ -452,27 +923,34 @@ Awareness → Trial → Conversion → Expansion
 │                                                                  │
 │  TARGET MARKET: SMEs and Mid-Market                            │
 │  → Brands, manufacturers, distributors                          │
-│  → 100-5,000 SKUs                                              │
+│  → 100-50,000 SKUs                                              │
 │  → Can't afford enterprise solutions                           │
 │                                                                  │
-│  PRICING: Modular SaaS                                         │
-│  → DPP Starter: €49/mo (compliance focus)                      │
-│  → DPP Professional: €149/mo (+ import, DAM)                   │
-│  → PIM + DPP: €299/mo (full platform)                          │
-│  → Enterprise: Custom                                           │
+│  PRICING: 5-Tier SaaS Model                                     │
+│  → DPP Starter: €29/mo (compliance-only, session-based)        │
+│  → DPP Professional: €99/mo (basic PIM + limited AI)           │
+│  → PIM Standard: €199/mo (full platform, 2k products)          │
+│  → PIM Growth: €499/mo (high volume, 20k products)             │
+│  → Enterprise: Custom (100k+ products)                          │
 │                                                                  │
 │  KEY FEATURES:                                                  │
 │  → AI-powered import (any file format)                         │
 │  → Product families with dynamic attributes                    │
 │  → Completeness scoring per channel                            │
 │  → DPP Ready list with manual review and approval              │
+│  → Multi-party attestation with cryptographic signatures       │
 │  → Shopify syndication                                         │
 │                                                                  │
 │  DIFFERENTIATION:                                               │
 │  → Only PIM with native DPP compliance                         │
+│  → Multi-party attestation (unique feature)                    │
 │  → AI import from any format                                   │
 │  → Affordable for SMEs                                          │
-│  → No lock-in (portable VCs)                                   │
+│  → No lock-in (portable VCs with did:key)                      │
+│                                                                  │
+│  MARGINS:                                                       │
+│  → 94-98% gross margin (infrastructure costs minimal)          │
+│  → Real costs: headcount (support, development)                │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```

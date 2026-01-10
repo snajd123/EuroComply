@@ -631,14 +631,31 @@ EuroComply/
 
 ## 9. Pricing Tiers & Module Access
 
-| Plan | Monthly | Products | Modules |
-|------|---------|----------|---------|
-| **DPP Starter** | €49 | 100 | Core, Compliance, Basic DAM |
-| **DPP Professional** | €149 | 500 | + Full DAM, CSV Import |
-| **PIM + DPP** | €299 | 2,000 | + PIM, AI Import, Shopify Sync, API |
-| **Enterprise** | Custom | Unlimited | All + Custom integrations |
+| Plan | Monthly | Annual | Products | Users |
+|------|---------|--------|----------|-------|
+| **DPP Starter** | €29 | €290/yr | 50 | 1 |
+| **DPP Professional** | €99 | €990/yr | 500 | 3 |
+| **PIM + DPP Standard** | €199 | €1,990/yr | 2,000 | 5 |
+| **PIM + DPP Growth** | €499 | €4,990/yr | 20,000 | 10 |
+| **Enterprise** | Custom | Custom | 100,000+ | Unlimited |
 
-See [BUSINESS_MODEL.md](docs/BUSINESS_MODEL.md) for full details.
+### Module Access by Tier
+
+| Module | Starter | Pro | Standard | Growth | Enterprise |
+|--------|:-------:|:---:|:--------:|:------:|:----------:|
+| Core (Auth, Billing) | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Compliance (DPP, VCs) | ✓ | ✓ | ✓ | ✓ | ✓ |
+| DAM (Basic) | ✓ | ✓ | ✓ | ✓ | ✓ |
+| PIM (Families, Variants) | - | Basic | Full | Full | Full |
+| Import (CSV) | - | ✓ | ✓ | ✓ | ✓ |
+| Import (AI) | - | 20/mo | Unlimited | Unlimited | Unlimited |
+| Attestation (Multi-Party) | - | ✓ | ✓ | ✓ | ✓ |
+| Syndication (Shopify) | - | - | ✓ | ✓ | ✓ |
+| API Access | - | - | ✓ | ✓ | ✓ |
+| Webhooks | - | - | - | ✓ | ✓ |
+| Custom Integrations | - | - | - | - | ✓ |
+
+See [BUSINESS_MODEL.md](docs/BUSINESS_MODEL.md) for full cost analysis and margin details.
 
 ---
 
