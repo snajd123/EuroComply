@@ -10,11 +10,11 @@ EuroComply uses an **organization-only model** for passport creation. Only regis
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
 │  ✅ ORGANIZATIONS create passports (pay subscription)      │
-│     → Immediate access after registration and payment      │
 │     → Own the product data (Golden Record model)           │
 │     → Legally liable for accuracy                          │
 │     → did:key identity (portable, self-verifying)          │
-│     → Manual review and approval via DPP Ready list        │
+│     → Multi-party attestations from supply chain           │
+│     → DPP issuance via Compliance workspace                │
 │                                                             │
 │  ✅ RETAILERS access FREE (ESPR Article 31)                │
 │     → Public API lookup (GTIN, brand/SKU, serial)          │
@@ -26,6 +26,42 @@ EuroComply uses an **organization-only model** for passport creation. Only regis
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## Workspace Architecture
+
+Trust is built progressively through four workspaces:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    TRUST FLOWS THROUGH WORKSPACES                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐    ┌────────────┐ │
+│  │    DESIGN    │───▶│  OPERATIONS  │───▶│  MARKETING   │───▶│ COMPLIANCE │ │
+│  │    (PLM)     │    │  (ERP-lite)  │    │    (PIM)     │    │   (DPP)    │ │
+│  └──────────────┘    └──────────────┘    └──────────────┘    └────────────┘ │
+│         │                   │                   │                   │        │
+│    Registry +          Registry +            PIM +           DPP Ready +    │
+│    BOM-Materials       Batch Mgmt        DAM-Media          Credential      │
+│    Certifications      EPCIS Events      Channels           Issuance        │
+│    Attestations        Attestations                                          │
+│         │                   │                   │                   │        │
+│         └───────────────────┴───────────────────┴───────────────────┘        │
+│                                     │                                        │
+│                              GOLDEN RECORD                                   │
+│                     (Aggregated in Compliance workspace)                     │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+| Workspace | Trust Function | Key Modules |
+|-----------|----------------|-------------|
+| **Design** | Technical truth - materials, composition, certifications | Registry, BOM-Materials, Certifications, Attestations |
+| **Operations** | Lifecycle events - batch tracking, supply chain events | Registry, Batch Mgmt, EPCIS, Attestations |
+| **Marketing** | Commercial presentation - content, media, channels | PIM, DAM-Media, Channels |
+| **Compliance** | DPP issuance - aggregation, review, credential signing | DPP Ready, Credential Issuance |
 
 ---
 
@@ -71,32 +107,91 @@ If retailers could create their own passports:
 ## Trust Chain
 
 ```
-┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│ Certification│     │ Organization │     │     DPP      │     │   Retailer   │
-│    Body      │────▶│ (Registered) │────▶│  (Signed VC) │────▶│ (Free Access)│
-└──────────────┘     └──────────────┘     └──────────────┘     └──────────────┘
-       │                    │                    │                    │
-   Issues cert         Creates product     did:key signed       Display only
-   to organization     Reviews & approves  portable VC          cannot edit
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                              TRUST CHAIN WITH ATTESTATIONS                           │
+├─────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                      │
+│  EXTERNAL TRUST SOURCES                                                              │
+│  ┌──────────────┐     ┌──────────────┐     ┌──────────────┐                         │
+│  │ Certification│     │   Supplier   │     │   Testing    │                         │
+│  │    Body      │     │  (Tier 1-N)  │     │     Lab      │                         │
+│  └──────┬───────┘     └──────┬───────┘     └──────┬───────┘                         │
+│         │                    │                    │                                  │
+│    Issues cert          Signs material       Signs test                             │
+│    (documentary)        attestation (VC)     results (VC)                           │
+│         │                    │                    │                                  │
+│         └────────────────────┼────────────────────┘                                  │
+│                              ▼                                                       │
+│  ┌──────────────────────────────────────────────────────────────────────────────┐   │
+│  │                         ORGANIZATION (Registered)                             │   │
+│  │                                                                               │   │
+│  │   Design Workspace              Operations Workspace                          │   │
+│  │   ┌─────────────────┐          ┌─────────────────┐                           │   │
+│  │   │ • Registry      │          │ • Batch Mgmt    │                           │   │
+│  │   │ • BOM-Materials │──────────│ • EPCIS Events  │                           │   │
+│  │   │ • Certifications│          │ • Attestations  │                           │   │
+│  │   │ • Attestations  │          └────────┬────────┘                           │   │
+│  │   └────────┬────────┘                   │                                    │   │
+│  │            │                            │                                    │   │
+│  │            └────────────┬───────────────┘                                    │   │
+│  │                         ▼                                                    │   │
+│  │              Compliance Workspace                                            │   │
+│  │              ┌─────────────────────────────┐                                 │   │
+│  │              │ GOLDEN RECORD AGGREGATION   │                                 │   │
+│  │              │ • All attestations verified │                                 │   │
+│  │              │ • Completeness check        │                                 │   │
+│  │              │ • Manual review & approval  │                                 │   │
+│  │              │ • Credential issuance       │                                 │   │
+│  │              └──────────────┬──────────────┘                                 │   │
+│  │                             │                                                │   │
+│  └─────────────────────────────┼────────────────────────────────────────────────┘   │
+│                                ▼                                                     │
+│                    ┌──────────────────────┐                                         │
+│                    │   DPP (Signed VC)    │                                         │
+│                    │   did:key portable   │                                         │
+│                    │   Includes all       │                                         │
+│                    │   attestation refs   │                                         │
+│                    └──────────┬───────────┘                                         │
+│                               │                                                      │
+│                               ▼                                                      │
+│                    ┌──────────────────────┐                                         │
+│                    │  Retailer (Free)     │                                         │
+│                    │  Display only        │                                         │
+│                    └──────────────────────┘                                         │
+│                                                                                      │
+└─────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Each Step Explained
 
-1. **Certification Body → Organization**
-   - GOTS, OEKO-TEX, FSC etc. certify the organization
-   - Organization has documentary proof
+1. **External Trust Sources → Organization**
+   - **Certification Bodies**: GOTS, OEKO-TEX, FSC certify the organization (documentary proof)
+   - **Suppliers**: Sign material attestations with their did:key (Verifiable Credentials)
+   - **Testing Labs**: Sign test results with their did:key (carbon footprint, composition)
 
-2. **Organization → DPP**
-   - Organization pays subscription (€129-399/month)
-   - Creates product as Golden Record
-   - Product appears in DPP Ready list at 100% completeness
+2. **Design Workspace** (Technical truth)
+   - Organization creates product in Registry
+   - Adds BOM and material composition
+   - Attaches certification documents
+   - Requests and receives supplier attestations
+
+3. **Operations Workspace** (Lifecycle events)
+   - Batch tracking and serialization
+   - EPCIS events auto-generated from actions
+   - Additional attestations for specific batches
+
+4. **Compliance Workspace** (DPP issuance)
+   - Aggregates Golden Record from all workspaces
+   - Verifies all attestation signatures
+   - Checks completeness requirements
    - Organization reviews and approves for issuance
-   - Signed with did:key (portable, self-verifying)
+   - Signs DPP with organization's did:key
 
-3. **DPP → Retailer**
+5. **DPP → Retailer**
    - Retailer accesses DPP for **free** via public API
    - Uses widget or Shopify Retailer App
    - Can display but cannot modify
+   - DPP includes references to all attestations
 
 ---
 
@@ -111,7 +206,7 @@ Anyone can verify a passport at `/v1/passports/:id/verify`:
   "valid": true,
   "issuer": {
     "did": "did:key:z6MkhaXgBZDvvvRhta4LjXRJzLKNqVj3yQTpCFbRc8GwAdfS",
-    "name": "Supplier Name",
+    "name": "Organization Name",
     "verified": true,
     "verifiedAt": "2025-06-15T10:30:00Z"
   },
@@ -121,6 +216,30 @@ Anyone can verify a passport at `/v1/passports/:id/verify`:
     "expiresAt": "2035-07-01T09:00:00Z"
   },
   "signature": "valid",
+  "attestations": {
+    "total": 3,
+    "verified": 3,
+    "details": [
+      {
+        "type": "MaterialOrigin",
+        "issuer": "did:key:z6Mkf...",
+        "issuerName": "Supplier ABC",
+        "valid": true
+      },
+      {
+        "type": "TestingResults",
+        "issuer": "did:key:z6Mkg...",
+        "issuerName": "Carbon Lab Inc",
+        "valid": true
+      },
+      {
+        "type": "Manufacturing",
+        "issuer": "did:key:z6Mkh...",
+        "issuerName": "Factory XYZ",
+        "valid": true
+      }
+    ]
+  },
   "note": "Verification works offline - did:key is self-contained"
 }
 ```
@@ -131,8 +250,10 @@ Anyone can verify a passport at `/v1/passports/:id/verify`:
 |-------|-------------|
 | "This is a real passport" | Cryptographic signature |
 | "Created by Organization X" | DID matches organization |
-| "Organization approved this DPP" | Manual issuance workflow |
+| "Organization approved this DPP" | Compliance workspace issuance |
 | "Data hasn't been tampered" | VC signature integrity |
+| "Supply chain claims are real" | Attestation signatures verified |
+| "Third party verified claims" | Testing lab attestations |
 
 ---
 
@@ -160,6 +281,79 @@ Certifications can be independently verified:
 | FSC | https://fsc.org/en/fsc-public-certificate-search |
 | GRS | https://textileexchange.org/standards/grs/ |
 | ENERGY STAR | https://www.energystar.gov/productfinder/ |
+
+---
+
+## Multi-Party Attestation
+
+Beyond traditional certifications, EuroComply supports cryptographically signed attestations from supply chain partners.
+
+### How Attestations Work
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                       MULTI-PARTY ATTESTATION FLOW                           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  1. REQUEST                 2. ONBOARD                 3. CONTRIBUTE         │
+│  ┌───────────────┐         ┌───────────────┐         ┌───────────────┐      │
+│  │ Organization  │         │  Contributor  │         │  Contributor  │      │
+│  │ requests data │────────▶│ receives link │────────▶│ signs data    │      │
+│  │ from partner  │         │ gets did:key  │         │ with did:key  │      │
+│  └───────────────┘         └───────────────┘         └───────────────┘      │
+│         │                                                   │                │
+│   From Design or                                      Verifiable            │
+│   Operations workspace                                Credential            │
+│                                                             │                │
+│  4. REVIEW                  5. STORE                   6. ISSUE             │
+│  ┌───────────────┐         ┌───────────────┐         ┌───────────────┐      │
+│  │ Organization  │         │  Attestation  │         │  Compliance   │      │
+│  │ reviews in    │◀────────│  Module       │────────▶│  workspace    │      │
+│  │ requesting WS │         │ (Golden Rec.) │         │  issues DPP   │      │
+│  └───────────────┘         └───────────────┘         └───────────────┘      │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Attestation Types
+
+| Type | Requestor | Contributor | Example Claims |
+|------|-----------|-------------|----------------|
+| **Material Origin** | Brand (Design) | Tier 1-N Supplier | "Cotton sourced from India, farm XYZ" |
+| **Manufacturing** | Brand (Operations) | Factory | "Produced at facility ABC, date X" |
+| **Testing Results** | Brand (Design) | Lab | "Carbon footprint: 2.3 kg CO2e" |
+| **Chain of Custody** | Brand (Operations) | Logistics | "Shipped via route X, cold chain maintained" |
+| **Social Audit** | Brand (Design) | Auditor | "Fair labor practices verified" |
+
+### Contributor Onboarding
+
+Contributors don't need a EuroComply subscription. The flow is:
+
+1. Organization sends contribution request via email
+2. Contributor clicks link and creates free contributor account
+3. System generates did:key for contributor
+4. Contributor fills requested data and signs with did:key
+5. Signed attestation returns to requesting organization's workspace
+
+### Attestation Verification
+
+All attestations are independently verifiable:
+
+| What | How |
+|------|-----|
+| Signature valid | Verify did:key signature on VC |
+| Contributor identity | did:key matches registered contributor |
+| Not tampered | VC integrity check |
+| Not expired | Check validUntil date |
+
+### Relationship to DPP
+
+Attestations do NOT go directly into the DPP. They are:
+
+1. **Stored** in the Attestation Module as part of Golden Record
+2. **Referenced** in the DPP credential (attestation IDs included)
+3. **Verifiable** independently via public API
+4. **Aggregated** during DPP issuance in Compliance workspace
 
 ---
 
@@ -198,12 +392,16 @@ When consumers scan a DPP QR code:
 │                  DIGITAL PRODUCT PASSPORT                   │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
-│  ✓ VERIFIED SUPPLIER                                        │
-│    Supplier Name (verified Jan 2025)                        │
+│  ✓ VERIFIED ORGANIZATION                                    │
+│    Brand Name (verified Jan 2025)                           │
 │                                                             │
 │  ✓ CERTIFICATIONS                                           │
 │    • GOTS Certified (valid until Dec 2026)                  │
 │    • OEKO-TEX Standard 100                                  │
+│                                                             │
+│  ✓ SUPPLY CHAIN ATTESTATIONS                                │
+│    • Material origin: Supplier ABC (verified)               │
+│    • Carbon footprint: Lab XYZ (verified)                   │
 │                                                             │
 │  ✓ PRODUCT DATA                                             │
 │    • 95% Organic Cotton, 5% Elastane                        │
@@ -212,7 +410,8 @@ When consumers scan a DPP QR code:
 │                                                             │
 │  ✓ CRYPTOGRAPHICALLY SIGNED                                 │
 │    Credential ID: urn:uuid:abc123...                        │
-│    Issued: 2025-07-01                                       │
+│    Issued: 2025-07-01 (Compliance workspace)                │
+│    3 attestations included                                  │
 │                                                             │
 │  [Verify Authenticity]                                      │
 │                                                             │
@@ -229,10 +428,12 @@ When consumers scan a DPP QR code:
 | Can retailers create passports? | No |
 | Do retailers pay for access? | **No - free** (ESPR Article 31) |
 | Who is liable for accuracy? | The organization that created the DPP |
-| How are DPPs issued? | Manual review and approval via DPP Ready list |
+| Where is product data managed? | Design workspace (technical), Marketing workspace (commercial) |
+| Where are DPPs issued? | Compliance workspace (aggregates Golden Record, reviews, issues) |
+| How are supply chain claims verified? | Multi-party attestations signed with did:key |
 | What DID method? | did:key (portable, self-verifying) |
-| Can anyone verify a passport? | Yes - even offline |
-| What prevents fraud? | Architectural design + manual approval workflow |
+| Can anyone verify a passport? | Yes - including all attestation signatures |
+| What prevents fraud? | Workspace architecture + attestations + manual approval |
 
 ---
 
@@ -241,7 +442,9 @@ When consumers scan a DPP QR code:
 - [Business Model](./BUSINESS_MODEL.md) - SME-first SaaS pricing
 - [Verifiable Credentials](./VERIFIABLE_CREDENTIALS.md) - did:key, portability
 - [Architecture Portability](./ARCHITECTURE_PORTABILITY.md) - Export, data ownership
+- [Multi-Party Attestation](./MULTI_PARTY_ATTESTATION.md) - Supply chain attestations
+- [DPP Content Plan](./DPP_CONTENT_PLAN.md) - Workspace data flow
 
 ---
 
-*Last Updated: 2026-01-08*
+*Last Updated: 2026-01-11*
