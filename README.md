@@ -246,7 +246,7 @@ Users can import product data from any format. The AI extracts, maps, and valida
 
 ### Supply Chain Lifecycle Tracking (Operations & Compliance Workspaces)
 
-Track the complete journey of every product with GS1 EPCIS 2.0 integration. EuroComply acts as a **reader/visualizer** - we query events from customer/supplier EPCIS repositories and transform them into beautiful timelines:
+Track the complete journey of every product with GS1 EPCIS 2.0 integration. EuroComply operates a **Hybrid EPCIS Model**:
 
 - **Manufacturing Events**: When and where products are created
 - **Shipping & Receiving**: Full logistics chain with locations
@@ -254,15 +254,15 @@ Track the complete journey of every product with GS1 EPCIS 2.0 integration. Euro
 - **Repairs & Refurbishment**: Service history for circular economy
 - **End-of-Life**: Recycling and disposal tracking
 
-**Our Role: Accessing Application**
+**Our Role: Hybrid EPCIS Provider**
 
-| What We DON'T Do | What We DO |
-|------------------|------------|
-| ❌ Host EPCIS repositories | ✅ Query customer/supplier repositories |
-| ❌ Store supply chain events | ✅ Transform JSON → beautiful timelines |
-| ❌ Run Kafka/OpenSearch | ✅ Aggregate carbon from events |
+| Customer Type | Their Situation | Our Solution |
+|---------------|-----------------|--------------|
+| Enterprise (Nestlé, H&M) | Have SAP/IBM EPCIS | Read from their systems |
+| Mid-market manufacturer | No EPCIS, have ERP | Host OpenEPCIS for them |
+| SMB supplier | No EPCIS, no ERP | Manual portal → our OpenEPCIS |
 
-**Compatible with any EPCIS 2.0 repository**: OpenEPCIS, IBM Sterling, SAP, TraceLink, GS1 Cloud
+**Compatible with**: SAP EPCIS, IBM Sterling, TraceLink, GS1 Cloud + our hosted OpenEPCIS
 
 **Where does the data come from?**
 
@@ -271,7 +271,8 @@ Track the complete journey of every product with GS1 EPCIS 2.0 integration. Euro
 | **Customer EPCIS** | Query events from customer's EPCIS repository |
 | **Supplier EPCIS** | Query events from supplier's repository (if access granted) |
 | **Logistics EPCIS** | Query tracking from DHL, FedEx repositories |
-| **Manual Fallback** | Simple portal for suppliers without EPCIS |
+| **EuroComply OpenEPCIS** | Hosted EPCIS for SMB customers/suppliers |
+| **Manual Entry Portal** | Simple UI for suppliers without systems → our OpenEPCIS |
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -367,15 +368,17 @@ Lookup is supported by GTIN/EAN, brand and SKU combination, or item-level serial
 | Identity | walt.id | DID/VC infrastructure |
 | AI | Claude API | Document parsing, data extraction |
 
-### EPCIS Integration (Reader Model)
+### EPCIS Integration (Hybrid Model)
 
 | Component | Technology | Purpose |
 |-----------|------------|---------|
+| Hosted OpenEPCIS | PostgreSQL | Multi-tenant EPCIS for SMB customers |
 | Query Client | TypeScript/HTTP | Query any EPCIS 2.0 repository |
 | Story Builder | TypeScript | Transform JSON → human-readable timelines |
+| Manual Entry Portal | Next.js | Simple UI for suppliers without systems |
 | Location Master | PostgreSQL | GLN → location name resolution |
 
-**Note:** We don't host EPCIS infrastructure. We query customer/supplier repositories via standardized EPCIS 2.0 REST API. Compatible with OpenEPCIS, IBM, SAP, TraceLink, and any GS1-compliant implementation.
+**Hybrid approach:** We read from enterprise EPCIS (SAP, IBM) AND host OpenEPCIS for SMB customers who don't have their own. Compatible with any GS1-compliant implementation.
 
 ### Frontend
 

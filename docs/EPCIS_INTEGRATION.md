@@ -24,80 +24,82 @@ EPCIS 2.0 is the **GS1 standard for supply chain event data**. While DPPs contai
 
 ---
 
-## EuroComply's Role: Accessing Application
+## EuroComply's Role: Hybrid EPCIS Model
 
 ### The Key Insight
 
-EuroComply is an **"Accessing Application"** in GS1 terminology - we **read** EPCIS events, we don't **capture** them.
+EuroComply operates a **Hybrid EPCIS Model**:
+1. **Read from enterprise EPCIS** - Query existing SAP/IBM/TraceLink repositories
+2. **Host OpenEPCIS for SMB** - Provide EPCIS hosting for customers/suppliers who don't have their own
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  EPCIS ECOSYSTEM ROLES                                           │
+│  HYBRID EPCIS ARCHITECTURE                                       │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  CAPTURING APPLICATIONS (Write Events)                          │
-│  ──────────────────────────────────────                         │
-│  These systems WRITE events to EPCIS repositories:              │
-│  • Factory MES systems → "Product manufactured"                 │
-│  • Warehouse WMS → "Product shipped/received"                   │
-│  • Logistics/3PL systems → "In transit" events                  │
-│  • Repair centers → "Product repaired"                          │
-│  • Recycling facilities → "End of life"                         │
+│  PATH A: ENTERPRISE CUSTOMERS (Have their own EPCIS)            │
+│  ───────────────────────────────────────────────────            │
 │                                                                  │
-│  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐            │
-│  │ Factory │  │Warehouse│  │Logistics│  │ Repair  │            │
-│  │   MES   │  │   WMS   │  │   TMS   │  │ Center  │            │
-│  └────┬────┘  └────┬────┘  └────┬────┘  └────┬────┘            │
-│       │            │            │            │                   │
-│       └────────────┴─────┬──────┴────────────┘                   │
-│                          │ WRITE                                │
-│                          ▼                                      │
-│              ┌─────────────────────────┐                        │
-│              │    EPCIS Repository     │                        │
-│              │  (Customer/Supplier     │                        │
-│              │   infrastructure)       │                        │
-│              └───────────┬─────────────┘                        │
-│                          │ READ                                 │
-│                          ▼                                      │
+│  ┌─────────────────┐  ┌─────────────────┐                       │
+│  │ SAP EPCIS       │  │ IBM Sterling    │  (Customer infra)     │
+│  │ Repository      │  │ Repository      │                       │
+│  └────────┬────────┘  └────────┬────────┘                       │
+│           │                    │                                 │
+│           └─────────┬──────────┘                                 │
+│                     │ READ (EPCIS 2.0 REST API)                 │
+│                     ▼                                           │
 │  ┌─────────────────────────────────────────────────────────────┐│
-│  │                                                              ││
-│  │  ACCESSING APPLICATIONS (Read Events)                       ││
-│  │  ────────────────────────────────────                       ││
-│  │  These systems READ events from EPCIS repositories:         ││
-│  │                                                              ││
-│  │  ┌─────────────────────────────────────────────────────┐   ││
-│  │  │               🌟 EUROCOMPLY 🌟                       │   ││
-│  │  │  • Query customer EPCIS repositories                │   ││
-│  │  │  • Transform raw JSON into beautiful timelines      │   ││
-│  │  │  • Aggregate carbon footprint from events           │   ││
-│  │  │  • Display lifecycle in DPP public pages            │   ││
-│  │  └─────────────────────────────────────────────────────┘   ││
-│  │                                                              ││
-│  │  Also: Regulatory auditors, analytics platforms, etc.       ││
-│  │                                                              ││
+│  │                   EUROCOMPLY PLATFORM                        ││
+│  │         (Query Client + Story Builder + DPP Display)         ││
 │  └─────────────────────────────────────────────────────────────┘│
+│                     ▲                                           │
+│                     │ READ + WRITE                              │
+│           ┌─────────┴──────────┐                                 │
+│           │                    │                                 │
+│  ┌────────┴────────┐  ┌────────┴────────┐                       │
+│  │ EuroComply      │  │ Manual Entry    │                       │
+│  │ OpenEPCIS       │  │ Portal          │  (Our infra)          │
+│  │ (Hosted)        │  │ (SMB Suppliers) │                       │
+│  └─────────────────┘  └─────────────────┘                       │
+│                                                                  │
+│  PATH B: SMB CUSTOMERS/SUPPLIERS (Need hosted EPCIS)            │
+│  ───────────────────────────────────────────────────            │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### Why This Model?
+### Why Hybrid?
 
-**We are essentially building a specialized "web browser" for the product's life.**
+**The reality of our SMB/Mid-market target:**
 
-Just as a web browser doesn't host websites but renders content from remote servers, EuroComply doesn't host EPCIS data but visualizes it from customer/supplier repositories.
+Most SMB manufacturers and suppliers (our primary market) do NOT have:
+- SAP, IBM Sterling, or TraceLink EPCIS repositories
+- Internal IT teams to deploy OpenEPCIS themselves
+- Budget for enterprise EPCIS solutions
 
-| What We DON'T Do | What We DO |
-|------------------|------------|
-| ❌ Host EPCIS repositories | ✅ Query customer repositories |
-| ❌ Run Kafka/OpenSearch | ✅ Transform JSON → beautiful UI |
-| ❌ Store supply chain events | ✅ Cache for performance |
-| ❌ Build capturing systems | ✅ Build visualization layer |
+**Without hosted EPCIS, the "manual entry portal" would have nowhere to store events.**
 
-**Benefits of this approach:**
-- **Zero infrastructure cost** for EPCIS (we don't run it)
-- **Data sovereignty** - events stay in customer/supplier systems
-- **Works with ANY EPCIS 2.0 repository** - IBM, SAP, TraceLink, OpenEPCIS, etc.
-- **Focus on our value** - visualization, not plumbing
+| Customer Type | Their EPCIS Situation | Our Solution |
+|---------------|----------------------|--------------|
+| Enterprise (Nestlé, H&M) | Have SAP/IBM EPCIS | Read from their systems |
+| Mid-market manufacturer | No EPCIS, have ERP | Host OpenEPCIS for them |
+| SMB supplier | No EPCIS, no ERP | Manual portal → our OpenEPCIS |
+
+### What We Build
+
+| Component | Description |
+|-----------|-------------|
+| ✅ EPCIS Query Client | Read from ANY EPCIS 2.0 repository (SAP, IBM, etc.) |
+| ✅ Hosted OpenEPCIS | Multi-tenant EPCIS for SMB customers/suppliers |
+| ✅ Story Builder | Transform JSON → beautiful timelines |
+| ✅ Manual Entry Portal | Simple UI for suppliers without systems |
+| ✅ DPP Lifecycle Display | Public-facing product journey visualization |
+
+**Benefits of hybrid approach:**
+- **Works with enterprise systems** - Don't force customers to migrate
+- **Enables SMB participation** - Without requiring infrastructure investment
+- **Data sovereignty options** - Enterprise keeps their data, SMB uses ours
+- **Single visualization layer** - Unified view regardless of data source
 
 ---
 
@@ -371,25 +373,22 @@ const coldChainEvent: ObjectEvent = {
 
 ## Architecture
 
-### EuroComply as EPCIS Reader
+### Hybrid EPCIS Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  EUROCOMPLY EPCIS ARCHITECTURE (Reader/Visualizer Model)         │
+│  EUROCOMPLY HYBRID EPCIS ARCHITECTURE                            │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  CUSTOMER/SUPPLIER SYSTEMS (They write events)                  │
-│  ─────────────────────────────────────────────                  │
+│  EXTERNAL EPCIS REPOSITORIES (Enterprise customers)             │
+│  ─────────────────────────────────────────────────              │
 │                                                                  │
 │  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐       │
-│  │ Factory EPCIS │  │ Logistics     │  │ Warehouse     │       │
-│  │ Repository    │  │ EPCIS Repo    │  │ EPCIS Repo    │       │
-│  │ (OpenEPCIS)   │  │ (SAP)         │  │ (IBM)         │       │
+│  │ SAP EPCIS     │  │ IBM Sterling  │  │ TraceLink     │       │
+│  │ (Customer A)  │  │ (Customer B)  │  │ (Customer C)  │       │
 │  └───────┬───────┘  └───────┬───────┘  └───────┬───────┘       │
 │          │                  │                  │                 │
-│          │   EPCIS 2.0 REST API (Standard)    │                 │
-│          │   GET /epcis/events?EQ_epc=...     │                 │
-│          │                  │                  │                 │
+│          │   EPCIS 2.0 REST API (READ)        │                 │
 │          └──────────────────┼──────────────────┘                 │
 │                             │                                    │
 │                             ▼                                    │
@@ -398,10 +397,10 @@ const coldChainEvent: ObjectEvent = {
 │  │                                                              ││
 │  │  ┌─────────────────────────────────────────────────────┐   ││
 │  │  │              EPCIS QUERY CLIENT                      │   ││
-│  │  │  • Simple HTTP client (no infrastructure needed)     │   ││
-│  │  │  • Queries multiple repositories                     │   ││
-│  │  │  • Handles authentication (OAuth 2.0 / API keys)     │   ││
-│  │  │  • Caches results for performance                    │   ││
+│  │  │  • Queries external repositories (SAP, IBM, etc.)    │   ││
+│  │  │  • Queries our hosted OpenEPCIS                      │   ││
+│  │  │  • Handles OAuth 2.0 / API key authentication        │   ││
+│  │  │  • Merges events from all sources                    │   ││
 │  │  └─────────────────────────┬───────────────────────────┘   ││
 │  │                            │                                ││
 │  │                            ▼                                ││
@@ -410,8 +409,7 @@ const coldChainEvent: ObjectEvent = {
 │  │  │  • Transforms raw EPCIS JSON → beautiful timelines   │   ││
 │  │  │  • Resolves GLN → human-readable location names      │   ││
 │  │  │  • Aggregates carbon footprint from transport events │   ││
-│  │  │  • Merges events from multiple repositories          │   ││
-│  │  │  • Adds context and visual presentation              │   ││
+│  │  │  • Unified view across all data sources              │   ││
 │  │  └─────────────────────────┬───────────────────────────┘   ││
 │  │                            │                                ││
 │  │                            ▼                                ││
@@ -423,10 +421,71 @@ const coldChainEvent: ObjectEvent = {
 │  │  │  • Export to PDF/CSV                                 │   ││
 │  │  └─────────────────────────────────────────────────────┘   ││
 │  │                                                              ││
+│  └──────────────────────────────┬──────────────────────────────┘│
+│                                 │                                │
+│                                 ▼                                │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │              EUROCOMPLY HOSTED OPENEPCIS                     ││
+│  │              (For SMB customers/suppliers)                   ││
+│  │                                                              ││
+│  │  ┌─────────────────────────────────────────────────────┐   ││
+│  │  │  PostgreSQL (Multi-tenant, organization_id)          │   ││
+│  │  │  • Single cluster, partitioned by organization       │   ││
+│  │  │  • Year 1-2: Hot storage only (simple)               │   ││
+│  │  │  • Future: Cold tier (R2/Parquet) when >500GB        │   ││
+│  │  └─────────────────────────────────────────────────────┘   ││
+│  │                                                              ││
+│  │  Event Sources:                                             ││
+│  │  • Manual Entry Portal (SMB suppliers)                      ││
+│  │  • ERP Integrations (Webhook/API push)                      ││
+│  │  • CSV/Excel Upload                                         ││
+│  │                                                              ││
 │  └─────────────────────────────────────────────────────────────┘│
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+### OpenEPCIS Infrastructure (Year 1-2 Strategy)
+
+**Keep it simple - PostgreSQL only:**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  YEAR 1-2 STORAGE STRATEGY                                       │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  PostgreSQL (Single Multi-tenant Cluster)                       │
+│  ─────────────────────────────────────────                      │
+│                                                                  │
+│  epcis_events table:                                            │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ organization_id  │ event_id  │ event_time │ event_json  │   │
+│  │ (partition key)  │ (PK)      │ (indexed)  │ (JSONB)     │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│  Why PostgreSQL is enough:                                      │
+│  • Large retailer (1M SKUs) = 50M events/year = ~100 GB/year   │
+│  • 100 customers at this scale = 10 TB (still manageable)       │
+│  • PostgreSQL handles 10+ TB comfortably                        │
+│  • Cost: ~$500/month for managed Postgres                       │
+│                                                                  │
+│  Future (when approaching 500GB-1TB):                           │
+│  • Add cold tier: R2/S3 + Parquet                               │
+│  • Events older than 30 days → cold storage                     │
+│  • 7-year retention total                                       │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Capacity & Fair Use Policy
+
+| Metric | Policy |
+|--------|--------|
+| Events per product | ~100 events/product/year (typical) |
+| Storage per org | "Unlimited" with fair use |
+| Fair use threshold | >500 events/product/year triggers review |
+| Enterprise override | Custom limits for >500K products |
+| Retention | 7 years total (regulatory requirement) |
 
 ### Repository Connection Model
 
@@ -1007,13 +1066,13 @@ This is solved through **business processes**, not infrastructure:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### Fallback: Manual Event Capture
+### Manual Event Capture (Hosted OpenEPCIS)
 
-For suppliers who can't write to EPCIS, we provide a lightweight capture portal:
+For suppliers who can't write to EPCIS, we provide a lightweight capture portal that writes to our hosted OpenEPCIS:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  SUPPLIER EVENT ENTRY (Manual Fallback)                          │
+│  SUPPLIER EVENT ENTRY (Manual Portal → EuroComply OpenEPCIS)     │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
 │  You've been invited by TextileCo to record supply chain        │
@@ -1041,10 +1100,31 @@ For suppliers who can't write to EPCIS, we provide a lightweight capture portal:
 │                              │  Submit Event   │                │
 │                              └─────────────────┘                │
 │                                                                  │
-│  Note: These events are stored in the customer's EPCIS          │
-│  repository, not in EuroComply.                                 │
+│  Events are stored in EuroComply's hosted OpenEPCIS repository  │
+│  and appear in the product's lifecycle timeline immediately.    │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
+```
+
+**How manual portal events flow:**
+
+```
+┌──────────────┐    ┌─────────────────┐    ┌─────────────────────┐
+│   Supplier   │    │  Manual Entry   │    │  EuroComply         │
+│   (no EPCIS) │───▶│  Portal         │───▶│  Hosted OpenEPCIS   │
+└──────────────┘    └─────────────────┘    └──────────┬──────────┘
+                                                      │
+                                                      ▼
+                                           ┌─────────────────────┐
+                                           │  Story Builder      │
+                                           │  (same as external) │
+                                           └──────────┬──────────┘
+                                                      │
+                                                      ▼
+                                           ┌─────────────────────┐
+                                           │  DPP Lifecycle      │
+                                           │  Timeline Display   │
+                                           └─────────────────────┘
 ```
 
 ---
@@ -1447,17 +1527,27 @@ interface LocationRequest {
 
 ## Implementation Plan
 
-### Phase 1: EPCIS Query Client
+### Phase 1: Hosted OpenEPCIS Infrastructure
 
 | Task | Priority | Complexity | Status |
 |------|----------|------------|--------|
-| Build EPCIS 2.0 REST query client | High | Low | 📋 Planned |
+| Deploy OpenEPCIS with PostgreSQL backend | High | Medium | 📋 Planned |
+| Multi-tenant schema (organization_id partitioning) | High | Medium | 📋 Planned |
+| EPCIS 2.0 REST API (capture + query) | High | Medium | 📋 Planned |
+| Authentication layer (org-scoped API keys) | High | Low | 📋 Planned |
+| Fair use monitoring (events/product tracking) | Medium | Low | 📋 Planned |
+
+### Phase 2: EPCIS Query Client (Hybrid)
+
+| Task | Priority | Complexity | Status |
+|------|----------|------------|--------|
+| Build unified query client (internal + external) | High | Medium | 📋 Planned |
 | Support OAuth 2.0 and API key auth | High | Low | 📋 Planned |
-| Add repository connection management | High | Medium | 📋 Planned |
-| Create connection test endpoint | High | Low | 📋 Planned |
+| Repository connection management | High | Medium | 📋 Planned |
+| Merge events from multiple sources | High | Medium | 📋 Planned |
 | Handle query pagination | Medium | Low | 📋 Planned |
 
-### Phase 2: Story Builder
+### Phase 3: Story Builder
 
 | Task | Priority | Complexity | Status |
 |------|----------|------------|--------|
@@ -1465,9 +1555,9 @@ interface LocationRequest {
 | Implement bizStep → human text mapping | High | Low | 📋 Planned |
 | Add GLN → location resolution | High | Medium | 📋 Planned |
 | Carbon footprint aggregation | High | Medium | 📋 Planned |
-| Multi-repository event merging | Medium | Medium | 📋 Planned |
+| Unified timeline from all sources | Medium | Medium | 📋 Planned |
 
-### Phase 3: UI/UX
+### Phase 4: UI/UX
 
 | Task | Priority | Complexity | Status |
 |------|----------|------------|--------|
@@ -1477,23 +1567,24 @@ interface LocationRequest {
 | Carbon footprint visualization | High | Medium | 📋 Planned |
 | Location master data management | Medium | Low | 📋 Planned |
 
-### Phase 4: Supplier Onboarding
+### Phase 5: Manual Entry Portal (SMB Suppliers)
 
 | Task | Priority | Complexity | Status |
 |------|----------|------------|--------|
-| Simple event entry portal (manual fallback) | Medium | Medium | 📋 Planned |
-| Supplier invitation workflow | Medium | Low | 📋 Planned |
-| Excel/CSV event upload | Medium | Medium | 📋 Planned |
-| OpenEPCIS deployment guide | Medium | Low | 📋 Planned |
+| Simple event entry web UI | High | Medium | 📋 Planned |
+| Supplier invitation workflow | High | Low | 📋 Planned |
+| Events → hosted OpenEPCIS | High | Low | 📋 Planned |
+| Excel/CSV bulk event upload | Medium | Medium | 📋 Planned |
+| Certificate/document attachment | Medium | Medium | 📋 Planned |
 
-### Phase 5: Advanced Features
+### Phase 6: Advanced Features
 
 | Task | Priority | Complexity | Status |
 |------|----------|------------|--------|
-| Event caching for performance | Medium | Medium | 📋 Planned |
+| Event caching for external repos | Medium | Medium | 📋 Planned |
 | Webhook notifications for new events | Low | Medium | 📋 Planned |
 | Event export (EPCIS JSON, CSV) | Medium | Low | 📋 Planned |
-| Real-time event streaming (optional) | Low | High | 📋 Planned |
+| Cold tier migration (when >500GB) | Low | High | 📋 Planned |
 
 ---
 
@@ -1591,50 +1682,52 @@ function sgtinToGtin(sgtin: string): { gtin: string; serial: string } {
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  EPCIS 2.0 INTEGRATION SUMMARY (Reader/Visualizer Model)         │
+│  EPCIS 2.0 INTEGRATION SUMMARY (Hybrid Model)                    │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  OUR ROLE: ACCESSING APPLICATION                                │
+│  OUR ROLE: HYBRID EPCIS PROVIDER                                │
 │  ────────────────────────────────                               │
-│  We READ events from customer/supplier repositories             │
-│  We DON'T host EPCIS infrastructure                             │
+│  1. READ from enterprise EPCIS (SAP, IBM, TraceLink)            │
+│  2. HOST OpenEPCIS for SMB customers/suppliers                  │
 │                                                                  │
 │  WHAT WE BUILD                                                  │
 │  ─────────────                                                  │
-│  • Simple EPCIS 2.0 REST query client                           │
+│  • EPCIS 2.0 REST query client (read from any source)           │
+│  • Hosted OpenEPCIS (multi-tenant PostgreSQL)                   │
+│  • Manual entry portal (for suppliers without systems)          │
 │  • Story Builder (JSON → beautiful timelines)                   │
-│  • Multi-repository aggregation                                 │
-│  • Carbon footprint calculation                                 │
+│  • Carbon footprint aggregation                                 │
 │  • GLN → location name resolution                               │
 │                                                                  │
-│  INFRASTRUCTURE COST: $0                                        │
-│  ────────────────────────                                       │
-│  No Kafka, no OpenSearch, no EPCIS hosting                      │
-│  Just HTTP requests to customer repositories                    │
+│  INFRASTRUCTURE (YEAR 1-2)                                      │
+│  ─────────────────────────                                      │
+│  • Single PostgreSQL cluster (multi-tenant)                     │
+│  • Partitioned by organization_id                               │
+│  • ~$500/month for managed Postgres                             │
+│  • Add cold tier when >500GB                                    │
 │                                                                  │
-│  COMPATIBLE WITH ANY EPCIS 2.0 REPOSITORY                       │
-│  ──────────────────────────────────────────                     │
-│  • OpenEPCIS (open source)                                      │
-│  • IBM Sterling Supply Chain                                    │
-│  • SAP EPCIS                                                    │
-│  • TraceLink                                                    │
-│  • GS1 Cloud                                                    │
-│  • Any GS1-compliant implementation                             │
+│  COMPATIBLE WITH                                                │
+│  ───────────────                                                │
+│  External:     │  Hosted:                                       │
+│  • SAP EPCIS   │  • Manual entry portal                         │
+│  • IBM Sterling│  • ERP webhook integrations                    │
+│  • TraceLink   │  • CSV/Excel upload                            │
+│  • GS1 Cloud   │  • API push from partner systems               │
 │                                                                  │
 │  OUR VALUE PROPOSITION                                          │
 │  ──────────────────────                                         │
-│  "Specialized web browser for product lifecycle"                │
-│  • Transform raw JSON into human-readable stories               │
-│  • Beautiful timeline visualization in DPP pages                │
-│  • Aggregate carbon footprint from transport events             │
-│  • Single view across multiple supply chain systems             │
+│  "Complete EPCIS solution for any customer size"                │
+│  • Enterprise: Connect to your existing infrastructure          │
+│  • SMB: We host everything, just enter your events              │
+│  • Unified visualization regardless of data source              │
+│  • Beautiful timeline in DPP pages                              │
 │                                                                  │
-│  KEY CHALLENGE: SUPPLIER ONBOARDING                             │
-│  ────────────────────────────────────                           │
-│  If suppliers don't write EPCIS events, we have nothing         │
-│  to display. This is a BUSINESS problem, not technical.         │
-│  Solution: Make EPCIS a procurement requirement + provide       │
-│  easy onboarding tools (manual portal, CSV upload, guides).     │
+│  STORAGE CAPACITY                                               │
+│  ────────────────                                               │
+│  • "Unlimited" events with fair use policy                      │
+│  • ~100 events/product/year typical                             │
+│  • 7-year retention (regulatory requirement)                    │
+│  • Enterprise custom limits for >500K products                  │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -1662,4 +1755,4 @@ function sgtinToGtin(sgtin: string): { gtin: string; serial: string } {
 
 ---
 
-*Last Updated: January 10, 2026*
+*Last Updated: January 11, 2026*

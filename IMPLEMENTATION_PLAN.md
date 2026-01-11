@@ -810,13 +810,15 @@ This approach supports industries beyond ESPR compliance - any business needing 
 | DPP public verification page | Planned |
 | DPP lifecycle tracking (issued, updated, revoked) | Planned |
 | Lambda image optimization pipeline | Planned |
-| **Backend (EPCIS Module - Reader Model)** | |
-| Build EPCIS 2.0 REST query client | Planned |
+| **Backend (EPCIS Module - Hybrid Model)** | |
+| Deploy hosted OpenEPCIS (PostgreSQL multi-tenant) | Planned |
+| EPCIS 2.0 REST API (capture + query) | Planned |
+| Build unified query client (internal + external) | Planned |
 | Support OAuth 2.0 and API key authentication | Planned |
 | Add repository connection management API | Planned |
 | Build Story Builder service (JSON → timeline) | Planned |
 | Carbon footprint aggregation from transport events | Planned |
-| Multi-repository event merging | Planned |
+| Multi-source event merging | Planned |
 | **Compliance Workspace UI** | |
 | DPP Ready list view with filtering | Planned |
 | Review and approve workflow UI | Planned |
@@ -852,7 +854,7 @@ This approach supports industries beyond ESPR compliance - any business needing 
 - Compliance Workspace: Moves from "Coming Soon" to fully functional DPP issuance workflow
 - Operations Workspace: Gains EPCIS lifecycle visualization (inventory/orders already in Phase 2)
 
-**Hub at Phase 4:** + Passport, Certification, EpcisRepository
+**Hub at Phase 4:** + Passport, Certification, EpcisRepository, EpcisEvent (hosted)
 
 **Dependencies:** Phase 3 (completeness scoring, assets)
 
@@ -1221,30 +1223,34 @@ The **EU DPP Registry** launches July 2026 as the central index of all DPPs:
 
 ### EPCIS 2.0 Integration (Core Feature)
 
-EPCIS 2.0 is integrated **from day one** as a core feature. EuroComply acts as an **"Accessing Application"** - we **read** EPCIS events from customer/supplier repositories, we don't host them. See [EPCIS_INTEGRATION.md](docs/EPCIS_INTEGRATION.md) for full documentation.
+EPCIS 2.0 is integrated **from day one** as a core feature. EuroComply operates a **Hybrid EPCIS Model**:
+1. **Read from enterprise EPCIS** - Query existing SAP/IBM/TraceLink repositories
+2. **Host OpenEPCIS for SMB** - Provide EPCIS hosting for customers/suppliers who don't have their own
 
-#### Our Role: Reader & Visualizer
+See [EPCIS_INTEGRATION.md](docs/EPCIS_INTEGRATION.md) for full documentation.
 
-| What We DON'T Do | What We DO |
-|------------------|------------|
-| ❌ Host EPCIS repositories | ✅ Query customer repositories |
-| ❌ Run Kafka/OpenSearch | ✅ Transform JSON → beautiful UI |
-| ❌ Store supply chain events | ✅ Cache for performance |
-| ❌ Build capturing systems | ✅ Build visualization layer |
+#### Our Role: Hybrid EPCIS Provider
 
-**Why this approach?**
-- **Zero infrastructure cost** for EPCIS (we don't run it)
-- **Data sovereignty** - events stay in customer/supplier systems
-- **Works with ANY EPCIS 2.0 repository** - IBM, SAP, TraceLink, OpenEPCIS, etc.
-- **Focus on our value** - visualization, not plumbing
+| Customer Type | Their Situation | Our Solution |
+|---------------|-----------------|--------------|
+| Enterprise (Nestlé, H&M) | Have SAP/IBM EPCIS | Read from their systems |
+| Mid-market manufacturer | No EPCIS, have ERP | Host OpenEPCIS for them |
+| SMB supplier | No EPCIS, no ERP | Manual portal → our OpenEPCIS |
+
+**Why hybrid?**
+- **Works with enterprise systems** - Don't force customers to migrate
+- **Enables SMB participation** - Without requiring infrastructure investment
+- **Data sovereignty options** - Enterprise keeps their data, SMB uses ours
+- **Compatible with ANY EPCIS 2.0 repository** - SAP, IBM, TraceLink + our hosted OpenEPCIS
 
 #### Components
 
 | Component | Purpose |
 |-----------|---------|
-| **EPCIS Query Client** | Simple HTTP client to query any EPCIS 2.0 repository |
+| **Hosted OpenEPCIS** | Multi-tenant EPCIS for SMB customers/suppliers (PostgreSQL) |
+| **EPCIS Query Client** | Unified client to query any EPCIS 2.0 source |
 | **Story Builder** | Transform raw EPCIS JSON into human-readable timelines |
-| **Repository Manager** | Configure connections to customer/supplier EPCIS repos |
+| **Manual Entry Portal** | Simple UI for suppliers without systems |
 | **Location Master** | GLN → human-readable location name resolution |
 | **Carbon Aggregator** | Calculate total footprint from transport events |
 
@@ -1273,14 +1279,14 @@ model Passport {
   euRegisteredAt  DateTime?
   euRegistryStatus EuRegistryStatus @default(NOT_REGISTERED)
 
-  // NEW: EPCIS integration (reader model - no storage, just config)
+  // NEW: EPCIS integration (hybrid model)
   epcisEnabled          Boolean  @default(false)
   totalCarbonFootprint  Float?   // Cached from queries
   lastEventTime         DateTime?
   eventCount            Int      @default(0)
 }
 
-// NEW: EPCIS Repository connections (customer configures their repos)
+// External EPCIS Repository connections (enterprise customers)
 model EpcisRepository {
   id              String   @id @default(cuid())
   organizationId  String
@@ -1288,9 +1294,30 @@ model EpcisRepository {
   baseUrl         String   // https://epcis.supplier.com
   authType        String   // 'oauth2', 'apikey', 'basic'
   credentials     String   // Encrypted JSON
+  isExternal      Boolean  @default(true) // true = external, false = our hosted
   isActive        Boolean  @default(true)
   lastChecked     DateTime?
   lastError       String?
+}
+
+// Hosted EPCIS events (for SMB customers using our OpenEPCIS)
+model EpcisEvent {
+  id              String   @id @default(cuid())
+  organizationId  String   // Partition key for multi-tenancy
+  eventId         String   @unique // EPCIS event ID
+  eventType       String   // ObjectEvent, AggregationEvent, etc.
+  eventTime       DateTime
+  epcList         String[] // Product identifiers
+  bizStep         String?
+  disposition     String?
+  readPoint       String?  // GLN
+  bizLocation     String?  // GLN
+  eventJson       Json     // Full EPCIS event
+  createdAt       DateTime @default(now())
+
+  @@index([organizationId])
+  @@index([eventTime])
+  @@index([epcList])
 }
 
 // NEW: Location master data (for GLN resolution)
@@ -1322,25 +1349,27 @@ model EpcisLocation {
 | Add Registry registration to DPP issuance | Q3 2026 | Planned |
 | Auto-register all new DPPs | Q3 2026 | Planned |
 | Batch register existing DPPs | Q4 2026 | Planned |
-| **EPCIS (Core Feature - Reader/Visualizer)** | | |
-| Build EPCIS 2.0 REST query client | Phase 4 | Planned |
+| **EPCIS (Core Feature - Hybrid Model)** | | |
+| Deploy hosted OpenEPCIS (PostgreSQL backend) | Phase 4 | Planned |
+| Multi-tenant schema (organization_id partitioning) | Phase 4 | Planned |
+| EPCIS 2.0 REST API (capture + query) | Phase 4 | Planned |
+| Build unified query client (internal + external) | Phase 4 | Planned |
 | Support OAuth 2.0 and API key authentication | Phase 4 | Planned |
 | Add repository connection management API | Phase 4 | Planned |
-| Create connection test endpoint | Phase 4 | Planned |
 | Build Story Builder service | Phase 4 | Planned |
 | Implement bizStep → human text mapping | Phase 4 | Planned |
 | Add GLN → location resolution (Location Master) | Phase 4 | Planned |
 | Carbon footprint aggregation from events | Phase 4 | Planned |
-| Multi-repository event merging | Phase 4 | Planned |
+| Multi-source event merging | Phase 4 | Planned |
 | Add EPCIS tables to Prisma schema | Phase 4 | Planned |
 | Product lifecycle timeline UI component | Phase 4 | Planned |
 | Repository connection settings UI | Phase 4 | Planned |
 | Add lifecycle tab to DPP public page | Phase 4 | Planned |
 | Carbon footprint visualization | Phase 4 | Planned |
-| Simple event entry portal (manual fallback) | Phase 5 | Planned |
+| Manual event entry portal (→ hosted OpenEPCIS) | Phase 5 | Planned |
 | Supplier invitation workflow | Phase 5 | Planned |
-| Excel/CSV event upload | Phase 5 | Planned |
-| OpenEPCIS deployment guide (for customers) | Phase 5 | Planned |
+| Excel/CSV bulk event upload | Phase 5 | Planned |
+| Fair use monitoring (events/product tracking) | Phase 5 | Planned |
 
 ---
 
@@ -1362,4 +1391,4 @@ model EpcisLocation {
 
 ---
 
-*Last Updated: January 2026*
+*Last Updated: January 11, 2026*

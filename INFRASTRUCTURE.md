@@ -19,7 +19,7 @@ EuroComply uses a **dual-path architecture** that separates:
 | **Cost Model** | Usage-based | Fixed up to 50B scans/day |
 | **Capacity** | 10,000+ concurrent users | Trillions of scans/day |
 
-**Note:** EPCIS event data is queried from customer/supplier repositories - EuroComply does not host EPCIS infrastructure. See [EPCIS_INTEGRATION.md](docs/EPCIS_INTEGRATION.md) for details on our reader/visualizer model.
+**Note:** EuroComply operates a **Hybrid EPCIS Model**: reading from enterprise EPCIS repositories (SAP, IBM) + hosting OpenEPCIS for SMB customers. See [EPCIS_INTEGRATION.md](docs/EPCIS_INTEGRATION.md) for details.
 
 See [SCALABILITY.md](docs/SCALABILITY.md) for detailed architecture.
 
@@ -114,6 +114,62 @@ See [SCALABILITY.md](docs/SCALABILITY.md) for detailed architecture.
 | **ALB** | Load balancing | Path-based routing |
 | **Route 53** | DNS | api.eurocomply.eu |
 | **ACM** | SSL certificates | Auto-renewal |
+
+---
+
+## Hosted OpenEPCIS (EPCIS Event Storage)
+
+EuroComply hosts OpenEPCIS for SMB customers who don't have their own EPCIS repositories.
+
+### Year 1-2 Strategy: PostgreSQL Only
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  HOSTED OPENEPCIS (Multi-tenant)                                 │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Storage: Shared with main RDS PostgreSQL                       │
+│  ─────────────────────────────────────────                      │
+│                                                                  │
+│  epcis_events table:                                            │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ organization_id  │ event_id  │ event_time │ event_json  │   │
+│  │ (partition key)  │ (PK)      │ (indexed)  │ (JSONB)     │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│  Why PostgreSQL is enough:                                      │
+│  • Large retailer (1M SKUs) = 50M events/year = ~100 GB/year   │
+│  • 100 customers at scale = 10 TB (still manageable)            │
+│  • PostgreSQL handles 10+ TB comfortably                        │
+│  • No additional infrastructure cost (uses main RDS)            │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Capacity Planning
+
+| Scale | Products | Events/Year | Storage/Year | Notes |
+|-------|----------|-------------|--------------|-------|
+| Small customer | 1K SKUs | 100K | ~200 MB | Trivial |
+| Medium customer | 10K SKUs | 1M | ~2 GB | Trivial |
+| Large customer | 100K SKUs | 10M | ~20 GB | Easy |
+| Enterprise | 1M SKUs | 100M | ~200 GB | One year |
+
+### Future: Cold Tier (when >500GB total)
+
+When approaching 500GB-1TB of event data:
+- Add cold storage tier: Cloudflare R2 + Parquet format
+- Events older than 30 days → cold storage
+- 7-year retention total (regulatory requirement)
+- Estimated cost: ~$0.015/GB/month for cold storage
+
+### Cost Impact
+
+| Tier | Storage Cost | Notes |
+|------|--------------|-------|
+| Year 1-2 | $0 additional | Included in RDS |
+| Year 3+ (hot) | ~$0.10-0.20/GB/month | Keep 30 days hot |
+| Year 3+ (cold) | ~$0.015/GB/month | R2/S3 for archive |
 
 ---
 
@@ -648,5 +704,5 @@ See `infrastructure/` directory for Terraform configurations.
 
 ---
 
-**Last Updated**: 2026-01-10
-**Version**: 1.1
+**Last Updated**: 2026-01-11
+**Version**: 1.2

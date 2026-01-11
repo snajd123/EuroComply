@@ -564,17 +564,19 @@ EuroComply integrates EPCIS 2.0 (Electronic Product Code Information Services) a
 
 **See [EPCIS_INTEGRATION.md](./EPCIS_INTEGRATION.md) for full documentation.**
 
-### Our Role: Accessing Application
+### Our Role: Hybrid EPCIS Provider
 
-EuroComply is an **"Accessing Application"** in GS1 terminology - we **read** EPCIS events from customer/supplier repositories, we don't host them.
+EuroComply operates a **Hybrid EPCIS Model**:
+1. **Read from enterprise EPCIS** - Query existing SAP/IBM/TraceLink repositories
+2. **Host OpenEPCIS for SMB** - Provide EPCIS hosting for customers/suppliers who don't have their own
 
-| What We DON'T Do | What We DO |
-|------------------|------------|
-| ❌ Host EPCIS repositories | ✅ Query customer/supplier repositories |
-| ❌ Run Kafka/OpenSearch | ✅ Transform JSON → beautiful timelines |
-| ❌ Store supply chain events | ✅ Aggregate carbon from events |
+| Customer Type | Their Situation | Our Solution |
+|---------------|-----------------|--------------|
+| Enterprise (Nestlé, H&M) | Have SAP/IBM EPCIS | Read from their systems |
+| Mid-market manufacturer | No EPCIS, have ERP | Host OpenEPCIS for them |
+| SMB supplier | No EPCIS, no ERP | Manual portal → our OpenEPCIS |
 
-**Compatible with any EPCIS 2.0 repository**: OpenEPCIS, IBM Sterling, SAP, TraceLink, GS1 Cloud
+**Compatible with**: SAP EPCIS, IBM Sterling, TraceLink, GS1 Cloud + our hosted OpenEPCIS
 
 ### Quick Overview
 
@@ -858,4 +860,4 @@ EPCIS_DEFAULT_REPOSITORY_URL=     # For customers without own EPCIS
 
 ---
 
-*Last Updated: January 10, 2026*
+*Last Updated: January 11, 2026*
