@@ -515,6 +515,72 @@ Operations uses a **draft-then-commit workflow** to prevent typos from being imm
 - **Auto-commit**: Batches auto-commit after 1 hour (configurable) if no manual commit
 - **Delete**: PENDING batches can be deleted before commit (logged in audit)
 
+**⚠️ Commit-Time Validation (Stale Draft Protection):**
+
+A dangerous race condition exists: Design may release a new version (e.g., safety fix) while a PENDING batch still references an old version. To prevent producing unsafe products:
+
+```typescript
+async function commitBatch(batchId: string, committerId: string): Promise<BatchRecord> {
+  const batch = await prisma.batchRecord.findUnique({
+    where: { id: batchId },
+    include: { designVersion: true }
+  });
+
+  if (batch.status !== 'PENDING') {
+    throw new Error('Batch already committed');
+  }
+
+  // CRITICAL: Re-validate Design Version at commit time
+  const designVersion = batch.designVersion;
+
+  if (designVersion.status === 'ARCHIVED' || designVersion.status === 'REJECTED') {
+    throw new CommitValidationError({
+      code: 'STALE_DESIGN_VERSION',
+      message: `Design v${designVersion.version} is no longer valid (status: ${designVersion.status})`,
+      currentDesignVersion: await getCurrentDesignVersion(batch.productId),
+      suggestion: 'Update batch to reference current Design version before committing'
+    });
+  }
+
+  // Design version is still RELEASED or ACTIVE - safe to commit
+  return await prisma.batchRecord.update({
+    where: { id: batchId },
+    data: {
+      status: 'COMMITTED',
+      committedById: committerId,
+      committedAt: new Date(),
+      signerDid: await getUserDid(committerId),
+      signature: await signBatchRecord(batch),
+      signedAt: new Date()
+    }
+  });
+}
+```
+
+**Race Condition Timeline:**
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  STALE DRAFT RACE CONDITION                                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  10:00 AM  Operations creates PENDING batch referencing Design v2           │
+│       │                                                                      │
+│       ▼                                                                      │
+│  10:15 AM  Design discovers v2 has safety issue                             │
+│       │    → Emergency release of v3                                         │
+│       │    → v2 marked ARCHIVED (do not use)                                │
+│       │                                                                      │
+│       ▼                                                                      │
+│  11:00 AM  Operations clicks "Commit" on PENDING batch                      │
+│       │                                                                      │
+│       ├── WITHOUT validation: ❌ Batch commits with dangerous v2 reference  │
+│       │                                                                      │
+│       └── WITH validation:    ✅ Commit fails with STALE_DESIGN_VERSION     │
+│                               → User must update to v3 first                 │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
 **Immutable Record Types in Operations (After Commit):**
 
 | Record Type | Editable Until | After Commit |
@@ -887,10 +953,11 @@ enum BatchStatus {
 
 model BatchRecord {
   id              String        @id @default(cuid())
-  batchNumber     String        @unique
+  batchNumber     String        // Unique within organization, not globally
   productId       String
   product         Product       @relation(fields: [productId], references: [id])
   organizationId  String
+  organization    Organization  @relation(fields: [organizationId], references: [id])
 
   // Design reference (locked after COMMITTED)
   designVersionId String
@@ -926,6 +993,7 @@ model BatchRecord {
   corrections     BatchCorrection[]
   epcisEvents     EPCISEvent[]
 
+  @@unique([organizationId, batchNumber])  // Scoped uniqueness - prevents cross-tenant collision
   @@index([productId])
   @@index([organizationId])
   @@index([status])
@@ -961,10 +1029,11 @@ enum MaterialOrderStatus {
 
 model MaterialOrder {
   id              String              @id @default(cuid())
-  orderNumber     String              @unique
+  orderNumber     String              // Unique within organization, not globally
   productId       String?             // Optional: may be for general stock
   product         Product?            @relation(fields: [productId], references: [id])
   organizationId  String
+  organization    Organization        @relation(fields: [organizationId], references: [id])
 
   // Locked Design reference (if for specific product)
   designVersionId String?
@@ -985,6 +1054,7 @@ model MaterialOrder {
   signerDid       String?
   signature       String?
 
+  @@unique([organizationId, orderNumber])  // Scoped uniqueness - prevents cross-tenant collision
   @@index([productId])
   @@index([organizationId])
   @@index([supplierId])
@@ -1267,6 +1337,129 @@ async function verifyHistoricalSignature(
 
   // Verify the signature using the historical DID
   return await verifyJws(signature, signerDid);
+}
+```
+
+### TransactionalSignatureLog Model (Non-Repudiation for Ephemeral DIDs)
+
+Transactional Partners use **ephemeral did:key** generated per session. These keys are deleted after the session, creating a legal audit gap: we have a valid signature but cannot trace it back to a person.
+
+**The Problem:**
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  TRANSACTIONAL IDENTITY BLACK HOLE                                          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Year 1: Lab technician signs toxicity test via Magic Link                  │
+│          → Ephemeral did:key:z6Mk... generated for session                  │
+│          → Signs "PASS" attestation                                         │
+│          → Session ends, key deleted from wallet                            │
+│                                                                              │
+│  Year 3: Product causes lawsuit, need to prove who signed                   │
+│          → Have signature: ✓                                                │
+│          → Have DID in signature: ✓                                         │
+│          → Can verify signature is valid: ✓                                 │
+│          → Can prove WHICH PERSON held that key: ❌                         │
+│                                                                              │
+│  Without TransactionalSignatureLog, the signature is legally orphaned.      │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**The Solution:**
+
+```prisma
+model TransactionalSignatureLog {
+  id                String    @id @default(cuid())
+
+  // The ephemeral DID used for signing (stored permanently even after key deletion)
+  ephemeralDid      String
+  ephemeralKeyId    String?   // Reference to key (may be deleted from wallet)
+
+  // Link to the magic link session that created this DID
+  magicLinkId       String
+  magicLink         MagicLink @relation(fields: [magicLinkId], references: [id])
+
+  // Identity snapshot at time of signing (PERMANENT, non-purgeable)
+  signerEmail       String
+  signerName        String?
+  signerCompany     String?
+  signerIpAddress   String
+  signerUserAgent   String
+
+  // What was signed
+  signedResourceType  String    // "Attestation", "TestResult", "MaterialCertification"
+  signedResourceId    String
+  signaturePayload    String    // Hash of what was signed
+  signature           String    // The actual signature
+
+  // Timestamp
+  signedAt          DateTime  @default(now())
+
+  // Legal retention (NEVER auto-purge)
+  retentionYears    Int       @default(10)  // ESPR requires 10+ years
+  isPurgeable       Boolean   @default(false)  // System flag: false = never auto-delete
+
+  @@index([ephemeralDid])
+  @@index([signerEmail])
+  @@index([signedResourceType, signedResourceId])
+  @@index([magicLinkId])
+}
+```
+
+**Enforcement Rules:**
+
+1. **Mandatory Logging**: When a Transactional User performs ANY signing action, the system MUST create a TransactionalSignatureLog entry BEFORE the signature is issued
+2. **Non-Purgeable**: These records are exempt from data retention cleanup jobs (`isPurgeable: false`)
+3. **Identity Snapshot**: Email, IP, User-Agent captured at signing time (not just user ID reference)
+4. **Magic Link Association**: Links back to the specific session that granted access
+
+**Verification with Ephemeral DIDs:**
+
+```typescript
+async function verifyTransactionalSignature(
+  signature: string,
+  ephemeralDid: string,
+  signedAt: DateTime,
+  resourceId: string
+): Promise<TransactionalVerificationResult> {
+  // 1. Verify signature is cryptographically valid
+  const cryptoValid = await verifyJws(signature, ephemeralDid);
+  if (!cryptoValid) {
+    return { valid: false, reason: 'Invalid signature' };
+  }
+
+  // 2. Find the identity behind this ephemeral DID
+  const sigLog = await prisma.transactionalSignatureLog.findFirst({
+    where: {
+      ephemeralDid,
+      signedResourceId: resourceId,
+      signedAt: { gte: subMinutes(signedAt, 1), lte: addMinutes(signedAt, 1) }
+    },
+    include: { magicLink: true }
+  });
+
+  if (!sigLog) {
+    return {
+      valid: true,  // Signature is valid
+      identityKnown: false,  // But we don't know who
+      reason: 'No TransactionalSignatureLog found for this DID'
+    };
+  }
+
+  // 3. Return full audit trail
+  return {
+    valid: true,
+    identityKnown: true,
+    signer: {
+      email: sigLog.signerEmail,
+      name: sigLog.signerName,
+      company: sigLog.signerCompany,
+      ip: sigLog.signerIpAddress,
+      sessionId: sigLog.magicLinkId
+    },
+    signedAt: sigLog.signedAt
+  };
 }
 ```
 
@@ -1651,7 +1844,7 @@ When a CONTRIBUTOR submits a version for review, it needs to be routed to an app
 │  IN_REVIEW ───────────────────────────────────────────────────────────────  │
 │  │ • Claimed by specific approver                                           │
 │  │ • Other approvers see "Being reviewed by Sarah Chen"                     │
-│  │ • Claim expires after 24 hours if no action (returns to PENDING_REVIEW) │
+│  │ • Claim expires after configurable period (default: 24h, org-settable)  │
 │  │                                                                          │
 │  │  [Approve] [Reject] [Release Claim]                                      │
 │  │      │         │          │                                              │
@@ -1720,18 +1913,42 @@ async function claimForReview(
 }
 
 async function releaseClaimExpired(): Promise<void> {
-  // Cron job: Release claims older than 24 hours
-  await prisma.designVersion.updateMany({
-    where: {
-      status: 'IN_REVIEW',
-      claimedAt: { lt: subHours(new Date(), 24) }
-    },
-    data: {
-      status: 'PENDING_REVIEW',
-      claimedById: null,
-      claimedAt: null
-    }
+  // Cron job: Release stale claims based on organization settings
+  // Default: 24 hours, but configurable to handle weekends/complex reviews
+
+  const organizations = await prisma.organization.findMany({
+    select: { id: true, settings: true }
   });
+
+  for (const org of organizations) {
+    const claimExpiryHours = org.settings?.claimExpiryHours ?? 24;
+
+    await prisma.designVersion.updateMany({
+      where: {
+        product: { organizationId: org.id },
+        status: 'IN_REVIEW',
+        claimedAt: { lt: subHours(new Date(), claimExpiryHours) }
+      },
+      data: {
+        status: 'PENDING_REVIEW',
+        claimedById: null,
+        claimedAt: null
+      }
+    });
+
+    await prisma.marketingVersion.updateMany({
+      where: {
+        product: { organizationId: org.id },
+        status: 'IN_REVIEW',
+        claimedAt: { lt: subHours(new Date(), claimExpiryHours) }
+      },
+      data: {
+        status: 'PENDING_REVIEW',
+        claimedById: null,
+        claimedAt: null
+      }
+    });
+  }
 }
 ```
 
@@ -1772,8 +1989,30 @@ Approvers see pending versions in their inbox, filtered by the workspaces they h
 **Claim System Benefits:**
 - **Prevents bystander effect**: Someone must explicitly claim ownership
 - **Clear accountability**: One person responsible for each review
-- **Auto-release**: Stale claims released after 24 hours
+- **Auto-release**: Stale claims released after configurable period (see below)
 - **Visibility**: Everyone sees who is reviewing what
+
+**Configurable Claim Expiry (Weekend Trap Prevention):**
+
+Organizations can configure `claimExpiryHours` in their settings to handle:
+- Complex reviews requiring multiple days
+- Weekend/holiday coverage
+- Teams in different time zones
+
+| Setting | Default | Range | Use Case |
+|---------|---------|-------|----------|
+| `claimExpiryHours` | 24 | 4-168 | Hours before unclaimed review returns to queue |
+
+```typescript
+// Organization settings (in Organization.settings JSON)
+interface OrganizationSettings {
+  claimExpiryHours: number;           // Default: 24, max: 168 (7 days)
+  requireClaimJustification: boolean; // Require note when claiming for >48h
+  autoNotifyOnClaimExpiry: boolean;   // Email claimant before expiry
+}
+```
+
+**Example:** A legal compliance review claimed Friday 4 PM with 72-hour expiry won't auto-release until Monday 4 PM.
 
 **Note:**
 - Users only see approvals for workspaces where they have EDITOR or MANAGER authority
