@@ -2,7 +2,7 @@
 
 ## Overview
 
-EuroComply is designed to handle billions of QR code scans per day while maintaining low latency and predictable costs. This is achieved through a **dual-path architecture** that separates high-volume reads (QR scans) from low-volume writes (workspace operations that build the Golden Record in The Hub).
+EuroComply is designed to handle billions of QR code scans per day while maintaining low latency and predictable costs. This is achieved through a **dual-path architecture** that separates high-volume reads (QR scans) from low-volume writes (workspace operations that build workspace data in The Hub).
 
 **Key Insight:** DPP access must be free for all users (ESPR Article 31). This means infrastructure costs scale with adoption but revenue doesn't. We solve this by self-hosting the read path with Cloudflare (unlimited free bandwidth) + Hetzner (cheap EU bare metal), reducing costs by 99% compared to AWS CloudFront.
 
@@ -204,11 +204,11 @@ Origin serves: /var/www/dpp/gtin/05901234567890/index.html (browser)
 
 ## DPP Issuance Flow (Write Path)
 
-When a DPP is issued, the Compliance workspace reads the Golden Record from The Hub and generates static files that are pushed to Hetzner origins. The Golden Record contains the complete, authoritative product data aggregated from all workspace contributions:
+When a DPP is issued, the Compliance workspace reads workspace data from The Hub and generates static files that are pushed to Hetzner origins. The workspace data contains the complete, authoritative product data aggregated from all workspace contributions:
 
 ```typescript
 async function issueDPP(product: Product, vc: VerifiableCredential): Promise<Passport> {
-  // NOTE: 'product' contains the Golden Record data read from The Hub
+  // NOTE: 'product' contains the workspace data read from The Hub
 
   // 1. Sign the VC (existing flow)
   const signedVC = await wallet.sign(vc);
@@ -865,7 +865,7 @@ async function purgeCloudflareCache(gtin: string): Promise<void> {
 
 ## Write Path Architecture (AWS)
 
-The write path (workspace operations that populate The Hub) remains on AWS for reliability and managed services. All four workspaces—Design (PLM), Operations (ERP-lite), Marketing (PIM), and Compliance (DPP)—write product data to The Hub, building the Golden Record for each product:
+The write path (workspace operations that populate The Hub) remains on AWS for reliability and managed services. All four workspaces—Design (PLM), Operations (ERP-lite), Marketing (PIM), and Compliance (DPP)—write product data to The Hub, building workspace data for each product:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -903,7 +903,7 @@ The write path (workspace operations that populate The Hub) remains on AWS for r
 
 ## EPCIS Event Storage
 
-EPCIS events track supply chain activities (receiving, shipping, transformations) and are stored separately from the Golden Record product data. The Operations workspace generates these events automatically based on user actions.
+EPCIS events track supply chain activities (receiving, shipping, transformations) and are stored separately from the workspace product data. The Operations workspace generates these events automatically based on user actions.
 
 ### Storage Strategy (Year 1-2)
 
@@ -1069,7 +1069,7 @@ When the EU DPP Registry launches (expected July 2026), we'll integrate seamless
 
 ## Data Model: Passport Static Serving Fields
 
-The Passport model stores a snapshot of the Golden Record at the time of DPP issuance. The `data` field contains the CIRPASS-compliant data extracted from The Hub, while the `vcJwt` is the signed Verifiable Credential that makes this snapshot tamper-proof.
+The Passport model stores a snapshot of workspace data at the time of DPP issuance. The `data` field contains the CIRPASS-compliant data extracted from The Hub, while the `vcJwt` is the signed Verifiable Credential that makes this snapshot tamper-proof.
 
 ```prisma
 model Passport {
@@ -1178,7 +1178,7 @@ enum PassportStatus {
 │  ─────────────────────────────────────────────                  │
 │  Capacity: Thousands per day                                    │
 │  Architecture: ECS → PostgreSQL (The Hub) → Redis               │
-│  All workspaces write to Hub, building Golden Records          │
+│  All workspaces write to Hub, building workspace data          │
 │  Cost: ~$300/month                                              │
 │  Scalable to: 10,000+ concurrent users                         │
 │                                                                  │
@@ -1207,7 +1207,7 @@ enum PassportStatus {
 
 | Document | Description |
 |----------|-------------|
-| [GOLDEN_RECORD.md](./GOLDEN_RECORD.md) | Golden Record concept and how The Hub works |
+| [DPP_CONTENT_PLAN.md](./DPP_CONTENT_PLAN.md) | Workspace data model and how The Hub works |
 | [EPCIS_INTEGRATION.md](./EPCIS_INTEGRATION.md) | Full EPCIS event flows and repository setup |
 | [INFRASTRUCTURE.md](../INFRASTRUCTURE.md) | Full infrastructure guide (AWS + Hetzner) |
 | [EU_INTEGRATION.md](./EU_INTEGRATION.md) | EBSI and EU DPP Registry integration |
