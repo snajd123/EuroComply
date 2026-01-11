@@ -891,7 +891,7 @@ async function approveDppIssuance(productId: string, organization: Organization)
     await saveOrganizationIdentity(organization.id, did, privateKeyJwk);
   }
 
-  // 4. Build credential subject from Golden Record
+  // 4. Build credential subject from workspace data
   const credentialSubject = {
     id: `urn:gtin:${product.gtin}`,
     type: 'Product',
@@ -1099,7 +1099,7 @@ When verifying a DPP with attestations:
 │  → Works even if EuroComply shuts down                         │
 │                                                                  │
 │  THE VALUE WE PROVIDE                                           │
-│  → Easy product management (Golden Record model)               │
+│  → Easy product management (workspace-based data model)        │
 │  → AI-powered import from any format                           │
 │  → Managed hosting (while subscribed)                          │
 │  → Free retailer access layer                                  │
