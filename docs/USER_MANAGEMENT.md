@@ -545,8 +545,8 @@ Product TSH-001:
 ```
 
 - Checkout lock only affects users **in the same workspace**
-- Checkout expires after 24 hours of inactivity (configurable)
-- User can explicitly release the checkout
+- Checkout remains active until user explicitly checks in (releases the lock)
+- Admin can force-release a checkout if needed (e.g., user unavailable)
 
 ---
 
