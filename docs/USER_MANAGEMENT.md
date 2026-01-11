@@ -164,17 +164,19 @@ In addition to workspace access, users may have **Admin** privileges for organiz
 
 Admin access is a separate boolean flag, not a workspace. A user can be an EDITOR in Marketing with no Admin access, or a VIEWER in all workspaces with full Admin access.
 
-### Default Workspace Assignment
+### Default Access on User Creation
 
-During onboarding, users get access based on organization type:
+When an admin invites a new user, they explicitly configure:
+1. **Role template** (quick setup) - or -
+2. **Custom workspace access** (per-workspace authority)
 
-| Organization Type | Default Workspace | Default Authority |
-|-------------------|-------------------|-------------------|
-| **Brand** | Marketing | EDITOR |
-| **Manufacturer** | Design | EDITOR |
-| **Distributor** | Operations | EDITOR |
+There is no automatic workspace assignment. The admin decides what access each user needs based on their job function.
 
-The first user (founder) gets **all workspaces as MANAGER + Admin access**.
+**First user (founder):** Gets all workspaces as MANAGER + Admin access automatically.
+
+**All other users:** Admin selects access during invitation using:
+- Role templates (Marketing Manager, Compliance Officer, etc.)
+- Custom per-workspace configuration
 
 ### Workspace Access Examples
 

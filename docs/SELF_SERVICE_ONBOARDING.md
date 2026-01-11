@@ -12,20 +12,28 @@ The key differentiator from enterprise competitors (SAP, Siemens) is **self-serv
 
 ### Workspace-Based Onboarding
 
-EuroComply provides **four workspaces** tailored to different personas. During onboarding, users are guided to the workspace most relevant to their role:
+EuroComply provides **four workspaces**. During onboarding, the founder selects which workspace to start with (this is just UI guidance, not access control):
 
-| Organization Type | Default Workspace | Primary Modules | Typical First Action |
-|-------------------|-------------------|-----------------|---------------------|
-| **Brand** | Marketing | PIM, DAM-Media, Syndication | Import product catalog |
-| **Manufacturer** | Design | Registry, Materials, DAM-Tech | Set up materials/BOMs |
-| **Distributor** | Operations | Registry, EPCIS, Inventory | Set up suppliers, track inventory |
+| Starting Workspace | Primary Modules | Typical First Action |
+|-------------------|-----------------|---------------------|
+| **Marketing** | PIM, DAM-Media, Syndication | Import product catalog |
+| **Design** | Registry, Materials, DAM-Tech | Set up materials/BOMs |
+| **Operations** | Registry, EPCIS, Inventory | Set up suppliers, track inventory |
+| **Compliance** | DPP Issuance, Attestation | Review DPP readiness |
+
+**Note:** Organizations are often all three (brand + manufacturer + distributor). The starting workspace is just where you begin—all workspaces are available to the founder.
 
 **Key Architecture:**
 - **Design, Operations, Marketing** workspaces WRITE to The Hub, building the Golden Record
 - **Compliance** workspace READS the Golden Record from The Hub to issue DPPs
 - Each workspace contributes different data: technical DNA (Design), supply chain (Operations), commercial content (Marketing)
 
-The first user (founder) gets access to all workspaces as MANAGER. Additional users are granted workspace access based on their role. See [USER_MANAGEMENT.md](./USER_MANAGEMENT.md) for workspace access and role templates, and [GOLDEN_RECORD.md](./GOLDEN_RECORD.md) for how product data flows into The Hub.
+**Access Control:**
+- First user (founder) gets **all workspaces as MANAGER + Admin**
+- When inviting team members, the admin explicitly selects their workspace access
+- No automatic assignment—admin decides based on job function
+
+See [USER_MANAGEMENT.md](./USER_MANAGEMENT.md) for workspace access and role templates, and [GOLDEN_RECORD.md](./GOLDEN_RECORD.md) for how product data flows into The Hub.
 
 ---
 
