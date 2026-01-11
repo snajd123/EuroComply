@@ -21,10 +21,11 @@ EuroComply provides **four workspaces** tailored to different personas. During o
 | **Distributor** | Operations | Registry, EPCIS, Inventory | Set up suppliers, track inventory |
 
 **Key Architecture:**
-- **Registry** (Technical DNA) is primary for Design/Operations, read-only for Marketing
-- **PIM** (Commercial Enrichment) builds on Registry data for marketing content
+- **Design, Operations, Marketing** workspaces WRITE to The Hub, building the Golden Record
+- **Compliance** workspace READS the Golden Record from The Hub to issue DPPs
+- Each workspace contributes different data: technical DNA (Design), supply chain (Operations), commercial content (Marketing)
 
-All workspaces are available to all users - defaults simply guide the first experience.
+All workspaces are available to all users - defaults simply guide the first experience. See [GOLDEN_RECORD.md](./GOLDEN_RECORD.md) for details on how product data flows into The Hub.
 
 ---
 
@@ -115,7 +116,7 @@ All workspaces are available to all users - defaults simply guide the first expe
 │  │ • AI Import: Upload CSV, Excel, PDF, or JSON                   ││
 │  │ • Shopify Sync: Import existing products                       ││
 │  │ • Manual: Create products with templates                        ││
-│  │ • Golden Record created with commercial + compliance data      ││
+│  │ • Data flows to The Hub, building the Golden Record            ││
 │  │ • Completeness score shows progress toward DPP                  ││
 │  │ → Products appear in DPP Ready list at 100% completeness        ││
 │  └─────────────────────────────────────────────────────────────────┘│
@@ -472,10 +473,11 @@ function OnboardingProgress({ currentStep }: { currentStep: number }) {
 
 ## Related Documentation
 
+- [Golden Record](./GOLDEN_RECORD.md) - How The Hub builds authoritative product data
 - [Market Analysis](./MARKET_ANALYSIS.md) - Why self-service matters
 - [Business Model](./BUSINESS_MODEL.md) - Pricing tiers
 - [Implementation Plan](../IMPLEMENTATION_PLAN.md) - Technical architecture
 
 ---
 
-*Last Updated: 2026-01-08*
+*Last Updated: 2026-01-11*
