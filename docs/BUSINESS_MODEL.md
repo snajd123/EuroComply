@@ -797,55 +797,94 @@ Brands and manufacturers pay for DPP creation. Retailers access DPPs for free be
 │                    PLATFORM VALUE                                │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  PRODUCT REGISTRY (Technical DNA - Design Workspace)            │
-│  ├── Product structure and BOMs                                 │
-│  ├── SKU management and versioning                              │
-│  ├── Materials library with sustainability data                 │
-│  └── Technical specifications                                   │
+│  DESIGN WORKSPACE (PLM)                                         │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │  PRODUCT REGISTRY (Technical DNA)                           ││
+│  │  ├── Product structure and BOMs                             ││
+│  │  ├── SKU management and versioning                          ││
+│  │  └── Technical specifications                               ││
+│  │                                                              ││
+│  │  MATERIALS LIBRARY                                          ││
+│  │  ├── Material definitions with sustainability data          ││
+│  │  ├── Fiber compositions and percentages                     ││
+│  │  ├── Carbon footprint factors                               ││
+│  │  └── Recyclability and hazardous substance tracking         ││
+│  │                                                              ││
+│  │  DAM-TECH (Technical Documents)                             ││
+│  │  ├── Technical specs, CAD files, test reports               ││
+│  │  └── Revision control with approval workflow                ││
+│  └─────────────────────────────────────────────────────────────┘│
 │                                                                  │
-│  PIM (Commercial Enrichment - Marketing Workspace)              │
-│  ├── Product Families (attribute schemas)                       │
-│  ├── Dynamic attributes (JSONB flexibility)                     │
-│  ├── Variants (parent-child inheritance)                        │
-│  ├── Completeness scoring (per-channel)                         │
-│  └── Marketing content and translations                         │
+│  OPERATIONS WORKSPACE (ERP-lite)                                │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │  EPCIS INTEGRATION                                          ││
+│  │  ├── Read from enterprise EPCIS systems                     ││
+│  │  ├── Hosted OpenEPCIS for SMB suppliers                     ││
+│  │  ├── Lifecycle event visualization (manufactured → sold)    ││
+│  │  └── Supply chain traceability                              ││
+│  │                                                              ││
+│  │  INVENTORY & ORDERS (Planned)                               ││
+│  │  ├── Stock levels and locations                             ││
+│  │  ├── Purchase order tracking                                ││
+│  │  └── Supplier management                                    ││
+│  │                                                              ││
+│  │  ATTESTATION                                                ││
+│  │  ├── Invite suppliers to attest material data               ││
+│  │  └── Cryptographic proof of supplier claims                 ││
+│  └─────────────────────────────────────────────────────────────┘│
 │                                                                  │
-│  AI-POWERED IMPORT                                              │
-│  ├── Drop any file format (CSV, Excel, PDF, JSON)              │
-│  ├── AI extracts and maps data                                  │
-│  ├── Schema validation                                          │
-│  └── Bulk upsert                                                │
+│  MARKETING WORKSPACE (PIM)                                      │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │  PIM (Commercial Enrichment)                                ││
+│  │  ├── Product Families (attribute schemas)                   ││
+│  │  ├── Dynamic attributes (JSONB flexibility)                 ││
+│  │  ├── Variants (parent-child inheritance)                    ││
+│  │  ├── Completeness scoring (per-channel)                     ││
+│  │  └── Marketing content and translations                     ││
+│  │                                                              ││
+│  │  DAM-MEDIA (Marketing Assets)                               ││
+│  │  ├── Product images, lifestyle photos, videos               ││
+│  │  ├── S3 storage with CloudFront CDN                         ││
+│  │  └── On-the-fly image optimization (Lambda + Sharp)         ││
+│  │                                                              ││
+│  │  SYNDICATION                                                ││
+│  │  ├── Shopify product sync                                   ││
+│  │  ├── Rate-limited job queue (BullMQ)                        ││
+│  │  └── DPP metadata in metafields                             ││
+│  └─────────────────────────────────────────────────────────────┘│
 │                                                                  │
-│  DIGITAL ASSET MANAGEMENT                                       │
-│  ├── S3 storage with CloudFront CDN                            │
-│  ├── On-the-fly image optimization (Lambda + Sharp)            │
-│  └── Asset roles (gallery, thumbnail, certificate)              │
+│  COMPLIANCE WORKSPACE (DPP)                                     │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │  DPP ISSUANCE                                               ││
+│  │  ├── DPP Ready list when completeness = 100%                ││
+│  │  ├── Manual review and approval before issuance             ││
+│  │  ├── W3C Verifiable Credentials (walt.id)                   ││
+│  │  ├── did:key for portable identity                          ││
+│  │  ├── QR codes (GS1 Digital Link)                            ││
+│  │  └── Public verification                                    ││
+│  │                                                              ││
+│  │  MULTI-PARTY ATTESTATION                                    ││
+│  │  ├── Invite third parties to contribute data                ││
+│  │  ├── Cryptographically signed attestations                  ││
+│  │  ├── Linked to DPP as verifiable claims                     ││
+│  │  └── Expiry tracking and notifications                      ││
+│  └─────────────────────────────────────────────────────────────┘│
 │                                                                  │
-│  COMPLIANCE (DPP)                                               │
-│  ├── DPP Ready list when completeness = 100%                   │
-│  ├── Manual review and approval before issuance                │
-│  ├── W3C Verifiable Credentials (walt.id)                      │
-│  ├── did:key for portable identity                              │
-│  ├── QR codes (GS1 Digital Link)                               │
-│  └── Public verification                                        │
-│                                                                  │
-│  MULTI-PARTY ATTESTATION                                        │
-│  ├── Invite third parties to contribute data                   │
-│  ├── Cryptographically signed attestations                     │
-│  ├── Linked to DPP as verifiable claims                        │
-│  └── Expiry tracking and notifications                         │
-│                                                                  │
-│  E-COMMERCE SYNDICATION                                         │
-│  ├── Shopify product sync                                       │
-│  ├── Rate-limited job queue (BullMQ)                           │
-│  └── DPP metadata in metafields                                 │
-│                                                                  │
-│  ROLE-BASED ACCESS CONTROL                                      │
-│  ├── Four authority levels (Viewer → Manager)                  │
-│  ├── Scope-based permissions (Commercial, Compliance, Admin)   │
-│  ├── Git-style version control with approval workflow          │
-│  ├── Guest partner access with product filtering               │
-│  └── Cryptographic chain of custody (per-user DIDs)            │
+│  CROSS-CUTTING CAPABILITIES                                     │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │  AI-POWERED IMPORT                                          ││
+│  │  ├── Drop any file format (CSV, Excel, PDF, JSON)           ││
+│  │  ├── AI extracts and maps data                              ││
+│  │  ├── Schema validation                                      ││
+│  │  └── Bulk upsert                                            ││
+│  │                                                              ││
+│  │  ROLE-BASED ACCESS CONTROL                                  ││
+│  │  ├── Four authority levels (Viewer → Manager)               ││
+│  │  ├── Scope-based permissions (Commercial, Compliance, Admin)││
+│  │  ├── Git-style version control with approval workflow       ││
+│  │  ├── Guest partner access with product filtering            ││
+│  │  └── Cryptographic chain of custody (per-user DIDs)         ││
+│  └─────────────────────────────────────────────────────────────┘│
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -996,22 +1035,40 @@ Awareness → Trial → Conversion → Expansion
 
 | Tier | Examples | Price | Our Position |
 |------|----------|-------|--------------|
+| Enterprise PLM | Siemens Teamcenter, Dassault 3DExperience | €100k+/year | Not competing |
 | Enterprise PIM | Akeneo, Salsify, inRiver | €50k+/year | Not competing |
+| Enterprise ERP | SAP, Oracle | €200k+/year | Not competing |
+| Mid-Market PLM | Arena, Propel | €30k+/year | Adjacent |
 | Mid-Market PIM | Plytix, Sales Layer | €10k+/year | Adjacent |
-| **SME PIM + DPP** | EuroComply | €1,548-4,788/year | **Leader** |
+| **SME Unified (PLM + ERP + PIM + DPP)** | EuroComply | €1,548-4,788/year | **Leader** |
 | DPP-Only Tools | Various | €500-2k/year | Partial overlap |
 
 ### Differentiation
 
-| Capability | Traditional PIM | DPP-Only Tools | EuroComply |
-|------------|-----------------|----------------|------------|
-| Product management | Full | None | Full |
-| DPP compliance | Addon | Basic | Native |
-| Verifiable credentials | None | None | W3C VCs |
-| Multi-party attestation | None | None | Native |
-| AI import | None | None | Any format |
-| E-commerce sync | Limited | None | Native |
-| SME pricing | Too expensive | Affordable | Affordable |
+| Capability | Enterprise Suites | Mid-Market Tools | DPP-Only Tools | EuroComply |
+|------------|-------------------|------------------|----------------|------------|
+| **Design (PLM)** | Full CAD integration | BOMs, materials | None | Registry, Materials, BOMs |
+| **Operations (ERP)** | Full ERP | Basic inventory | None | EPCIS, Inventory-lite |
+| **Marketing (PIM)** | Full PIM | Full PIM | None | Families, Variants, DAM |
+| **Compliance (DPP)** | Addon (€10k+) | Addon | Basic | Native, integrated |
+| Verifiable credentials | None | None | None | W3C VCs, did:key |
+| Multi-party attestation | None | None | None | Native |
+| AI import | Limited | Limited | None | Any format |
+| E-commerce sync | Complex | Limited | None | Native Shopify |
+| SME pricing | Unaffordable | Too expensive | Affordable | €129-399/mo |
+| Setup time | Months | Weeks | Days | Same day |
+
+### The EuroComply Advantage
+
+**One platform replaces four tools:**
+
+| Traditional Approach | EuroComply Equivalent |
+|---------------------|----------------------|
+| Entry-level PLM (€500-2k/mo) | Design Workspace (Registry, Materials) |
+| Basic ERP/Inventory (€200-1k/mo) | Operations Workspace (EPCIS, Inventory) |
+| Entry-level PIM (€300-1.5k/mo) | Marketing Workspace (PIM, DAM, Syndication) |
+| Compliance consultants (€5-20k one-time) | Compliance Workspace (DPP, Attestation) |
+| **Total: €1,000-4,500+/mo** | **EuroComply: €129-399/mo** |
 
 ---
 
@@ -1153,9 +1210,9 @@ Simplified tier structure accelerates sales cycles and improves conversion rates
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
 │  POSITIONING                                                    │
-│  Compliance-First Product Information Management platform       │
-│  combining product data management with Digital Product         │
-│  Passports in a unified "Golden Record" architecture.           │
+│  Unified Product Lifecycle & Compliance platform combining      │
+│  PLM, ERP-lite, PIM, and DPP in one affordable solution.       │
+│  One platform, four workspaces, shared Golden Record.          │
 │                                                                  │
 │  TARGET MARKET                                                  │
 │  SMEs and mid-market organizations (brands, manufacturers,      │
@@ -1169,19 +1226,25 @@ Simplified tier structure accelerates sales cycles and improves conversion rates
 │  • Enterprise: Custom pricing (unlimited, SLA, SSO)            │
 │  • Volume overages: €10 per 100 additional SKUs                │
 │                                                                  │
-│  PLATFORM CAPABILITIES                                          │
-│  • Product Information Management (families, variants)          │
-│  • Digital Product Passport generation (W3C VCs)               │
+│  FOUR WORKSPACES (ALL INCLUDED)                                │
+│  • Design (PLM): Registry, Materials, DAM-Tech, BOMs           │
+│  • Operations (ERP-lite): EPCIS, Inventory, Suppliers          │
+│  • Marketing (PIM): Product content, DAM-Media, Syndication    │
+│  • Compliance (DPP): DPP issuance, Attestation, VCs            │
+│                                                                  │
+│  CROSS-CUTTING CAPABILITIES                                     │
+│  • AI-powered data import (any file format)                    │
+│  • W3C Verifiable Credentials (walt.id, did:key)               │
 │  • Multi-party attestation with cryptographic signatures       │
-│  • AI-powered data import                                       │
 │  • E-commerce syndication (Shopify)                            │
 │  • API access and webhooks                                      │
 │                                                                  │
 │  COMPETITIVE DIFFERENTIATION                                    │
+│  • Four tools in one (PLM + ERP + PIM + DPP)                   │
 │  • Native DPP compliance (not an add-on)                       │
-│  • Volume-based pricing with full feature access               │
 │  • Portable credentials (did:key, no vendor lock-in)           │
-│  • SME-accessible price point                                  │
+│  • SME-accessible price point (98% cheaper than alternatives)  │
+│  • Same-day setup (no implementation project)                  │
 │                                                                  │
 │  UNIT ECONOMICS                                                 │
 │  • Gross margin: 93-97%                                        │
