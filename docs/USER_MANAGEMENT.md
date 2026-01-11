@@ -247,84 +247,304 @@ Templates can be customized after selection. Organizations can also create custo
 
 ## 4. Version Control Workflow
 
-Product editing follows a git-style version control model:
+Version control varies by workspace type. Design and Marketing maintain formal versions, while Operations creates immutable transaction records.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                       VERSION CONTROL WORKFLOW                               │
+│                    WORKSPACE-BASED VERSION CONTROL                           │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │  Product: Organic Cotton T-Shirt (TSH-001)                                  │
 │                                                                              │
-│  v3 (LIVE) ◄── Current published version                                    │
-│  │  Approved: 2026-01-10 by Sarah Chen (EDITOR)                             │
-│  │  Signed: did:key:z6MkSarah...                                            │
-│  │  Changes: Updated fiber composition, added GOTS cert                     │
-│  │                                                                           │
-│  v2                                                                          │
-│  │  Approved: 2026-01-05 by John Smith (MANAGER)                            │
-│  │  Signed: did:key:z6MkJohn...                                             │
-│  │  Changes: Price update, new images                                       │
-│  │                                                                           │
-│  v1                                                                          │
-│     Created: 2026-01-01 by Admin                                            │
-│     Signed: did:key:z6MkAdmin...                                            │
-│     Initial product creation                                                │
+│  DESIGN WORKSPACE (Versioned)                                               │
+│  ═══════════════════════════════════════════════════════════════════════    │
+│  v3 (RELEASED) ◄── Current version for new batches/orders                  │
+│  │  Released: Jan 15 by Engineer A (EDITOR)                                 │
+│  │  Materials: 95% organic cotton, 5% elastane                              │
+│  │  Signed: did:key:z6MkEngineerA...                                        │
+│  │                                                                          │
+│  v2 (ACTIVE) ◄── Referenced by Batch #12345, #12346                        │
+│  │  Released: Jan 5 by Engineer B                                           │
+│  │  Materials: 90% organic cotton, 10% elastane                             │
+│  │  ⚠️ Cannot archive until active batches complete                         │
+│  │                                                                          │
+│  v1 (ARCHIVED)                                                              │
+│     Released: Jan 1 by Admin                                                │
+│     No active references                                                    │
 │                                                                              │
-│  ┌─────────────────────────────────────────────────────────────────────────┐│
-│  │ DRAFT (v4-draft) ◄── Working copy                                       ││
-│  │ Checked out by: Maria Garcia (CONTRIBUTOR)                              ││
-│  │ Since: 2026-01-10 14:30                                                 ││
-│  │ Changes: 3 fields modified                                              ││
-│  │ Status: PENDING_REVIEW                                                  ││
-│  │ [View Diff] [Approve] [Reject]                                          ││
-│  └─────────────────────────────────────────────────────────────────────────┘│
+│  MARKETING WORKSPACE (Versioned - Independent)                              │
+│  ═══════════════════════════════════════════════════════════════════════    │
+│  v4 (RELEASED) ◄── Current published content                               │
+│  │  Released: Jan 16 by Content Lead (EDITOR)                               │
+│  │  Description: "Made with 95% organic cotton..."                          │
+│  │  Signed: did:key:z6MkContentLead...                                      │
+│  │                                                                          │
+│  v3 (SUPERSEDED)                                                            │
+│     Released: Jan 6                                                         │
+│     Description: "Made with 90% organic cotton..."                          │
+│                                                                              │
+│  OPERATIONS WORKSPACE (Immutable Records)                                   │
+│  ═══════════════════════════════════════════════════════════════════════    │
+│  Batch #12345 (LOCKED)                                                      │
+│  │  Created: Jan 10 │ Design Reference: v2 (locked at creation)            │
+│  │  Quantity: 5000 │ Status: IN_PRODUCTION                                  │
+│  │                                                                          │
+│  Batch #12350 (LOCKED)                                                      │
+│     Created: Jan 16 │ Design Reference: v3 (locked at creation)            │
+│     Quantity: 3000 │ Status: PLANNED                                        │
+│                                                                              │
+│  COMPLIANCE WORKSPACE (Immutable Snapshots)                                 │
+│  ═══════════════════════════════════════════════════════════════════════    │
+│  DPP v2 (ACTIVE)                                                            │
+│  │  Issued: Jan 16 │ Snapshot: Design v3 + Marketing v4 + Ops state        │
+│  │  Signed: did:key:z6MkOrg... │ Hash: 0x7f3a...                           │
+│  │                                                                          │
+│  DPP v1 (SUPERSEDED)                                                        │
+│     Issued: Jan 6 │ Snapshot: Design v2 + Marketing v3 + Ops state         │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Version States
+### Versioning by Workspace
+
+| Workspace | Versioning Model | Key Characteristics |
+|-----------|------------------|---------------------|
+| **Design** | Formal versions (v1, v2, v3) | BOMs, specs locked when referenced by Operations |
+| **Marketing** | Formal versions (v1, v2, v3) | Independent of Design; can view Design data while editing |
+| **Operations** | Immutable records | Batches/orders lock Design version at creation |
+| **Compliance** | Immutable snapshots | DPPs capture state from all workspaces at issuance |
+
+### Design & Marketing Version States
 
 | State | Description |
 |-------|-------------|
-| DRAFT | Being edited by a user |
+| DRAFT | Being edited, not yet released |
 | PENDING_REVIEW | Submitted by CONTRIBUTOR, awaiting approval |
-| APPROVED | Live version (current) |
-| REJECTED | Reviewer rejected, author can revise |
-| SUPERSEDED | Was live, replaced by newer version |
+| RELEASED | Current version, ready for use |
+| ACTIVE | Has live references (batches, DPPs) - cannot modify |
+| ARCHIVED | No active references, historical only |
 
-### Workflow by Authority
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    VERSION STATE LIFECYCLE                                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  DRAFT ──────→ PENDING_REVIEW ──────→ RELEASED ──────→ ARCHIVED            │
+│    │                │                     │               │                 │
+│    │           (CONTRIBUTOR               │               │                 │
+│    │            workflow)                 │               │                 │
+│    │                                      │               │                 │
+│    ▼                ▼                     ▼               ▼                 │
+│  Being          Awaiting              Current         Historical           │
+│  edited         approval              version         only                  │
+│                                          │                                  │
+│                                          ▼                                  │
+│                                       ACTIVE                                │
+│                                    (if referenced                           │
+│                                     by Operations                           │
+│                                     or Compliance)                          │
+│                                                                              │
+│  Rules:                                                                     │
+│  • DRAFT → Can edit freely                                                  │
+│  • RELEASED → New version created if edits needed                          │
+│  • ACTIVE → CANNOT modify or archive until references cleared              │
+│  • ARCHIVED → Read-only, no new references allowed                         │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Design Workflow (Versioned)
 
 **EDITOR / MANAGER (Sign-on-Save):**
 ```
-1. User clicks "Edit Product"
-2. System creates DRAFT version (copy of current)
-3. User makes multiple changes to draft
-4. User clicks "Publish"
-5. System auto-signs with user's DID
-6. Version incremented, becomes LIVE
+1. User clicks "Edit" in Design workspace
+2. System creates DRAFT (copy of current RELEASED)
+3. User edits BOM, materials, specs
+4. User clicks "Release"
+5. System signs with user's DID
+6. New version becomes RELEASED
+7. Previous RELEASED → ARCHIVED (or ACTIVE if referenced)
 ```
 
 **CONTRIBUTOR (Sign-on-Approval):**
 ```
-1. User clicks "Edit Product"
-2. System creates DRAFT version
+1. User clicks "Edit" in Design workspace
+2. System creates DRAFT
 3. User makes changes
 4. User clicks "Submit for Review"
 5. Status → PENDING_REVIEW
-6. Routed to approver (EDITOR/MANAGER with matching scope)
+6. Routed to Design EDITOR/MANAGER
 7. Approver reviews diff
-8. Approver approves → Signs with their DID → Version becomes LIVE
-   OR
-   Approver rejects → Author notified, can revise
+8. Approve → Signs, becomes RELEASED
+   OR Reject → Author notified, can revise
 ```
 
-### Checkout Locking
+### Marketing Workflow (Versioned, Independent)
 
-When a user checks out a product for editing:
+Marketing follows the same workflow as Design, with one key feature:
 
-- Product shows "Being edited by [User]" indicator
-- Other users can view but not edit (prevents conflicts)
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  MARKETING EDITOR - Creating v5                                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Product Description:                                                       │
+│  ┌─────────────────────────────────────────────────────────────────────────┐│
+│  │ Made with 95% organic cotton from GOTS-certified suppliers. Our         ││
+│  │ lightweight 180gsm fabric provides all-day comfort...                   ││
+│  └─────────────────────────────────────────────────────────────────────────┘│
+│                                                                              │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│  📋 Design Data (read-only reference)                   [Version: v3 ▼]    │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│  │ Fiber Composition: 95% organic cotton, 5% elastane                      │
+│  │ Weight: 180 gsm                                                         │
+│  │ Certifications: GOTS (CU-123456), OEKO-TEX Standard 100                │
+│  │ Care Instructions: Machine wash cold, tumble dry low                    │
+│  │                                                          [Copy Field]   │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│                                                                              │
+│  Marketing can VIEW any Design version while editing.                       │
+│  Marketing versions are independent - no stored reference to Design.        │
+│                                                                              │
+│                                                   [Save Draft] [Release]    │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Operations Workflow (Immutable Records)
+
+Operations creates **immutable transaction records** that lock Design version references:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  CREATE NEW BATCH                                                           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Product: Organic Cotton T-Shirt (TSH-001)                                  │
+│                                                                              │
+│  Design Version: [v3 (Current) ▼]  ← Select which version to produce       │
+│                                                                              │
+│  ⚠️ Once created, the Design reference cannot be changed.                   │
+│                                                                              │
+│  Batch Details:                                                             │
+│  ├── Quantity: [5000        ]                                               │
+│  ├── Production Line: [Line A ▼]                                            │
+│  └── Planned Start: [2026-01-20]                                            │
+│                                                                              │
+│  Material Lots (from Design v3 BOM):                                        │
+│  ├── Organic Cotton: [cotton_lot_801 ▼]                                     │
+│  └── Elastane: [elastane_lot_460 ▼]                                         │
+│                                                                              │
+│                                                [Cancel] [Create Batch]      │
+│                                                                              │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│  After creation, this batch record is LOCKED:                               │
+│  • Design reference: v3 (immutable)                                         │
+│  • Material lots: locked                                                    │
+│  • Only status changes allowed (PLANNED → IN_PRODUCTION → COMPLETED)       │
+│  • Corrections create new records, not edits                                │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Immutable Record Types in Operations:**
+
+| Record Type | Locked At | Can Change |
+|-------------|-----------|------------|
+| Batch | Creation | Status only (PLANNED → IN_PRODUCTION → COMPLETED) |
+| Material Order | Creation | Status only (ORDERED → SHIPPED → RECEIVED) |
+| EPCIS Event | Creation | Nothing (append-only by standard) |
+| Quality Check | Creation | Nothing (results are final) |
+
+**Corrections (Not Edits):**
+```
+Original: Batch #12345, Quantity: 5000
+Problem: 2 units damaged in QC
+
+❌ WRONG: Edit quantity to 4998
+✅ RIGHT: Create correction record
+
+BatchCorrection {
+  batchId: "batch_12345"
+  field: "effectiveQuantity"
+  originalValue: 5000
+  correctedValue: 4998
+  reason: "2 units failed final QC"
+  evidence: "qc_report_12345.pdf"
+  correctedBy: did:key:z6MkOpsLead...
+  timestamp: 2026-01-10T16:00:00Z
+}
+```
+
+### Compliance Workflow (DPP Snapshots)
+
+Compliance creates **immutable DPP snapshots** that capture the Golden Record state:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  ISSUE DPP                                                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Product: Organic Cotton T-Shirt (TSH-001)                                  │
+│  Completeness: 100% ✓                                                       │
+│                                                                              │
+│  This DPP will snapshot:                                                    │
+│  ├── Design: v3 (RELEASED Jan 15)                                           │
+│  ├── Marketing: v4 (RELEASED Jan 16)                                        │
+│  └── Operations: Current state (suppliers, latest batch info)              │
+│                                                                              │
+│  Previous DPP: v1 (issued Jan 6, based on Design v2 + Marketing v3)        │
+│                                                                              │
+│  Changes since last DPP:                                                    │
+│  • Design: v2 → v3 (fiber composition updated)                              │
+│  • Marketing: v3 → v4 (description updated)                                 │
+│                                                                              │
+│                                                         [Cancel] [Issue]    │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Cross-Workspace Notifications
+
+When upstream workspaces update, downstream workspaces are notified:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    CROSS-WORKSPACE NOTIFICATIONS                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  When DESIGN releases v4:                                                   │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│                                                                              │
+│  → MARKETING sees:                                                          │
+│    "ℹ️ Design updated to v4 for TSH-001"                                    │
+│    "Materials changed: 95% → 97% organic cotton"                            │
+│    [View Changes]                                                           │
+│                                                                              │
+│  → OPERATIONS sees:                                                         │
+│    "ℹ️ New Design v4 available for TSH-001"                                 │
+│    "Your active batches (#12345, #12346) remain on v2"                      │
+│    [Use v4 for Next Batch]                                                  │
+│                                                                              │
+│  → COMPLIANCE sees:                                                         │
+│    "⚠️ Design v4 released for TSH-001"                                      │
+│    "Current DPP based on Design v3 - review for re-issuance"                │
+│    [Review Changes] [Re-issue DPP]                                          │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Workspace Checkout Locking
+
+Checkout locks are **per-workspace** - workspaces don't block each other:
+
+```
+Product TSH-001:
+├── Design: Being edited by Engineer A     → Other Design users blocked
+├── Marketing: Available                   → Marketing can edit freely
+├── Operations: N/A (no checkout needed)   → Create records anytime
+└── Compliance: N/A (no checkout needed)   → Issue DPP anytime
+```
+
+- Checkout lock only affects users **in the same workspace**
 - Checkout expires after 24 hours of inactivity (configurable)
 - User can explicitly release the checkout
 
@@ -398,10 +618,22 @@ model User {
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
 
-  // Relations
-  versionsCreated     ProductVersion[]  @relation("VersionCreator")
-  versionsReviewed    ProductVersion[]  @relation("VersionReviewer")
-  magicLinks          MagicLink[]
+  // Relations - Workspace Versions
+  designVersionsCreated     DesignVersion[]     @relation("DesignVersionCreator")
+  designVersionsReviewed    DesignVersion[]     @relation("DesignVersionReviewer")
+  marketingVersionsCreated  MarketingVersion[]  @relation("MarketingVersionCreator")
+  marketingVersionsReviewed MarketingVersion[]  @relation("MarketingVersionReviewer")
+
+  // Relations - Operations Records
+  batchesCreated            BatchRecord[]       @relation("BatchCreator")
+  correctionsCreated        BatchCorrection[]   @relation("CorrectionCreator")
+  ordersCreated             MaterialOrder[]     @relation("OrderCreator")
+
+  // Relations - Compliance
+  dppsIssued                DPPSnapshot[]       @relation("DPPIssuer")
+
+  // Other relations
+  magicLinks                MagicLink[]
 
   @@unique([email, organizationId])
   @@index([organizationId])
@@ -450,18 +682,26 @@ model RoleTemplate {
 }
 ```
 
-### ProductVersion Model
+### Workspace Version Models
+
+Version control is per-workspace. Design and Marketing have formal versions, Operations has immutable records, and Compliance has DPP snapshots.
 
 ```prisma
+// Shared version status for Design and Marketing
 enum VersionStatus {
-  DRAFT
-  PENDING_REVIEW
-  APPROVED
-  REJECTED
-  SUPERSEDED
+  DRAFT           // Being edited
+  PENDING_REVIEW  // Awaiting approval (CONTRIBUTOR workflow)
+  RELEASED        // Current version, ready for use
+  ACTIVE          // Has live references (batches, DPPs) - cannot modify
+  ARCHIVED        // No active references, historical only
+  REJECTED        // Reviewer rejected, author can revise
 }
 
-model ProductVersion {
+// ═══════════════════════════════════════════════════════════════════════════
+// DESIGN WORKSPACE - Formal Versioning
+// ═══════════════════════════════════════════════════════════════════════════
+
+model DesignVersion {
   id              String        @id @default(cuid())
   productId       String
   product         Product       @relation(fields: [productId], references: [id])
@@ -469,34 +709,266 @@ model ProductVersion {
   version         Int           // 1, 2, 3...
   status          VersionStatus @default(DRAFT)
 
-  // Snapshot of ALL product data at this version
-  commercialData  Json          // { name, price, description, images... }
-  complianceData  Json          // { materials, certifications, carbonFootprint... }
+  // Design data snapshot
+  designData      Json          // { materials, BOM, technicalSpecs, fiberComposition... }
 
-  // Diff from previous version (for easy review)
-  changesSummary  String[]      // ["price: €49 → €59", "added GOTS certification"]
-  dataDiff        Json?         // Detailed JSON diff
+  // Diff from previous version
+  changesSummary  String[]      // ["fiberComposition: 90% → 95% cotton"]
+  dataDiff        Json?
 
   // Authorship
   createdById     String
-  createdBy       User          @relation("VersionCreator", fields: [createdById], references: [id])
+  createdBy       User          @relation("DesignVersionCreator", fields: [createdById], references: [id])
   createdAt       DateTime      @default(now())
 
-  // Review (for CONTRIBUTOR workflow)
+  // Review (CONTRIBUTOR workflow)
   reviewedById    String?
-  reviewedBy      User?         @relation("VersionReviewer", fields: [reviewedById], references: [id])
+  reviewedBy      User?         @relation("DesignVersionReviewer", fields: [reviewedById], references: [id])
   reviewedAt      DateTime?
   reviewNotes     String?
 
-  // Cryptographic signature (upon approval/publish)
-  signedById      String?       // User who signed
-  signerDid       String?       // Their DID at time of signing
-  signature       String?       // JWS of the version snapshot
+  // Cryptographic signature
+  signedById      String?
+  signerDid       String?
+  signature       String?
   signedAt        DateTime?
+
+  // References (when ACTIVE, these prevent archiving)
+  referencingBatches    BatchRecord[]     @relation("BatchDesignVersion")
+  referencingDPPs       DPPSnapshot[]     @relation("DPPDesignVersion")
 
   @@unique([productId, version])
   @@index([productId, status])
   @@index([createdById])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MARKETING WORKSPACE - Formal Versioning (Independent)
+// ═══════════════════════════════════════════════════════════════════════════
+
+model MarketingVersion {
+  id              String        @id @default(cuid())
+  productId       String
+  product         Product       @relation(fields: [productId], references: [id])
+
+  version         Int           // 1, 2, 3...
+  status          VersionStatus @default(DRAFT)
+
+  // Marketing data snapshot
+  marketingData   Json          // { name, description, images, price, categories... }
+
+  // Diff from previous version
+  changesSummary  String[]      // ["price: €49 → €59", "updated description"]
+  dataDiff        Json?
+
+  // Authorship
+  createdById     String
+  createdBy       User          @relation("MarketingVersionCreator", fields: [createdById], references: [id])
+  createdAt       DateTime      @default(now())
+
+  // Review (CONTRIBUTOR workflow)
+  reviewedById    String?
+  reviewedBy      User?         @relation("MarketingVersionReviewer", fields: [reviewedById], references: [id])
+  reviewedAt      DateTime?
+  reviewNotes     String?
+
+  // Cryptographic signature
+  signedById      String?
+  signerDid       String?
+  signature       String?
+  signedAt        DateTime?
+
+  // References (when ACTIVE, these prevent archiving)
+  referencingDPPs       DPPSnapshot[]     @relation("DPPMarketingVersion")
+
+  @@unique([productId, version])
+  @@index([productId, status])
+  @@index([createdById])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// OPERATIONS WORKSPACE - Immutable Records
+// ═══════════════════════════════════════════════════════════════════════════
+
+enum BatchStatus {
+  PLANNED
+  IN_PRODUCTION
+  COMPLETED
+  CANCELLED
+}
+
+model BatchRecord {
+  id              String        @id @default(cuid())
+  batchNumber     String        @unique
+  productId       String
+  product         Product       @relation(fields: [productId], references: [id])
+  organizationId  String
+
+  // Locked Design reference (immutable after creation)
+  designVersionId String
+  designVersion   DesignVersion @relation("BatchDesignVersion", fields: [designVersionId], references: [id])
+
+  // Batch details (immutable after creation)
+  quantity        Int
+  materialLots    Json          // [{ materialId, lotNumber, quantity }]
+  productionLine  String?
+  plannedStart    DateTime?
+
+  // Status (only field that can change)
+  status          BatchStatus   @default(PLANNED)
+  statusHistory   Json          // [{ status, timestamp, changedBy }]
+
+  // Authorship
+  createdById     String
+  createdBy       User          @relation("BatchCreator", fields: [createdById], references: [id])
+  createdAt       DateTime      @default(now())
+
+  // Cryptographic signature at creation
+  signerDid       String?
+  signature       String?
+
+  // Linked records
+  corrections     BatchCorrection[]
+  epcisEvents     EPCISEvent[]
+
+  @@index([productId])
+  @@index([organizationId])
+  @@index([status])
+}
+
+model BatchCorrection {
+  id              String        @id @default(cuid())
+  batchId         String
+  batch           BatchRecord   @relation(fields: [batchId], references: [id])
+
+  field           String        // "effectiveQuantity", "status", etc.
+  originalValue   Json
+  correctedValue  Json
+  reason          String
+  evidence        String?       // File reference
+
+  correctedById   String
+  correctedBy     User          @relation("CorrectionCreator", fields: [correctedById], references: [id])
+  correctedAt     DateTime      @default(now())
+
+  signerDid       String?
+  signature       String?
+
+  @@index([batchId])
+}
+
+enum MaterialOrderStatus {
+  ORDERED
+  SHIPPED
+  RECEIVED
+  CANCELLED
+}
+
+model MaterialOrder {
+  id              String              @id @default(cuid())
+  orderNumber     String              @unique
+  productId       String?             // Optional: may be for general stock
+  product         Product?            @relation(fields: [productId], references: [id])
+  organizationId  String
+
+  // Locked Design reference (if for specific product)
+  designVersionId String?
+
+  // Order details (immutable after creation)
+  items           Json                // [{ materialId, quantity, unit, supplierId }]
+  supplierId      String
+  orderedAt       DateTime            @default(now())
+
+  // Status (only field that can change)
+  status          MaterialOrderStatus @default(ORDERED)
+  statusHistory   Json                // [{ status, timestamp, changedBy }]
+
+  createdById     String
+  createdBy       User                @relation("OrderCreator", fields: [createdById], references: [id])
+  createdAt       DateTime            @default(now())
+
+  signerDid       String?
+  signature       String?
+
+  @@index([productId])
+  @@index([organizationId])
+  @@index([supplierId])
+}
+
+// EPCIS events are fully immutable (GS1 standard)
+model EPCISEvent {
+  id              String        @id @default(cuid())
+  eventId         String        @unique  // GS1 eventID
+  eventType       String        // ObjectEvent, AggregationEvent, TransactionEvent, etc.
+  eventTime       DateTime
+  eventTimeZone   String
+
+  batchId         String?
+  batch           BatchRecord?  @relation(fields: [batchId], references: [id])
+  productId       String?
+  organizationId  String
+
+  // Full EPCIS event data (immutable)
+  eventData       Json
+
+  // Capture info
+  capturedAt      DateTime      @default(now())
+  capturedById    String?
+
+  @@index([batchId])
+  @@index([productId])
+  @@index([eventType])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// COMPLIANCE WORKSPACE - Immutable DPP Snapshots
+// ═══════════════════════════════════════════════════════════════════════════
+
+enum DPPStatus {
+  ACTIVE
+  SUPERSEDED
+  REVOKED
+}
+
+model DPPSnapshot {
+  id              String        @id @default(cuid())
+  productId       String
+  product         Product       @relation(fields: [productId], references: [id])
+  organizationId  String
+
+  version         Int           // 1, 2, 3...
+  status          DPPStatus     @default(ACTIVE)
+
+  // Version references at time of issuance (immutable)
+  designVersionId   String
+  designVersion     DesignVersion   @relation("DPPDesignVersion", fields: [designVersionId], references: [id])
+  marketingVersionId String
+  marketingVersion  MarketingVersion @relation("DPPMarketingVersion", fields: [marketingVersionId], references: [id])
+
+  // Full snapshot of Golden Record at issuance
+  snapshotData    Json          // Complete product data at issuance
+  snapshotHash    String        // Hash of snapshotData for integrity
+
+  // The actual DPP credential
+  credentialId    String?       // Reference to issued VC
+  credentialData  Json?         // The Verifiable Credential
+
+  // Issuance
+  issuedById      String
+  issuedBy        User          @relation("DPPIssuer", fields: [issuedById], references: [id])
+  issuedAt        DateTime      @default(now())
+
+  // Organization signature
+  signerDid       String        // Organization DID
+  signature       String        // JWS of the DPP
+
+  // Superseded info
+  supersededById  String?       // DPPSnapshot that replaced this one
+  supersededAt    DateTime?
+
+  @@unique([productId, version])
+  @@index([productId, status])
+  @@index([organizationId])
 }
 ```
 
@@ -506,18 +978,46 @@ model ProductVersion {
 model Product {
   // ... existing fields ...
 
-  // Version control
-  currentVersionId    String?           // Points to APPROVED version (LIVE)
-  currentVersion      ProductVersion?   @relation("CurrentVersion", fields: [currentVersionId], references: [id])
-  draftVersionId      String?           // Points to DRAFT version (if checked out)
-  draftVersion        ProductVersion?   @relation("DraftVersion", fields: [draftVersionId], references: [id])
+  // ═══════════════════════════════════════════════════════════════════════
+  // DESIGN VERSION CONTROL
+  // ═══════════════════════════════════════════════════════════════════════
+  currentDesignVersionId  String?
+  currentDesignVersion    DesignVersion?    @relation("CurrentDesignVersion", fields: [currentDesignVersionId], references: [id])
+  draftDesignVersionId    String?
+  draftDesignVersion      DesignVersion?    @relation("DraftDesignVersion", fields: [draftDesignVersionId], references: [id])
+  designVersions          DesignVersion[]
 
-  // Checkout lock
-  checkedOutById      String?           // User who has the draft
-  checkedOutBy        User?             @relation("CheckedOut", fields: [checkedOutById], references: [id])
-  checkedOutAt        DateTime?
+  // Design checkout lock
+  designCheckedOutById    String?
+  designCheckedOutBy      User?             @relation("DesignCheckout", fields: [designCheckedOutById], references: [id])
+  designCheckedOutAt      DateTime?
 
-  versions            ProductVersion[]
+  // ═══════════════════════════════════════════════════════════════════════
+  // MARKETING VERSION CONTROL
+  // ═══════════════════════════════════════════════════════════════════════
+  currentMarketingVersionId  String?
+  currentMarketingVersion    MarketingVersion? @relation("CurrentMarketingVersion", fields: [currentMarketingVersionId], references: [id])
+  draftMarketingVersionId    String?
+  draftMarketingVersion      MarketingVersion? @relation("DraftMarketingVersion", fields: [draftMarketingVersionId], references: [id])
+  marketingVersions          MarketingVersion[]
+
+  // Marketing checkout lock
+  marketingCheckedOutById    String?
+  marketingCheckedOutBy      User?             @relation("MarketingCheckout", fields: [marketingCheckedOutById], references: [id])
+  marketingCheckedOutAt      DateTime?
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // OPERATIONS (Immutable Records - no checkout needed)
+  // ═══════════════════════════════════════════════════════════════════════
+  batches         BatchRecord[]
+  materialOrders  MaterialOrder[]
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // COMPLIANCE (DPP Snapshots)
+  // ═══════════════════════════════════════════════════════════════════════
+  dppSnapshots    DPPSnapshot[]
+  currentDPPId    String?
+  currentDPP      DPPSnapshot?      @relation("CurrentDPP", fields: [currentDPPId], references: [id])
 }
 ```
 
@@ -998,35 +1498,31 @@ Approvers see pending versions in their inbox, filtered by the workspaces they h
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  APPROVAL INBOX                                              3 pending      │
+│  APPROVAL INBOX                                              2 pending      │
 │  Filter: [All Workspaces ▼]                                                 │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │  ┌─────────────────────────────────────────────────────────────────────────┐│
-│  │ [DESIGN] Organic Cotton T-Shirt (TSH-001)                               ││
-│  │ Submitted by: Maria Garcia • 2 hours ago                                ││
-│  │ Changes: materials.fiberComposition, BOM updates                        ││
+│  │ [DESIGN] Organic Cotton T-Shirt (TSH-001)                v3-draft       ││
+│  │ Submitted by: Maria Garcia (CONTRIBUTOR) • 2 hours ago                  ││
+│  │ Changes: materials.fiberComposition (90% → 95%), BOM updates            ││
 │  │ [View Diff] [Approve] [Reject]                                          ││
 │  └─────────────────────────────────────────────────────────────────────────┘│
 │                                                                              │
 │  ┌─────────────────────────────────────────────────────────────────────────┐│
-│  │ [MARKETING] Denim Jacket (JKT-042)                                      ││
-│  │ Submitted by: External Agency • 5 hours ago                             ││
-│  │ Changes: price, description, images                                     ││
-│  │ [View Diff] [Approve] [Reject]                                          ││
-│  └─────────────────────────────────────────────────────────────────────────┘│
-│                                                                              │
-│  ┌─────────────────────────────────────────────────────────────────────────┐│
-│  │ [OPERATIONS] Winter Coat (WC-099)                                       ││
-│  │ Submitted by: John Intern • 1 day ago                                   ││
-│  │ Changes: supplier info, inventory levels                                ││
+│  │ [MARKETING] Denim Jacket (JKT-042)                       v4-draft       ││
+│  │ Submitted by: External Agency (CONTRIBUTOR) • 5 hours ago               ││
+│  │ Changes: price (€89 → €99), updated product description                 ││
 │  │ [View Diff] [Approve] [Reject]                                          ││
 │  └─────────────────────────────────────────────────────────────────────────┘│
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Note:** Users only see approvals for workspaces where they have EDITOR or MANAGER authority.
+**Note:**
+- Users only see approvals for workspaces where they have EDITOR or MANAGER authority
+- Only Design and Marketing have version approvals (CONTRIBUTOR workflow)
+- Operations creates immutable records directly (no approval workflow needed)
 
 ---
 
