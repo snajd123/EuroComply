@@ -461,6 +461,7 @@ When consumers scan a DPP QR code:
 
 ## Related Documentation
 
+- [Golden Record](./GOLDEN_RECORD.md) - Golden Record concept and data model
 - [Business Model](./BUSINESS_MODEL.md) - SME-first SaaS pricing
 - [Verifiable Credentials](./VERIFIABLE_CREDENTIALS.md) - did:key, portability
 - [Architecture Portability](./ARCHITECTURE_PORTABILITY.md) - Export, data ownership

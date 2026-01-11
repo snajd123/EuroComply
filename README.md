@@ -52,36 +52,74 @@ All workspaces read from and write to the same **Hub** - the central source of t
 
 ### Core Concept: The Hub (Golden Record)
 
-At the center of EuroComply is **The Hub** - every product has a single "Golden Record" containing all data across workspaces:
+At the center of EuroComply is **The Hub** - the central data store where every product has a single **Golden Record**.
+
+#### What is a Golden Record?
+
+The Golden Record is a Master Data Management (MDM) concept: the single, authoritative version of a product's data. Instead of scattered data across spreadsheets, ERP, PLM, and PIM systems, EuroComply unifies everything into one record per product.
+
+| Problem | Solution |
+|---------|----------|
+| Data scattered across systems | One Golden Record per product |
+| Conflicting versions of truth | Single authoritative source |
+| Manual sync between tools | Automatic real-time sync |
+| "Which spreadsheet is current?" | Always current in the Hub |
+
+#### Golden Record Structure
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                           THE HUB (Golden Record)                            │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
+│  IDENTITY                                                                    │
+│  └── SKU, GTIN/EAN, Brand+SKU, Serial Numbers                               │
+│                                                                              │
 │  DESIGN DATA              OPERATIONS DATA           MARKETING DATA          │
-│  ├── Bill of Materials    ├── Inventory Levels      ├── Product Name        │
-│  ├── Material Specs       ├── Supplier Info         ├── Description         │
-│  ├── Revision History     ├── Batch/Lot Numbers     ├── Images, Media       │
-│  └── Component Sources    └── Purchase Orders       └── Pricing             │
+│  ├── Bill of Materials    ├── Batch/Lot Numbers     ├── Names (multi-lang)  │
+│  ├── Material Specs       ├── Serial Tracking       ├── Descriptions        │
+│  ├── Revision History     ├── EPCIS Events          ├── Images, Media       │
+│  └── Technical Docs       └── Inventory Levels      └── Pricing, Channels   │
 │                                                                              │
-│  COMPLIANCE DATA                                                             │
-│  ├── Material Composition    ├── Carbon Footprint    ├── Certifications     │
-│  ├── Country of Origin       ├── Care Instructions   └── Third-Party Attest │
+│  ATTESTATIONS (Third-Party Verified)                                        │
+│  ├── Material origin (signed by supplier)                                   │
+│  ├── Carbon footprint (signed by lab)                                       │
+│  └── Certifications (signed by certifier)                                   │
+│                                                                              │
+│  COMPLIANCE METADATA                                                         │
+│  ├── Completeness scores (DPP: 100%, Shopify: 95%)                         │
+│  ├── DPP issuance history (v1, v2, ...)                                    │
+│  └── Audit trail (who changed what, when)                                  │
 │                                                                              │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│                          WORKSPACE PROJECTIONS                               │
+│                          WORKSPACE ACCESS                                    │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐ │
-│  │ Design View │  │ Ops View    │  │ Marketing   │  │ Compliance View     │ │
-│  │ BOM Editor  │  │ Inventory   │  │ PIM Grid    │  │ DPP Ready List      │ │
+│  │ Design      │  │ Operations  │  │ Marketing   │  │ Compliance          │ │
+│  │ WRITE       │  │ WRITE       │  │ WRITE       │  │ READ + ISSUE        │ │
 │  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────────────┘ │
-│                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Each workspace provides a **filtered, optimized view** of the Hub data relevant to that persona. Edit in any workspace - the Hub stays synchronized.
+#### How It Works
+
+1. **Workspaces write to the Hub** - Design, Operations, and Marketing each contribute their data
+2. **Data is always synchronized** - Changes in any workspace are immediately visible in all others
+3. **Compliance reads the Hub** - When a product reaches 100% completeness, it appears in the DPP Ready list
+4. **DPP is a signed snapshot** - The issued DPP credential captures the Golden Record at that moment
+
+#### Golden Record vs. DPP Credential
+
+| Golden Record | DPP Credential |
+|---------------|----------------|
+| Live data in the Hub | Signed snapshot at issuance |
+| Always updatable | Immutable once signed |
+| One per product | Multiple versions possible |
+| Internal use | Public-facing proof |
+
+When the Golden Record changes after DPP issuance, the existing DPP remains valid (it was true at issuance). Organizations can issue a new DPP version when needed.
+
+See [GOLDEN_RECORD.md](docs/GOLDEN_RECORD.md) for complete documentation on the Golden Record model.
 
 ---
 
@@ -642,6 +680,7 @@ Organizations own their data. Full portability guaranteed:
 
 | Document | Description |
 |----------|-------------|
+| [GOLDEN_RECORD.md](./docs/GOLDEN_RECORD.md) | Golden Record concept and data model |
 | [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) | Technical implementation roadmap |
 | [BUSINESS_MODEL.md](./docs/BUSINESS_MODEL.md) | Pricing and business model |
 | [SCALABILITY.md](./docs/SCALABILITY.md) | Billion-scale DPP serving architecture |
@@ -651,6 +690,8 @@ Organizations own their data. Full portability guaranteed:
 | [ARCHITECTURE_PORTABILITY.md](./docs/ARCHITECTURE_PORTABILITY.md) | Data portability architecture |
 | [VERIFIABLE_CREDENTIALS.md](./docs/VERIFIABLE_CREDENTIALS.md) | VC/DID technical details |
 | [MULTI_PARTY_ATTESTATION.md](./docs/MULTI_PARTY_ATTESTATION.md) | Third-party data contribution architecture |
+| [PASSPORT_TRUST_MODEL.md](./docs/PASSPORT_TRUST_MODEL.md) | Trust architecture and verification |
+| [DPP_CONTENT_PLAN.md](./docs/DPP_CONTENT_PLAN.md) | DPP content creation workflow |
 | [INFRASTRUCTURE.md](./INFRASTRUCTURE.md) | AWS infrastructure guide |
 | [ECOMMERCE_INTEGRATIONS.md](./docs/ECOMMERCE_INTEGRATIONS.md) | Shopify integration guide |
 

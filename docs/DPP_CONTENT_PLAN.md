@@ -571,4 +571,13 @@ Track where data comes from for transparency.
 
 ---
 
+## Related Documentation
+
+- [Golden Record](./GOLDEN_RECORD.md) - Golden Record concept and data model
+- [Passport Trust Model](./PASSPORT_TRUST_MODEL.md) - Trust architecture
+- [Multi-Party Attestation](./MULTI_PARTY_ATTESTATION.md) - Third-party attestations
+- [Business Model](./BUSINESS_MODEL.md) - Pricing and plans
+
+---
+
 *Last Updated: 2026-01-11*

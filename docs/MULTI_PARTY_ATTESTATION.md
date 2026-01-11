@@ -877,6 +877,7 @@ GET    /api/v1/contributors/:id               Get contributor details
 
 | Document | Description |
 |----------|-------------|
+| [GOLDEN_RECORD.md](./GOLDEN_RECORD.md) | Golden Record concept and data model |
 | [VERIFIABLE_CREDENTIALS.md](./VERIFIABLE_CREDENTIALS.md) | VC/DID technical implementation |
 | [DATA_SOVEREIGNTY.md](./DATA_SOVEREIGNTY.md) | Data ownership and portability |
 | [PASSPORT_TRUST_MODEL.md](./PASSPORT_TRUST_MODEL.md) | Overall trust architecture |
