@@ -92,11 +92,13 @@ EuroComply uses a modular architecture. Modules are the backend capabilities tha
 | Module | Description | Primary Workspace(s) |
 |--------|-------------|---------------------|
 | **Core** | Authentication, organizations, billing | All |
+| **Registry** | Product structure, BOMs, versions, SKU management (Technical DNA) | Design, Operations |
+| **Materials** | Material library, compositions, sustainability properties | Design |
+| **PIM** | Marketing content, descriptions, SEO, translations (Commercial enrichment) | Marketing |
+| **DAM** | Digital asset management (Tech docs for Design, Media for Marketing) | Design, Marketing |
 | **Compliance** | DPP generation, walt.id credentials, lifecycle tracking | Compliance |
 | **EPCIS** | Supply chain events, carbon tracking, lifecycle visualization | Operations, Compliance |
 | **Attestation** | Third-party data contributions with cryptographic signatures | All (different datapoints) |
-| **PIM** | Product families, variants, completeness scoring | Marketing, Design |
-| **DAM** | Digital asset management, image optimization | Marketing, Design |
 | **Import** | AI-powered data import from any format | All |
 | **Syndication** | Shopify integration, channel publishing | Marketing |
 
@@ -107,20 +109,28 @@ EuroComply uses a modular architecture. Modules are the backend capabilities tha
 │                         FRONTEND: WORKSPACES                               │
 ├───────────────┬───────────────┬───────────────┬────────────────────────────┤
 │    Design     │  Operations   │   Marketing   │        Compliance          │
+│    (PLM)      │  (ERP-lite)   │   (PIM)       │        (DPP)               │
 │               │               │               │                            │
 │ Uses:         │ Uses:         │ Uses:         │ Uses:                      │
-│ • PIM         │ • EPCIS       │ • PIM         │ • Compliance               │
-│ • DAM         │ • Attestation │ • DAM         │ • EPCIS                    │
-│ • Attestation │ • Import      │ • Syndication │ • Attestation              │
-│ • Import      │               │ • Import      │                            │
+│ • Registry    │ • Registry    │ • PIM         │ • Compliance               │
+│ • Materials   │ • EPCIS       │ • DAM-Media   │ • Registry (read)          │
+│ • DAM-Tech    │ • Attestation │ • Syndication │ • EPCIS (read)             │
+│ • Attestation │ • Import      │ • Import      │ • Attestation              │
+│ • Import      │               │ • Registry*   │ • PIM (read)               │
 └───────────────┴───────────────┴───────────────┴────────────────────────────┘
+                              * read-only
                                     │
                                     ▼
 ┌────────────────────────────────────────────────────────────────────────────┐
 │                         BACKEND: MODULES                                    │
-│  Core │ PIM │ DAM │ Compliance │ EPCIS │ Attestation │ Import │ Syndication│
+│ Core│Registry│Materials│PIM│DAM│Compliance│EPCIS│Attestation│Import│Syndic │
 └────────────────────────────────────────────────────────────────────────────┘
 ```
+
+**Key Architecture Insight:**
+- **Registry** = Technical DNA (product structure, BOMs, versions) - used by Design
+- **PIM** = Commercial Enrichment (marketing descriptions, SEO) - used by Marketing
+- **DAM** serves both: Tech docs/specs for Design, Media assets for Marketing
 
 **Note:** Multi-Party Attestation is available in ALL workspaces - different personas request attestations for different datapoints (Design: material certs, Operations: supplier audits, Marketing: brand claims, Compliance: regulatory certifications).
 
@@ -142,25 +152,32 @@ All customers receive full platform access. Tier differentiation is based solely
 
 ## Workspace Details
 
-### Design Workspace (PLM-lite)
+### Design Workspace (PLM)
 
-For product designers, R&D teams, and technical managers. Focused on product composition and specifications.
+For product designers, R&D teams, and technical managers. Focused on product structure, composition, and specifications.
+
+**Modules Used:** Registry, Materials, DAM-Tech, Attestation, Import
 
 | Feature | Description |
 |---------|-------------|
-| **Bill of Materials** | Define product components, sub-assemblies, and raw materials |
-| **Material Specifications** | Technical specs, tolerances, supplier requirements |
-| **Revision Control** | Version history with approval workflows |
-| **Component Sourcing** | Link materials to suppliers, track alternatives |
-| **Attestation Requests** | Request material certifications from suppliers |
+| **Bill of Materials** | Hierarchical product structure (components, sub-assemblies, raw materials) |
+| **Material Library** | Centralized material definitions with sustainability properties |
+| **Revision Control** | Version history with approval workflows and change management |
+| **Component Sourcing** | Link materials to approved suppliers, track alternatives |
+| **Technical Documents** | CAD files, tech packs, MSDS sheets (via DAM-Tech) |
+| **Attestation Requests** | Request material certifications, test results from suppliers |
 
 **UI Aesthetic:** Technical, data-dense, document-centric
+
+**Key Distinction:** Design uses **Registry** (product structure) NOT PIM. Marketing enriches the technical product with commercial content later.
 
 ---
 
 ### Operations Workspace (ERP-lite)
 
 For supply chain managers, procurement, and warehouse teams. Focused on inventory and supplier management.
+
+**Modules Used:** Registry, EPCIS, Attestation, Import
 
 | Feature | Description |
 |---------|-------------|
@@ -177,26 +194,32 @@ For supply chain managers, procurement, and warehouse teams. Focused on inventor
 
 ---
 
-### Marketing Workspace (PIM-lite)
+### Marketing Workspace (PIM)
 
 For brand managers, e-commerce teams, and content creators. Focused on product content and syndication.
+
+**Modules Used:** PIM, DAM-Media, Syndication, Import, Registry (read-only)
 
 | Feature | Description |
 |---------|-------------|
 | **Product Grid** | AG Grid spreadsheet-style product management |
-| **Content Management** | Names, descriptions, marketing copy |
-| **Digital Assets** | Image management, galleries, videos |
+| **Content Management** | Names, descriptions, marketing copy, SEO |
+| **Digital Assets** | Product images, galleries, videos (via DAM-Media) |
 | **Channel Syndication** | Shopify sync, marketplace publishing |
 | **Completeness Scoring** | Per-channel readiness indicators |
 | **Attestation Requests** | Request brand claim verifications |
 
 **UI Aesthetic:** Visual, content-rich, media-focused
 
+**Key Distinction:** Marketing uses **PIM** (commercial enrichment) to add descriptions and media to products defined in **Registry** by Design. Registry is read-only in this workspace.
+
 ---
 
-### Compliance Workspace (DPP-core)
+### Compliance Workspace (DPP)
 
 For compliance officers, quality assurance, and regulatory teams. The core DPP issuance workflow.
+
+**Modules Used:** Compliance, Registry (read-only), EPCIS (read-only), Attestation, PIM (read-only)
 
 | Feature | Description |
 |---------|-------------|
@@ -209,6 +232,8 @@ For compliance officers, quality assurance, and regulatory teams. The core DPP i
 | **Audit Trail** | Complete history of compliance actions |
 
 **UI Aesthetic:** Clean, checklist-driven, audit-focused
+
+**Key Role:** Compliance aggregates data from all other workspaces (Registry structure, PIM content, EPCIS events, Attestations) to generate the final DPP. Read-only access to upstream data.
 
 ---
 
@@ -223,18 +248,28 @@ Users can import product data from any format. The AI extracts, maps, and valida
 - **Data enrichment**: Auto-fill missing fields based on product type
 - **Validation**: Schema validation and compliance pre-checks
 
-### Product Information Management (Marketing & Design Workspaces)
+### Product Registry (Design Workspace - Technical DNA)
 
+The foundation of every product - structure, BOMs, and materials:
+
+- **Bill of Materials**: Hierarchical product structure (components → sub-assemblies → raw materials)
+- **Material Library**: Centralized material definitions with sustainability properties (recyclability, carbon factors)
 - **Product Families**: Define attribute schemas per product type
-- **Industry Templates**: Start from pre-built templates (ESPR Textiles, Electronics, Food & Beverage, etc.) or build from scratch
-- **Template Customization**: Modify templates - add fields, remove optional fields, adjust validation
-- **Dynamic Attributes**: Flexible JSONB storage for category-specific data
+- **Industry Templates**: Start from pre-built templates (ESPR Textiles, Electronics, etc.)
+- **Revision Control**: Version history with change management and approval workflows
 - **Variants**: Parent-child product relationships with attribute inheritance
-- **Completeness Scoring**: Per-channel readiness scores (DPP: 85%, Shopify: 100%)
-- **Multi-Currency**: Support for EUR, USD, GBP, and other currencies
-- **Bulk Operations**: Edit, delete, or assign families to multiple products at once
-- **Export**: Download product data as CSV, Excel, or JSON
 - **Audit Log**: Track who changed what, when - essential for compliance
+
+### Product Information Management (Marketing Workspace - Commercial Enrichment)
+
+Marketing content that enriches the technical product for sales channels:
+
+- **Marketing Content**: Names, descriptions, SEO keywords, translations
+- **Media Assets**: Product images, videos, galleries (via DAM-Media)
+- **Channel Completeness**: Per-channel readiness scores (Shopify: 100%, Amazon: 85%)
+- **Multi-Currency**: Support for EUR, USD, GBP pricing
+- **Bulk Operations**: Edit, delete, or assign content to multiple products
+- **Export**: Download product data as CSV, Excel, or JSON
 
 ### Digital Product Passports (Compliance Workspace)
 

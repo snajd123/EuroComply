@@ -6,12 +6,17 @@ EuroComply is a unified platform for product lifecycle management and EU regulat
 
 ### Why Four Workspaces?
 
-| Workspace | Replaces | Typical Cost |
-|-----------|----------|--------------|
-| **Design** (PLM-lite) | Entry-level PLM | €500-2,000/mo |
-| **Operations** (ERP-lite) | Basic inventory/order tools | €200-1,000/mo |
-| **Marketing** (PIM-lite) | Entry-level PIM | €300-1,500/mo |
-| **Compliance** (DPP-core) | Compliance consultants | €5,000-20,000 one-time |
+| Workspace | Primary Modules | Replaces | Typical Cost |
+|-----------|-----------------|----------|--------------|
+| **Design** (PLM) | Registry, Materials, DAM-Tech | Entry-level PLM | €500-2,000/mo |
+| **Operations** (ERP-lite) | Registry, EPCIS, Inventory | Basic inventory/order tools | €200-1,000/mo |
+| **Marketing** (PIM) | PIM, DAM-Media, Syndication | Entry-level PIM | €300-1,500/mo |
+| **Compliance** (DPP) | Compliance, Attestation | Compliance consultants | €5,000-20,000 one-time |
+
+**Key Architecture Insight:**
+- **Registry** = Technical DNA (product structure, BOMs, versions) - primary for Design
+- **PIM** = Commercial Enrichment (descriptions, SEO, marketing) - primary for Marketing
+- Registry is shared across workspaces; Marketing has read-only access to it
 
 **EuroComply gives all four for €129-399/month.** This is our competitive advantage against enterprise solutions and point products.
 
@@ -145,10 +150,10 @@ Every paying customer gets the complete platform - **all four workspaces, all fe
 | **Users** | Unlimited | Unlimited | Unlimited |
 | | | | |
 | **ALL FOUR WORKSPACES** | | | |
-| Design Workspace (PLM-lite) | ✅ Included | ✅ Included | ✅ Included |
-| Operations Workspace (ERP-lite) | ✅ Included | ✅ Included | ✅ Included |
-| Marketing Workspace (PIM-lite) | ✅ Included | ✅ Included | ✅ Included |
-| Compliance Workspace (DPP-core) | ✅ Included | ✅ Included | ✅ Included |
+| Design Workspace (Registry, Materials, DAM-Tech) | ✅ Included | ✅ Included | ✅ Included |
+| Operations Workspace (Registry, EPCIS, Inventory) | ✅ Included | ✅ Included | ✅ Included |
+| Marketing Workspace (PIM, DAM-Media, Syndication) | ✅ Included | ✅ Included | ✅ Included |
+| Compliance Workspace (DPP, Attestation) | ✅ Included | ✅ Included | ✅ Included |
 | | | | |
 | **PIM Features** | | | |
 | Product Families | ✅ Included | ✅ Included | ✅ Included |
@@ -792,12 +797,18 @@ Brands and manufacturers pay for DPP creation. Retailers access DPPs for free be
 │                    PLATFORM VALUE                                │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  PRODUCT INFORMATION MANAGEMENT                                 │
+│  PRODUCT REGISTRY (Technical DNA - Design Workspace)            │
+│  ├── Product structure and BOMs                                 │
+│  ├── SKU management and versioning                              │
+│  ├── Materials library with sustainability data                 │
+│  └── Technical specifications                                   │
+│                                                                  │
+│  PIM (Commercial Enrichment - Marketing Workspace)              │
 │  ├── Product Families (attribute schemas)                       │
 │  ├── Dynamic attributes (JSONB flexibility)                     │
 │  ├── Variants (parent-child inheritance)                        │
 │  ├── Completeness scoring (per-channel)                         │
-│  └── Multi-currency pricing                                     │
+│  └── Marketing content and translations                         │
 │                                                                  │
 │  AI-POWERED IMPORT                                              │
 │  ├── Drop any file format (CSV, Excel, PDF, JSON)              │

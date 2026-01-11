@@ -184,10 +184,15 @@ Each workspace uses specific modules to power its functionality:
 
 | Workspace | Primary Modules | Key Features |
 |-----------|----------------|--------------|
-| **Design** | PIM, DAM, Attestation, Import | BOMs, material specs, revision control |
-| **Operations** | EPCIS, Attestation, Import | Inventory, orders, supplier management |
-| **Marketing** | PIM, DAM, Syndication, Import | Product content, images, Shopify sync |
-| **Compliance** | Compliance, EPCIS, Attestation | DPP issuance, lifecycle, certifications |
+| **Design (PLM)** | Registry, Materials, DAM-Tech, Attestation, Import | BOMs, material library, revision control |
+| **Operations (ERP-lite)** | Registry, EPCIS, Attestation, Import | Inventory, orders, supplier management |
+| **Marketing (PIM)** | PIM, DAM-Media, Syndication, Import, Registry (read) | Product content, images, Shopify sync |
+| **Compliance (DPP)** | Compliance, Registry (read), EPCIS (read), Attestation, PIM (read) | DPP issuance, lifecycle, certifications |
+
+**Key Architecture Insight:**
+- **Registry** = Technical DNA (product structure, BOMs, versions) - primary for Design
+- **PIM** = Commercial Enrichment (descriptions, SEO, marketing) - primary for Marketing
+- **DAM** serves both: Tech docs (Design), Media assets (Marketing)
 
 **Note:** Attestation module is available in ALL workspaces for different datapoints (material certs, supplier audits, brand claims, regulatory certifications).
 
@@ -196,22 +201,29 @@ Each workspace uses specific modules to power its functionality:
 ```
 CORE ─────────────────► Required by all modules
 
-COMPLIANCE ───────────► Requires: CORE
-                        Optional: PIM, EPCIS, ATTESTATION
+REGISTRY ─────────────► Requires: CORE
+                        Used by: Design (read/write), Operations (read/write), Marketing (read), Compliance (read)
 
-PIM ──────────────────► Requires: CORE
-                        Optional: DAM, IMPORT
+MATERIALS ────────────► Requires: CORE, REGISTRY
+                        Used by: Design
+
+PIM ──────────────────► Requires: CORE, REGISTRY
+                        Used by: Marketing (read/write), Compliance (read)
+
+COMPLIANCE ───────────► Requires: CORE
+                        Reads from: REGISTRY, PIM, EPCIS, ATTESTATION
 
 DAM ──────────────────► Requires: CORE
-                        Works with: PIM, COMPLIANCE
+                        Works with: REGISTRY (tech docs), PIM (media)
 
 EPCIS ────────────────► Requires: CORE
-                        Works with: COMPLIANCE
+                        Works with: COMPLIANCE, REGISTRY
 
 ATTESTATION ──────────► Requires: CORE
                         Works with: ALL WORKSPACES
 
-IMPORT ───────────────► Requires: CORE, PIM
+IMPORT ───────────────► Requires: CORE, REGISTRY
+                        Can import to: REGISTRY, PIM, MATERIALS
 
 SYNDICATION ──────────► Requires: CORE, PIM
 ```
@@ -564,25 +576,27 @@ The Hub schema grows incrementally - we only add what's needed for each phase:
 
 ### Workspace Build Progression
 
-| Phase | Design | Operations | Marketing | Compliance |
-|-------|--------|------------|-----------|------------|
+| Phase | Design (PLM) | Operations (ERP-lite) | Marketing (PIM) | Compliance (DPP) |
+|-------|--------------|----------------------|-----------------|------------------|
 | 1 | Shell | Shell | Shell | Shell |
-| 2 | **Core (BOMs, Materials)** | **Core (Inventory, Suppliers)** | - | - |
-| 3 | - | - | **Core (PIM, DAM)** | - |
-| 4 | - | EPCIS view | - | **Core (DPP)** |
+| 2 | **Registry + Materials** | **Registry + Inventory** | - | - |
+| 3 | - | - | **PIM + DAM-Media** | - |
+| 4 | - | EPCIS view | - | **DPP Issuance** |
 | 5 | Attestation | Attestation | Attestation | Attestation |
 | 6 | - | - | **Syndication** | - |
+
+**Note:** Registry is built in Phase 2 and shared across workspaces. PIM (Phase 3) builds on Registry.
 
 ### Two Customer Entry Points
 
 **Manufacturers start in Design:**
 ```
-Phase 2 (Design) → Phase 2 (Operations) → Phase 3 (Marketing) → Phase 4 (Compliance)
+Phase 2 (Design/Registry) → Phase 2 (Operations) → Phase 3 (Marketing/PIM) → Phase 4 (Compliance)
 ```
 
 **Distributors start in Operations:**
 ```
-Phase 2 (Operations) → Phase 3 (Marketing) → Phase 4 (Compliance)
+Phase 2 (Operations/Registry) → Phase 3 (Marketing/PIM) → Phase 4 (Compliance)
 ```
 
 **Testable at each phase:**
@@ -670,61 +684,70 @@ Phase 2 (Operations) → Phase 3 (Marketing) → Phase 4 (Compliance)
 
 ---
 
-### Phase 2: Design + Operations → Entry Points
+### Phase 2: Design + Operations → Entry Points (Registry + Materials)
 
-**Goal:** Build the entry points where product data originates. Manufacturers start in Design (BOMs, materials), Distributors start in Operations (inventory, suppliers). The Hub grows to support these workflows.
+**Goal:** Build the entry points where product data originates. Manufacturers start in Design (BOMs, materials), Distributors start in Operations (inventory, suppliers). The Hub grows with the **Registry** module (shared product structure) and **Materials** module.
 
-**Workspaces:** Design (PLM-lite), Operations (ERP-lite)
+**Workspaces:** Design (PLM), Operations (ERP-lite)
 
 | Task | Status |
 |------|--------|
-| **Hub Schema Additions** | |
-| Material model (fiber composition, chemical properties) | Planned |
+| **Hub Schema Additions (Registry Module)** | |
+| Product Registry model (SKU, versions, structure) | Planned |
 | BillOfMaterials model (tree structure, component relationships) | Planned |
+| ProductVersion model (revision history, change tracking) | Planned |
+| **Hub Schema Additions (Materials Module)** | |
+| Material model (fiber composition, chemical properties) | Planned |
+| MaterialLibrary (centralized material definitions) | Planned |
+| SustainabilityProperties (recyclability, carbon factors) | Planned |
+| **Hub Schema Additions (Operations)** | |
 | Supplier model (contact, certifications, audits) | Planned |
 | InventoryItem model (locations, quantities, batch tracking) | Planned |
 | PurchaseOrder model (supplier, items, status) | Planned |
-| **Design Workspace - BOM Management** | |
-| Bill of Materials data model | Planned |
+| **Design Workspace - Registry + Materials** | |
 | BOM editor UI (tree view, component list) | Planned |
-| Material specifications CRUD | Planned |
+| Material Library CRUD with sustainability properties | Planned |
 | Component-supplier linking | Planned |
 | Revision history and approval workflow | Planned |
-| Design workspace navigation (BOMs, Materials, Revisions) | Planned |
-| **Operations Workspace - Inventory** | |
+| Technical document upload (CAD, specs, MSDS via DAM-Tech) | Planned |
+| Design workspace navigation (BOMs, Materials, Revisions, Documents) | Planned |
+| **Operations Workspace - Registry + Inventory** | |
 | Inventory tracking data model (locations, quantities) | Planned |
 | Stock level dashboard | Planned |
 | Reorder point alerts | Planned |
 | Batch/lot tracking UI | Planned |
-| **Operations Workspace - Orders** | |
 | Simple purchase order model | Planned |
 | PO creation and tracking UI | Planned |
 | Supplier management dashboard | Planned |
 | Operations workspace navigation (Inventory, Orders, Suppliers) | Planned |
 
-**Outcome:** Two functional entry points for product data. Manufacturers can design products (BOMs, materials, specs) in Design Workspace. Distributors can track inventory and suppliers in Operations Workspace. Both paths feed the same Hub.
+**Outcome:** Two functional entry points for product data. Manufacturers define product structure (Registry) and materials in Design Workspace. Distributors track inventory and suppliers in Operations Workspace. Both paths feed the same Hub.
 
 **Workspace Deliverables:**
-- Design Workspace: Moves from "Coming Soon" to functional PLM-lite (BOMs, materials, revisions)
+- Design Workspace: Moves from "Coming Soon" to functional PLM (Registry, Materials, BOMs, revisions)
 - Operations Workspace: Moves from "Coming Soon" to functional ERP-lite (inventory, orders, suppliers)
 
-**Hub at Phase 2:** + Material, BOM, Supplier, InventoryItem, PurchaseOrder
+**Hub at Phase 2:** + Material, MaterialLibrary, BOM, ProductVersion, Supplier, InventoryItem, PurchaseOrder
 
 **Dependencies:** Phase 1 (auth, org, schema, workspace shells)
 
-**Note:** This is ERP-*lite* - inventory and procurement basics. Not full accounting, no GL, no payroll. This is PLM-*lite* - BOMs and materials, not full CAD integration.
+**Key Insight:** **Registry** (product structure) is built here and shared across all workspaces. Marketing/PIM in Phase 3 will *enrich* Registry data, not replace it.
+
+**Note:** This is ERP-*lite* - inventory and procurement basics. Not full accounting, no GL, no payroll. This is PLM - BOMs and materials, not full CAD integration.
 
 **Two Customer Entry Points:**
-- **Manufacturers:** Start in Design → create BOMs, materials → then track inventory in Operations
-- **Distributors:** Start in Operations → track inventory from suppliers → skip Design if not manufacturing
+- **Manufacturers:** Start in Design → define product structure in Registry, create materials → then track inventory in Operations
+- **Distributors:** Start in Operations → create products in Registry, track inventory from suppliers → skip Material Library if not manufacturing
 
 ---
 
-### Phase 3: Marketing → Presentation Layer
+### Phase 3: Marketing → Presentation Layer (PIM)
 
-**Goal:** Build the presentation layer where product content is managed for customers and channels. The Hub grows to support rich media and channel listings.
+**Goal:** Build the commercial enrichment layer where product content is managed for customers and channels. PIM enriches the technical product data from Registry with marketing content (descriptions, SEO, translations). The Hub grows to support rich media and channel listings.
 
-**Workspace:** Marketing (PIM-lite)
+**Workspace:** Marketing (PIM)
+
+**Key Relationship:** Marketing has **read-only** access to Registry (product structure from Phase 2). PIM adds commercial content on top of technical specs.
 
 | Task | Status |
 |------|--------|
@@ -785,6 +808,12 @@ ProductFamily creation supports two paths:
    - Useful for industries without ESPR requirements or niche verticals
 
 This approach supports industries beyond ESPR compliance - any business needing structured product data management can use EuroComply, with or without DPP issuance.
+
+**Key Insight: Registry vs. PIM**
+- **Registry** (Phase 2) = Technical DNA - SKU structure, BOMs, versions, product hierarchy
+- **PIM** (Phase 3) = Commercial Enrichment - marketing descriptions, SEO, translations, channel content
+- Marketing workspace reads from Registry but writes to PIM
+- This separation ensures technical accuracy while enabling marketing flexibility
 
 ---
 

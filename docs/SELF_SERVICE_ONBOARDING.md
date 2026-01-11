@@ -14,11 +14,15 @@ The key differentiator from enterprise competitors (SAP, Siemens) is **self-serv
 
 EuroComply provides **four workspaces** tailored to different personas. During onboarding, users are guided to the workspace most relevant to their role:
 
-| Organization Type | Default Workspace | Typical First Action |
-|-------------------|-------------------|---------------------|
-| **Brand** | Marketing | Import product catalog |
-| **Manufacturer** | Design or Operations | Set up materials/suppliers |
-| **Distributor** | Marketing or Compliance | Import products, issue DPPs |
+| Organization Type | Default Workspace | Primary Modules | Typical First Action |
+|-------------------|-------------------|-----------------|---------------------|
+| **Brand** | Marketing | PIM, DAM-Media, Syndication | Import product catalog |
+| **Manufacturer** | Design | Registry, Materials, DAM-Tech | Set up materials/BOMs |
+| **Distributor** | Operations | Registry, EPCIS, Inventory | Set up suppliers, track inventory |
+
+**Key Architecture:**
+- **Registry** (Technical DNA) is primary for Design/Operations, read-only for Marketing
+- **PIM** (Commercial Enrichment) builds on Registry data for marketing content
 
 All workspaces are available to all users - defaults simply guide the first experience.
 
@@ -94,9 +98,12 @@ All workspaces are available to all users - defaults simply guide the first expe
 │  │                                                                  ││
 │  │ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐││
 │  │ │   Design    │ │ Operations  │ │  Marketing  │ │ Compliance  │││
-│  │ │  Set up     │ │  Manage     │ │  Import     │ │  Issue      │││
-│  │ │  materials  │ │  suppliers  │ │  products   │ │  DPPs       │││
+│  │ │  Set up     │ │  Manage     │ │  Enrich     │ │  Issue      │││
+│  │ │  BOMs &     │ │  inventory  │ │  product    │ │  DPPs       │││
+│  │ │  materials  │ │  & suppliers│ │  content    │ │             │││
 │  │ └─────────────┘ └─────────────┘ └─────────────┘ └─────────────┘││
+│  │ Registry,      │ Registry,     │ PIM,          │ Compliance,   ││
+│  │ Materials      │ EPCIS         │ DAM-Media     │ Attestation   ││
 │  │                                                                  ││
 │  │ → Guides user to appropriate workspace                          ││
 │  │ → All workspaces remain accessible via workspace switcher       ││
@@ -289,10 +296,10 @@ model Organization {
 
 // Workspace enum - all customers get all workspaces
 enum Workspace {
-  DESIGN       // PLM-lite: BOMs, materials, revisions
-  OPERATIONS   // ERP-lite: inventory, orders, suppliers
-  MARKETING    // PIM-lite: content, assets, channels
-  COMPLIANCE   // DPP-core: issuance, certifications, audits
+  DESIGN       // PLM: Registry, Materials, DAM-Tech (product structure, BOMs)
+  OPERATIONS   // ERP-lite: Registry, EPCIS, Inventory (suppliers, tracking)
+  MARKETING    // PIM: PIM, DAM-Media, Syndication (content, channels)
+  COMPLIANCE   // DPP: Compliance, Attestation (issuance, certifications)
 }
 
 model Subscription {
