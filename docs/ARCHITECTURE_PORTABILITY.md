@@ -17,7 +17,7 @@ Our architecture is deliberately simple. We target SMEs (99% of EU businesses) w
 │                                                                  │
 │  WHAT WE BUILD (SME-Critical)                                   │
 │  ─────────────────────────────                                  │
-│  • Compliance-First PIM (Golden Record model)                   │
+│  • Compliance-First PIM (workspace-based data model)            │
 │  • W3C Verifiable Credentials (standard format)                 │
 │  • did:key identity (self-contained, portable)                  │
 │  • did:ebsi support (planned - EU trust framework)              │
@@ -544,7 +544,7 @@ ESPR requires DPP data to remain accessible for the product's lifetime.
 │  WHAT YOU OWN                                                   │
 │  → All Verifiable Credentials (signed DPPs)                     │
 │  → Your identity (did:key + private key)                        │
-│  → Product data (Golden Records)                                │
+│  → Product data (workspace versions + records)                  │
 │  → QR codes                                                     │
 │                                                                  │
 │  WHAT YOU CAN DO                                                │
@@ -560,7 +560,7 @@ ESPR requires DPP data to remain accessible for the product's lifetime.
 │  → ESPR compliance (data remains accessible)                    │
 │                                                                  │
 │  OUR VALUE PROPOSITION                                          │
-│  → Compliance-First PIM (Golden Record model)                   │
+│  → Compliance-First PIM (workspace-based data model)            │
 │  → AI-powered import (any file format)                          │
 │  → Managed hosting (while subscribed)                           │
 │  → Free retailer access layer                                   │
@@ -572,4 +572,4 @@ ESPR requires DPP data to remain accessible for the product's lifetime.
 
 ---
 
-*Last Updated: 2026-01-08*
+*Last Updated: 2026-01-11*
