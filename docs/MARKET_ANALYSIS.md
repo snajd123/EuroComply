@@ -132,7 +132,7 @@ Instead of buying and integrating multiple tools, EuroComply provides **four pur
 │                           ↓ ALL SHARE THE SAME DATA ↓                       │
 │                                                                              │
 │  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │                        THE HUB (Golden Record)                         │  │
+│  │                     THE HUB (Central Database)                         │  │
 │  │   Products • Materials • Suppliers • Certifications • Compliance       │  │
 │  └───────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
@@ -159,7 +159,7 @@ Instead of buying and integrating multiple tools, EuroComply provides **four pur
 │                                                                  │
 │  Our approach:                                                   │
 │  1. AI import → Dump any file (CSV, Excel, PDF)                 │
-│  2. Golden Record → Single source of truth                      │
+│  2. Workspace data → Central database                           │
 │  3. DPP Ready → Review and approve when data complete           │
 │  4. Shopify sync → Products and DPP data published              │
 │                                                                  │
@@ -216,7 +216,7 @@ Phase 3 (2027): + Electronics, Batteries
 | Challenge | How We Solve It |
 |-----------|-----------------|
 | Data complexity | AI-powered import from any file format |
-| Data management | Golden Record model with completeness scoring |
+| Data management | Workspace-based data model with completeness scoring |
 | Technical integration | Native Shopify integration |
 | Trust/verification | W3C Verifiable Credentials (did:key) |
 | Cost sensitivity | €49/month starting tier |
@@ -272,7 +272,7 @@ Phase 3 (2027): + Electronics, Batteries
 │                                                                  │
 │  COMPETITIVE MOAT                                               │
 │  • First-mover in SME segment                                   │
-│  • Golden Record model (PIM + DPP unified)                      │
+│  • Workspace-based data model (PIM + DPP unified)               │
 │  • AI import reduces onboarding friction                        │
 │  • W3C standards (not proprietary)                              │
 │                                                                  │
@@ -301,4 +301,4 @@ Phase 3 (2027): + Electronics, Batteries
 
 ---
 
-*Last Updated: 2026-01-08*
+*Last Updated: 2026-01-11*
