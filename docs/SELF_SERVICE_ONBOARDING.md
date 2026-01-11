@@ -24,8 +24,8 @@ EuroComply provides **four workspaces**. During onboarding, the founder selects 
 **Note:** Organizations are often all three (brand + manufacturer + distributor). The starting workspace is just where you begin—all workspaces are available to the founder.
 
 **Key Architecture:**
-- **Design, Operations, Marketing** workspaces WRITE to The Hub, building the Golden Record
-- **Compliance** workspace READS the Golden Record from The Hub to issue DPPs
+- **Design, Operations, Marketing** workspaces WRITE to The Hub, building workspace data
+- **Compliance** workspace READS workspace data from The Hub to issue DPPs
 - Each workspace contributes different data: technical DNA (Design), supply chain (Operations), commercial content (Marketing)
 
 **Access Control:**
@@ -33,7 +33,7 @@ EuroComply provides **four workspaces**. During onboarding, the founder selects 
 - When inviting team members, the admin explicitly selects their workspace access
 - No automatic assignment—admin decides based on job function
 
-See [USER_MANAGEMENT.md](./USER_MANAGEMENT.md) for workspace access and role templates, and [GOLDEN_RECORD.md](./GOLDEN_RECORD.md) for how product data flows into The Hub.
+See [USER_MANAGEMENT.md](./USER_MANAGEMENT.md) for workspace access, role templates, and how product data flows into The Hub.
 
 ---
 
@@ -124,7 +124,7 @@ See [USER_MANAGEMENT.md](./USER_MANAGEMENT.md) for workspace access and role tem
 │  │ • AI Import: Upload CSV, Excel, PDF, or JSON                   ││
 │  │ • Shopify Sync: Import existing products                       ││
 │  │ • Manual: Create products with templates                        ││
-│  │ • Data flows to The Hub, building the Golden Record            ││
+│  │ • Data flows to The Hub, building workspace data                ││
 │  │ • Completeness score shows progress toward DPP                  ││
 │  │ → Products appear in DPP Ready list at 100% completeness        ││
 │  └─────────────────────────────────────────────────────────────────┘│
@@ -481,7 +481,7 @@ function OnboardingProgress({ currentStep }: { currentStep: number }) {
 
 ## Related Documentation
 
-- [Golden Record](./GOLDEN_RECORD.md) - How The Hub builds authoritative product data
+- [User Management](./USER_MANAGEMENT.md) - Workspace-based access control and data ownership
 - [Market Analysis](./MARKET_ANALYSIS.md) - Why self-service matters
 - [Business Model](./BUSINESS_MODEL.md) - Pricing tiers
 - [Implementation Plan](../IMPLEMENTATION_PLAN.md) - Technical architecture
