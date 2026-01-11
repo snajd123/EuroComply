@@ -2,9 +2,58 @@
 
 ## Overview
 
-Brands, manufacturers, and distributors manage product data and generate Digital Product Passports using EuroComply's Compliance-First PIM platform. Products are managed as Golden Records, and when compliance data is complete, products appear in the DPP Ready list for review and manual approval before issuance. Retailers access DPPs for free via our public API, embeddable widget, or Shopify Retailer App.
+Brands, manufacturers, and distributors manage product data and generate Digital Product Passports using EuroComply's unified platform with **four purpose-built workspaces**: Design (PLM), Operations (ERP-lite), Marketing (PIM), and Compliance (DPP). Data flows through workspaces—product structure and materials defined in Design, enriched with commercial content in Marketing, and issued as DPPs in Compliance. Products are managed as Golden Records, and when compliance data is complete, products appear in the DPP Ready list for review and manual approval before issuance. Retailers access DPPs for free via our public API, embeddable widget, or Shopify Retailer App.
 
 See [BUSINESS_MODEL.md](./BUSINESS_MODEL.md) for the full pricing model.
+
+---
+
+## Workspace Data Flow
+
+Product data creation spans multiple workspaces, each adding specific value:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    WORKSPACE DATA FLOW FOR DPP CREATION                      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────────────┐│
+│  │  DESIGN (PLM)   │ ──► │  MARKETING (PIM)│ ──► │   COMPLIANCE (DPP)      ││
+│  │                 │     │                 │     │                         ││
+│  │  Primary:       │     │  Primary:       │     │  Primary:               ││
+│  │  • Registry     │     │  • PIM          │     │  • Compliance module    ││
+│  │  • Materials    │     │  • DAM-Media    │     │                         ││
+│  │  • DAM-Tech     │     │  • Syndication  │     │  Reads from:            ││
+│  │  • Attestation  │     │                 │     │  • Registry (read-only) ││
+│  │                 │     │  Reads:         │     │  • PIM (read-only)      ││
+│  │  Creates:       │     │  • Registry     │     │  • EPCIS (read-only)    ││
+│  │  • Product      │     │    (read-only)  │     │  • Attestation          ││
+│  │    structure    │     │                 │     │                         ││
+│  │  • BOMs         │     │  Creates:       │     │  Creates:               ││
+│  │  • Materials    │     │  • Descriptions │     │  • DPP issuance         ││
+│  │    library      │     │  • SEO content  │     │  • Verifiable           ││
+│  │  • Tech specs   │     │  • Media assets │     │    Credentials          ││
+│  │  • Certs        │     │  • Channel data │     │  • Compliance scoring   ││
+│  └─────────────────┘     └─────────────────┘     └─────────────────────────┘│
+│                                                                              │
+│  ┌─────────────────┐                                                        │
+│  │ OPERATIONS      │  Also feeds into Compliance:                           │
+│  │  (ERP-lite)     │  • EPCIS events (supply chain traceability)           │
+│  │                 │  • Batch/lot tracking                                  │
+│  │  • Registry     │  • Serial number management                            │
+│  │  • EPCIS        │                                                        │
+│  │  • Attestation  │                                                        │
+│  └─────────────────┘                                                        │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+| Workspace | Role in DPP Creation | Modules Used |
+|-----------|---------------------|--------------|
+| **Design** | Define product structure, materials, sustainability properties | Registry, Materials, DAM-Tech, Attestation |
+| **Operations** | Track supply chain, batches, serial numbers | Registry, EPCIS, Attestation |
+| **Marketing** | Add commercial content, descriptions, media | PIM, DAM-Media, Syndication |
+| **Compliance** | Review completeness, approve and issue DPPs | Compliance, Registry (read), PIM (read), EPCIS (read) |
 
 ---
 
@@ -40,27 +89,36 @@ Creating ESPR-compliant Digital Product Passports requires **category-specific, 
 │  3. PRODUCT FAMILY SELECTION                                        │
 │     └─ Select: Textile / Electronics / Battery / Furniture / Other │
 │                                                                      │
-│  4. DATA IMPORT                                                     │
+│  4. DATA IMPORT (Available in all workspaces)                       │
 │     ├─ AI Import: Upload any file (CSV, Excel, PDF, JSON)          │
 │     ├─ Manual Entry: Dashboard forms                                │
 │     ├─ Shopify Sync: Import existing products                      │
 │     └─ Templates: Industry-standard defaults                        │
 │                                                                      │
-│  5. GOLDEN RECORD CREATION                                          │
-│     ├─ Commercial data (name, SKU, price, images)                  │
-│     ├─ Compliance data (materials, certifications, carbon)         │
-│     └─ Completeness scoring per channel                             │
+│  5. DESIGN WORKSPACE: Product Structure (Registry + Materials)      │
+│     ├─ Create product in Registry (SKU, GTIN, versions)            │
+│     ├─ Define BOMs (bill of materials with components)             │
+│     ├─ Add materials from Materials Library (sustainability props)  │
+│     ├─ Upload technical documentation (DAM-Tech)                    │
+│     └─ Attach certifications via Attestation module                 │
 │                                                                      │
-│  6. DPP READY LIST (Products at 100% completeness)                 │
-│     ├─ Review product data before issuance                         │
+│  6. MARKETING WORKSPACE: Commercial Enrichment (PIM)                │
+│     ├─ Add product descriptions, titles (multi-language)           │
+│     ├─ SEO content and marketing copy                               │
+│     ├─ Upload media assets (DAM-Media: photos, videos)             │
+│     └─ Channel-specific data for Shopify/marketplaces               │
+│                                                                      │
+│  7. COMPLIANCE WORKSPACE: DPP Ready List                            │
+│     ├─ View products at 100% DPP completeness                      │
+│     ├─ Review combined data from Design + Marketing + Operations   │
 │     └─ Products queue for manual approval                          │
 │                                                                      │
-│  7. DPP ISSUANCE (Manual approval)                                  │
+│  8. DPP ISSUANCE (Manual approval in Compliance workspace)          │
 │     ├─ User approves product for DPP issuance                      │
 │     ├─ Sign DPP data with did:key                                  │
 │     └─ Generate Verifiable Credential (portable, tamper-evident)   │
 │                                                                      │
-│  8. SYNDICATION                                                     │
+│  9. SYNDICATION (Marketing workspace)                               │
 │     ├─ DPP metadata synced to Shopify                              │
 │     └─ Public API makes DPP accessible to retailers                │
 │                                                                      │
@@ -415,22 +473,49 @@ Track where data comes from for transparency.
 
 ---
 
-## Dashboard Routes
+## Dashboard Routes (Workspace-Based Navigation)
 
 ```
-/dashboard                     - Overview (product count, completeness, plan usage)
-/dashboard/products            - Product list (Golden Records)
-/dashboard/products/new        - Create new product
-/dashboard/products/:id        - Edit product
-/dashboard/products/bulk       - Bulk operations (edit, delete, assign family) [All Plans]
-/dashboard/import              - AI import wizard
-/dashboard/families            - Product family schemas
-/dashboard/dpp-ready           - DPP Ready Products (100% complete, awaiting approval)
-/dashboard/passports           - Issued DPPs
-/dashboard/channels            - Shopify connections
-/dashboard/audit-log           - Audit log (who changed what, when) [All Plans]
-/dashboard/settings            - Account, billing, export
-/dashboard/export              - Export products (CSV/JSON) and VCs [All Plans]
+/dashboard                              - Overview (product count, completeness, plan usage)
+
+# DESIGN WORKSPACE (PLM)
+/dashboard/design                       - Design workspace home
+/dashboard/design/registry              - Product Registry (structure, BOMs, versions)
+/dashboard/design/registry/new          - Create new product
+/dashboard/design/registry/:id          - Edit product structure
+/dashboard/design/materials             - Materials Library (sustainability properties)
+/dashboard/design/materials/new         - Create new material
+/dashboard/design/dam                   - Technical Documents (DAM-Tech)
+/dashboard/design/attestations          - Certifications and attestations
+
+# OPERATIONS WORKSPACE (ERP-lite)
+/dashboard/operations                   - Operations workspace home
+/dashboard/operations/registry          - Product Registry (inventory view)
+/dashboard/operations/epcis             - EPCIS Events (supply chain traceability)
+/dashboard/operations/batches           - Batch/lot management
+/dashboard/operations/serials           - Serial number tracking
+
+# MARKETING WORKSPACE (PIM)
+/dashboard/marketing                    - Marketing workspace home
+/dashboard/marketing/pim                - PIM (descriptions, SEO, multi-language)
+/dashboard/marketing/pim/:id            - Edit product commercial content
+/dashboard/marketing/dam                - Media Assets (DAM-Media: photos, videos)
+/dashboard/marketing/families           - Product Family attribute schemas
+/dashboard/marketing/channels           - Shopify/marketplace connections
+/dashboard/marketing/syndication        - Channel syndication status
+
+# COMPLIANCE WORKSPACE (DPP)
+/dashboard/compliance                   - Compliance workspace home
+/dashboard/compliance/dpp-ready         - DPP Ready Products (100% complete, awaiting approval)
+/dashboard/compliance/passports         - Issued DPPs
+/dashboard/compliance/scoring           - Completeness scoring dashboard
+
+# SHARED
+/dashboard/import                       - AI import wizard (all workspaces)
+/dashboard/bulk                         - Bulk operations (edit, delete, assign family) [All Plans]
+/dashboard/audit-log                    - Audit log (who changed what, when) [All Plans]
+/dashboard/export                       - Export products (CSV/JSON) and VCs [All Plans]
+/dashboard/settings                     - Account, billing, team management
 ```
 
 ---
@@ -446,19 +531,41 @@ Track where data comes from for transparency.
 │  → Brands, manufacturers, distributors                          │
 │  → Immediate access after registration and payment              │
 │                                                                  │
+│  FOUR WORKSPACES FOR COMPLETE PRODUCT LIFECYCLE                 │
+│  ┌────────────────┐  ┌────────────────┐                        │
+│  │ DESIGN (PLM)   │  │ OPERATIONS     │                        │
+│  │ Registry       │  │ (ERP-lite)     │                        │
+│  │ Materials      │  │ Registry       │                        │
+│  │ DAM-Tech       │  │ EPCIS          │                        │
+│  │ Attestation    │  │ Attestation    │                        │
+│  └────────────────┘  └────────────────┘                        │
+│  ┌────────────────┐  ┌────────────────┐                        │
+│  │ MARKETING      │  │ COMPLIANCE     │                        │
+│  │ (PIM)          │  │ (DPP)          │                        │
+│  │ PIM            │  │ Compliance     │                        │
+│  │ DAM-Media      │  │ Registry (r/o) │                        │
+│  │ Syndication    │  │ PIM (r/o)      │                        │
+│  └────────────────┘  └────────────────┘                        │
+│                                                                  │
+│  DATA FLOW: Design → Marketing → Compliance                     │
+│  → Product structure in Registry (Design)                       │
+│  → Materials with sustainability props (Design)                 │
+│  → Commercial content in PIM (Marketing)                        │
+│  → DPP issuance in Compliance workspace                         │
+│                                                                  │
 │  HOW DO THEY CREATE?                                            │
 │  → AI-powered import (any file format)                          │
 │  → Shopify sync (import existing products)                      │
 │  → Manual entry with templates                                  │
-│  → Bulk operations for efficient management [All Plans]     │
+│  → Bulk operations for efficient management [All Plans]         │
 │  → LCA estimation for carbon footprint                          │
 │                                                                  │
 │  GOLDEN RECORD MODEL                                            │
 │  → Single source of truth for each product                      │
-│  → Commercial data + compliance data unified                    │
+│  → Registry (technical) + PIM (commercial) unified              │
 │  → Completeness scoring per channel                             │
-│  → Audit log tracks all changes [All Plans]                 │
-│  → Export to CSV/JSON for reporting [All Plans]             │
+│  → Audit log tracks all changes [All Plans]                     │
+│  → Export to CSV/JSON for reporting [All Plans]                 │
 │  → DPP Ready list at 100% for review and approval               │
 │                                                                  │
 │  WHAT GETS ISSUED?                                              │
@@ -477,4 +584,4 @@ Track where data comes from for transparency.
 
 ---
 
-*Last Updated: 2026-01-08*
+*Last Updated: 2026-01-11*
