@@ -195,7 +195,7 @@ There is no automatic workspace assignment. The admin decides what access each u
 - Users only see workspaces they have access to in the workspace switcher
 - Users with no access to a workspace cannot see or access it at all
 - VIEWER access allows reading data but not editing
-- The Golden Record in The Hub aggregates data from all workspaces the user contributes to
+- The Hub aggregates workspace data from all workspaces the user contributes to
 
 ### Role Templates
 
@@ -477,7 +477,7 @@ BatchCorrection {
 
 ### Compliance Workflow (DPP Snapshots)
 
-Compliance creates **immutable DPP snapshots** that capture the Golden Record state:
+Compliance creates **immutable DPP snapshots** that capture the workspace data state:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -945,7 +945,7 @@ model DPPSnapshot {
   marketingVersionId String
   marketingVersion  MarketingVersion @relation("DPPMarketingVersion", fields: [marketingVersionId], references: [id])
 
-  // Full snapshot of Golden Record at issuance
+  // Full snapshot of workspace data at issuance
   snapshotData    Json          // Complete product data at issuance
   snapshotHash    String        // Hash of snapshotData for integrity
 
@@ -1770,7 +1770,7 @@ POST   /api/v1/products/:id/versions/:version/revert  # Revert to version
 
 | Document | Description |
 |----------|-------------|
-| [GOLDEN_RECORD.md](./GOLDEN_RECORD.md) | How workspaces contribute to The Hub |
+| [DPP_CONTENT_PLAN.md](./DPP_CONTENT_PLAN.md) | How workspaces contribute to The Hub |
 | [SELF_SERVICE_ONBOARDING.md](./SELF_SERVICE_ONBOARDING.md) | Onboarding flow and default workspace assignment |
 | [VERIFIABLE_CREDENTIALS.md](./VERIFIABLE_CREDENTIALS.md) | DID hierarchy and VC signing |
 | [MULTI_PARTY_ATTESTATION.md](./MULTI_PARTY_ATTESTATION.md) | Third-party contributor workflow |
