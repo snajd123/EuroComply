@@ -149,28 +149,37 @@ Every paying customer gets the complete platform - **all four workspaces, all fe
 | **Capacity** | **2,000 SKUs** | **20,000 SKUs** | **Unlimited** |
 | **Users** | Unlimited | Unlimited | Unlimited |
 | | | | |
-| **ALL FOUR WORKSPACES** | | | |
-| Design Workspace (Registry, Materials, DAM-Tech) | ✅ Included | ✅ Included | ✅ Included |
-| Operations Workspace (Registry, EPCIS, Inventory) | ✅ Included | ✅ Included | ✅ Included |
-| Marketing Workspace (PIM, DAM-Media, Syndication) | ✅ Included | ✅ Included | ✅ Included |
-| Compliance Workspace (DPP, Attestation) | ✅ Included | ✅ Included | ✅ Included |
+| **DESIGN WORKSPACE (PLM)** | | | |
+| Product Registry (structure, BOMs, versions) | ✅ Included | ✅ Included | ✅ Included |
+| Materials Library (sustainability data) | ✅ Included | ✅ Included | ✅ Included |
+| DAM-Tech (specs, CAD files, test reports) | ✅ Included | ✅ Included | ✅ Included |
+| Version Control & Approval Workflow | ✅ Included | ✅ Included | ✅ Included |
 | | | | |
-| **PIM Features** | | | |
-| Product Families | ✅ Included | ✅ Included | ✅ Included |
-| Variants | ✅ Included | ✅ Included | ✅ Included |
-| Completeness Scoring | ✅ Included | ✅ Included | ✅ Included |
-| Bulk Operations | ✅ Included | ✅ Included | ✅ Included |
-| Export (CSV/JSON) | ✅ Included | ✅ Included | ✅ Included |
-| Audit Log | ✅ Included | ✅ Included | ✅ Included |
+| **OPERATIONS WORKSPACE (ERP-lite)** | | | |
+| EPCIS Integration (read enterprise systems) | ✅ Included | ✅ Included | ✅ Included |
+| Hosted OpenEPCIS (for SMB suppliers) | ✅ Included | ✅ Included | ✅ Included |
+| Lifecycle Event Visualization | ✅ Included | ✅ Included | ✅ Included |
+| Supplier Attestation Requests | ✅ Included | ✅ Included | ✅ Included |
+| Inventory & Orders (Planned) | ✅ Included | ✅ Included | ✅ Included |
 | | | | |
-| **Compliance (DPP)** | | | |
-| DPP Generation | ✅ Included | ✅ Included | ✅ Included |
-| W3C VCs & QR Codes | ✅ Included | ✅ Included | ✅ Included |
+| **MARKETING WORKSPACE (PIM)** | | | |
+| Product Families (attribute schemas) | ✅ Included | ✅ Included | ✅ Included |
+| Variants (parent-child inheritance) | ✅ Included | ✅ Included | ✅ Included |
+| Completeness Scoring (per-channel) | ✅ Included | ✅ Included | ✅ Included |
+| DAM-Media (images, videos, CDN) | ✅ Included | ✅ Included | ✅ Included |
+| Syndication (Shopify sync) | ✅ Included | ✅ Included | ✅ Included |
+| Bulk Operations & Export | ✅ Included | ✅ Included | ✅ Included |
+| | | | |
+| **COMPLIANCE WORKSPACE (DPP)** | | | |
+| DPP Generation & Issuance | ✅ Included | ✅ Included | ✅ Included |
+| W3C Verifiable Credentials | ✅ Included | ✅ Included | ✅ Included |
+| did:key Portable Identity | ✅ Included | ✅ Included | ✅ Included |
+| QR Codes (GS1 Digital Link) | ✅ Included | ✅ Included | ✅ Included |
 | Multi-Party Attestation | ✅ Included | ✅ Included | ✅ Included |
 | Public Verification | ✅ Included | ✅ Included | ✅ Included |
-| Permanent DPP Hosting | ✅ Included | ✅ Included | ✅ Included |
+| Permanent DPP Hosting (10+ years) | ✅ Included | ✅ Included | ✅ Included |
 
-**Workspace Access:** All customers receive all workspaces. Access within an organization is **role-based** - users see workspaces relevant to their role (e.g., a brand manager sees Marketing, a compliance officer sees Compliance). Workspace access is not tier-restricted.
+**Workspace Access:** All customers receive all workspaces. Access within an organization is **role-based** - users see workspaces relevant to their role (e.g., a designer sees Design, a brand manager sees Marketing, a compliance officer sees Compliance). Workspace access is not tier-restricted.
 | | | | |
 | **Automation & AI** | | | |
 | AI Import (Claude) | 100/month | 1,000/month | Custom |
