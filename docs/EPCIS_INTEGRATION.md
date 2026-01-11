@@ -91,6 +91,7 @@ Most SMB manufacturers and suppliers (our primary market) do NOT have:
 |-----------|-------------|
 | ✅ EPCIS Query Client | Read from ANY EPCIS 2.0 repository (SAP, IBM, etc.) |
 | ✅ Hosted OpenEPCIS | Multi-tenant EPCIS for SMB customers/suppliers |
+| ✅ **Auto-Event Generation** | Operations workspace actions → EPCIS events |
 | ✅ Story Builder | Transform JSON → beautiful timelines |
 | ✅ Manual Entry Portal | Simple UI for suppliers without systems |
 | ✅ DPP Lifecycle Display | Public-facing product journey visualization |
@@ -100,6 +101,278 @@ Most SMB manufacturers and suppliers (our primary market) do NOT have:
 - **Enables SMB participation** - Without requiring infrastructure investment
 - **Data sovereignty options** - Enterprise keeps their data, SMB uses ours
 - **Single visualization layer** - Unified view regardless of data source
+
+---
+
+## Auto-Event Generation (Operations Workspace)
+
+### The Key Value Proposition
+
+When users perform actions in the **Operations workspace**, EuroComply **automatically generates EPCIS events** and writes them to the hosted OpenEPCIS. Users don't need to understand EPCIS - they just use the UI, and events are created behind the scenes.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  OPERATIONS WORKSPACE → AUTO EPCIS GENERATION                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  USER ACTION IN OPERATIONS UI                                               │
+│            │                                                                 │
+│            ▼                                                                 │
+│  ┌─────────────────────────────────────────────────────────────────────────┐│
+│  │                    EPCIS EVENT GENERATOR                                 ││
+│  │                                                                          ││
+│  │  • Maps UI actions to EPCIS event types                                 ││
+│  │  • Populates business steps (CBV vocabulary)                            ││
+│  │  • Resolves location GLNs from organization settings                    ││
+│  │  • Adds timestamps and disposition                                       ││
+│  └─────────────────────────────────────────────────────────────────────────┘│
+│            │                                                                 │
+│            ▼                                                                 │
+│  ┌─────────────────────────────────────────────────────────────────────────┐│
+│  │                    HOSTED OPENEPCIS                                      ││
+│  │                    (PostgreSQL multi-tenant)                             ││
+│  └─────────────────────────────────────────────────────────────────────────┘│
+│            │                                                                 │
+│            ▼                                                                 │
+│  ┌─────────────────────────────────────────────────────────────────────────┐│
+│  │                    STORY BUILDER → DPP LIFECYCLE                         ││
+│  │                    (Same pipeline as external EPCIS)                     ││
+│  └─────────────────────────────────────────────────────────────────────────┘│
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Operations Actions → EPCIS Events
+
+| Operations UI Action | EPCIS Event Type | Business Step | Disposition |
+|---------------------|------------------|---------------|-------------|
+| **Create product in Registry** | ObjectEvent (ADD) | commissioning | active |
+| **Create batch/lot** | ObjectEvent (ADD) | commissioning | active |
+| **Assign serial number** | ObjectEvent (ADD) | commissioning | active |
+| **Record goods receipt** | ObjectEvent (OBSERVE) | receiving | sellable_accessible |
+| **Record shipment** | ObjectEvent (OBSERVE) | shipping | in_transit |
+| **Pack items into container** | AggregationEvent (ADD) | packing | - |
+| **Unpack container** | AggregationEvent (DELETE) | unpacking | - |
+| **Record quality inspection** | ObjectEvent (OBSERVE) | inspecting | (pass/fail disposition) |
+| **Mark as damaged** | ObjectEvent (OBSERVE) | inspecting | damaged |
+| **Record repair** | ObjectEvent (OBSERVE) | repairing | active |
+| **Archive/decommission product** | ObjectEvent (DELETE) | decommissioning | inactive |
+
+### Example: User Creates a Batch
+
+**User Action in Operations UI:**
+```
+Dashboard → Operations → Batches → New Batch
+  Product: Organic Cotton T-Shirt (GTIN: 4012345012345)
+  Batch Number: LOT-2026-0042
+  Quantity: 500 units
+  Manufacturing Date: 2026-01-11
+  Location: Berlin Factory
+  [Create Batch]
+```
+
+**Auto-Generated EPCIS Event:**
+```json
+{
+  "type": "ObjectEvent",
+  "eventTime": "2026-01-11T09:30:00.000+01:00",
+  "eventTimeZoneOffset": "+01:00",
+  "epcList": ["urn:epc:id:lgtin:4012345.012345.LOT-2026-0042"],
+  "action": "ADD",
+  "bizStep": "urn:epcglobal:cbv:bizstep:commissioning",
+  "disposition": "urn:epcglobal:cbv:disp:active",
+  "readPoint": "urn:epc:id:sgln:4012345.00001.0",
+  "bizLocation": "urn:epc:id:sgln:4012345.00001.0",
+  "extension": {
+    "quantity": 500,
+    "productId": "prod_xyz123",
+    "createdBy": "user@textilco.de",
+    "source": "eurocomply_operations"
+  }
+}
+```
+
+**User sees in DPP Lifecycle:**
+```
+🏭 Jan 11, 2026 09:30 - MANUFACTURED
+   Location: Berlin Factory
+   Batch: LOT-2026-0042 (500 units)
+```
+
+### Example: User Records a Shipment
+
+**User Action in Operations UI:**
+```
+Dashboard → Operations → Batches → LOT-2026-0042 → Record Shipment
+  Ship To: Munich Distribution Center
+  Carrier: DHL
+  Transport Mode: Road
+  Distance: 450 km
+  [Record Shipment]
+```
+
+**Auto-Generated EPCIS Event:**
+```json
+{
+  "type": "ObjectEvent",
+  "eventTime": "2026-01-12T14:00:00.000+01:00",
+  "eventTimeZoneOffset": "+01:00",
+  "epcList": ["urn:epc:id:lgtin:4012345.012345.LOT-2026-0042"],
+  "action": "OBSERVE",
+  "bizStep": "urn:epcglobal:cbv:bizstep:shipping",
+  "disposition": "urn:epcglobal:cbv:disp:in_transit",
+  "readPoint": "urn:epc:id:sgln:4012345.00001.0",
+  "bizLocation": "urn:epc:id:sgln:4012345.00002.0",
+  "espr": {
+    "transport": {
+      "mode": "road",
+      "distance": 450,
+      "carrier": "DHL"
+    }
+  }
+}
+```
+
+### Implementation: Event Generator Service
+
+```typescript
+// src/services/epcis-event-generator.ts
+
+class EpcisEventGenerator {
+  /**
+   * Generate EPCIS event from Operations workspace action
+   */
+  async generateEvent(
+    action: OperationsAction,
+    context: EventContext
+  ): Promise<EpcisEvent> {
+    const mapping = ACTION_TO_EVENT_MAPPING[action.type];
+
+    const event: EpcisEvent = {
+      type: mapping.eventType,
+      eventTime: new Date().toISOString(),
+      eventTimeZoneOffset: context.timezone,
+      epcList: this.buildEpcList(action),
+      action: mapping.action,
+      bizStep: mapping.bizStep,
+      disposition: mapping.disposition,
+      readPoint: context.locationGln,
+      bizLocation: action.destinationGln || context.locationGln,
+      extension: {
+        source: 'eurocomply_operations',
+        userId: context.userId,
+        actionId: action.id,
+      },
+    };
+
+    // Add transport data if shipping
+    if (action.type === 'SHIPMENT' && action.transport) {
+      event.espr = {
+        transport: {
+          mode: action.transport.mode,
+          distance: action.transport.distance,
+          carrier: action.transport.carrier,
+        },
+      };
+    }
+
+    return event;
+  }
+
+  /**
+   * Write event to hosted OpenEPCIS
+   */
+  async captureEvent(
+    organizationId: string,
+    event: EpcisEvent
+  ): Promise<void> {
+    await this.openEpcisClient.captureEvent(organizationId, event);
+
+    // Also update product's lastEventTime for quick access
+    await this.updateProductEventSummary(event.epcList, event.eventTime);
+  }
+}
+
+const ACTION_TO_EVENT_MAPPING = {
+  CREATE_PRODUCT: {
+    eventType: 'ObjectEvent',
+    action: 'ADD',
+    bizStep: 'urn:epcglobal:cbv:bizstep:commissioning',
+    disposition: 'urn:epcglobal:cbv:disp:active',
+  },
+  CREATE_BATCH: {
+    eventType: 'ObjectEvent',
+    action: 'ADD',
+    bizStep: 'urn:epcglobal:cbv:bizstep:commissioning',
+    disposition: 'urn:epcglobal:cbv:disp:active',
+  },
+  ASSIGN_SERIAL: {
+    eventType: 'ObjectEvent',
+    action: 'ADD',
+    bizStep: 'urn:epcglobal:cbv:bizstep:commissioning',
+    disposition: 'urn:epcglobal:cbv:disp:active',
+  },
+  GOODS_RECEIPT: {
+    eventType: 'ObjectEvent',
+    action: 'OBSERVE',
+    bizStep: 'urn:epcglobal:cbv:bizstep:receiving',
+    disposition: 'urn:epcglobal:cbv:disp:sellable_accessible',
+  },
+  SHIPMENT: {
+    eventType: 'ObjectEvent',
+    action: 'OBSERVE',
+    bizStep: 'urn:epcglobal:cbv:bizstep:shipping',
+    disposition: 'urn:epcglobal:cbv:disp:in_transit',
+  },
+  PACK: {
+    eventType: 'AggregationEvent',
+    action: 'ADD',
+    bizStep: 'urn:epcglobal:cbv:bizstep:packing',
+  },
+  UNPACK: {
+    eventType: 'AggregationEvent',
+    action: 'DELETE',
+    bizStep: 'urn:epcglobal:cbv:bizstep:unpacking',
+  },
+  QUALITY_CHECK: {
+    eventType: 'ObjectEvent',
+    action: 'OBSERVE',
+    bizStep: 'urn:epcglobal:cbv:bizstep:inspecting',
+    // disposition set dynamically based on pass/fail
+  },
+  REPAIR: {
+    eventType: 'ObjectEvent',
+    action: 'OBSERVE',
+    bizStep: 'urn:epcglobal:cbv:bizstep:repairing',
+    disposition: 'urn:epcglobal:cbv:disp:active',
+  },
+  DECOMMISSION: {
+    eventType: 'ObjectEvent',
+    action: 'DELETE',
+    bizStep: 'urn:epcglobal:cbv:bizstep:decommissioning',
+    disposition: 'urn:epcglobal:cbv:disp:inactive',
+  },
+} as const;
+
+export const epcisEventGenerator = new EpcisEventGenerator();
+```
+
+### Workspace Integration Points
+
+| Workspace | Reads EPCIS? | Writes EPCIS? | How? |
+|-----------|-------------|---------------|------|
+| **Design** | No | No | Defines product structure, not lifecycle |
+| **Operations** | Yes (read events) | **Yes (auto-generate)** | UI actions → EPCIS events |
+| **Marketing** | No | No | Commercial content, not supply chain |
+| **Compliance** | Yes (read only) | No | Displays lifecycle in DPP |
+
+### Benefits
+
+1. **Zero EPCIS Knowledge Required** - Users just use the Operations UI
+2. **Automatic Traceability** - Every action creates an audit trail
+3. **Consistent Event Quality** - System generates compliant EPCIS 2.0 JSON-LD
+4. **Unified Timeline** - Auto-generated events merge seamlessly with external EPCIS
+5. **Built-in Carbon Tracking** - Transport events include distance/mode for carbon calculation
 
 ---
 
@@ -1689,15 +1962,26 @@ function sgtinToGtin(sgtin: string): { gtin: string; serial: string } {
 │  ────────────────────────────────                               │
 │  1. READ from enterprise EPCIS (SAP, IBM, TraceLink)            │
 │  2. HOST OpenEPCIS for SMB customers/suppliers                  │
+│  3. AUTO-GENERATE events from Operations workspace              │
 │                                                                  │
 │  WHAT WE BUILD                                                  │
 │  ─────────────                                                  │
 │  • EPCIS 2.0 REST query client (read from any source)           │
 │  • Hosted OpenEPCIS (multi-tenant PostgreSQL)                   │
+│  • Auto-Event Generator (Operations UI → EPCIS events)          │
 │  • Manual entry portal (for suppliers without systems)          │
 │  • Story Builder (JSON → beautiful timelines)                   │
 │  • Carbon footprint aggregation                                 │
 │  • GLN → location name resolution                               │
+│                                                                  │
+│  OPERATIONS WORKSPACE AUTO-GENERATION                           │
+│  ────────────────────────────────────                           │
+│  User actions in Operations automatically create EPCIS events:  │
+│  • Create batch → ObjectEvent (commissioning)                   │
+│  • Record shipment → ObjectEvent (shipping)                     │
+│  • Goods receipt → ObjectEvent (receiving)                      │
+│  • Pack/unpack → AggregationEvent                               │
+│  • Quality check → ObjectEvent (inspecting)                     │
 │                                                                  │
 │  INFRASTRUCTURE (YEAR 1-2)                                      │
 │  ─────────────────────────                                      │
@@ -1706,19 +1990,20 @@ function sgtinToGtin(sgtin: string): { gtin: string; serial: string } {
 │  • ~$500/month for managed Postgres                             │
 │  • Add cold tier when >500GB                                    │
 │                                                                  │
-│  COMPATIBLE WITH                                                │
-│  ───────────────                                                │
-│  External:     │  Hosted:                                       │
-│  • SAP EPCIS   │  • Manual entry portal                         │
-│  • IBM Sterling│  • ERP webhook integrations                    │
-│  • TraceLink   │  • CSV/Excel upload                            │
-│  • GS1 Cloud   │  • API push from partner systems               │
+│  EVENT SOURCES                                                  │
+│  ─────────────                                                  │
+│  External:       │  Internal (Hosted OpenEPCIS):                │
+│  • SAP EPCIS     │  • Operations workspace (auto)               │
+│  • IBM Sterling  │  • Manual entry portal                       │
+│  • TraceLink     │  • ERP webhook integrations                  │
+│  • GS1 Cloud     │  • CSV/Excel upload                          │
 │                                                                  │
 │  OUR VALUE PROPOSITION                                          │
 │  ──────────────────────                                         │
 │  "Complete EPCIS solution for any customer size"                │
 │  • Enterprise: Connect to your existing infrastructure          │
-│  • SMB: We host everything, just enter your events              │
+│  • SMB: Just use Operations workspace - we generate events      │
+│  • Zero EPCIS knowledge required                                │
 │  • Unified visualization regardless of data source              │
 │  • Beautiful timeline in DPP pages                              │
 │                                                                  │
@@ -1755,4 +2040,4 @@ function sgtinToGtin(sgtin: string): { gtin: string; serial: string } {
 
 ---
 
-*Last Updated: January 11, 2026*
+*Last Updated: 2026-01-11*
