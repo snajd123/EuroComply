@@ -1,5 +1,21 @@
 # The Golden Record
 
+> **⚠️ DEPRECATED TERMINOLOGY**
+>
+> This document uses the legacy term "Golden Record". The concept remains valid but the terminology has been updated to **"workspace-based data model"** to better reflect the architecture.
+>
+> **Updated documentation:**
+> - [USER_MANAGEMENT.md](./USER_MANAGEMENT.md) - Workspace-based access control and data ownership
+> - [DPP_CONTENT_PLAN.md](./DPP_CONTENT_PLAN.md) - How workspace data flows into DPPs
+> - [PASSPORT_TRUST_MODEL.md](./PASSPORT_TRUST_MODEL.md) - Trust model with workspace data
+>
+> **Key changes:**
+> - "Golden Record" → "workspace data"
+> - "Single source of truth" → "central database (The Hub)"
+> - Product = identity only (SKU, GTIN) + links to workspace versions
+
+---
+
 ## What is a Golden Record?
 
 The **Golden Record** is a Master Data Management (MDM) concept representing the single, authoritative version of a data entity. In EuroComply, each product has exactly one Golden Record in The Hub - the unified, always-synchronized source of truth that combines data from all workspaces.
