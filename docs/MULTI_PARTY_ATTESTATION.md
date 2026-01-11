@@ -4,12 +4,24 @@
 
 Multi-Party Attestation enables EuroComply customers to request product data from third parties (manufacturers, certifiers, labs, suppliers, etc.) and have that data cryptographically signed by the contributor. Each attestation becomes a Verifiable Credential linked to the product's DPP, creating a complete chain of trust and traceability.
 
+### Available in ALL Workspaces
+
+Attestation is a cross-cutting feature available in **all four EuroComply workspaces**, with different use cases for each:
+
+| Workspace | Attestation Use Cases | Typical Contributors |
+|-----------|----------------------|---------------------|
+| **Design** | Material certifications, component specs, lab test results | Material suppliers, testing labs |
+| **Operations** | Supplier audits, factory certifications, transport emissions | Suppliers, auditors, logistics providers |
+| **Marketing** | Brand claim verifications, sustainability certifications | Certification bodies, NGOs |
+| **Compliance** | Regulatory certifications, third-party compliance audits | Certification bodies, auditors |
+
 ### Key Principles
 
 1. **Any data field can be attested** - Not limited to certifications; contributors can attest materials, carbon footprint, manufacturing details, or any product attribute
 2. **Linked Verifiable Credentials** - Each attestation is its own VC, referenced by the DPP
 3. **Full traceability** - Every data point shows who attested it and when
 4. **Customer responsibility** - EuroComply does not validate attestation accuracy; customers are responsible for trusting their contributors
+5. **Cross-workspace visibility** - Attestations created in any workspace are visible and usable in all others (data flows to the Hub)
 
 ---
 

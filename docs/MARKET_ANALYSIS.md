@@ -2,7 +2,20 @@
 
 ## Executive Summary
 
-The EU DPP market presents a "blue ocean" opportunity in the SME segment. While enterprise players (SAP, Siemens) fight for the top 1%, **99% of EU businesses have no affordable compliance solution**. EuroComply fills this gap with a Compliance-First Product Information Management (PIM) platform where users can review and issue Digital Product Passports when product data is complete.
+The EU DPP market presents a "blue ocean" opportunity in the SME segment. While enterprise players (SAP, Siemens) fight for the top 1%, **99% of EU businesses have no affordable compliance solution**. EuroComply fills this gap with a unified platform: **one platform, four workspaces** (Design, Operations, Marketing, Compliance) - all backed by shared data.
+
+### The Convergence Opportunity
+
+SMEs today piece together multiple tools for product lifecycle management:
+
+| Function | Typical Point Solution | Monthly Cost |
+|----------|----------------------|--------------|
+| Design/Materials | Entry-level PLM or spreadsheets | €500-2,000 |
+| Inventory/Orders | Basic ERP or spreadsheets | €200-1,000 |
+| Product Content | Entry-level PIM | €300-1,500 |
+| Compliance/DPP | Consultants or manual | €5,000-20,000 one-time |
+
+**EuroComply unifies all four for €129-399/month.** This is the "TurboTax for product lifecycle management" - self-service, affordable, and compliant.
 
 ---
 
@@ -98,6 +111,39 @@ Current solutions are either "too complex" or "too simple" for SMEs:
 | Target market | Fortune 500 | Mid-size brands | **SMEs (99%)** |
 | Price | €100k+ | €10k+/year | **€129-399/month** |
 | Sales model | Enterprise sales | Demo required | **Self-service** |
+
+### The Workspace Advantage
+
+Instead of buying and integrating multiple tools, EuroComply provides **four purpose-built workspaces** in one platform:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    EUROCOMPLY: ONE PLATFORM, FOUR WORKSPACES                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐│
+│  │   DESIGN    │  │ OPERATIONS  │  │  MARKETING  │  │    COMPLIANCE       ││
+│  │  (PLM-lite) │  │ (ERP-lite)  │  │ (PIM-lite)  │  │    (DPP-core)       ││
+│  │             │  │             │  │             │  │                     ││
+│  │ For: R&D,   │  │ For: Supply │  │ For: Brand  │  │ For: Compliance     ││
+│  │ designers   │  │ chain, ops  │  │ managers    │  │ officers, QA        ││
+│  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────────────┘│
+│                                                                              │
+│                           ↓ ALL SHARE THE SAME DATA ↓                       │
+│                                                                              │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │                        THE HUB (Golden Record)                         │  │
+│  │   Products • Materials • Suppliers • Certifications • Compliance       │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Key differentiators:**
+- **No data silos:** Changes in Design appear instantly in Compliance
+- **No integration work:** One platform, one login, one database
+- **Role-based access:** Each user sees the workspace relevant to their role
+- **All workspaces included:** No premium tiers, no feature unlocks
 | Setup time | Months | Weeks | **Same day** |
 | IT team needed | Yes | Usually | **No** |
 | Data import | ERP connectors | Manual/CSV | **AI-powered (any format)** |

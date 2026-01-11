@@ -8,6 +8,19 @@ The key differentiator from enterprise competitors (SAP, Siemens) is **self-serv
 - Same-day compliance
 - No IT team needed
 - AI-powered data import from any file format
+- Role-based workspace access from day one
+
+### Workspace-Based Onboarding
+
+EuroComply provides **four workspaces** tailored to different personas. During onboarding, users are guided to the workspace most relevant to their role:
+
+| Organization Type | Default Workspace | Typical First Action |
+|-------------------|-------------------|---------------------|
+| **Brand** | Marketing | Import product catalog |
+| **Manufacturer** | Design or Operations | Set up materials/suppliers |
+| **Distributor** | Marketing or Compliance | Import products, issue DPPs |
+
+All workspaces are available to all users - defaults simply guide the first experience.
 
 ---
 
@@ -72,6 +85,21 @@ The key differentiator from enterprise competitors (SAP, Siemens) is **self-serv
 │  │ • VAT handled automatically (Stripe Tax)                        ││
 │  │ → Subscription active immediately                               ││
 │  │ → FULL ACCESS GRANTED - ready to use EuroComply                 ││
+│  └─────────────────────────────────────────────────────────────────┘│
+│                              │                                      │
+│                              ▼                                      │
+│  STEP 4.5: WORKSPACE INTRODUCTION (1 min)                          │
+│  ┌─────────────────────────────────────────────────────────────────┐│
+│  │ "What would you like to do first?"                              ││
+│  │                                                                  ││
+│  │ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐││
+│  │ │   Design    │ │ Operations  │ │  Marketing  │ │ Compliance  │││
+│  │ │  Set up     │ │  Manage     │ │  Import     │ │  Issue      │││
+│  │ │  materials  │ │  suppliers  │ │  products   │ │  DPPs       │││
+│  │ └─────────────┘ └─────────────┘ └─────────────┘ └─────────────┘││
+│  │                                                                  ││
+│  │ → Guides user to appropriate workspace                          ││
+│  │ → All workspaces remain accessible via workspace switcher       ││
 │  └─────────────────────────────────────────────────────────────────┘│
 │                              │                                      │
 │                              ▼                                      │
@@ -245,8 +273,11 @@ model Organization {
   // DID identity
   did                   String?
 
-  // Enabled modules
-  enabledModules        String[]  // ["core", "compliance", "pim", "dam", "import", "syndication"]
+  // Enabled modules (backend capabilities)
+  enabledModules        String[]  // ["core", "compliance", "pim", "dam", "import", "syndication", "epcis", "attestation"]
+
+  // Default workspace (based on org type during onboarding)
+  defaultWorkspace      Workspace @default(MARKETING)
 
   // Relations
   products              Product[]
@@ -254,6 +285,14 @@ model Organization {
 
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
+}
+
+// Workspace enum - all customers get all workspaces
+enum Workspace {
+  DESIGN       // PLM-lite: BOMs, materials, revisions
+  OPERATIONS   // ERP-lite: inventory, orders, suppliers
+  MARKETING    // PIM-lite: content, assets, channels
+  COMPLIANCE   // DPP-core: issuance, certifications, audits
 }
 
 model Subscription {

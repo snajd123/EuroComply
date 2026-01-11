@@ -2,7 +2,9 @@
 
 **Compliance-First Product Information Management for EU Regulations**
 
-EuroComply is a Product Information Management (PIM) platform with Digital Product Passports (DPP) as a core capability. Built for brands, manufacturers, and distributors who need to manage product data and comply with EU ESPR regulations.
+EuroComply is a unified platform for product lifecycle management and EU regulatory compliance. Built for brands, manufacturers, and distributors who need to manage product data, track supply chains, and comply with EU ESPR regulations.
+
+**One platform, four workspaces** - each persona gets a purpose-built interface backed by shared data.
 
 ---
 
@@ -10,50 +12,117 @@ EuroComply is a Product Information Management (PIM) platform with Digital Produ
 
 EuroComply unifies product data management and regulatory compliance into a single platform. Instead of treating compliance as an afterthought, the platform architects data structures where regulatory validity is intrinsic to the product record.
 
-### Core Concept: The Golden Record
+### The Workspace Architecture
 
-Every product has a single "Golden Record" containing both commercial attributes and compliance data:
+Different roles need different views of the same data. EuroComply provides **four specialized workspaces**, each tailored to a specific persona:
+
+| Workspace | Persona | Focus |
+|-----------|---------|-------|
+| **Design** | Product Designers, R&D | BOMs, material specs, revision control |
+| **Operations** | Supply Chain, Procurement | Inventory, orders, supplier management |
+| **Marketing** | Brand Managers, E-commerce | Product content, images, channel syndication |
+| **Compliance** | Compliance Officers, QA | DPP issuance, certifications, audits |
+
+All workspaces read from and write to the same **Hub** - the central source of truth. Changes in one workspace are immediately visible in others.
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                      GOLDEN RECORD                               │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  COMMERCIAL DATA              COMPLIANCE DATA                   │
-│  ├── Name, Description        ├── Material Composition          │
-│  ├── SKU, GTIN                ├── Carbon Footprint              │
-│  ├── Price, Currency          ├── Certifications                │
-│  ├── Images, Media            ├── Country of Origin             │
-│  └── Variants                 └── Care Instructions             │
-│                                                                  │
-│                        ↓                                         │
-│              ┌─────────────────┐                                │
-│              │ DPP Ready List  │ Review and approve for issue   │
-│              └────────┬────────┘                                │
-│                       ↓                                         │
-│              ┌─────────────────┐                                │
-│              │ Shopify Sync    │ Product syndication            │
-│              └─────────────────┘                                │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        WORKSPACE LAYER                                   │
+├──────────────┬──────────────┬──────────────┬──────────────────────────┤
+│   DESIGN     │  OPERATIONS  │  MARKETING   │       COMPLIANCE          │
+│  (PLM-lite)  │  (ERP-lite)  │  (PIM-lite)  │       (DPP-core)         │
+│              │              │              │                           │
+│ • BOMs       │ • Inventory  │ • Content    │ • DPP Issuance           │
+│ • Materials  │ • Orders     │ • Images     │ • Certifications         │
+│ • Revisions  │ • Suppliers  │ • Channels   │ • Attestations           │
+└──────┬───────┴──────┬───────┴──────┬───────┴───────────┬───────────────┘
+       │              │              │                   │
+       └──────────────┴──────────────┴───────────────────┘
+                              │
+                              ▼
+       ┌─────────────────────────────────────────────────────────────────┐
+       │                         THE HUB                                  │
+       │              (Central Data Model - Single Truth)                 │
+       │                                                                  │
+       │   Products • Variants • Materials • Suppliers • Certifications  │
+       └─────────────────────────────────────────────────────────────────┘
 ```
+
+**Workspace access is role-based.** All customers receive all workspaces - differentiation is based on catalog capacity, not features. Users see the workspaces relevant to their role (e.g., a Distributor may not need the Design workspace).
+
+### Core Concept: The Hub (Golden Record)
+
+At the center of EuroComply is **The Hub** - every product has a single "Golden Record" containing all data across workspaces:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           THE HUB (Golden Record)                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  DESIGN DATA              OPERATIONS DATA           MARKETING DATA          │
+│  ├── Bill of Materials    ├── Inventory Levels      ├── Product Name        │
+│  ├── Material Specs       ├── Supplier Info         ├── Description         │
+│  ├── Revision History     ├── Batch/Lot Numbers     ├── Images, Media       │
+│  └── Component Sources    └── Purchase Orders       └── Pricing             │
+│                                                                              │
+│  COMPLIANCE DATA                                                             │
+│  ├── Material Composition    ├── Carbon Footprint    ├── Certifications     │
+│  ├── Country of Origin       ├── Care Instructions   └── Third-Party Attest │
+│                                                                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                          WORKSPACE PROJECTIONS                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐ │
+│  │ Design View │  │ Ops View    │  │ Marketing   │  │ Compliance View     │ │
+│  │ BOM Editor  │  │ Inventory   │  │ PIM Grid    │  │ DPP Ready List      │ │
+│  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────────────┘ │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+Each workspace provides a **filtered, optimized view** of the Hub data relevant to that persona. Edit in any workspace - the Hub stays synchronized.
 
 ---
 
 ## Platform Modules
 
-EuroComply uses a modular architecture. Organizations enable the modules they need:
+EuroComply uses a modular architecture. Modules are the backend capabilities that power the workspaces:
 
-| Module | Description | Depends On |
-|--------|-------------|------------|
-| **Core** | Authentication, organizations, billing | - |
-| **Compliance** | DPP generation, walt.id credentials, lifecycle tracking | Core |
-| **EPCIS** | Supply chain events, carbon tracking, IoT sensor data | Core, Compliance |
-| **Attestation** | Third-party data contributions with cryptographic signatures | Core, Compliance |
-| **PIM** | Product families, variants, completeness scoring | Core |
-| **DAM** | Digital asset management, image optimization | Core |
-| **Import** | AI-powered data import from any format | Core, PIM |
-| **Syndication** | Shopify integration, channel publishing | Core, PIM |
+| Module | Description | Primary Workspace(s) |
+|--------|-------------|---------------------|
+| **Core** | Authentication, organizations, billing | All |
+| **Compliance** | DPP generation, walt.id credentials, lifecycle tracking | Compliance |
+| **EPCIS** | Supply chain events, carbon tracking, lifecycle visualization | Operations, Compliance |
+| **Attestation** | Third-party data contributions with cryptographic signatures | All (different datapoints) |
+| **PIM** | Product families, variants, completeness scoring | Marketing, Design |
+| **DAM** | Digital asset management, image optimization | Marketing, Design |
+| **Import** | AI-powered data import from any format | All |
+| **Syndication** | Shopify integration, channel publishing | Marketing |
+
+### Workspace → Module Mapping
+
+```
+┌────────────────────────────────────────────────────────────────────────────┐
+│                         FRONTEND: WORKSPACES                               │
+├───────────────┬───────────────┬───────────────┬────────────────────────────┤
+│    Design     │  Operations   │   Marketing   │        Compliance          │
+│               │               │               │                            │
+│ Uses:         │ Uses:         │ Uses:         │ Uses:                      │
+│ • PIM         │ • EPCIS       │ • PIM         │ • Compliance               │
+│ • DAM         │ • Attestation │ • DAM         │ • EPCIS                    │
+│ • Attestation │ • Import      │ • Syndication │ • Attestation              │
+│ • Import      │               │ • Import      │                            │
+└───────────────┴───────────────┴───────────────┴────────────────────────────┘
+                                    │
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────────┐
+│                         BACKEND: MODULES                                    │
+│  Core │ PIM │ DAM │ Compliance │ EPCIS │ Attestation │ Import │ Syndication│
+└────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Note:** Multi-Party Attestation is available in ALL workspaces - different personas request attestations for different datapoints (Design: material certs, Operations: supplier audits, Marketing: brand claims, Compliance: regulatory certifications).
 
 ### Volume-Based Pricing
 
@@ -65,9 +134,81 @@ All customers receive full platform access. Tier differentiation is based solely
 | **Scale** | €399 | €3,990/yr | 20,000 | 1,000/mo | High Limits | Priority |
 | **Enterprise** | Custom | Custom | Unlimited | Custom | Custom | Dedicated + SLA |
 
-**Included in all plans:** Full PIM (Families, Variants, Completeness), Full Compliance (DPP, VCs, QR, Attestation), Shopify Sync, API Access, Unlimited Users, Permanent DPP Hosting.
+**Included in all plans:** All four workspaces, full module access, Shopify Sync, API Access, Unlimited Users, Permanent DPP Hosting.
 
 **Volume Overages:** €10 per 100 additional SKUs beyond plan limits.
+
+---
+
+## Workspace Details
+
+### Design Workspace (PLM-lite)
+
+For product designers, R&D teams, and technical managers. Focused on product composition and specifications.
+
+| Feature | Description |
+|---------|-------------|
+| **Bill of Materials** | Define product components, sub-assemblies, and raw materials |
+| **Material Specifications** | Technical specs, tolerances, supplier requirements |
+| **Revision Control** | Version history with approval workflows |
+| **Component Sourcing** | Link materials to suppliers, track alternatives |
+| **Attestation Requests** | Request material certifications from suppliers |
+
+**UI Aesthetic:** Technical, data-dense, document-centric
+
+---
+
+### Operations Workspace (ERP-lite)
+
+For supply chain managers, procurement, and warehouse teams. Focused on inventory and supplier management.
+
+| Feature | Description |
+|---------|-------------|
+| **Inventory Tracking** | Stock levels, locations, reorder points |
+| **Batch/Lot Management** | Traceability for recalls and quality control |
+| **Simple Purchase Orders** | Basic PO creation and tracking |
+| **Supplier Management** | Supplier profiles, certifications, performance |
+| **EPCIS Events** | Supply chain event visualization and carbon tracking |
+| **Attestation Requests** | Request supplier audits, factory certifications |
+
+**UI Aesthetic:** Operational dashboards, status indicators, alerts
+
+**Note:** This is ERP-*lite* - inventory and procurement basics. Not full accounting, no GL, no payroll.
+
+---
+
+### Marketing Workspace (PIM-lite)
+
+For brand managers, e-commerce teams, and content creators. Focused on product content and syndication.
+
+| Feature | Description |
+|---------|-------------|
+| **Product Grid** | AG Grid spreadsheet-style product management |
+| **Content Management** | Names, descriptions, marketing copy |
+| **Digital Assets** | Image management, galleries, videos |
+| **Channel Syndication** | Shopify sync, marketplace publishing |
+| **Completeness Scoring** | Per-channel readiness indicators |
+| **Attestation Requests** | Request brand claim verifications |
+
+**UI Aesthetic:** Visual, content-rich, media-focused
+
+---
+
+### Compliance Workspace (DPP-core)
+
+For compliance officers, quality assurance, and regulatory teams. The core DPP issuance workflow.
+
+| Feature | Description |
+|---------|-------------|
+| **DPP Ready List** | Products at 100% compliance completeness |
+| **Review & Approve** | Manual review before DPP issuance |
+| **Verifiable Credentials** | W3C VC generation with did:key signing |
+| **QR Code Generation** | GS1 Digital Link compatible codes |
+| **Lifecycle Tracking** | EPCIS event timelines on DPP pages |
+| **Attestation Management** | Third-party certifications, lab results |
+| **Audit Trail** | Complete history of compliance actions |
+
+**UI Aesthetic:** Clean, checklist-driven, audit-focused
 
 ---
 
@@ -82,7 +223,7 @@ Users can import product data from any format. The AI extracts, maps, and valida
 - **Data enrichment**: Auto-fill missing fields based on product type
 - **Validation**: Schema validation and compliance pre-checks
 
-### Product Information Management
+### Product Information Management (Marketing & Design Workspaces)
 
 - **Product Families**: Define attribute schemas per product type
 - **Industry Templates**: Start from pre-built templates (ESPR Textiles, Electronics, Food & Beverage, etc.) or build from scratch
@@ -95,7 +236,7 @@ Users can import product data from any format. The AI extracts, maps, and valida
 - **Export**: Download product data as CSV, Excel, or JSON
 - **Audit Log**: Track who changed what, when - essential for compliance
 
-### Digital Product Passports
+### Digital Product Passports (Compliance Workspace)
 
 - **DPP Ready Products**: Products appear in approval queue when completeness reaches 100%
 - **Manual Review & Issue**: Review product data before issuing DPP
@@ -103,7 +244,7 @@ Users can import product data from any format. The AI extracts, maps, and valida
 - **Portable**: Organizations own their credentials, can export anytime
 - **QR Codes**: GS1 Digital Link compatible
 
-### Supply Chain Lifecycle Tracking (EPCIS 2.0)
+### Supply Chain Lifecycle Tracking (Operations & Compliance Workspaces)
 
 Track the complete journey of every product with GS1 EPCIS 2.0 integration. EuroComply acts as a **reader/visualizer** - we query events from customer/supplier EPCIS repositories and transform them into beautiful timelines:
 
@@ -154,9 +295,18 @@ Track the complete journey of every product with GS1 EPCIS 2.0 integration. Euro
 
 See [EPCIS_INTEGRATION.md](docs/EPCIS_INTEGRATION.md) for full documentation.
 
-### Multi-Party Attestation
+### Multi-Party Attestation (All Workspaces)
 
-Request and receive product data from third parties (manufacturers, certifiers, labs, suppliers) with cryptographic proof of origin:
+Request and receive product data from third parties (manufacturers, certifiers, labs, suppliers) with cryptographic proof of origin. **Available in all four workspaces** for different datapoints:
+
+| Workspace | Attestation Use Cases |
+|-----------|----------------------|
+| **Design** | Material certifications, component specs, lab test results |
+| **Operations** | Supplier audits, factory certifications, transport emissions |
+| **Marketing** | Brand claim verifications, sustainability certifications |
+| **Compliance** | Regulatory certifications, third-party compliance audits |
+
+**Core Capabilities:**
 
 - **Data Requests**: Invite third parties via email to contribute specific product data
 - **Contributor Portal**: Third parties sign up, get their own did:key, and contribute data
@@ -171,18 +321,18 @@ Request and receive product data from third parties (manufacturers, certifiers, 
 │                    ATTESTATION FLOW                              │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  CUSTOMER                    CONTRIBUTOR                         │
-│  ─────────                   ───────────                        │
+│  CUSTOMER (any workspace)   CONTRIBUTOR                         │
+│  ─────────────────────      ───────────                        │
 │  1. Request data ──────────► 2. Receive email invitation        │
 │                              3. Sign up (get did:key)           │
 │  6. Review & approve ◄────── 4. Enter data                      │
-│  7. Issue DPP with           5. Sign with DID                   │
-│     linked attestations                                          │
+│  7. Data linked to Hub       5. Sign with DID                   │
+│     (visible across workspaces)                                 │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### E-commerce Syndication
+### E-commerce Syndication (Marketing Workspace)
 
 - **Shopify Integration**: Sync products, variants, and DPP metadata
 - **Rate-Limited Sync**: Respectful of API limits with queue-based processing

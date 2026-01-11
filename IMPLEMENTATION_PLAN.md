@@ -6,11 +6,43 @@
 
 ## 1. Executive Summary
 
-EuroComply is a Compliance-First Product Information Management (PIM) platform with Digital Product Passports (DPP) as a core capability. The platform provides tools for managing product data, generating EU ESPR-compliant DPPs, and syndicating products to e-commerce channels.
+EuroComply is a unified platform for product lifecycle management and EU regulatory compliance. The platform provides tools for managing product data, tracking supply chains, generating EU ESPR-compliant Digital Product Passports (DPPs), and syndicating products to e-commerce channels.
 
-### Core Concept
+**One platform, four workspaces** - each persona gets a purpose-built interface backed by shared data.
 
-The **Golden Record** - a unified product model containing both commercial attributes (name, price, images) and compliance data (materials, certifications, carbon footprint). Products appear in the DPP Ready list when completeness reaches 100%, and users manually review and approve issuance.
+### Core Concept: The Hub + Workspaces
+
+At the center is **The Hub** (Golden Record) - a unified product model containing all data across workspaces: design specs, operations data, marketing content, and compliance information.
+
+Four **Workspaces** provide persona-specific views of Hub data:
+
+| Workspace | Persona | Focus |
+|-----------|---------|-------|
+| **Design** | Product Designers, R&D | BOMs, material specs, revision control |
+| **Operations** | Supply Chain, Procurement | Inventory, orders, supplier management |
+| **Marketing** | Brand Managers, E-commerce | Product content, images, channel syndication |
+| **Compliance** | Compliance Officers, QA | DPP issuance, certifications, audits |
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        WORKSPACE LAYER (Frontend)                        │
+├──────────────┬──────────────┬──────────────┬──────────────────────────┤
+│   DESIGN     │  OPERATIONS  │  MARKETING   │       COMPLIANCE          │
+│  (PLM-lite)  │  (ERP-lite)  │  (PIM-lite)  │       (DPP-core)         │
+└──────────────┴──────────────┴──────────────┴──────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    THE HUB (Central Data Model)                          │
+│   Products • Variants • Materials • Suppliers • Certifications • BOMs   │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+**Key Principles:**
+- All customers receive all workspaces (no tier-based restrictions)
+- Workspace access is role-based (users see workspaces relevant to their role)
+- Edit in any workspace - the Hub stays synchronized
+- Each workspace has distinct UI/UX optimized for its persona
 
 ### Target Market
 
@@ -89,43 +121,75 @@ The **Golden Record** - a unified product model containing both commercial attri
 
 ## 3. System Architecture
 
-### Modular Platform Design
+### Workspace + Module Architecture
+
+EuroComply uses a layered architecture: **Workspaces** (frontend) sit on top of **Modules** (backend), both accessing **The Hub** (data layer).
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                         EUROCOMPLY PLATFORM                          │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│  ┌──────────────────────────────────────────────────────────────┐   │
-│  │                         CORE MODULE                           │   │
-│  │  • Authentication (JWT, API Keys)                            │   │
-│  │  • Organization management                                    │   │
-│  │  • Billing (Stripe)                                          │   │
-│  │  • Basic Product CRUD                                        │   │
-│  └──────────────────────────────────────────────────────────────┘   │
-│         │                                                            │
-│         ├─────────────────┬─────────────────┬─────────────────┐     │
-│         ▼                 ▼                 ▼                 ▼     │
-│  ┌─────────────┐   ┌─────────────┐   ┌─────────────┐   ┌──────────┐│
-│  │ COMPLIANCE  │   │     PIM     │   │     DAM     │   │  IMPORT  ││
-│  │             │   │             │   │             │   │          ││
-│  │ • Passports │   │ • Families  │   │ • Assets    │   │ • AI     ││
-│  │ • walt.id   │   │ • Variants  │   │ • S3/CDN    │   │ • CSV    ││
-│  │ • Lifecycle │   │ • Scoring   │   │ • Transform │   │ • PDF    ││
-│  │ • QR codes  │   │ • Pricing   │   │ • Roles     │   │ • Excel  ││
-│  └─────────────┘   └──────┬──────┘   └─────────────┘   └──────────┘│
-│                           │                                         │
-│                           ▼                                         │
-│                    ┌─────────────┐                                  │
-│                    │ SYNDICATION │                                  │
-│                    │             │                                  │
-│                    │ • Shopify   │                                  │
-│                    │ • BullMQ    │                                  │
-│                    │ • Rate limit│                                  │
-│                    └─────────────┘                                  │
-│                                                                      │
-└─────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         EUROCOMPLY PLATFORM                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │                      WORKSPACE LAYER (Frontend)                        │  │
+│  ├───────────────┬───────────────┬───────────────┬───────────────────────┤  │
+│  │    DESIGN     │   OPERATIONS  │   MARKETING   │      COMPLIANCE       │  │
+│  │   (PLM-lite)  │   (ERP-lite)  │   (PIM-lite)  │      (DPP-core)       │  │
+│  │               │               │               │                       │  │
+│  │ • BOM Editor  │ • Inventory   │ • Product Grid│ • DPP Ready List      │  │
+│  │ • Material UI │ • Orders      │ • DAM Gallery │ • Review & Approve    │  │
+│  │ • Revisions   │ • Suppliers   │ • Syndication │ • VC Issuance         │  │
+│  └───────────────┴───────────────┴───────────────┴───────────────────────┘  │
+│                                    │                                         │
+│                                    ▼                                         │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │                       MODULE LAYER (Backend API)                       │  │
+│  ├─────────────────────────────────────────────────────────────────────────┤  │
+│  │                                                                         │  │
+│  │  ┌────────────────────────────────────────────────────────────────┐    │  │
+│  │  │                         CORE MODULE                             │    │  │
+│  │  │  • Authentication (JWT, API Keys)  • Billing (Stripe)          │    │  │
+│  │  │  • Organization management         • User roles                 │    │  │
+│  │  └────────────────────────────────────────────────────────────────┘    │  │
+│  │         │                                                               │  │
+│  │         ├──────────┬──────────┬──────────┬──────────┬──────────┐       │  │
+│  │         ▼          ▼          ▼          ▼          ▼          ▼       │  │
+│  │  ┌──────────┐┌──────────┐┌──────────┐┌──────────┐┌──────────┐┌───────┐ │  │
+│  │  │COMPLIANCE││   PIM    ││   DAM    ││  EPCIS   ││ATTESTATN ││IMPORT │ │  │
+│  │  │• DPPs    ││• Families││• Assets  ││• Events  ││• Requests││• AI   │ │  │
+│  │  │• VCs     ││• Variants││• S3/CDN  ││• Carbon  ││• VCs     ││• CSV  │ │  │
+│  │  │• QR      ││• Scoring ││• Images  ││• Timeline││• Review  ││• PDF  │ │  │
+│  │  └──────────┘└────┬─────┘└──────────┘└──────────┘└──────────┘└───────┘ │  │
+│  │                   │                                                     │  │
+│  │                   ▼                                                     │  │
+│  │            ┌─────────────┐                                              │  │
+│  │            │ SYNDICATION │                                              │  │
+│  │            │ • Shopify   │                                              │  │
+│  │            └─────────────┘                                              │  │
+│  │                                                                         │  │
+│  └─────────────────────────────────────────────────────────────────────────┘  │
+│                                    │                                         │
+│                                    ▼                                         │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │                       THE HUB (Data Layer)                             │  │
+│  │  Products • Variants • Materials • Suppliers • BOMs • Certifications   │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+### Workspace → Module Mapping
+
+Each workspace uses specific modules to power its functionality:
+
+| Workspace | Primary Modules | Key Features |
+|-----------|----------------|--------------|
+| **Design** | PIM, DAM, Attestation, Import | BOMs, material specs, revision control |
+| **Operations** | EPCIS, Attestation, Import | Inventory, orders, supplier management |
+| **Marketing** | PIM, DAM, Syndication, Import | Product content, images, Shopify sync |
+| **Compliance** | Compliance, EPCIS, Attestation | DPP issuance, lifecycle, certifications |
+
+**Note:** Attestation module is available in ALL workspaces for different datapoints (material certs, supplier audits, brand claims, regulatory certifications).
 
 ### Module Dependencies
 
@@ -133,13 +197,19 @@ The **Golden Record** - a unified product model containing both commercial attri
 CORE ─────────────────► Required by all modules
 
 COMPLIANCE ───────────► Requires: CORE
-                        Optional: PIM (enhances product data)
+                        Optional: PIM, EPCIS, ATTESTATION
 
 PIM ──────────────────► Requires: CORE
                         Optional: DAM, IMPORT
 
 DAM ──────────────────► Requires: CORE
                         Works with: PIM, COMPLIANCE
+
+EPCIS ────────────────► Requires: CORE
+                        Works with: COMPLIANCE
+
+ATTESTATION ──────────► Requires: CORE
+                        Works with: ALL WORKSPACES
 
 IMPORT ───────────────► Requires: CORE, PIM
 
@@ -425,23 +495,45 @@ router.use('/syndication', requireModule('syndication'), syndicationRoutes);
 
 ### Phase Overview
 
-Each phase is a **full-stack vertical slice** - backend, frontend, and tests together. This enables demo-able progress and early feedback.
+Each phase is a **full-stack vertical slice** - backend, frontend (workspace UI), and tests together. This enables demo-able progress and early feedback.
+
+**Key Principle:** Workspaces are built incrementally within each phase. Each phase delivers testable workspace functionality, not just backend APIs.
 
 ```
-Phase 1: Core + Schema      ──► Foundation for everything
-Phase 2: PIM + DAM          ──► Product management (main UI)
-Phase 3: Import Engine      ──► Data onboarding
-Phase 4: Compliance         ──► DPP workflow
-Phase 5: Attestation        ──► Third-party contributions (tightly coupled with Phase 4)
-Phase 6: Syndication        ──► Shopify integration
+Phase 1: Core + Schema      ──► Foundation + Workspace shell/navigation
+Phase 2: PIM + DAM          ──► Marketing Workspace (core features)
+Phase 3: Import Engine      ──► Import in Marketing + Design Workspaces
+Phase 4: Compliance + EPCIS ──► Compliance Workspace + Operations (EPCIS)
+Phase 5: Attestation        ──► Attestation across ALL workspaces
+Phase 6: Syndication        ──► Marketing Workspace (channel sync)
 Phase 7: Retailer Access    ──► Public API and widget
+Phase 8: Design + Ops Full  ──► Design Workspace (BOMs) + Operations (Inventory)
 ```
+
+### Workspace Build Progression
+
+| Phase | Marketing | Compliance | Operations | Design |
+|-------|-----------|------------|------------|--------|
+| 1 | Shell | Shell | Shell | Shell |
+| 2 | **Core PIM** | - | - | - |
+| 3 | Import | - | - | Import |
+| 4 | - | **Full DPP** | **EPCIS** | - |
+| 5 | Attestation | Attestation | Attestation | Attestation |
+| 6 | **Syndication** | - | - | - |
+| 7 | - | - | - | - |
+| 8 | - | - | **Inventory** | **BOMs** |
+
+**Testable at each phase:**
+- Phase 2: Marketing workspace can create/edit products, manage assets
+- Phase 4: Compliance workspace can issue DPPs, Operations can view EPCIS timelines
+- Phase 6: Marketing workspace can sync to Shopify
+- Phase 8: Full Design/Operations workspace functionality
 
 ---
 
 ### Phase 1: Core + Schema
 
-**Goal:** Establish foundation - auth, multi-tenancy, billing, and complete database schema
+**Goal:** Establish foundation - auth, multi-tenancy, billing, database schema, and workspace shell
 
 | Task | Status |
 |------|--------|
@@ -451,6 +543,12 @@ Phase 7: Retailer Access    ──► Public API and widget
 | Build Organization model with multi-tenancy (row-level security) | Planned |
 | Implement User/Team management within organizations | Planned |
 | Create API key management (hashed keys, scopes) | Planned |
+| **Workspace Infrastructure** | |
+| Build workspace shell layout (sidebar, navigation, workspace switcher) | Planned |
+| Implement role-based workspace access middleware | Planned |
+| Create workspace routing structure (/design, /operations, /marketing, /compliance) | Planned |
+| Build placeholder pages for each workspace with "Coming Soon" state | Planned |
+| Design workspace-specific navigation menus | Planned |
 | **Billing & Subscriptions** | |
 | Set up Stripe billing integration (subscriptions, usage metering) | Planned |
 | Implement 14-day free trial with full platform access | Planned |
@@ -502,37 +600,47 @@ Phase 7: Retailer Access    ──► Public API and widget
 
 **Outcome:** Users can sign up, start free trial, manage subscriptions with overage billing, and export data on cancellation. Enterprise customers can use SSO. Organizations can invite team members with role-based access control, and all product changes are version-controlled with cryptographic signatures. Wallet architecture supports global users (MANAGED) with optional EU identity enhancement (EUDI for users, EU Org Wallet for organizations) without code changes. Database schema supports all future features.
 
+**Workspace Deliverable:** All four workspace shells are navigable with proper routing. Role-based access controls which workspaces users can see. Placeholder pages show "Coming Soon" for incomplete workspaces.
+
 **Key Decision:** Design attestation models NOW (Contributor, DataRequest, Contribution, ContributionVersion) even though implementation is Phase 5. This prevents schema rework later.
 
 ---
 
-### Phase 2: PIM + DAM
+### Phase 2: PIM + DAM → Marketing Workspace
 
-**Goal:** Full-stack product management - the core UI users interact with daily
+**Goal:** Full-stack product management in the Marketing Workspace - the core UI for brand managers and e-commerce teams
+
+**Primary Workspace:** Marketing (PIM-lite)
 
 | Task | Status |
 |------|--------|
+| **Backend (PIM Module)** | |
 | Implement ProductFamilyTemplate system with industry presets | Planned |
-| Build "Create Family" wizard (from template or from scratch) | Planned |
 | Implement ProductFamily model with dynamic attribute schemas | Planned |
-| Template modification UI (add/remove/customize fields) | Planned |
 | Build Product CRUD API with JSONB validation | Planned |
 | Implement completeness scoring algorithm (per-channel) | Planned |
-| Build AG Grid frontend with virtualization (10k+ rows) | Planned |
-| Implement inline editing with optimistic updates | Planned |
-| Add completeness visualization (traffic lights per channel) | Planned |
 | ProductVariant with parent-child inheritance | Planned |
 | Multi-currency pricing support | Planned |
 | Bulk operations API (edit, delete, assign family) | Planned |
-| Bulk operations UI (multi-select in AG Grid) | Planned |
 | Export to CSV/Excel/JSON | Planned |
+| **Backend (DAM Module)** | |
 | S3 upload for assets (images, documents, certificates) | Planned |
 | Asset-product associations with roles (hero, gallery, certificate) | Planned |
-| Basic asset management UI | Planned |
+| **Marketing Workspace UI** | |
+| Build "Create Family" wizard (from template or from scratch) | Planned |
+| Template modification UI (add/remove/customize fields) | Planned |
+| Build AG Grid product grid with virtualization (10k+ rows) | Planned |
+| Implement inline editing with optimistic updates | Planned |
+| Add completeness visualization (traffic lights per channel) | Planned |
+| Bulk operations UI (multi-select in AG Grid) | Planned |
+| Basic asset management UI (gallery view, drag-drop upload) | Planned |
+| Marketing workspace navigation (Products, Families, Assets) | Planned |
 
-**Outcome:** Users can manage products with dynamic attributes, see completeness scores, upload assets, perform bulk operations, and export data. Core PIM functionality complete.
+**Outcome:** Marketing Workspace is fully functional for product content management. Users can manage products with dynamic attributes, see completeness scores, upload assets, perform bulk operations, and export data.
 
-**Dependencies:** Phase 1 (auth, org, schema)
+**Workspace Deliverable:** Marketing Workspace moves from "Coming Soon" to fully functional. Brand managers can create products, manage content, and track completeness.
+
+**Dependencies:** Phase 1 (auth, org, schema, workspace shell)
 
 **Key Design: ProductFamily Templates**
 
@@ -553,33 +661,47 @@ This approach supports industries beyond ESPR compliance - any business needing 
 
 ---
 
-### Phase 3: Import Engine
+### Phase 3: Import Engine → Marketing + Design Workspaces
 
-**Goal:** Enable bulk data onboarding from any format - full stack
+**Goal:** Enable bulk data onboarding from any format, accessible from Marketing and Design workspaces
+
+**Workspaces:** Marketing, Design
 
 | Task | Status |
 |------|--------|
+| **Backend (Import Module)** | |
 | Implement stream-based file parser (CSV, Excel) | Planned |
 | Build Claude API integration for data extraction | Planned |
 | Set up BullMQ workers for async processing | Planned |
+| PDF/Image OCR support for product data | Planned |
+| Import history and error logs API | Planned |
+| **Import UI (Shared Component)** | |
 | Create import wizard UI with column mapping | Planned |
 | Build mapping preview with validation errors | Planned |
 | Implement import progress tracking | Planned |
-| PDF/Image OCR support for product data | Planned |
-| Import history and error logs | Planned |
+| Import history view | Planned |
+| **Workspace Integration** | |
+| Add Import section to Marketing Workspace navigation | Planned |
+| Add Import section to Design Workspace navigation | Planned |
+| Context-aware import defaults (Marketing: content fields, Design: specs fields) | Planned |
 
-**Outcome:** Users can import 10,000 SKUs from any file format via intuitive wizard.
+**Outcome:** Users can import 10,000 SKUs from any file format via intuitive wizard. Import is accessible from both Marketing Workspace (for content data) and Design Workspace (for technical specs).
+
+**Workspace Deliverable:** Import functionality available in Marketing and Design workspaces with context-appropriate defaults.
 
 **Dependencies:** Phase 2 (product model, families, completeness)
 
 ---
 
-### Phase 4: Compliance
+### Phase 4: Compliance + EPCIS → Compliance & Operations Workspaces
 
-**Goal:** DPP workflow - from "ready" products to issued passports
+**Goal:** DPP workflow in Compliance Workspace + EPCIS lifecycle visualization in Operations Workspace
+
+**Workspaces:** Compliance (DPP-core), Operations (EPCIS features)
 
 | Task | Status |
 |------|--------|
+| **Backend (Compliance Module)** | |
 | Build DPP completeness rules (which fields required) | Planned |
 | Implement DPP Ready list (products at 100% DPP completeness) | Planned |
 | Build manual review and approval workflow | Planned |
@@ -589,6 +711,25 @@ This approach supports industries beyond ESPR compliance - any business needing 
 | DPP public verification page | Planned |
 | DPP lifecycle tracking (issued, updated, revoked) | Planned |
 | Lambda image optimization pipeline | Planned |
+| **Backend (EPCIS Module - Reader Model)** | |
+| Build EPCIS 2.0 REST query client | Planned |
+| Support OAuth 2.0 and API key authentication | Planned |
+| Add repository connection management API | Planned |
+| Build Story Builder service (JSON → timeline) | Planned |
+| Carbon footprint aggregation from transport events | Planned |
+| Multi-repository event merging | Planned |
+| **Compliance Workspace UI** | |
+| DPP Ready list view with filtering | Planned |
+| Review and approve workflow UI | Planned |
+| DPP issuance confirmation with QR preview | Planned |
+| Lifecycle timeline on product detail page | Planned |
+| Audit trail view | Planned |
+| Compliance workspace navigation (DPP Ready, Issued, Revoked) | Planned |
+| **Operations Workspace UI** | |
+| EPCIS repository connection settings | Planned |
+| Product lifecycle timeline component | Planned |
+| Carbon footprint visualization | Planned |
+| Operations workspace navigation (Lifecycle, Repositories) | Planned |
 | **Static DPP Serving (Billion-Scale, Fixed Cost)** | |
 | Provision 3x Hetzner origin servers (Germany/Finland) | Planned |
 | Configure Nginx for static file serving | Planned |
@@ -606,7 +747,11 @@ This approach supports industries beyond ESPR compliance - any business needing 
 | Build R2 publishing function (S3-compatible) | Planned |
 | Create Cloudflare Worker for R2 routing | Planned |
 
-**Outcome:** Products at 100% completeness appear in DPP Ready list. Users review and issue DPPs as Verifiable Credentials with QR codes. DPPs are served via Cloudflare CDN + Hetzner origins for billion-scale reads at fixed cost (~$200/month). Architecture supports trillion-scale via R2 migration when needed.
+**Outcome:** Compliance Workspace is fully functional for DPP issuance. Products at 100% completeness appear in DPP Ready list. Users review and issue DPPs as Verifiable Credentials with QR codes. Operations Workspace can display EPCIS lifecycle timelines and carbon footprint data.
+
+**Workspace Deliverables:**
+- Compliance Workspace: Moves from "Coming Soon" to fully functional DPP issuance workflow
+- Operations Workspace: EPCIS lifecycle visualization functional (inventory/orders deferred to Phase 8)
 
 **Dependencies:** Phase 2 (completeness scoring, assets)
 
@@ -620,27 +765,47 @@ See [SCALABILITY.md](docs/SCALABILITY.md) for full architecture.
 
 ---
 
-### Phase 5: Multi-Party Attestation
+### Phase 5: Multi-Party Attestation → ALL Workspaces
 
-**Goal:** Third-party data contributions with cryptographic signatures
+**Goal:** Third-party data contributions with cryptographic signatures, available in ALL workspaces for different datapoints
+
+**Workspaces:** Design, Operations, Marketing, Compliance (ALL)
 
 | Task | Status |
 |------|--------|
+| **Backend (Attestation Module)** | |
 | Implement Contributor model with did:key generation | Planned |
 | Build DataRequest model and email invitation system | Planned |
 | Create Contribution and ContributionVersion models | Planned |
-| Build contributor portal (token-based access) | Planned |
-| Implement configurable product visibility (full vs. requested-only) | Planned |
-| Contributor data entry forms with validation | Planned |
 | Signature and attestation VC generation | Planned |
-| Customer review and approval workflow UI | Planned |
 | Link approved attestations to DPP VC | Planned |
 | Notification system (email + in-app) | Planned |
 | Expiry tracking and reminders (30 days, 7 days, expired) | Planned |
 | Revocation handling with customer alerts | Planned |
+| **Contributor Portal (External)** | |
+| Build contributor portal (token-based access) | Planned |
+| Implement configurable product visibility (full vs. requested-only) | Planned |
+| Contributor data entry forms with validation | Planned |
+| **Workspace Integration** | |
+| Add attestation request UI to Design Workspace (material certs, component specs) | Planned |
+| Add attestation request UI to Operations Workspace (supplier audits, factory certs) | Planned |
+| Add attestation request UI to Marketing Workspace (brand claims, sustainability) | Planned |
+| Add attestation management UI to Compliance Workspace (regulatory certs, third-party audits) | Planned |
+| Customer review and approval workflow UI (shared component) | Planned |
 | Attestation badges in DPP verification view | Planned |
 
-**Outcome:** Customers can request data from manufacturers, certifiers, labs. Contributors sign with their own DID. DPPs show complete chain of trust.
+**Attestation Use Cases by Workspace:**
+
+| Workspace | Attestation Types |
+|-----------|-------------------|
+| **Design** | Material certifications, component specs, lab test results |
+| **Operations** | Supplier audits, factory certifications, transport emissions |
+| **Marketing** | Brand claim verifications, sustainability certifications |
+| **Compliance** | Regulatory certifications, third-party compliance audits |
+
+**Outcome:** All four workspaces can request attestations relevant to their domain. Contributors sign with their own DID. Attestations flow to the Hub and are visible across workspaces. DPPs show complete chain of trust.
+
+**Workspace Deliverable:** Attestation functionality integrated into all four workspaces with context-appropriate request templates.
 
 **Dependencies:** Phase 1 (schema), Phase 4 (DPP issuance)
 
@@ -648,22 +813,31 @@ See [MULTI_PARTY_ATTESTATION.md](docs/MULTI_PARTY_ATTESTATION.md) for full archi
 
 ---
 
-### Phase 6: Syndication
+### Phase 6: Syndication → Marketing Workspace
 
-**Goal:** Publish products to e-commerce channels
+**Goal:** Publish products to e-commerce channels from Marketing Workspace
+
+**Workspace:** Marketing
 
 | Task | Status |
 |------|--------|
+| **Backend (Syndication Module)** | |
 | Implement Shopify OAuth connector | Planned |
 | Build rate-limited BullMQ sync workers | Planned |
 | Product push to Shopify (create/update) | Planned |
 | Product pull from Shopify (bi-directional) | Planned |
 | DPP metadata to Shopify metafields | Planned |
-| Sync status dashboard (last sync, errors) | Planned |
 | Webhook handlers for Shopify events | Planned |
+| **Marketing Workspace UI** | |
+| Add Channels section to Marketing Workspace navigation | Planned |
+| Shopify connection wizard | Planned |
+| Sync status dashboard (last sync, errors) | Planned |
 | Manual sync triggers | Planned |
+| Per-product channel status indicators in product grid | Planned |
 
-**Outcome:** Products sync to Shopify with DPP metadata in metafields. Bi-directional sync keeps data consistent.
+**Outcome:** Marketing Workspace users can connect Shopify stores and sync products. Products sync with DPP metadata in metafields. Bi-directional sync keeps data consistent.
+
+**Workspace Deliverable:** Marketing Workspace gains full syndication capabilities. Channel management accessible from workspace navigation.
 
 **Dependencies:** Phase 2 (products), Phase 4 (DPP data)
 
@@ -697,45 +871,94 @@ See [MULTI_PARTY_ATTESTATION.md](docs/MULTI_PARTY_ATTESTATION.md) for full archi
 
 ---
 
+### Phase 8: Design + Operations Full → Design & Operations Workspaces Complete
+
+**Goal:** Complete the Design Workspace (BOMs, materials) and Operations Workspace (inventory, orders)
+
+**Workspaces:** Design (PLM-lite), Operations (ERP-lite)
+
+| Task | Status |
+|------|--------|
+| **Design Workspace - BOM Management** | |
+| Bill of Materials data model | Planned |
+| BOM editor UI (tree view, component list) | Planned |
+| Material specifications CRUD | Planned |
+| Component-supplier linking | Planned |
+| Revision history and approval workflow | Planned |
+| Design workspace navigation (BOMs, Materials, Revisions) | Planned |
+| **Operations Workspace - Inventory** | |
+| Inventory tracking data model (locations, quantities) | Planned |
+| Stock level dashboard | Planned |
+| Reorder point alerts | Planned |
+| Batch/lot tracking UI | Planned |
+| **Operations Workspace - Orders** | |
+| Simple purchase order model | Planned |
+| PO creation and tracking UI | Planned |
+| Supplier management dashboard | Planned |
+| Operations workspace navigation (Inventory, Orders, Suppliers) | Planned |
+
+**Outcome:** Design Workspace is fully functional for BOM management and material specifications. Operations Workspace is fully functional for inventory tracking, simple purchase orders, and supplier management.
+
+**Workspace Deliverables:**
+- Design Workspace: Moves from "Coming Soon" / partial to fully functional PLM-lite
+- Operations Workspace: Moves from EPCIS-only to full ERP-lite functionality
+
+**Note:** This is ERP-*lite* - inventory and procurement basics. Not full accounting, no GL, no payroll. This is PLM-*lite* - BOMs and materials, not full CAD integration.
+
+**Dependencies:** Phase 2 (product model), Phase 4 (EPCIS infrastructure)
+
+---
+
 ### Phase Dependency Graph
 
 ```
-                    ┌─────────────────────┐
-                    │     PHASE 1         │
-                    │   Core + Schema     │
-                    └──────────┬──────────┘
-                               │
-                               ▼
-                    ┌─────────────────────┐
-                    │     PHASE 2         │
-                    │    PIM + DAM        │
-                    └──────────┬──────────┘
-                               │
-              ┌────────────────┼────────────────┐
-              ▼                ▼                ▼
-     ┌─────────────┐   ┌─────────────┐   ┌─────────────┐
-     │   PHASE 3   │   │   PHASE 4   │   │   PHASE 6   │
-     │   Import    │   │  Compliance │   │ Syndication │
-     └─────────────┘   └──────┬──────┘   └─────────────┘
-                              │
-                              ▼
-                    ┌─────────────────────┐
-                    │     PHASE 5         │
-                    │   Attestation       │
-                    └──────────┬──────────┘
-                               │
-                               ▼
-                    ┌─────────────────────┐
-                    │     PHASE 7         │
-                    │  Retailer Access    │
-                    └─────────────────────┘
+                    ┌─────────────────────────────┐
+                    │         PHASE 1             │
+                    │   Core + Workspace Shell    │
+                    └──────────────┬──────────────┘
+                                   │
+                                   ▼
+                    ┌─────────────────────────────┐
+                    │         PHASE 2             │
+                    │  PIM + DAM → Marketing WS   │
+                    └──────────────┬──────────────┘
+                                   │
+          ┌────────────────────────┼────────────────────────┐
+          ▼                        ▼                        ▼
+┌─────────────────┐    ┌─────────────────────┐    ┌─────────────────┐
+│     PHASE 3     │    │      PHASE 4        │    │     PHASE 6     │
+│     Import      │    │ Compliance + EPCIS  │    │   Syndication   │
+│ (Mktg + Design) │    │ (Compl + Ops WS)    │    │  (Marketing WS) │
+└─────────────────┘    └──────────┬──────────┘    └─────────────────┘
+                                  │
+                                  ▼
+                    ┌─────────────────────────────┐
+                    │         PHASE 5             │
+                    │  Attestation (ALL WS)       │
+                    └──────────────┬──────────────┘
+                                   │
+                    ┌──────────────┴──────────────┐
+                    ▼                              ▼
+     ┌─────────────────────────┐    ┌─────────────────────────┐
+     │        PHASE 7          │    │        PHASE 8          │
+     │    Retailer Access      │    │  Design + Ops Full WS   │
+     └─────────────────────────┘    └─────────────────────────┘
 ```
 
 **Parallel Work Possible:**
-- Phase 3 (Import) and Phase 4 (Compliance) can run in parallel after Phase 2
-- Phase 6 (Syndication) can start after Phase 2, independent of Phases 3-5
-- Phase 5 (Attestation) requires Phase 4 (DPP structure)
-- Phase 7 (Retailer) requires Phase 4 (DPP endpoints)
+- Phase 3 (Import), Phase 4 (Compliance), and Phase 6 (Syndication) can run in parallel after Phase 2
+- Phase 5 (Attestation) requires Phase 4 (DPP structure) but integrates into ALL workspaces
+- Phase 7 (Retailer) and Phase 8 (Design + Ops) can run in parallel after Phase 5
+- Phase 8 depends on Phase 2 (product model) and Phase 4 (EPCIS infrastructure)
+
+**Workspace Completion Timeline:**
+
+| Workspace | Shell | Core Features | Full Features |
+|-----------|-------|---------------|---------------|
+| Marketing | Phase 1 | Phase 2 | Phase 6 |
+| Compliance | Phase 1 | Phase 4 | Phase 5 |
+| Operations | Phase 1 | Phase 4 (EPCIS) | Phase 8 |
+| Design | Phase 1 | Phase 3 (Import) | Phase 8 |
 
 ---
 
@@ -749,6 +972,7 @@ EuroComply/
 │   │       ├── core/            # Auth, org, billing
 │   │       ├── pim/             # Families, products, variants
 │   │       ├── compliance/      # Passports, lifecycle
+│   │       ├── epcis/           # Supply chain events (reader model)
 │   │       ├── attestation/     # Multi-party data contributions
 │   │       ├── dam/             # Assets, upload
 │   │       ├── import/          # AI import, job processing
@@ -758,6 +982,26 @@ EuroComply/
 │   └── frontend/                # Next.js dashboard
 │       └── src/
 │           ├── app/             # App Router pages
+│           │   ├── (auth)/      # Login, signup, forgot password
+│           │   ├── design/      # Design Workspace routes
+│           │   │   ├── boms/
+│           │   │   ├── materials/
+│           │   │   └── revisions/
+│           │   ├── operations/  # Operations Workspace routes
+│           │   │   ├── inventory/
+│           │   │   ├── orders/
+│           │   │   ├── suppliers/
+│           │   │   └── lifecycle/
+│           │   ├── marketing/   # Marketing Workspace routes
+│           │   │   ├── products/
+│           │   │   ├── families/
+│           │   │   ├── assets/
+│           │   │   └── channels/
+│           │   ├── compliance/  # Compliance Workspace routes
+│           │   │   ├── ready/
+│           │   │   ├── issued/
+│           │   │   └── attestations/
+│           │   └── settings/    # Organization settings
 │           ├── components/      # UI components
 │           │   ├── grid/        # AG Grid wrappers
 │           │   ├── import/      # Import wizard
