@@ -21,7 +21,7 @@ Attestation is a cross-cutting feature available in **all four EuroComply worksp
 2. **Linked Verifiable Credentials** - Each attestation is its own VC, referenced by the DPP
 3. **Full traceability** - Every data point shows who attested it and when
 4. **Customer responsibility** - EuroComply does not validate attestation accuracy; customers are responsible for trusting their contributors
-5. **Cross-workspace visibility** - Attestations created in any workspace are visible and usable in all others (data flows to the Hub)
+5. **Data flows to The Hub** - Attestations are stored in the Hub (central data store) as part of the product's Golden Record, immediately visible across all workspaces
 
 ---
 
@@ -63,13 +63,13 @@ Attestation is a cross-cutting feature available in **all four EuroComply worksp
 │       │                                    │ approve                         │
 │       │                                    ▼                                 │
 │       │           ┌───────────────────────────────────────────────────────┐ │
-│       │           │               5. STORE IN ATTESTATION MODULE           │ │
+│       │           │               5. STORE IN THE HUB                      │ │
 │       │           │                                                        │ │
-│       │           │  Approved attestation linked to product in the         │ │
-│       │           │  requesting workspace's Attestation module             │ │
+│       │           │  Approved attestation stored in the Hub as part of     │ │
+│       │           │  the product's Golden Record                           │ │
 │       │           │                                                        │ │
-│       │           │  Attestation becomes part of the Golden Record         │ │
-│       │           │  (visible across all workspaces)                       │ │
+│       │           │  Immediately visible across all workspaces             │ │
+│       │           │  (Hub is always synchronized)                          │ │
 │       │           └───────────────────────────────────────────────────────┘ │
 │       │                                    │                                 │
 │       │                                    │                                 │
@@ -78,22 +78,22 @@ Attestation is a cross-cutting feature available in **all four EuroComply worksp
 │       │   │         6. DPP ISSUANCE (Later, in Compliance workspace)    │   │
 │       │   │                                                             │   │
 │       │   │  When product reaches 100% completeness and user approves:  │   │
-│       │   │  • Compliance workspace aggregates all approved attestations │   │
+│       │   │  • Compliance workspace READS Golden Record from Hub        │   │
 │       │   │  • DPP VC issued with attestations array                    │   │
 │       │   │  • Each attestation linked by reference                     │   │
 │       │   └─────────────────────────────────────────────────────────────┘   │
 │       │                                                                     │
 │       └─────────────────────────────────────────────────────────────────────┘
-│         Attestation data visible in all workspaces (flows to Hub)            │
+│         All data stored in The Hub - single source of truth                  │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 **Key Points:**
 - Attestations are requested from **any workspace** (Design, Operations, Marketing, Compliance)
-- After approval, attestations are stored in the **Attestation module** (not directly in DPP)
-- Attestation data becomes part of the **Golden Record** and is visible across all workspaces
-- DPP issuance happens **later** in the Compliance workspace, aggregating all approved attestations
+- After approval, attestations are stored in **The Hub** as part of the product's Golden Record
+- Data is **immediately visible** across all workspaces (Hub is always synchronized)
+- DPP issuance happens **later** in Compliance workspace - it READS from the Hub (no aggregation needed)
 
 ### Linked VC Model
 
@@ -589,7 +589,7 @@ The final DPP includes references to all approved attestation VCs.
 6. Email sent to manufacturer with unique link
 7. Wait for notification of contribution
 8. Review and approve in the SAME workspace where you requested it
-9. Approved attestation stored in Attestation module, visible across all workspaces
+9. Approved attestation stored in The Hub, immediately visible across all workspaces
 ```
 
 ### Contributor: Provide Attestation
@@ -636,11 +636,11 @@ The final DPP includes references to all approved attestation VCs.
    - Materials: 95% organic cotton, 5% elastane
    - Country of origin: India
 6. Decision:
-   - Click "Approve" → Attestation stored in Attestation module
+   - Click "Approve" → Attestation stored in The Hub
    - Or "Reject" with notes → Contributor notified
-7. Approved attestation visible across all workspaces (Golden Record)
+7. Approved attestation immediately visible across all workspaces (Hub is synchronized)
 8. Product completeness updated
-9. Later: Issue DPP in Compliance workspace (aggregates all attestations)
+9. Later: Issue DPP in Compliance workspace (reads from Hub)
 ```
 
 ### Verifier: View DPP with Attestations

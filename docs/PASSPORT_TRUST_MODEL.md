@@ -29,39 +29,61 @@ EuroComply uses an **organization-only model** for passport creation. Only regis
 
 ---
 
-## Workspace Architecture
+## The Hub: Central Source of Truth
 
-Trust is built progressively through four workspaces:
+At the center of EuroComply is **The Hub** - a central data store where all product data lives. Each product has a single **Golden Record** in the Hub containing data from all workspaces.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                    TRUST FLOWS THROUGH WORKSPACES                            │
+│                              THE HUB                                         │
+│                    (Central Data Store - Always Synchronized)                │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐    ┌────────────┐ │
-│  │    DESIGN    │───▶│  OPERATIONS  │───▶│  MARKETING   │───▶│ COMPLIANCE │ │
-│  │    (PLM)     │    │  (ERP-lite)  │    │    (PIM)     │    │   (DPP)    │ │
-│  └──────────────┘    └──────────────┘    └──────────────┘    └────────────┘ │
-│         │                   │                   │                   │        │
-│    Registry +          Registry +            PIM +           DPP Ready +    │
-│    BOM-Materials       Batch Mgmt        DAM-Media          Credential      │
-│    Certifications      EPCIS Events      Channels           Issuance        │
-│    Attestations        Attestations                                          │
-│         │                   │                   │                   │        │
-│         └───────────────────┴───────────────────┴───────────────────┘        │
-│                                     │                                        │
-│                              GOLDEN RECORD                                   │
-│                     (Aggregated in Compliance workspace)                     │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                    GOLDEN RECORD (per product)                       │    │
+│  │                                                                      │    │
+│  │  Design Data         Operations Data       Marketing Data           │    │
+│  │  ├─ Registry         ├─ Batches           ├─ PIM Content           │    │
+│  │  ├─ Materials        ├─ EPCIS Events      ├─ Media                 │    │
+│  │  ├─ Certifications   └─ Attestations      └─ Channels              │    │
+│  │  └─ Attestations                                                    │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+           ┌────────────────────────┼────────────────────────┐
+           │ WRITE                  │ WRITE                  │ WRITE
+           ▼                        ▼                        ▼
+    ┌─────────────┐          ┌─────────────┐          ┌─────────────┐
+    │   DESIGN    │          │ OPERATIONS  │          │  MARKETING  │
+    │   (PLM)     │          │ (ERP-lite)  │          │   (PIM)     │
+    └─────────────┘          └─────────────┘          └─────────────┘
+           │                        │                        │
+           └────────────────────────┼────────────────────────┘
+                                    │ READ
+                                    ▼
+                            ┌─────────────┐
+                            │ COMPLIANCE  │
+                            │   (DPP)     │
+                            │ Reads Hub   │
+                            │ Issues DPPs │
+                            └─────────────┘
 ```
 
-| Workspace | Trust Function | Key Modules |
-|-----------|----------------|-------------|
-| **Design** | Technical truth - materials, composition, certifications | Registry, BOM-Materials, Certifications, Attestations |
-| **Operations** | Lifecycle events - batch tracking, supply chain events | Registry, Batch Mgmt, EPCIS, Attestations |
-| **Marketing** | Commercial presentation - content, media, channels | PIM, DAM-Media, Channels |
-| **Compliance** | DPP issuance - aggregation, review, credential signing | DPP Ready, Credential Issuance |
+**Key Principle:** All workspaces read from and write to the same Hub. Changes in one workspace are immediately visible in others. Compliance workspace READS the complete Golden Record and issues DPPs - it does not "aggregate" data.
+
+---
+
+## Workspace Architecture
+
+Trust is built progressively through four workspaces, all connected to the Hub:
+
+| Workspace | Trust Function | Key Modules | Hub Access |
+|-----------|----------------|-------------|------------|
+| **Design** | Technical truth - materials, composition, certifications | Registry, BOM-Materials, Certifications, Attestations | Read/Write |
+| **Operations** | Lifecycle events - batch tracking, supply chain events | Registry, Batch Mgmt, EPCIS, Attestations | Read/Write |
+| **Marketing** | Commercial presentation - content, media, channels | PIM, DAM-Media, Channels | Read/Write |
+| **Compliance** | DPP issuance - review and credential signing | DPP Ready, Credential Issuance | Read + Issue |
 
 ---
 
@@ -120,32 +142,35 @@ If retailers could create their own passports:
 │    Issues cert          Signs material       Signs test                             │
 │    (documentary)        attestation (VC)     results (VC)                           │
 │         │                    │                    │                                  │
-│         └────────────────────┼────────────────────┘                                  │
+│         └────────────────────┴────────────────────┘                                  │
+│                              │                                                       │
 │                              ▼                                                       │
 │  ┌──────────────────────────────────────────────────────────────────────────────┐   │
-│  │                         ORGANIZATION (Registered)                             │   │
+│  │                              THE HUB                                          │   │
+│  │                    (Golden Record - Always Synchronized)                      │   │
 │  │                                                                               │   │
-│  │   Design Workspace              Operations Workspace                          │   │
-│  │   ┌─────────────────┐          ┌─────────────────┐                           │   │
-│  │   │ • Registry      │          │ • Batch Mgmt    │                           │   │
-│  │   │ • BOM-Materials │──────────│ • EPCIS Events  │                           │   │
-│  │   │ • Certifications│          │ • Attestations  │                           │   │
-│  │   │ • Attestations  │          └────────┬────────┘                           │   │
-│  │   └────────┬────────┘                   │                                    │   │
-│  │            │                            │                                    │   │
-│  │            └────────────┬───────────────┘                                    │   │
-│  │                         ▼                                                    │   │
-│  │              Compliance Workspace                                            │   │
-│  │              ┌─────────────────────────────┐                                 │   │
-│  │              │ GOLDEN RECORD AGGREGATION   │                                 │   │
-│  │              │ • All attestations verified │                                 │   │
-│  │              │ • Completeness check        │                                 │   │
-│  │              │ • Manual review & approval  │                                 │   │
-│  │              │ • Credential issuance       │                                 │   │
-│  │              └──────────────┬──────────────┘                                 │   │
-│  │                             │                                                │   │
-│  └─────────────────────────────┼────────────────────────────────────────────────┘   │
-│                                ▼                                                     │
+│  │   Design writes:           Operations writes:        Marketing writes:        │   │
+│  │   ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐        │   │
+│  │   │ • Registry      │     │ • Batch Mgmt    │     │ • PIM Content   │        │   │
+│  │   │ • BOM-Materials │     │ • EPCIS Events  │     │ • Media Assets  │        │   │
+│  │   │ • Certifications│     │ • Attestations  │     │ • Channels      │        │   │
+│  │   │ • Attestations  │     └─────────────────┘     └─────────────────┘        │   │
+│  │   └─────────────────┘                                                         │   │
+│  │                                                                               │   │
+│  └───────────────────────────────────┬───────────────────────────────────────────┘   │
+│                                      │ READ                                          │
+│                                      ▼                                               │
+│                    ┌─────────────────────────────────┐                              │
+│                    │      Compliance Workspace       │                              │
+│                    │                                 │                              │
+│                    │  • Reads Golden Record from Hub │                              │
+│                    │  • Verifies attestation sigs    │                              │
+│                    │  • Checks completeness          │                              │
+│                    │  • Manual review & approval     │                              │
+│                    │  • Issues DPP credential        │                              │
+│                    └────────────────┬────────────────┘                              │
+│                                     │                                                │
+│                                     ▼                                                │
 │                    ┌──────────────────────┐                                         │
 │                    │   DPP (Signed VC)    │                                         │
 │                    │   did:key portable   │                                         │
@@ -164,30 +189,26 @@ If retailers could create their own passports:
 
 ### Each Step Explained
 
-1. **External Trust Sources → Organization**
+1. **External Trust Sources → The Hub**
    - **Certification Bodies**: GOTS, OEKO-TEX, FSC certify the organization (documentary proof)
    - **Suppliers**: Sign material attestations with their did:key (Verifiable Credentials)
    - **Testing Labs**: Sign test results with their did:key (carbon footprint, composition)
+   - All attestations are stored in the Hub as part of the Golden Record
 
-2. **Design Workspace** (Technical truth)
-   - Organization creates product in Registry
-   - Adds BOM and material composition
-   - Attaches certification documents
-   - Requests and receives supplier attestations
+2. **Workspaces Write to the Hub**
+   - **Design**: Creates product in Registry, adds BOM, materials, certifications, attestations
+   - **Operations**: Batch tracking, EPCIS events, batch-specific attestations
+   - **Marketing**: Commercial content, media assets, channel data
+   - All data is immediately synchronized in the Hub
 
-3. **Operations Workspace** (Lifecycle events)
-   - Batch tracking and serialization
-   - EPCIS events auto-generated from actions
-   - Additional attestations for specific batches
-
-4. **Compliance Workspace** (DPP issuance)
-   - Aggregates Golden Record from all workspaces
+3. **Compliance Workspace Reads the Hub**
+   - Reads the complete Golden Record (no aggregation needed - data is already there)
    - Verifies all attestation signatures
    - Checks completeness requirements
    - Organization reviews and approves for issuance
    - Signs DPP with organization's did:key
 
-5. **DPP → Retailer**
+4. **DPP → Retailer**
    - Retailer accesses DPP for **free** via public API
    - Uses widget or Shopify Retailer App
    - Can display but cannot modify
@@ -428,12 +449,13 @@ When consumers scan a DPP QR code:
 | Can retailers create passports? | No |
 | Do retailers pay for access? | **No - free** (ESPR Article 31) |
 | Who is liable for accuracy? | The organization that created the DPP |
-| Where is product data managed? | Design workspace (technical), Marketing workspace (commercial) |
-| Where are DPPs issued? | Compliance workspace (aggregates Golden Record, reviews, issues) |
+| Where does product data live? | **The Hub** - central data store with Golden Record per product |
+| How do workspaces interact? | Design, Operations, Marketing WRITE to Hub; Compliance READS from Hub |
+| Where are DPPs issued? | Compliance workspace (reads Hub, reviews, issues credentials) |
 | How are supply chain claims verified? | Multi-party attestations signed with did:key |
 | What DID method? | did:key (portable, self-verifying) |
 | Can anyone verify a passport? | Yes - including all attestation signatures |
-| What prevents fraud? | Workspace architecture + attestations + manual approval |
+| What prevents fraud? | Hub architecture + attestations + manual approval |
 
 ---
 

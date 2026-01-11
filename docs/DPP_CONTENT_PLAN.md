@@ -2,7 +2,7 @@
 
 ## Overview
 
-Brands, manufacturers, and distributors manage product data and generate Digital Product Passports using EuroComply's unified platform with **four purpose-built workspaces**: Design (PLM), Operations (ERP-lite), Marketing (PIM), and Compliance (DPP). Data flows through workspaces—product structure and materials defined in Design, enriched with commercial content in Marketing, and issued as DPPs in Compliance. Products are managed as Golden Records, and when compliance data is complete, products appear in the DPP Ready list for review and manual approval before issuance. Retailers access DPPs for free via our public API, embeddable widget, or Shopify Retailer App.
+Brands, manufacturers, and distributors manage product data and generate Digital Product Passports using EuroComply's unified platform with **four purpose-built workspaces**: Design (PLM), Operations (ERP-lite), Marketing (PIM), and Compliance (DPP). All workspaces read from and write to **The Hub** - the central data store where each product has a single **Golden Record**. Design defines product structure and materials, Marketing enriches with commercial content, and Compliance reads the complete Golden Record to issue DPPs. When completeness reaches 100%, products appear in the DPP Ready list for review and manual approval before issuance. Retailers access DPPs for free via our public API, embeddable widget, or Shopify Retailer App.
 
 See [BUSINESS_MODEL.md](./BUSINESS_MODEL.md) for the full pricing model.
 
@@ -10,50 +10,37 @@ See [BUSINESS_MODEL.md](./BUSINESS_MODEL.md) for the full pricing model.
 
 ## Workspace Data Flow
 
-Product data creation spans multiple workspaces, each adding specific value:
+All workspaces write to and read from **The Hub** - the central data store:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                    WORKSPACE DATA FLOW FOR DPP CREATION                      │
+│                              THE HUB                                         │
+│                    (Central Data Store - Golden Record)                      │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────────────┐│
-│  │  DESIGN (PLM)   │ ──► │  MARKETING (PIM)│ ──► │   COMPLIANCE (DPP)      ││
-│  │                 │     │                 │     │                         ││
-│  │  Primary:       │     │  Primary:       │     │  Primary:               ││
-│  │  • Registry     │     │  • PIM          │     │  • Compliance module    ││
-│  │  • Materials    │     │  • DAM-Media    │     │                         ││
-│  │  • DAM-Tech     │     │  • Syndication  │     │  Reads from:            ││
-│  │  • Attestation  │     │                 │     │  • Registry (read-only) ││
-│  │                 │     │  Reads:         │     │  • PIM (read-only)      ││
-│  │  Creates:       │     │  • Registry     │     │  • EPCIS (read-only)    ││
-│  │  • Product      │     │    (read-only)  │     │  • Attestation          ││
-│  │    structure    │     │                 │     │                         ││
-│  │  • BOMs         │     │  Creates:       │     │  Creates:               ││
-│  │  • Materials    │     │  • Descriptions │     │  • DPP issuance         ││
-│  │    library      │     │  • SEO content  │     │  • Verifiable           ││
-│  │  • Tech specs   │     │  • Media assets │     │    Credentials          ││
-│  │  • Certs        │     │  • Channel data │     │  • Compliance scoring   ││
-│  └─────────────────┘     └─────────────────┘     └─────────────────────────┘│
-│                                                                              │
-│  ┌─────────────────┐                                                        │
-│  │ OPERATIONS      │  Also feeds into Compliance:                           │
-│  │  (ERP-lite)     │  • EPCIS events (supply chain traceability)           │
-│  │                 │  • Batch/lot tracking                                  │
-│  │  • Registry     │  • Serial number management                            │
-│  │  • EPCIS        │                                                        │
-│  │  • Attestation  │                                                        │
-│  └─────────────────┘                                                        │
+│  Product data is always synchronized. Changes in any workspace are          │
+│  immediately visible in all others.                                         │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
+        ▲ WRITE              ▲ WRITE              ▲ WRITE         │ READ
+        │                    │                    │               │
+┌───────┴───────┐    ┌───────┴───────┐    ┌──────┴────────┐    ┌──▼──────────┐
+│ DESIGN (PLM)  │    │  OPERATIONS   │    │MARKETING (PIM)│    │ COMPLIANCE  │
+│               │    │  (ERP-lite)   │    │               │    │   (DPP)     │
+│ Writes:       │    │ Writes:       │    │ Writes:       │    │             │
+│ • Registry    │    │ • Batches     │    │ • PIM content │    │ Reads Hub   │
+│ • BOMs        │    │ • EPCIS       │    │ • Media       │    │ Reviews     │
+│ • Materials   │    │ • Attestations│    │ • Channels    │    │ Issues DPPs │
+│ • Attestations│    └───────────────┘    └───────────────┘    └─────────────┘
+└───────────────┘
 ```
 
-| Workspace | Role in DPP Creation | Modules Used |
-|-----------|---------------------|--------------|
-| **Design** | Define product structure, materials, sustainability properties | Registry, Materials, DAM-Tech, Attestation |
-| **Operations** | Track supply chain, batches, serial numbers | Registry, EPCIS, Attestation |
-| **Marketing** | Add commercial content, descriptions, media | PIM, DAM-Media, Syndication |
-| **Compliance** | Review completeness, approve and issue DPPs | Compliance, Registry (read), PIM (read), EPCIS (read) |
+| Workspace | Role in DPP Creation | Hub Access |
+|-----------|---------------------|------------|
+| **Design** | Define product structure, materials, sustainability properties | Write |
+| **Operations** | Track supply chain, batches, serial numbers | Write |
+| **Marketing** | Add commercial content, descriptions, media | Write |
+| **Compliance** | Review completeness, approve and issue DPPs | **Read + Issue** |
 
 ---
 
@@ -110,7 +97,7 @@ Creating ESPR-compliant Digital Product Passports requires **category-specific, 
 │                                                                      │
 │  7. COMPLIANCE WORKSPACE: DPP Ready List                            │
 │     ├─ View products at 100% DPP completeness                      │
-│     ├─ Review combined data from Design + Marketing + Operations   │
+│     ├─ Read Golden Record from Hub (all data already synchronized) │
 │     └─ Products queue for manual approval                          │
 │                                                                      │
 │  8. DPP ISSUANCE (Manual approval in Compliance workspace)          │
@@ -547,11 +534,11 @@ Track where data comes from for transparency.
 │  │ Syndication    │  │ PIM (r/o)      │                        │
 │  └────────────────┘  └────────────────┘                        │
 │                                                                  │
-│  DATA FLOW: Design → Marketing → Compliance                     │
-│  → Product structure in Registry (Design)                       │
-│  → Materials with sustainability props (Design)                 │
-│  → Commercial content in PIM (Marketing)                        │
-│  → DPP issuance in Compliance workspace                         │
+│  DATA FLOW: All Workspaces → Hub → Compliance                   │
+│  → Design writes: Registry, BOMs, Materials, Attestations       │
+│  → Operations writes: Batches, EPCIS, Attestations              │
+│  → Marketing writes: PIM content, Media, Channels               │
+│  → Compliance READS Hub and issues DPPs                         │
 │                                                                  │
 │  HOW DO THEY CREATE?                                            │
 │  → AI-powered import (any file format)                          │
@@ -560,12 +547,12 @@ Track where data comes from for transparency.
 │  → Bulk operations for efficient management [All Plans]         │
 │  → LCA estimation for carbon footprint                          │
 │                                                                  │
-│  GOLDEN RECORD MODEL                                            │
-│  → Single source of truth for each product                      │
-│  → Registry (technical) + PIM (commercial) unified              │
+│  THE HUB (GOLDEN RECORD MODEL)                                  │
+│  → Central data store - single source of truth                  │
+│  → Each product has one Golden Record in the Hub                │
+│  → All workspaces write to Hub, Compliance reads from Hub       │
+│  → Data always synchronized across workspaces                   │
 │  → Completeness scoring per channel                             │
-│  → Audit log tracks all changes [All Plans]                     │
-│  → Export to CSV/JSON for reporting [All Plans]                 │
 │  → DPP Ready list at 100% for review and approval               │
 │                                                                  │
 │  WHAT GETS ISSUED?                                              │
