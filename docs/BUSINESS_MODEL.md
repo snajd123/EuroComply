@@ -1221,7 +1221,7 @@ Simplified tier structure accelerates sales cycles and improves conversion rates
 │  POSITIONING                                                    │
 │  Unified Product Lifecycle & Compliance platform combining      │
 │  PLM, ERP-lite, PIM, and DPP in one affordable solution.       │
-│  One platform, four workspaces, shared Golden Record.          │
+│  One platform, four workspaces, workspace-based data model.    │
 │                                                                  │
 │  TARGET MARKET                                                  │
 │  SMEs and mid-market organizations (brands, manufacturers,      │
@@ -1265,4 +1265,4 @@ Simplified tier structure accelerates sales cycles and improves conversion rates
 
 ---
 
-*Last Updated: January 2026*
+*Last Updated: January 11, 2026*
