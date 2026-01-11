@@ -10,7 +10,7 @@ EuroComply uses an **organization-only model** for passport creation. Only regis
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
 │  ✅ ORGANIZATIONS create passports (pay subscription)      │
-│     → Own the product data (Golden Record model)           │
+│     → Own the product data (workspace-based data model)    │
 │     → Legally liable for accuracy                          │
 │     → did:key identity (portable, self-verifying)          │
 │     → Multi-party attestations from supply chain           │
@@ -31,7 +31,7 @@ EuroComply uses an **organization-only model** for passport creation. Only regis
 
 ## The Hub: Central Source of Truth
 
-At the center of EuroComply is **The Hub** - a central data store where all product data lives. Each product has a single **Golden Record** in the Hub containing data from all workspaces.
+At the center of EuroComply is **The Hub** - a central data store where all product data lives. Each product has **workspace data** in the Hub stored by Design, Operations, and Marketing workspaces.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -40,7 +40,7 @@ At the center of EuroComply is **The Hub** - a central data store where all prod
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │                    GOLDEN RECORD (per product)                       │    │
+│  │                    WORKSPACE DATA (per product)                      │    │
 │  │                                                                      │    │
 │  │  Design Data         Operations Data       Marketing Data           │    │
 │  │  ├─ Registry         ├─ Batches           ├─ PIM Content           │    │
@@ -70,7 +70,7 @@ At the center of EuroComply is **The Hub** - a central data store where all prod
                             └─────────────┘
 ```
 
-**Key Principle:** All workspaces read from and write to the same Hub. Changes in one workspace are immediately visible in others. Compliance workspace READS the complete Golden Record and issues DPPs - it does not "aggregate" data.
+**Key Principle:** All workspaces read from and write to the same Hub. Changes in one workspace are immediately visible in others. Compliance workspace READS the complete workspace data and issues DPPs - it does not "aggregate" data.
 
 ---
 
@@ -119,7 +119,7 @@ If retailers could create their own passports:
 
 | Benefit | Description |
 |---------|-------------|
-| **Single source of truth** | Organization creates product as Golden Record |
+| **Central database** | Organization creates product with workspace data |
 | **Manual approval** | Organizations review and approve each DPP before issuance |
 | **No copying possible** | Retailers can't create - only access via API |
 | **Clear liability** | Organization is legally responsible for DPP accuracy |
@@ -147,7 +147,7 @@ If retailers could create their own passports:
 │                              ▼                                                       │
 │  ┌──────────────────────────────────────────────────────────────────────────────┐   │
 │  │                              THE HUB                                          │   │
-│  │                    (Golden Record - Always Synchronized)                      │   │
+│  │                    (Workspace Data - Always Synchronized)                     │   │
 │  │                                                                               │   │
 │  │   Design writes:           Operations writes:        Marketing writes:        │   │
 │  │   ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐        │   │
@@ -163,7 +163,7 @@ If retailers could create their own passports:
 │                    ┌─────────────────────────────────┐                              │
 │                    │      Compliance Workspace       │                              │
 │                    │                                 │                              │
-│                    │  • Reads Golden Record from Hub │                              │
+│                    │  • Reads workspace data from Hub│                              │
 │                    │  • Verifies attestation sigs    │                              │
 │                    │  • Checks completeness          │                              │
 │                    │  • Manual review & approval     │                              │
@@ -193,7 +193,7 @@ If retailers could create their own passports:
    - **Certification Bodies**: GOTS, OEKO-TEX, FSC certify the organization (documentary proof)
    - **Suppliers**: Sign material attestations with their did:key (Verifiable Credentials)
    - **Testing Labs**: Sign test results with their did:key (carbon footprint, composition)
-   - All attestations are stored in the Hub as part of the Golden Record
+   - All attestations are stored in the Hub as workspace data
 
 2. **Workspaces Write to the Hub**
    - **Design**: Creates product in Registry, adds BOM, materials, certifications, attestations
@@ -202,7 +202,7 @@ If retailers could create their own passports:
    - All data is immediately synchronized in the Hub
 
 3. **Compliance Workspace Reads the Hub**
-   - Reads the complete Golden Record (no aggregation needed - data is already there)
+   - Reads the complete workspace data (no aggregation needed - data is already there)
    - Verifies all attestation signatures
    - Checks completeness requirements
    - Organization reviews and approves for issuance
@@ -330,7 +330,7 @@ Beyond traditional certifications, EuroComply supports cryptographically signed 
 │  ┌───────────────┐         ┌───────────────┐         ┌───────────────┐      │
 │  │ Organization  │         │  Attestation  │         │  Compliance   │      │
 │  │ reviews in    │◀────────│  Module       │────────▶│  workspace    │      │
-│  │ requesting WS │         │ (Golden Rec.) │         │  issues DPP   │      │
+│  │ requesting WS │         │    (Hub)      │         │  issues DPP   │      │
 │  └───────────────┘         └───────────────┘         └───────────────┘      │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -371,7 +371,7 @@ All attestations are independently verifiable:
 
 Attestations do NOT go directly into the DPP. They are:
 
-1. **Stored** in the Attestation Module as part of Golden Record
+1. **Stored** in the Attestation Module as workspace data
 2. **Referenced** in the DPP credential (attestation IDs included)
 3. **Verifiable** independently via public API
 4. **Aggregated** during DPP issuance in Compliance workspace
@@ -449,7 +449,7 @@ When consumers scan a DPP QR code:
 | Can retailers create passports? | No |
 | Do retailers pay for access? | **No - free** (ESPR Article 31) |
 | Who is liable for accuracy? | The organization that created the DPP |
-| Where does product data live? | **The Hub** - central data store with Golden Record per product |
+| Where does product data live? | **The Hub** - central data store with workspace data per product |
 | How do workspaces interact? | Design, Operations, Marketing WRITE to Hub; Compliance READS from Hub |
 | Where are DPPs issued? | Compliance workspace (reads Hub, reviews, issues credentials) |
 | How are supply chain claims verified? | Multi-party attestations signed with did:key |
@@ -461,7 +461,7 @@ When consumers scan a DPP QR code:
 
 ## Related Documentation
 
-- [Golden Record](./GOLDEN_RECORD.md) - Golden Record concept and data model
+- [User Management](./USER_MANAGEMENT.md) - Workspace-based access control and data ownership
 - [Business Model](./BUSINESS_MODEL.md) - SME-first SaaS pricing
 - [Verifiable Credentials](./VERIFIABLE_CREDENTIALS.md) - did:key, portability
 - [Architecture Portability](./ARCHITECTURE_PORTABILITY.md) - Export, data ownership
