@@ -521,38 +521,73 @@ A dangerous race condition exists: Design may release a new version (e.g., safet
 
 ```typescript
 async function commitBatch(batchId: string, committerId: string): Promise<BatchRecord> {
-  const batch = await prisma.batchRecord.findUnique({
-    where: { id: batchId },
-    include: { designVersion: true }
-  });
-
-  if (batch.status !== 'PENDING') {
-    throw new Error('Batch already committed');
-  }
-
-  // CRITICAL: Re-validate Design Version at commit time
-  const designVersion = batch.designVersion;
-
-  if (designVersion.status === 'ARCHIVED' || designVersion.status === 'REJECTED') {
-    throw new CommitValidationError({
-      code: 'STALE_DESIGN_VERSION',
-      message: `Design v${designVersion.version} is no longer valid (status: ${designVersion.status})`,
-      currentDesignVersion: await getCurrentDesignVersion(batch.productId),
-      suggestion: 'Update batch to reference current Design version before committing'
+  // Use transaction to ensure atomicity of validation + inventory + commit
+  return await prisma.$transaction(async (tx) => {
+    const batch = await tx.batchRecord.findUnique({
+      where: { id: batchId },
+      include: { designVersion: true }
     });
-  }
 
-  // Design version is still RELEASED or ACTIVE - safe to commit
-  return await prisma.batchRecord.update({
-    where: { id: batchId },
-    data: {
-      status: 'COMMITTED',
-      committedById: committerId,
-      committedAt: new Date(),
-      signerDid: await getUserDid(committerId),
-      signature: await signBatchRecord(batch),
-      signedAt: new Date()
+    if (batch.status !== 'PENDING') {
+      throw new Error('Batch already committed');
     }
+
+    // VALIDATION 1: Re-validate Design Version at commit time
+    const designVersion = batch.designVersion;
+    if (designVersion.status === 'ARCHIVED' || designVersion.status === 'REJECTED') {
+      throw new CommitValidationError({
+        code: 'STALE_DESIGN_VERSION',
+        message: `Design v${designVersion.version} is no longer valid (status: ${designVersion.status})`,
+        currentDesignVersion: await getCurrentDesignVersion(batch.productId),
+        suggestion: 'Update batch to reference current Design version before committing'
+      });
+    }
+
+    // VALIDATION 2: Reserve inventory (prevent double-spend)
+    // Material lots are claimed during PENDING but only deducted at COMMIT
+    for (const material of batch.materialLots as MaterialLotAllocation[]) {
+      const lot = await tx.materialLot.findUnique({
+        where: { id: material.lotId }
+      });
+
+      if (!lot) {
+        throw new CommitValidationError({
+          code: 'MATERIAL_LOT_NOT_FOUND',
+          message: `Material lot ${material.lotId} no longer exists`
+        });
+      }
+
+      if (lot.availableQuantity < material.quantity) {
+        throw new CommitValidationError({
+          code: 'INSUFFICIENT_INVENTORY',
+          message: `Material lot ${lot.lotNumber} has insufficient quantity`,
+          details: {
+            lotNumber: lot.lotNumber,
+            requested: material.quantity,
+            available: lot.availableQuantity
+          }
+        });
+      }
+
+      // Deduct inventory atomically within transaction
+      await tx.materialLot.update({
+        where: { id: material.lotId },
+        data: { availableQuantity: { decrement: material.quantity } }
+      });
+    }
+
+    // All validations passed - commit the batch
+    return await tx.batchRecord.update({
+      where: { id: batchId },
+      data: {
+        status: 'COMMITTED',
+        committedById: committerId,
+        committedAt: new Date(),
+        signerDid: await getUserDid(committerId),
+        signature: await signBatchRecord(batch),
+        signedAt: new Date()
+      }
+    });
   });
 }
 ```
@@ -577,6 +612,35 @@ async function commitBatch(batchId: string, committerId: string): Promise<BatchR
 │       │                                                                      │
 │       └── WITH validation:    ✅ Commit fails with STALE_DESIGN_VERSION     │
 │                               → User must update to v3 first                 │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Inventory Double-Spend Prevention:**
+
+Material lots are referenced in PENDING batches but inventory is only deducted at COMMIT. Without transactional validation, multiple batches can over-commit the same material:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  INVENTORY DOUBLE-SPEND (PREVENTED)                                         │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Material Lot: cotton_lot_801 (100kg available)                             │
+│                                                                              │
+│  WITHOUT transactional validation:                                           │
+│  ───────────────────────────────────                                         │
+│  10:00  User A creates PENDING batch #1 (50kg from lot_801)                 │
+│  10:05  User B creates PENDING batch #2 (80kg from lot_801)                 │
+│  10:10  User A commits batch #1 → Inventory: 100 - 50 = 50kg               │
+│  10:15  User B commits batch #2 → Inventory: 50 - 80 = -30kg ❌            │
+│                                                                              │
+│  WITH transactional validation:                                              │
+│  ─────────────────────────────────                                           │
+│  10:00  User A creates PENDING batch #1 (50kg from lot_801)                 │
+│  10:05  User B creates PENDING batch #2 (80kg from lot_801)                 │
+│  10:10  User A commits batch #1 → Inventory: 100 - 50 = 50kg               │
+│  10:15  User B tries to commit → INSUFFICIENT_INVENTORY error ✅            │
+│         → Must update batch to use different lot or reduce quantity         │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1191,7 +1255,12 @@ model Product {
 ```prisma
 model MagicLink {
   id              String    @id @default(cuid())
-  token           String    @unique @default(cuid())
+
+  // SECURITY: Store hash, not plaintext token
+  // Generate: token = crypto.randomBytes(32).toString('hex')
+  // Store:    tokenHash = SHA256(token)
+  // Lookup:   findUnique({ where: { tokenHash: SHA256(providedToken) } })
+  tokenHash       String    @unique  // SHA256 hash of the actual token
 
   userId          String
   user            User      @relation(fields: [userId], references: [id])
@@ -1205,10 +1274,71 @@ model MagicLink {
 
   createdAt       DateTime  @default(now())
 
-  @@index([token])
+  @@index([tokenHash])
   @@index([userId])
 }
+```
 
+**Magic Link Token Security:**
+
+```typescript
+import crypto from 'crypto';
+
+// Generate a magic link (returns the UNHASHED token to send to user)
+async function createMagicLink(userId: string, expiresAt?: Date): Promise<string> {
+  // Generate cryptographically secure random token
+  const token = crypto.randomBytes(32).toString('hex');
+
+  // Hash before storing (like passwords)
+  const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+
+  await prisma.magicLink.create({
+    data: {
+      tokenHash,  // Store ONLY the hash
+      userId,
+      expiresAt,
+    }
+  });
+
+  // Return unhashed token (sent to user via email, never stored)
+  return token;
+}
+
+// Verify a magic link (user provides unhashed token from email)
+async function verifyMagicLink(providedToken: string): Promise<MagicLink | null> {
+  // Hash the provided token to look it up
+  const tokenHash = crypto.createHash('sha256').update(providedToken).digest('hex');
+
+  const magicLink = await prisma.magicLink.findUnique({
+    where: { tokenHash },
+    include: { user: true }
+  });
+
+  if (!magicLink) return null;
+  if (magicLink.usedAt) return null;  // Already used
+  if (magicLink.revokedAt) return null;  // Revoked
+  if (magicLink.expiresAt && magicLink.expiresAt < new Date()) return null;  // Expired
+
+  // Mark as used
+  await prisma.magicLink.update({
+    where: { id: magicLink.id },
+    data: { usedAt: new Date() }
+  });
+
+  return magicLink;
+}
+```
+
+**Why Hash Magic Link Tokens?**
+
+| Attack | Plaintext Tokens | Hashed Tokens |
+|--------|------------------|---------------|
+| Database breach | Attacker gets all valid tokens, can impersonate any user | Attacker gets hashes, cannot derive original tokens |
+| SQL injection | Same as above | Same protection |
+| Backup exposure | Tokens in backups are exploitable | Hashes in backups are useless without original |
+| Log exposure | Tokens might appear in query logs | Only hashes appear (useless) |
+
+```prisma
 model MagicLinkSettings {
   id                  String       @id @default(cuid())
   organizationId      String       @unique
@@ -1462,6 +1592,64 @@ async function verifyTransactionalSignature(
   };
 }
 ```
+
+**GDPR Article 17 vs. Non-Repudiation:**
+
+The `isPurgeable: false` flag creates a tension with GDPR's Right to Erasure. A user could request deletion of their data, but we legally need the signature audit trail.
+
+**Resolution: Pseudonymization (not Deletion)**
+
+When a GDPR deletion request is received for a signer's email:
+
+```typescript
+async function handleGdprDeletionRequest(
+  email: string,
+  gdprRequestId: string
+): Promise<void> {
+  const placeholder = `REDACTED_GDPR_REQ_${gdprRequestId}`;
+
+  // Pseudonymize PII fields while preserving the audit trail
+  await prisma.transactionalSignatureLog.updateMany({
+    where: { signerEmail: email },
+    data: {
+      signerEmail: placeholder,
+      signerName: placeholder,
+      signerCompany: placeholder,
+      signerIpAddress: 'REDACTED',
+      signerUserAgent: 'REDACTED',
+      // PRESERVE: ephemeralDid, signature, signaturePayload, signedAt
+      // These are cryptographic evidence, not PII
+    }
+  });
+
+  // Log the pseudonymization for compliance
+  await auditLog.create({
+    action: 'gdpr.pseudonymization',
+    resourceType: 'TransactionalSignatureLog',
+    details: {
+      originalEmail: '[REDACTED]',  // Don't log the actual email
+      gdprRequestId,
+      recordsAffected: await prisma.transactionalSignatureLog.count({
+        where: { signerEmail: placeholder }
+      })
+    }
+  });
+}
+```
+
+**Why Pseudonymization Works:**
+
+| Requirement | Deletion | Pseudonymization |
+|-------------|----------|------------------|
+| GDPR Article 17 (Right to Erasure) | ✅ Compliant | ✅ Compliant (Recital 26: pseudonymous data not "personal data") |
+| ESPR 10-year retention | ❌ Violated | ✅ Record preserved |
+| Non-repudiation | ❌ Lost forever | ✅ Signature + DID still valid |
+| Audit trail | ❌ Broken | ✅ Intact (we know WHEN and WHAT, just not WHO) |
+
+**Key Legal Basis:**
+- GDPR Recital 26: Data rendered anonymous is no longer "personal data"
+- ESPR Article 9: Requires 10-year data retention for DPPs
+- Pseudonymization satisfies both: user identity is erased, but the cryptographic record proving "someone authorized signed this" remains
 
 ---
 
@@ -1913,43 +2101,51 @@ async function claimForReview(
 }
 
 async function releaseClaimExpired(): Promise<void> {
-  // Cron job: Release stale claims based on organization settings
-  // Default: 24 hours, but configurable to handle weekends/complex reviews
+  // SCALABLE: Single database query instead of iterating organizations
+  // Uses raw SQL with JOIN to respect per-org claimExpiryHours settings
+  // Scales O(1) with number of organizations, not O(n)
 
-  const organizations = await prisma.organization.findMany({
-    select: { id: true, settings: true }
-  });
+  await prisma.$executeRaw`
+    UPDATE "DesignVersion" dv
+    SET status = 'PENDING_REVIEW',
+        "claimedById" = NULL,
+        "claimedAt" = NULL
+    FROM "Product" p
+    JOIN "Organization" o ON p."organizationId" = o.id
+    WHERE dv."productId" = p.id
+      AND dv.status = 'IN_REVIEW'
+      AND dv."claimedAt" < NOW() - INTERVAL '1 hour' * COALESCE(
+        (o.settings->>'claimExpiryHours')::int,
+        24  -- default
+      )
+  `;
 
-  for (const org of organizations) {
-    const claimExpiryHours = org.settings?.claimExpiryHours ?? 24;
-
-    await prisma.designVersion.updateMany({
-      where: {
-        product: { organizationId: org.id },
-        status: 'IN_REVIEW',
-        claimedAt: { lt: subHours(new Date(), claimExpiryHours) }
-      },
-      data: {
-        status: 'PENDING_REVIEW',
-        claimedById: null,
-        claimedAt: null
-      }
-    });
-
-    await prisma.marketingVersion.updateMany({
-      where: {
-        product: { organizationId: org.id },
-        status: 'IN_REVIEW',
-        claimedAt: { lt: subHours(new Date(), claimExpiryHours) }
-      },
-      data: {
-        status: 'PENDING_REVIEW',
-        claimedById: null,
-        claimedAt: null
-      }
-    });
-  }
+  await prisma.$executeRaw`
+    UPDATE "MarketingVersion" mv
+    SET status = 'PENDING_REVIEW',
+        "claimedById" = NULL,
+        "claimedAt" = NULL
+    FROM "Product" p
+    JOIN "Organization" o ON p."organizationId" = o.id
+    WHERE mv."productId" = p.id
+      AND mv.status = 'IN_REVIEW'
+      AND mv."claimedAt" < NOW() - INTERVAL '1 hour' * COALESCE(
+        (o.settings->>'claimExpiryHours')::int,
+        24  -- default
+      )
+  `;
 }
+
+// SCALABILITY NOTE:
+// The original implementation looped through organizations:
+//   for (const org of organizations) { ... }  // O(n) - crashes at scale
+//
+// The new implementation uses database-level JOINs:
+//   Single query with JOIN to Organization  // O(1) - scales to millions
+//
+// At 5,000 organizations:
+//   OLD: 5,000 queries, memory for 5,000 org objects, potential timeouts
+//   NEW: 2 queries total, constant memory, sub-second execution
 ```
 
 ### Approval Inbox
@@ -2331,7 +2527,9 @@ Admins can modify their own permissions, which creates a potential security conc
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Self-Grant Detection:**
+**Privilege Escalation Detection (Anti-Collusion):**
+
+The original "self-grant only" detection had a collusion loophole: two admins could grant each other elevated access without triggering alerts. The fix detects ANY privilege escalation to MANAGER.
 
 ```typescript
 async function updateUserAccess(
@@ -2341,41 +2539,83 @@ async function updateUserAccess(
   justification?: string
 ): Promise<void> {
   const isSelfGrant = targetUserId === requesterId;
+  const previousAccess = await getCurrentAccess(targetUserId);
 
-  if (isSelfGrant) {
-    // Require justification for self-grants
+  // ANTI-COLLUSION: Detect ANY privilege escalation, not just self-grants
+  const grantsHighPrivilege = newAccess.some(a => a.authority === 'MANAGER');
+  const previousHighest = Math.max(...previousAccess.map(a => authorityLevel(a.authority)));
+  const newHighest = Math.max(...newAccess.map(a => authorityLevel(a.authority)));
+  const isEscalation = newHighest > previousHighest;
+
+  // Trigger alert for ANY privilege escalation to MANAGER (regardless of target)
+  if (grantsHighPrivilege && isEscalation) {
     if (!justification || justification.length < 10) {
-      throw new Error('Justification required for self-grant (min 10 chars)');
+      throw new Error('Justification required for privilege escalation (min 10 chars)');
     }
 
-    // Log with special action type
     await auditLog.create({
-      action: 'admin.self_grant',
+      action: 'admin.privilege_escalation',
       userId: requesterId,
       resourceType: 'User',
       resourceId: targetUserId,
       metadata: {
-        previousAccess: await getCurrentAccess(targetUserId),
+        targetUser: targetUserId,
+        previousAccess,
         newAccess,
         justification,
-        isSelfGrant: true
+        isSelfGrant,
+        escalationType: isSelfGrant ? 'self_grant' : 'granted_by_other'
       }
     });
 
-    // Notify other admins
+    // Notify ALL other admins (anti-collusion measure)
     const otherAdmins = await getOtherAdmins(requesterId);
-    await sendAdminSelfGrantAlert(otherAdmins, requesterId, newAccess, justification);
+    const requesterName = await getUserName(requesterId);
+    const targetName = await getUserName(targetUserId);
+
+    const subject = isSelfGrant
+      ? `[Security Alert] Admin Self-Grant: ${requesterName}`
+      : `[Security Alert] Privilege Escalation: ${requesterName} → ${targetName}`;
+
+    await sendSecurityAlert(otherAdmins, subject, {
+      requester: requesterName,
+      target: targetName,
+      newAccess,
+      justification
+    });
   }
 
-  // Proceed with update
   await prisma.workspaceAccess.updateMany({ ... });
 }
+
+function authorityLevel(authority: string): number {
+  return { VIEWER: 1, CONTRIBUTOR: 2, EDITOR: 3, MANAGER: 4 }[authority] ?? 0;
+}
+```
+
+**Collusion Attack Prevention:**
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  ADMIN COLLUSION ATTACK (PREVENTED)                                         │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  OLD (Self-Grant Only):           NEW (Privilege Escalation):               │
+│  ─────────────────────────        ───────────────────────────               │
+│  Admin A → Admin B: MANAGER       Admin A → Admin B: MANAGER                │
+│  (No alert - not self-grant)      → ⚠️ Alert to ALL other admins            │
+│                                                                              │
+│  Admin B → Admin A: MANAGER       Admin B → Admin A: MANAGER                │
+│  (No alert - not self-grant)      → ⚠️ Alert to ALL other admins            │
+│                                                                              │
+│  Result: Undetected escalation    Result: Org owner sees both, investigates │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 **Weekly Admin Review Report:**
 
 Organizations receive a weekly email summarizing:
-- All admin self-grant actions
+- All privilege escalation actions (not just self-grants)
 - Permission changes by workspace
 - Users with elevated permissions
 
