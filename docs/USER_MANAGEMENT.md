@@ -1148,7 +1148,93 @@ model EPCISEvent {
   @@index([productId])
   @@index([eventType])
 }
+```
 
+**EPCIS Event Generation Rule (Preventing Ghost Data):**
+
+GS1 EPCIS events represent *physical reality* - they track what actually happened to products. Creating EPCIS events for batches that were never produced violates the standard's integrity.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  EPCIS GHOST DATA PREVENTION                                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ❌ WRONG: Generate EPCIS on batch creation (PENDING state)                 │
+│                                                                              │
+│     User creates batch → EPCIS ObjectEvent created                          │
+│     User deletes batch → Cascade delete EPCIS event ← VIOLATES WRITE-ONCE   │
+│                       → OR: Orphaned event for non-existent batch           │
+│                                                                              │
+│  ✅ CORRECT: Generate EPCIS only on COMMIT                                  │
+│                                                                              │
+│     User creates batch → PENDING (no EPCIS yet - digital scratchpad)        │
+│     User edits batch   → Still PENDING (no EPCIS)                           │
+│     User commits batch → COMMITTED + EPCIS ObjectEvent created              │
+│                          ↳ Physical reality begins here                     │
+│                                                                              │
+│     User deletes PENDING batch → No EPCIS to worry about                    │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Implementation Rule:**
+
+```typescript
+async function commitBatch(batchId: string, committerId: string): Promise<BatchRecord> {
+  return await prisma.$transaction(async (tx) => {
+    // ... existing commit validation ...
+
+    // Update batch to COMMITTED
+    const batch = await tx.batchRecord.update({
+      where: { id: batchId },
+      data: {
+        status: 'COMMITTED',
+        committedById: committerId,
+        committedAt: new Date(),
+        // ... signature, etc.
+      }
+    });
+
+    // ONLY NOW create EPCIS event (physical reality begins)
+    await tx.ePCISEvent.create({
+      data: {
+        eventId: generateGS1EventId(),
+        eventType: 'ObjectEvent',
+        eventTime: new Date(),
+        eventTimeZone: batch.timezone,
+        batchId: batch.id,
+        productId: batch.productId,
+        organizationId: batch.organizationId,
+        eventData: {
+          action: 'ADD',
+          bizStep: 'urn:epcglobal:cbv:bizstep:commissioning',
+          disposition: 'urn:epcglobal:cbv:disp:active',
+          // ... EPCIS event details
+        }
+      }
+    });
+
+    return batch;
+  });
+}
+
+// NEVER do this:
+async function createBatch_WRONG(...) {
+  const batch = await prisma.batchRecord.create({ ... });
+  await prisma.ePCISEvent.create({ ... });  // ❌ Too early!
+  return batch;
+}
+```
+
+**Why This Matters:**
+
+| Scenario | Without Rule | With Rule |
+|----------|--------------|-----------|
+| Batch created then deleted | Orphaned EPCIS or cascade delete (violates immutability) | No EPCIS exists - clean delete |
+| Batch created, edited 5x, committed | 6 EPCIS events? Or overwrite? | 1 EPCIS event at commit |
+| Audit trail | "ObjectCreated" for batches never produced | Only real physical events |
+
+```prisma
 // ═══════════════════════════════════════════════════════════════════════════
 // COMPLIANCE WORKSPACE - Immutable DPP Snapshots
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2214,6 +2300,117 @@ interface OrganizationSettings {
 - Users only see approvals for workspaces where they have EDITOR or MANAGER authority
 - Only Design and Marketing have version approvals (CONTRIBUTOR workflow)
 - Operations uses four-eyes commit workflow instead (CONTRIBUTOR creates → EDITOR/MANAGER commits)
+
+### Founder Mode UI (Preventing Self-Review Deadlock)
+
+In a 1-person startup, the founder is both the author and the only MANAGER. The CONTRIBUTOR workflow (Submit → Review → Approve) creates a UX deadlock if the founder accidentally submits their own work for review - they'd be requesting approval from themselves.
+
+**The Problem:**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  FOUNDER MODE DEADLOCK                                                      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  1-Person Company: Founder (MANAGER in all workspaces)                       │
+│                                                                              │
+│  ❌ WRONG UI: Shows both buttons                                            │
+│                                                                              │
+│     [Submit for Review]  [Release Version]                                  │
+│                                                                              │
+│     Founder clicks "Submit for Review"                                       │
+│     → Version enters PENDING_REVIEW                                         │
+│     → System routes to EDITOR/MANAGER approvers                             │
+│     → Only approver is... the Founder                                        │
+│     → Founder must switch to "Approver mode" to approve own work            │
+│     → Confusing UX loop                                                      │
+│                                                                              │
+│  ✅ CORRECT UI: Authority-based button rendering                            │
+│                                                                              │
+│     if (user.authority >= EDITOR):  [Release Version]   ← Direct publish    │
+│     if (user.authority == CONTRIB): [Submit for Review] ← Route to approver │
+│                                                                              │
+│     NEVER show both buttons to the same user                                │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Implementation Rule:**
+
+```typescript
+// UI button rendering logic
+function getVersionActionButton(
+  user: User,
+  version: DesignVersion,
+  workspace: Workspace
+): ActionButton {
+  const userAuthority = getUserWorkspaceAuthority(user, workspace);
+
+  // EDITOR and MANAGER can self-sign/release - no approval needed
+  if (userAuthority === 'EDITOR' || userAuthority === 'MANAGER') {
+    return {
+      label: 'Release Version',
+      action: 'release',
+      tooltip: 'Sign and publish this version directly'
+    };
+  }
+
+  // CONTRIBUTOR must submit for review
+  if (userAuthority === 'CONTRIBUTOR') {
+    return {
+      label: 'Submit for Review',
+      action: 'submit_for_review',
+      tooltip: 'Send to an Editor or Manager for approval'
+    };
+  }
+
+  // VIEWER cannot modify
+  return null;
+}
+
+// NEVER do this:
+function getVersionActionButtons_WRONG(user, version, workspace) {
+  return [
+    { label: 'Submit for Review', ... },  // ❌ Both buttons shown
+    { label: 'Release Version', ... }     // ❌ Confusing for all users
+  ];
+}
+```
+
+**Why This Matters:**
+
+| User Type | Authority | Button Shown | Workflow |
+|-----------|-----------|--------------|----------|
+| Founder (solo) | MANAGER | "Release Version" | Direct publish, no approval loop |
+| Team Lead | EDITOR | "Release Version" | Direct publish (self-trusted) |
+| External Agency | CONTRIBUTOR | "Submit for Review" | Routes to internal approvers |
+| Intern | CONTRIBUTOR | "Submit for Review" | Routes to internal approvers |
+| Auditor | VIEWER | None | Read-only access |
+
+**Product Editor Mode:**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  PRODUCT EDITOR                                                              │
+│  Organic Cotton T-Shirt (TSH-001) • Design Workspace • Draft v4             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Materials:                                                                  │
+│  ├── 95% Organic Cotton (GOTS certified)                                    │
+│  └── 5% Elastane                                                            │
+│                                                                              │
+│  [Cancel]                                        [Save Draft] [Release v4]  │
+│                                                               ↑              │
+│                          MANAGER/EDITOR sees "Release" button ─┘             │
+│                                                                              │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│                                                                              │
+│  [Cancel]                               [Save Draft] [Submit for Review]    │
+│                                                               ↑              │
+│                       CONTRIBUTOR sees "Submit for Review" button ─┘         │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
