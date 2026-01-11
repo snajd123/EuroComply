@@ -219,7 +219,7 @@ Phase 3 (2027): + Electronics, Batteries
 | Data management | Workspace-based data model with completeness scoring |
 | Technical integration | Native Shopify integration |
 | Trust/verification | W3C Verifiable Credentials (did:key) |
-| Cost sensitivity | €49/month starting tier |
+| Cost sensitivity | €129/month starting tier |
 | 10-year data retention | Managed hosting + data portability |
 | Lock-in concerns | Full export (VCs + keys), works offline |
 
@@ -265,7 +265,7 @@ Phase 3 (2027): + Electronics, Batteries
 │  OUR SOLUTION                                                   │
 │  • Compliance-First PIM with DPP Ready approval workflow        │
 │  • Self-service (sign up → compliant same day)                  │
-│  • Affordable (€49-299/month vs €100k+)                         │
+│  • Affordable (€129-399/month vs €100k+)                        │
 │  • AI-powered import (dump any file format)                     │
 │  • E-commerce native (Shopify integration)                      │
 │  • No lock-in (portable VCs, full export)                       │

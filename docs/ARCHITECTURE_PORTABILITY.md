@@ -144,12 +144,45 @@ export/
 
 ### Scenario 1: Subscription Cancellation
 
+**ESPR Compliance:** DPPs must remain accessible for 10+ years after issuance. At cancellation, organizations must choose one of three options for their published DPPs:
+
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    CANCELLATION FLOW                             │
+│                    CANCELLATION OPTIONS                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  OPTION A: DORMANT HOSTING (Recommended for ESPR compliance)    │
+│  ─────────────────────────────────────────────────────────────  │
+│  • €99/year or €500 one-time (per 10,000 SKUs)                  │
+│  • Published DPPs remain accessible via original URLs           │
+│  • QR codes continue working (no reprinting needed)             │
+│  • No dashboard access, no new DPP issuance                     │
+│  • 10-year retention guaranteed (ESPR requirement)              │
+│                                                                  │
+│  OPTION B: GS1 RESOLVER REDIRECT                                │
+│  ─────────────────────────────────────────────────────────────  │
+│  • Export all data (VCs, keys, images)                          │
+│  • Host on your own infrastructure or CDN                       │
+│  • Configure GS1 resolver to redirect to your new URLs          │
+│  • Requires: GS1 membership, technical setup                    │
+│  • Original QR codes work via GS1 redirect                      │
+│                                                                  │
+│  OPTION C: SELF-MANAGED REDIRECT                                │
+│  ─────────────────────────────────────────────────────────────  │
+│  • Export all data (VCs, keys, images)                          │
+│  • Host on your own domain                                      │
+│  • Set up 301 redirects from eurocomply.eu URLs                 │
+│  • Requires: Own domain, hosting, technical setup               │
+│  • Best for organizations with IT resources                     │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
+│                    CANCELLATION TIMELINE                         │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
 │  Day 0: Organization initiates cancellation                     │
+│         → MUST SELECT one of the three options above            │
 │         → System generates export package                       │
 │         → Download link provided                                 │
 │                                                                  │
@@ -159,16 +192,31 @@ export/
 │         → Reminder emails sent                                  │
 │                                                                  │
 │  Day 30: Subscription ends                                      │
-│         → Final export reminder                                 │
-│         → DPPs marked as "archived"                             │
+│         → If Option A: Transition to Dormant Hosting            │
+│         → If Option B/C: Final redirect configured              │
+│         → Dashboard access removed                              │
 │                                                                  │
-│  Day 60: Data deletion                                          │
-│         → Data removed from EuroComply                          │
-│         → Organization's exported VCs still work                │
-│         → did:key verification still works                      │
+│  After Day 30:                                                  │
+│         → Option A: DPPs served from Dormant archive            │
+│         → Option B: GS1 resolver redirects to new host          │
+│         → Option C: EuroComply 301 redirects to customer domain │
+│         → All: did:key verification still works offline         │
+│                                                                  │
+│  ⚠️  NO OPTION = ESPR NON-COMPLIANCE                            │
+│      Organizations MUST choose before Day 30                    │
+│      System blocks cancellation until option selected           │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+**Why This Matters:**
+
+| Scenario | Without Options | With Options |
+|----------|-----------------|--------------|
+| Customer cancels, no action | QR codes break → ESPR violation | Blocked until option selected |
+| Products in market after cancel | Consumers scan dead links | DPPs remain accessible |
+| Business failure | Data lost | Dormant Hosting preserves compliance |
+| Migration to competitor | Break existing QR codes | Redirect maintains continuity |
 
 ### Scenario 2: Migration to Self-Hosting
 

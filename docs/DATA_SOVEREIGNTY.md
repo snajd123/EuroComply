@@ -60,9 +60,11 @@ The VC contains ALL the DPP data (not references to it). The cryptographic signa
 │     → JSON format                                               │
 │     → Any compatible viewer works                               │
 │                                                                 │
-│  ✅ One-Click Export                                            │
-│     → Download VC + images + offline viewer                     │
-│     → Always available, no restrictions                         │
+│  ✅ Export Always Available (All Plans)                         │
+│     → Individual DPP: VC + images + offline viewer              │
+│     → Bulk Product Data: CSV/JSON export of workspace data      │
+│     → Full Organization Export: Everything for migration        │
+│     → No tier restrictions, no extra cost                       │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```

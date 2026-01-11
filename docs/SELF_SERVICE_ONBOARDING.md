@@ -155,12 +155,11 @@ import Stripe from 'stripe';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-// Pricing tiers (all plans include unlimited users)
+// Pricing tiers (all plans include unlimited users, ALL features)
 const PLANS = {
-  dpp_starter: { priceId: 'price_dpp_starter_monthly', productLimit: 100 },
-  dpp_professional: { priceId: 'price_dpp_professional_monthly', productLimit: 1000 },
-  pim_standard: { priceId: 'price_pim_standard_monthly', productLimit: 5000 },
-  pim_growth: { priceId: 'price_pim_growth_monthly', productLimit: 25000 },
+  growth: { priceId: 'price_growth_monthly', productLimit: 2000, price: 129 },
+  scale: { priceId: 'price_scale_monthly', productLimit: 20000, price: 399 },
+  // Enterprise: Custom pricing, contact sales
 };
 
 // Create checkout session
@@ -289,6 +288,10 @@ model Organization {
   // DID identity
   did                   String?
 
+  // QR Lifecycle Configuration (selected at signup, ESPR compliance)
+  // Determines what happens to DPP URLs if subscription is cancelled
+  qrLifecycleOption     QRLifecycleOption  @default(DORMANT_HOSTING)
+
   // Enabled modules (backend capabilities)
   enabledModules        String[]  // ["core", "compliance", "pim", "dam", "import", "syndication", "epcis", "attestation"]
 
@@ -351,6 +354,14 @@ enum SubscriptionStatus {
   PAST_DUE
   CANCELED
   TRIALING
+}
+
+// QR Lifecycle Option - Selected at signup, determines ESPR compliance strategy
+// See ARCHITECTURE_PORTABILITY.md for full documentation
+enum QRLifecycleOption {
+  DORMANT_HOSTING      // Default: €99/year to keep DPPs accessible after cancel
+  GS1_RESOLVER         // Customer uses GS1 resolver to redirect to self-hosted
+  SELF_MANAGED         // Customer manages own domain and redirects
 }
 ```
 
