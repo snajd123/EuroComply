@@ -2,7 +2,7 @@
 
 ## Overview
 
-EuroComply is designed to handle billions of QR code scans per day while maintaining low latency and predictable costs. This is achieved through a **dual-path architecture** that separates high-volume reads (QR scans) from low-volume writes (PIM operations).
+EuroComply is designed to handle billions of QR code scans per day while maintaining low latency and predictable costs. This is achieved through a **dual-path architecture** that separates high-volume reads (QR scans) from low-volume writes (workspace operations that build the Golden Record in The Hub).
 
 **Key Insight:** DPP access must be free for all users (ESPR Article 31). This means infrastructure costs scale with adoption but revenue doesn't. We solve this by self-hosting the read path with Cloudflare (unlimited free bandwidth) + Hetzner (cheap EU bare metal), reducing costs by 99% compared to AWS CloudFront.
 
@@ -30,7 +30,7 @@ EuroComply is designed to handle billions of QR code scans per day while maintai
 │                                                                              │
 │  WRITE PATH (Low volume, complex) - AWS                                     │
 │  ───────────────────────────────────────                                    │
-│  • PIM operations → PostgreSQL (RDS)                                        │
+│  • Workspace writes → PostgreSQL (RDS) → The Hub                            │
 │  • DPP issuance → PostgreSQL + push to Hetzner origins                     │
 │  • User management → PostgreSQL                                             │
 │  • Hosted on: AWS ECS Fargate (eu-central-1)                               │
@@ -204,10 +204,12 @@ Origin serves: /var/www/dpp/gtin/05901234567890/index.html (browser)
 
 ## DPP Issuance Flow (Write Path)
 
-When a DPP is issued, static files are generated and pushed to Hetzner origins:
+When a DPP is issued, the Compliance workspace reads the Golden Record from The Hub and generates static files that are pushed to Hetzner origins. The Golden Record contains the complete, authoritative product data aggregated from all workspace contributions:
 
 ```typescript
 async function issueDPP(product: Product, vc: VerifiableCredential): Promise<Passport> {
+  // NOTE: 'product' contains the Golden Record data read from The Hub
+
   // 1. Sign the VC (existing flow)
   const signedVC = await wallet.sign(vc);
 
@@ -863,7 +865,7 @@ async function purgeCloudflareCache(gtin: string): Promise<void> {
 
 ## Write Path Architecture (AWS)
 
-The write path (PIM operations) remains on AWS for reliability and managed services:
+The write path (workspace operations that populate The Hub) remains on AWS for reliability and managed services. All four workspaces—Design (PLM), Operations (ERP-lite), Marketing (PIM), and Compliance (DPP)—write product data to The Hub, building the Golden Record for each product:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -896,6 +898,75 @@ The write path (PIM operations) remains on AWS for reliability and managed servi
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## EPCIS Event Storage
+
+EPCIS events track supply chain activities (receiving, shipping, transformations) and are stored separately from the Golden Record product data. The Operations workspace generates these events automatically based on user actions.
+
+### Storage Strategy (Year 1-2)
+
+**Keep it simple—PostgreSQL only:**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  EPCIS STORAGE STRATEGY                                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  PostgreSQL (Multi-tenant Cluster)                              │
+│  ─────────────────────────────────                              │
+│                                                                  │
+│  epcis_events table:                                            │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ organization_id  │ event_id  │ event_time │ event_json  │   │
+│  │ (partition key)  │ (PK)      │ (indexed)  │ (JSONB)     │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│  Why PostgreSQL is enough:                                      │
+│  • Large retailer (1M SKUs) = 50M events/year ≈ 100 GB/year    │
+│  • 100 customers at this scale = 10 TB (manageable)            │
+│  • PostgreSQL handles 10+ TB comfortably                        │
+│  • Cost: ~$500/month for managed Postgres                       │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Cold Tier Migration Path
+
+**Trigger:** When approaching 500GB–1TB, add cold storage tier:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  COLD TIER STRATEGY (>500GB)                                     │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Hot tier (PostgreSQL):                                         │
+│  • Events < 30 days old                                          │
+│  • Fast queries for operational use                              │
+│                                                                  │
+│  Cold tier (R2/S3 + Parquet):                                   │
+│  • Events > 30 days old                                          │
+│  • 7-year retention (regulatory requirement)                     │
+│  • Queryable via DuckDB or Athena                               │
+│  • Cost: ~$0.015/GB/month                                       │
+│                                                                  │
+│  Migration runs nightly, moving aged events                      │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Capacity & Fair Use
+
+| Metric | Policy |
+|--------|--------|
+| Events per product | ~100 events/product/year (typical) |
+| Storage per org | "Unlimited" with fair use |
+| Fair use threshold | >500 events/product/year triggers review |
+| Enterprise override | Custom limits for >500K products |
+| Retention | 7 years total (regulatory requirement) |
+
+See [EPCIS_INTEGRATION.md](./EPCIS_INTEGRATION.md) for full EPCIS event flows and repository connection details.
 
 ---
 
@@ -997,6 +1068,8 @@ When the EU DPP Registry launches (expected July 2026), we'll integrate seamless
 ---
 
 ## Data Model: Passport Static Serving Fields
+
+The Passport model stores a snapshot of the Golden Record at the time of DPP issuance. The `data` field contains the CIRPASS-compliant data extracted from The Hub, while the `vcJwt` is the signed Verifiable Credential that makes this snapshot tamper-proof.
 
 ```prisma
 model Passport {
@@ -1101,10 +1174,11 @@ enum PassportStatus {
 │  • 100B+ scans/day: ~$2,500/month (R2)                         │
 │  • 1T scans/day: ~$11,000/month (R2)                           │
 │                                                                  │
-│  PIM OPERATIONS (WRITE PATH) - AWS                              │
-│  ─────────────────────────────────                              │
+│  WORKSPACE WRITES (WRITE PATH) - AWS → THE HUB                 │
+│  ─────────────────────────────────────────────                  │
 │  Capacity: Thousands per day                                    │
-│  Architecture: ECS → PostgreSQL → Redis                         │
+│  Architecture: ECS → PostgreSQL (The Hub) → Redis               │
+│  All workspaces write to Hub, building Golden Records          │
 │  Cost: ~$300/month                                              │
 │  Scalable to: 10,000+ concurrent users                         │
 │                                                                  │
@@ -1133,6 +1207,8 @@ enum PassportStatus {
 
 | Document | Description |
 |----------|-------------|
+| [GOLDEN_RECORD.md](./GOLDEN_RECORD.md) | Golden Record concept and how The Hub works |
+| [EPCIS_INTEGRATION.md](./EPCIS_INTEGRATION.md) | Full EPCIS event flows and repository setup |
 | [INFRASTRUCTURE.md](../INFRASTRUCTURE.md) | Full infrastructure guide (AWS + Hetzner) |
 | [EU_INTEGRATION.md](./EU_INTEGRATION.md) | EBSI and EU DPP Registry integration |
 | [ARCHITECTURE_PORTABILITY.md](./ARCHITECTURE_PORTABILITY.md) | Data ownership and portability |
@@ -1142,4 +1218,4 @@ enum PassportStatus {
 
 ---
 
-*Last Updated: January 10, 2026*
+*Last Updated: January 11, 2026*
