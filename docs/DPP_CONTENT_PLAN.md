@@ -2,7 +2,7 @@
 
 ## Overview
 
-Brands, manufacturers, and distributors manage product data and generate Digital Product Passports using EuroComply's unified platform with **four purpose-built workspaces**: Design (PLM), Operations (ERP-lite), Marketing (PIM), and Compliance (DPP). All workspaces read from and write to **The Hub** - the central data store where each product has a single **Golden Record**. Design defines product structure and materials, Marketing enriches with commercial content, and Compliance reads the complete Golden Record to issue DPPs. When completeness reaches 100%, products appear in the DPP Ready list for review and manual approval before issuance. Retailers access DPPs for free via our public API, embeddable widget, or Shopify Retailer App.
+Brands, manufacturers, and distributors manage product data and generate Digital Product Passports using EuroComply's unified platform with **four purpose-built workspaces**: Design (PLM), Operations (ERP-lite), Marketing (PIM), and Compliance (DPP). All workspaces read from and write to **The Hub** - the central database where each product has an identity linking workspace-specific data. Design defines product structure and materials, Marketing enriches with commercial content, and Compliance reads the complete workspace data to issue DPPs. When completeness reaches 100%, products appear in the DPP Ready list for review and manual approval before issuance. Retailers access DPPs for free via our public API, embeddable widget, or Shopify Retailer App.
 
 See [BUSINESS_MODEL.md](./BUSINESS_MODEL.md) for the full pricing model.
 
@@ -15,7 +15,7 @@ All workspaces write to and read from **The Hub** - the central data store:
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                              THE HUB                                         │
-│                    (Central Data Store - Golden Record)                      │
+│                    (Central Database - Workspace Data)                       │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │  Product data is always synchronized. Changes in any workspace are          │
@@ -62,7 +62,7 @@ Creating ESPR-compliant Digital Product Passports requires **category-specific, 
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│              GOLDEN RECORD CREATION FLOW                             │
+│              PRODUCT DATA CREATION FLOW                              │
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                      │
 │  1. ORGANIZATION ONBOARDING                                         │
@@ -97,7 +97,7 @@ Creating ESPR-compliant Digital Product Passports requires **category-specific, 
 │                                                                      │
 │  7. COMPLIANCE WORKSPACE: DPP Ready List                            │
 │     ├─ View products at 100% DPP completeness                      │
-│     ├─ Read Golden Record from Hub (all data already synchronized) │
+│     ├─ Read workspace data from Hub (all data already synchronized)│
 │     └─ Products queue for manual approval                          │
 │                                                                      │
 │  8. DPP ISSUANCE (Manual approval in Compliance workspace)          │
@@ -131,7 +131,7 @@ Upload any file format and let AI extract and map product data automatically.
 2. AI extracts product data automatically
 3. Review suggested field mappings
 4. Approve or adjust mappings
-5. Products created as Golden Records
+5. Products created with workspace data
 6. Completeness scores calculated per channel
 
 ### Method 2: Category-Specific Forms
@@ -196,7 +196,7 @@ templates/
 Organizations using Shopify can import their existing product catalog:
 
 1. Connect Shopify store via OAuth
-2. Products imported as Golden Records
+2. Products imported with workspace data
 3. Commercial data (name, SKU, price, images) populated automatically
 4. Add compliance data to reach 100% DPP completeness
 5. DPP metadata synced back to Shopify metafields
@@ -257,7 +257,7 @@ const EMISSION_FACTORS = {
 
 ## VC Issuance
 
-When a Golden Record reaches 100% DPP completeness, the product appears in the **DPP Ready list** for review and manual approval. Users review the product data and approve issuance to generate the Verifiable Credential.
+When a product's workspace data reaches 100% DPP completeness, it appears in the **DPP Ready list** for review and manual approval. Users review the product data and approve issuance to generate the Verifiable Credential.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -547,9 +547,9 @@ Track where data comes from for transparency.
 │  → Bulk operations for efficient management [All Plans]         │
 │  → LCA estimation for carbon footprint                          │
 │                                                                  │
-│  THE HUB (GOLDEN RECORD MODEL)                                  │
-│  → Central data store - single source of truth                  │
-│  → Each product has one Golden Record in the Hub                │
+│  THE HUB (WORKSPACE DATA MODEL)                                 │
+│  → Central database for all workspace data                      │
+│  → Each product has identity + workspace-specific data          │
 │  → All workspaces write to Hub, Compliance reads from Hub       │
 │  → Data always synchronized across workspaces                   │
 │  → Completeness scoring per channel                             │
@@ -573,7 +573,7 @@ Track where data comes from for transparency.
 
 ## Related Documentation
 
-- [Golden Record](./GOLDEN_RECORD.md) - Golden Record concept and data model
+- [User Management](./USER_MANAGEMENT.md) - Workspace-based data ownership model
 - [Passport Trust Model](./PASSPORT_TRUST_MODEL.md) - Trust architecture
 - [Multi-Party Attestation](./MULTI_PARTY_ATTESTATION.md) - Third-party attestations
 - [Business Model](./BUSINESS_MODEL.md) - Pricing and plans
