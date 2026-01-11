@@ -621,7 +621,7 @@ The VC serves as a **time-stamped, tamper-evident receipt** of what the company 
   EuroComply API                walt.id Custodian              Key Storage
        │                              │                             │
        │  "Sign this VC with         │                             │
-       │   supplier's key"           │                             │
+       │   organization's key"       │                             │
        │─────────────────────────────►│                             │
        │                              │                             │
        │                              │  Retrieve private key       │
@@ -639,14 +639,14 @@ The VC serves as a **time-stamped, tamper-evident receipt** of what the company 
 
 ### Export Available
 
-Suppliers can export their private key when:
+Organizations can export their private key when:
 - They want to self-host
 - They're canceling subscription
 - They want backup
 
 ```typescript
 // Export endpoint
-POST /api/supplier/export
+POST /api/v1/organization/export
 
 Response:
 {
@@ -681,7 +681,7 @@ export const defaultConfig: IdentityConfig = {
     method: 'key',  // did:key for portability
   },
   features: {
-    exportEnabled: true,  // Suppliers can export keys
+    exportEnabled: true,  // Organizations can export keys
   },
 };
 ```

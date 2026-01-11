@@ -373,29 +373,29 @@ enum QRLifecycleOption {
 
 ```typescript
 // Registration
-POST /api/core/auth/register
+POST /api/v1/auth/register
   → Creates organization, sends verification email
 
 // Email verification
-POST /api/core/auth/verify-email
+POST /api/v1/auth/verify-email
   → Verifies email token
 
 // Plan selection
-POST /api/core/billing/checkout
+POST /api/v1/billing/checkout
   → Creates Stripe checkout session, redirects to payment
 
 // Stripe webhook
-POST /api/webhooks/stripe
+POST /api/v1/webhooks/stripe
   → Handles subscription events
 
 // Subscription management
-GET  /api/core/billing/subscription
+GET  /api/v1/billing/subscription
   → Current plan, usage, billing info
 
-POST /api/core/billing/upgrade
+POST /api/v1/billing/upgrade
   → Upgrade plan via Stripe portal
 
-POST /api/core/billing/cancel
+POST /api/v1/billing/cancel
   → Cancel subscription
 ```
 

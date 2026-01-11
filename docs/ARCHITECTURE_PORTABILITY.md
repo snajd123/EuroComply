@@ -226,7 +226,7 @@ export/
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
 │  1. Export from EuroComply                                      │
-│     POST /api/suppliers/export                                  │
+│     POST /api/v1/organization/export                            │
 │     { "includePrivateKey": true }                               │
 │                                                                  │
 │  2. Set up hosting (any static host)                            │
@@ -395,14 +395,14 @@ Cost:
 
 ### Option 3: Retailer Hosting
 
-Supplier provides VCs directly to retailers.
+Organization provides VCs directly to retailers.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                    RETAILER-HOSTED VCs                           │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  Supplier exports VCs                                           │
+│  Organization exports VCs                                       │
 │       │                                                          │
 │       └──► Sends to retailers who use those products            │
 │                │                                                 │

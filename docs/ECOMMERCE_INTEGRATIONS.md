@@ -116,9 +116,9 @@ This integration is for brands, manufacturers, and distributors who create DPPs 
 #### OAuth Flow
 
 ```
-GET /api/syndication/shopify/auth?shop=mystore.myshopify.com
+GET /api/v1/syndication/shopify/auth?shop=mystore.myshopify.com
 → Redirects to Shopify OAuth
-→ Returns to /api/syndication/shopify/callback
+→ Returns to /api/v1/syndication/shopify/callback
 → Exchanges code for access token
 → Creates channel & imports products
 → Redirects to dashboard
@@ -128,12 +128,12 @@ GET /api/syndication/shopify/auth?shop=mystore.myshopify.com
 
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| GET | `/api/syndication/shopify/auth` | None | Start OAuth flow |
-| GET | `/api/syndication/shopify/callback` | None | OAuth callback |
-| POST | `/api/syndication/shopify/webhooks/:topic` | HMAC | Webhook handler |
-| GET | `/api/syndication/shopify/status` | API Key | Get connection status |
-| POST | `/api/syndication/shopify/sync` | API Key | Manual product sync |
-| POST | `/api/syndication/shopify/disconnect` | API Key | Disconnect store |
+| GET | `/api/v1/syndication/shopify/auth` | None | Start OAuth flow |
+| GET | `/api/v1/syndication/shopify/callback` | None | OAuth callback |
+| POST | `/api/v1/syndication/shopify/webhooks/:topic` | HMAC | Webhook handler |
+| GET | `/api/v1/syndication/shopify/status` | API Key | Get connection status |
+| POST | `/api/v1/syndication/shopify/sync` | API Key | Manual product sync |
+| POST | `/api/v1/syndication/shopify/disconnect` | API Key | Disconnect store |
 
 #### Environment Variables
 
@@ -441,11 +441,11 @@ The Public API does not require API keys for read-only DPP lookups. Rate limitin
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/public/dpp/gtin/:gtin` | Lookup DPP by GTIN |
-| GET | `/api/public/dpp/brand/:brand/sku/:sku` | Lookup DPP by brand and SKU |
-| GET | `/api/public/dpp/serial/:serial` | Lookup DPP by serial number |
-| GET | `/api/public/dpp/search` | Search DPP catalog |
-| POST | `/api/public/dpp/batch` | Batch lookup (up to 100 identifiers) |
+| GET | `/api/v1/public/dpp/gtin/:gtin` | Lookup DPP by GTIN |
+| GET | `/api/v1/public/dpp/brand/:brand/sku/:sku` | Lookup DPP by brand and SKU |
+| GET | `/api/v1/public/dpp/serial/:serial` | Lookup DPP by serial number |
+| GET | `/api/v1/public/dpp/search` | Search DPP catalog |
+| POST | `/api/v1/public/dpp/batch` | Batch lookup (up to 100 identifiers) |
 
 ### Response Format
 

@@ -244,7 +244,7 @@ WooCommerce uses REST API authentication (no OAuth flow required).
 
 3. **Test Connection**:
 ```bash
-curl -X POST http://localhost:3000/api/woocommerce/connect \
+curl -X POST http://localhost:3000/api/v1/syndication/woocommerce/connect \
   -H "Authorization: Bearer ec_your_api_key" \
   -H "Content-Type: application/json" \
   -d '{

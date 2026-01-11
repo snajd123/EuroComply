@@ -425,36 +425,36 @@ const newKeyId = await didKeyService.importPrivateKey(privateKey);
 
 ### API Endpoints ✅ COMPLETE
 
-**Location:** `apps/api/src/modules/supplier/routes.ts`
+**Location:** `apps/api/src/modules/organization/routes.ts`
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/suppliers/export/did` | GET | Get or create supplier's did:key |
-| `/api/suppliers/export/dpp/:productId` | POST | Export DPP as portable package |
-| `/api/suppliers/export/keys` | POST | Export signing keys (requires confirmation) |
-| `/api/suppliers/export/viewer/:productId` | GET | Download offline HTML viewer |
+| `/api/v1/organization/export/did` | GET | Get or create organization's did:key |
+| `/api/v1/organization/export/dpp/:productId` | POST | Export DPP as portable package |
+| `/api/v1/organization/export/keys` | POST | Export signing keys (requires confirmation) |
+| `/api/v1/organization/export/viewer/:productId` | GET | Download offline HTML viewer |
 
 **Usage Examples:**
 
 ```bash
-# Get supplier's DID
-curl -X GET https://api.eurocomply.eu/v1/suppliers/export/did \
+# Get organization's DID
+curl -X GET https://api.eurocomply.eu/v1/organization/export/did \
   -H "Authorization: Bearer <token>"
 
 # Export DPP as portable package
-curl -X POST https://api.eurocomply.eu/v1/suppliers/export/dpp/prod_123 \
+curl -X POST https://api.eurocomply.eu/v1/organization/export/dpp/prod_123 \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{"includePrivateKey": false}'
 
 # Export signing keys (requires explicit confirmation)
-curl -X POST https://api.eurocomply.eu/v1/suppliers/export/keys \
+curl -X POST https://api.eurocomply.eu/v1/organization/export/keys \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{"confirmKeyExport": true}'
 
 # Download offline HTML viewer
-curl -X GET https://api.eurocomply.eu/v1/suppliers/export/viewer/prod_123 \
+curl -X GET https://api.eurocomply.eu/v1/organization/export/viewer/prod_123 \
   -H "Authorization: Bearer <token>" \
   -o dpp-viewer.html
 ```
@@ -533,7 +533,7 @@ All customers receive full platform access. Tier differentiation is based solely
 ```typescript
 async function buildSelfContainedVC(passport: Passport): Promise<VerifiableCredential> {
   const issuerDid = await getEuroComplyDid();
-  const subjectDid = await getSupplierDid(passport.supplierId);
+  const subjectDid = await getOrganizationDid(passport.organizationId);
 
   // Build credential with ALL data embedded
   const credential: VerifiableCredential = {
