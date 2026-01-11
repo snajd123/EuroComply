@@ -13,6 +13,61 @@ EuroComply provides Shopify integration for both brands creating DPPs and retail
 
 ---
 
+## Workspace Integration
+
+Shopify data contains both technical and commercial information. The Import module intelligently routes incoming data to the appropriate workspaces and modules:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    SHOPIFY IMPORT → SMART ROUTING                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  SHOPIFY STORE                                                               │
+│       │                                                                      │
+│       ▼                                                                      │
+│  ┌─────────────────────────────────────────────────────────────────────────┐│
+│  │                         IMPORT MODULE                                    ││
+│  │                    (Shared across workspaces)                            ││
+│  │                                                                          ││
+│  │  Analyzes incoming data and routes to appropriate modules:               ││
+│  └─────────────────────────────────────────────────────────────────────────┘│
+│       │                              │                              │        │
+│       ▼                              ▼                              ▼        │
+│  ┌──────────────┐           ┌──────────────┐           ┌──────────────┐     │
+│  │   REGISTRY   │           │     PIM      │           │   DAM-Media  │     │
+│  │   (Design)   │           │  (Marketing) │           │  (Marketing) │     │
+│  │              │           │              │           │              │     │
+│  │  • SKU       │           │  • Title     │           │  • Images    │     │
+│  │  • GTIN      │           │  • Desc      │           │  • Videos    │     │
+│  │  • Vendor    │           │  • Price     │           │              │     │
+│  │  • Type      │           │  • Tags      │           │              │     │
+│  └──────────────┘           └──────────────┘           └──────────────┘     │
+│                                                                              │
+│  After import, user enriches in appropriate workspace:                       │
+│  • Design: Add materials, BOMs, certifications, technical specs            │
+│  • Marketing: Improve descriptions, add SEO content, localize              │
+│  • Operations: Add EPCIS events, batch tracking                            │
+│  • Compliance: Review completeness, approve DPP issuance                   │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+| Shopify Field | Routes To | Module | Workspace |
+|---------------|-----------|--------|-----------|
+| variants[].sku | Technical identity | Registry | Design |
+| variants[].barcode | GTIN identifier | Registry | Design |
+| vendor | Manufacturer info | Registry | Design |
+| product_type | Product classification | Registry | Design |
+| title | Commercial content | PIM | Marketing |
+| body_html | Product description | PIM | Marketing |
+| variants[].price | Pricing | PIM | Marketing |
+| tags | Categorization | PIM | Marketing |
+| images | Media assets | DAM-Media | Marketing |
+
+**Key Insight**: Shopify is primarily a sales channel, so it contains mostly commercial data. After import, users typically need to enrich products in the Design workspace with sustainability data (materials, certifications, carbon footprint) before DPP issuance is possible.
+
+---
+
 ## Integration Types
 
 ### For Brands and Manufacturers (Paid)
@@ -42,14 +97,18 @@ This integration is for brands, manufacturers, and distributors who create DPPs 
 ### For Organizations
 
 **Connection (2 minutes):**
-1. Go to EuroComply Dashboard → Channels → Add Shopify
+1. Go to EuroComply Dashboard → Marketing → Channels → Add Shopify
 2. Enter your Shopify store URL
 3. Authorize the required permissions
-4. Products are automatically imported
+4. Products are automatically imported and routed to appropriate modules
 
 **What happens:**
-- Products imported to EuroComply as Golden Records
-- DPP data synced back to Shopify metafields
+- Import module routes data to Registry (Design) and PIM (Marketing)
+- Technical identity (SKU, GTIN) → Registry
+- Commercial content (title, description, price) → PIM
+- Media assets (images) → DAM-Media
+- User enriches products with sustainability data in Design workspace
+- DPP data synced back to Shopify metafields after issuance
 - QR codes available for product pages
 
 ### For Developers
@@ -105,28 +164,43 @@ The app subscribes to these webhooks:
 
 ## Product Sync Details
 
-### What Gets Synced
+### What Gets Synced (By Workspace)
 
-| Shopify Field | EuroComply Field | Direction |
-|---------------|------------------|-----------|
-| title | name | ↔ Bi-directional |
-| body_html | description | ↔ Bi-directional |
-| variants[].sku | sku | ↔ Bi-directional |
-| variants[].barcode | gtin | ↔ Bi-directional |
-| vendor | attributes.vendor | → Import only |
-| product_type | attributes.productType | → Import only |
-| tags | attributes.tags | ↔ Bi-directional |
-| images | assets | → Import only |
-| variants[].price | price | ↔ Bi-directional |
-| metafields.eurocomply.* | dppData | ← Export only |
+| Shopify Field | EuroComply Module | Workspace | Direction |
+|---------------|-------------------|-----------|-----------|
+| **REGISTRY (Technical Identity)** | | | |
+| variants[].sku | Registry.sku | Design | ↔ Bi-directional |
+| variants[].barcode | Registry.gtin | Design | ↔ Bi-directional |
+| vendor | Registry.manufacturer | Design | → Import only |
+| product_type | Registry.productType | Design | → Import only |
+| **PIM (Commercial Content)** | | | |
+| title | PIM.name | Marketing | ↔ Bi-directional |
+| body_html | PIM.description | Marketing | ↔ Bi-directional |
+| variants[].price | PIM.price | Marketing | ↔ Bi-directional |
+| tags | PIM.tags | Marketing | ↔ Bi-directional |
+| **DAM-Media (Assets)** | | | |
+| images | DAM-Media.assets | Marketing | → Import only |
+| **DPP (Compliance Output)** | | | |
+| metafields.eurocomply.* | Compliance.dppData | Compliance | ← Export only |
 
 ### Sync Behavior
 
-- **Initial Sync**: All active products imported on connection
+- **Initial Sync**: All active products imported on connection, routed to Registry + PIM
 - **Ongoing Sync**: Webhooks keep products in sync automatically
-- **Manual Sync**: Trigger via API or dashboard
+- **Manual Sync**: Trigger via API or dashboard (Marketing workspace → Channels)
 - **Rate Limiting**: BullMQ queue respects Shopify's 2 req/sec limit
 - **Deletions**: Products are archived, not deleted (audit trail)
+
+### Post-Import Enrichment
+
+After Shopify import, products typically need enrichment before DPP issuance:
+
+| Workspace | What to Add | Required for DPP? |
+|-----------|-------------|-------------------|
+| **Design** | Materials, BOMs, sustainability properties, certifications | Yes |
+| **Operations** | EPCIS events, batch/lot tracking, serial numbers | Category-dependent |
+| **Marketing** | Improved descriptions, SEO, localized content | Recommended |
+| **Compliance** | Review and approve for DPP issuance | Yes |
 
 ---
 
@@ -425,4 +499,4 @@ The search endpoint accepts the following query parameters:
 
 ---
 
-*Last Updated: January 2026*
+*Last Updated: 2026-01-11*
