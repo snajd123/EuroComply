@@ -21,7 +21,7 @@ Attestation is a cross-cutting feature available in **all four EuroComply worksp
 2. **Linked Verifiable Credentials** - Each attestation is its own VC, referenced by the DPP
 3. **Full traceability** - Every data point shows who attested it and when
 4. **Customer responsibility** - EuroComply does not validate attestation accuracy; customers are responsible for trusting their contributors
-5. **Data flows to The Hub** - Attestations are stored in the Hub (central data store) as part of the product's Golden Record, immediately visible across all workspaces
+5. **Data flows to The Hub** - Attestations are stored in the Hub (central database) as workspace data, immediately visible across all workspaces
 
 ---
 
@@ -65,8 +65,8 @@ Attestation is a cross-cutting feature available in **all four EuroComply worksp
 │       │           ┌───────────────────────────────────────────────────────┐ │
 │       │           │               5. STORE IN THE HUB                      │ │
 │       │           │                                                        │ │
-│       │           │  Approved attestation stored in the Hub as part of     │ │
-│       │           │  the product's Golden Record                           │ │
+│       │           │  Approved attestation stored in the Hub as              │ │
+│       │           │  workspace data for the product                        │ │
 │       │           │                                                        │ │
 │       │           │  Immediately visible across all workspaces             │ │
 │       │           │  (Hub is always synchronized)                          │ │
@@ -78,20 +78,20 @@ Attestation is a cross-cutting feature available in **all four EuroComply worksp
 │       │   │         6. DPP ISSUANCE (Later, in Compliance workspace)    │   │
 │       │   │                                                             │   │
 │       │   │  When product reaches 100% completeness and user approves:  │   │
-│       │   │  • Compliance workspace READS Golden Record from Hub        │   │
+│       │   │  • Compliance workspace READS workspace data from Hub        │   │
 │       │   │  • DPP VC issued with attestations array                    │   │
 │       │   │  • Each attestation linked by reference                     │   │
 │       │   └─────────────────────────────────────────────────────────────┘   │
 │       │                                                                     │
 │       └─────────────────────────────────────────────────────────────────────┘
-│         All data stored in The Hub - single source of truth                  │
+│         All data stored in The Hub - central database                        │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 **Key Points:**
 - Attestations are requested from **any workspace** (Design, Operations, Marketing, Compliance)
-- After approval, attestations are stored in **The Hub** as part of the product's Golden Record
+- After approval, attestations are stored in **The Hub** as workspace data for the product
 - Data is **immediately visible** across all workspaces (Hub is always synchronized)
 - DPP issuance happens **later** in Compliance workspace - it READS from the Hub (no aggregation needed)
 
@@ -877,7 +877,7 @@ GET    /api/v1/contributors/:id               Get contributor details
 
 | Document | Description |
 |----------|-------------|
-| [GOLDEN_RECORD.md](./GOLDEN_RECORD.md) | Golden Record concept and data model |
+| [USER_MANAGEMENT.md](./USER_MANAGEMENT.md) | Workspace-based data ownership model |
 | [VERIFIABLE_CREDENTIALS.md](./VERIFIABLE_CREDENTIALS.md) | VC/DID technical implementation |
 | [DATA_SOVEREIGNTY.md](./DATA_SOVEREIGNTY.md) | Data ownership and portability |
 | [PASSPORT_TRUST_MODEL.md](./PASSPORT_TRUST_MODEL.md) | Overall trust architecture |
