@@ -25,7 +25,7 @@ EuroComply provides **four workspaces** tailored to different personas. During o
 - **Compliance** workspace READS the Golden Record from The Hub to issue DPPs
 - Each workspace contributes different data: technical DNA (Design), supply chain (Operations), commercial content (Marketing)
 
-All workspaces are available to all users - defaults simply guide the first experience. See [GOLDEN_RECORD.md](./GOLDEN_RECORD.md) for details on how product data flows into The Hub.
+The first user (founder) gets access to all workspaces as MANAGER. Additional users are granted workspace access based on their role. See [USER_MANAGEMENT.md](./USER_MANAGEMENT.md) for workspace access and role templates, and [GOLDEN_RECORD.md](./GOLDEN_RECORD.md) for how product data flows into The Hub.
 
 ---
 

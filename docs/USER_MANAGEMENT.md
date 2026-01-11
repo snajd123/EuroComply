@@ -50,15 +50,16 @@ EuroComply implements a comprehensive user management system with role-based acc
 | **Authentication** | Email + Password | Magic Link | Magic Link |
 | **Link Expiry** | N/A | Configurable (default: never) | Configurable (default: never) |
 | **DID Storage** | walt.id Custodian | walt.id Custodian | Ephemeral (session only) |
-| **Product Access** | All products | Filtered by tags/families | Specific products only |
-| **Dashboard** | Full | Scoped | Minimal (task-focused) |
-| **Can Invite Others** | If MANAGER | No | No |
+| **Workspace Access** | Per-workspace authority | Limited workspaces + product filters | Single workspace, specific products |
+| **Product Access** | Based on workspace | Filtered by tags/families | Specific products only |
+| **Dashboard** | Full (accessible workspaces) | Scoped | Minimal (task-focused) |
+| **Can Invite Others** | If Admin | No | No |
 
 ---
 
 ## 2. Authority Levels
 
-Authority determines what actions a user can perform. There are four levels:
+Authority determines what actions a user can perform **within a workspace**. Users have a separate authority level for each workspace they can access. There are four levels:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -92,70 +93,153 @@ Authority determines what actions a user can perform. There are four levels:
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Authority Matrix
+### Authority Matrix (Per Workspace)
+
+These permissions apply **within each workspace** the user has access to:
 
 | Action | VIEWER | CONTRIBUTOR | EDITOR | MANAGER |
 |--------|:------:|:-----------:|:------:|:-------:|
-| View products | ✓ | ✓ | ✓ | ✓ |
-| Edit products | - | ✓ (draft) | ✓ | ✓ |
+| View workspace data | ✓ | ✓ | ✓ | ✓ |
+| Edit data (draft) | - | ✓ | ✓ | ✓ |
 | Self-sign changes | - | - | ✓ | ✓ |
 | Approve others' changes | - | - | ✓ | ✓ |
-| Issue DPPs | - | - | - | ✓ |
-| Invite users | - | - | - | ✓ |
-| Manage billing | - | - | - | ✓ |
+| Issue DPPs (Compliance only) | - | - | - | ✓ |
 | View audit log | ✓ | ✓ | ✓ | ✓ |
+
+**Admin-only actions** (separate from workspace authority):
+
+| Action | Requires |
+|--------|----------|
+| Invite users | Admin access |
+| Manage billing | Admin access |
+| API key management | Admin access |
+| Organization settings | Admin access |
 
 ---
 
-## 3. Functional Scopes
+## 3. Workspace Access
 
-Scopes define which category of data a user can access. This creates "lanes" of responsibility:
+Users are granted access to specific workspaces with an authority level per workspace. This replaces the old "scope" model with workspace-based access control.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                          FUNCTIONAL SCOPES                                   │
+│                          WORKSPACE ACCESS MODEL                              │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  ┌─────────────────────┐  ┌─────────────────────┐  ┌─────────────────────┐  │
-│  │     COMMERCIAL      │  │     COMPLIANCE      │  │       ADMIN         │  │
-│  ├─────────────────────┤  ├─────────────────────┤  ├─────────────────────┤  │
-│  │                     │  │                     │  │                     │  │
-│  │ • Product name      │  │ • Materials         │  │ • User management   │  │
-│  │ • Description       │  │ • Certifications    │  │ • Billing           │  │
-│  │ • Price             │  │ • Carbon footprint  │  │ • API keys          │  │
-│  │ • Images            │  │ • Recyclability     │  │ • Integrations      │  │
-│  │ • Categories        │  │ • Care instructions │  │ • Organization      │  │
-│  │ • Variants          │  │ • DPP fields        │  │   settings          │  │
-│  │                     │  │                     │  │                     │  │
-│  │ Who: Marketing,     │  │ Who: Compliance     │  │ Who: Founders,      │  │
-│  │ Sales, Product      │  │ officers, QA,       │  │ IT admins           │  │
-│  │ managers            │  │ Sustainability      │  │                     │  │
-│  │                     │  │ team                │  │                     │  │
-│  └─────────────────────┘  └─────────────────────┘  └─────────────────────┘  │
+│  Each user has access to SPECIFIC workspaces (not all by default)           │
+│  Each workspace access includes an AUTHORITY LEVEL                          │
+│                                                                              │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐        │
+│  │   DESIGN    │  │ OPERATIONS  │  │  MARKETING  │  │ COMPLIANCE  │        │
+│  │    (PLM)    │  │ (ERP-lite)  │  │    (PIM)    │  │    (DPP)    │        │
+│  ├─────────────┤  ├─────────────┤  ├─────────────┤  ├─────────────┤        │
+│  │             │  │             │  │             │  │             │        │
+│  │ • Registry  │  │ • Registry  │  │ • PIM       │  │ • DPP       │        │
+│  │ • Materials │  │ • EPCIS     │  │ • DAM-Media │  │   Issuance  │        │
+│  │ • DAM-Tech  │  │ • Inventory │  │ • Syndicate │  │ • Attest    │        │
+│  │ • BOMs      │  │ • Suppliers │  │ • Channels  │  │ • Certs     │        │
+│  │             │  │             │  │             │  │             │        │
+│  │ WRITES TO   │  │ WRITES TO   │  │ WRITES TO   │  │ READS FROM  │        │
+│  │ THE HUB     │  │ THE HUB     │  │ THE HUB     │  │ THE HUB     │        │
+│  │             │  │             │  │             │  │             │        │
+│  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘        │
+│                                                                              │
+│  Example User: Maria Garcia                                                 │
+│  ├── Design:     No access                                                  │
+│  ├── Operations: No access                                                  │
+│  ├── Marketing:  EDITOR (can self-publish content)                          │
+│  └── Compliance: VIEWER (can view DPPs, not issue)                          │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Scope Assignment
+### Workspace vs Admin Access
 
-Users can have one or more scopes:
+In addition to workspace access, users may have **Admin** privileges for organization-level settings:
 
-| Example Role | Scopes |
-|--------------|--------|
-| Product Manager | COMMERCIAL |
-| Compliance Officer | COMPLIANCE |
-| Sustainability Lead | COMPLIANCE |
-| Marketing Team | COMMERCIAL |
-| IT Administrator | ADMIN |
-| Founder/Owner | COMMERCIAL, COMPLIANCE, ADMIN |
-| External Agency | COMMERCIAL (filtered products) |
+| Access Type | Controls |
+|-------------|----------|
+| **Workspace Access** | Which workspaces user can see and work in |
+| **Admin Access** | User management, billing, API keys, integrations, org settings |
 
-### Cross-Scope Editing
+Admin access is a separate boolean flag, not a workspace. A user can be an EDITOR in Marketing with no Admin access, or a VIEWER in all workspaces with full Admin access.
 
-When a user edits a field outside their scope:
+### Default Workspace Assignment
 
-- **If they have the scope:** Normal workflow (self-sign or submit for review)
-- **If they don't have the scope:** Edit blocked, must request from someone with that scope
+During onboarding, users get access based on organization type:
+
+| Organization Type | Default Workspace | Default Authority |
+|-------------------|-------------------|-------------------|
+| **Brand** | Marketing | EDITOR |
+| **Manufacturer** | Design | EDITOR |
+| **Distributor** | Operations | EDITOR |
+
+The first user (founder) gets **all workspaces as MANAGER + Admin access**.
+
+### Workspace Access Examples
+
+| User Role | Design | Operations | Marketing | Compliance | Admin |
+|-----------|:------:|:----------:|:---------:|:----------:|:-----:|
+| **Founder** | MANAGER | MANAGER | MANAGER | MANAGER | ✓ |
+| **Product Designer** | EDITOR | VIEWER | - | - | - |
+| **Operations Lead** | VIEWER | MANAGER | - | - | - |
+| **Marketing Manager** | - | - | MANAGER | VIEWER | - |
+| **Compliance Officer** | VIEWER | VIEWER | VIEWER | MANAGER | - |
+| **External Agency** | - | - | CONTRIBUTOR | - | - |
+| **IT Admin** | VIEWER | VIEWER | VIEWER | VIEWER | ✓ |
+
+### Cross-Workspace Visibility
+
+- Users only see workspaces they have access to in the workspace switcher
+- Users with no access to a workspace cannot see or access it at all
+- VIEWER access allows reading data but not editing
+- The Golden Record in The Hub aggregates data from all workspaces the user contributes to
+
+### Role Templates
+
+To simplify user management, organizations can use pre-defined role templates when inviting users:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           ROLE TEMPLATES                                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  PRODUCT DESIGNER                                                           │
+│  ─────────────────                                                          │
+│  Design: EDITOR │ Operations: VIEWER │ Marketing: - │ Compliance: -         │
+│  Use case: Engineers, PLM specialists working on BOMs and materials         │
+│                                                                              │
+│  OPERATIONS MANAGER                                                         │
+│  ──────────────────                                                         │
+│  Design: VIEWER │ Operations: MANAGER │ Marketing: - │ Compliance: -        │
+│  Use case: Supply chain leads, inventory managers, logistics                │
+│                                                                              │
+│  MARKETING MANAGER                                                          │
+│  ─────────────────                                                          │
+│  Design: - │ Operations: - │ Marketing: MANAGER │ Compliance: VIEWER        │
+│  Use case: Brand managers, content leads, e-commerce managers               │
+│                                                                              │
+│  COMPLIANCE OFFICER                                                         │
+│  ──────────────────                                                         │
+│  Design: VIEWER │ Operations: VIEWER │ Marketing: VIEWER │ Compliance: MGR  │
+│  Use case: Sustainability leads, regulatory compliance, DPP issuance        │
+│                                                                              │
+│  EXTERNAL CONTRIBUTOR                                                       │
+│  ────────────────────                                                       │
+│  Design: - │ Operations: - │ Marketing: CONTRIBUTOR │ Compliance: -         │
+│  Use case: Agencies, freelancers, seasonal content creators                 │
+│  Note: Usually combined with product tag/family restrictions                │
+│                                                                              │
+│  FULL ADMIN                                                                 │
+│  ──────────                                                                 │
+│  Design: MANAGER │ Operations: MANAGER │ Marketing: MANAGER │ Compliance: MGR│
+│  Admin: ✓                                                                   │
+│  Use case: Founders, co-founders, C-level executives                        │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+Templates can be customized after selection. Organizations can also create custom role templates.
 
 ---
 
@@ -256,10 +340,11 @@ enum Authority {
   MANAGER
 }
 
-enum Scope {
-  COMMERCIAL
-  COMPLIANCE
-  ADMIN
+enum Workspace {
+  DESIGN       // PLM: Registry, Materials, DAM-Tech
+  OPERATIONS   // ERP-lite: Registry, EPCIS, Inventory
+  MARKETING    // PIM: PIM, DAM-Media, Syndication
+  COMPLIANCE   // DPP: Compliance, Attestation
 }
 
 enum UserType {
@@ -277,17 +362,24 @@ model User {
   organizationId  String
   organization    Organization @relation(fields: [organizationId], references: [id])
 
-  // Role & Permissions
+  // User type
   userType        UserType     @default(INTERNAL)
-  authority       Authority    @default(VIEWER)
-  scopes          Scope[]      // ["COMMERCIAL", "COMPLIANCE"]
+
+  // Workspace access (replaces old authority + scopes)
+  workspaceAccess WorkspaceAccess[]
+
+  // Admin access (separate from workspace authority)
+  isAdmin         Boolean      @default(false)
+
+  // Default workspace (shown on login)
+  defaultWorkspace Workspace?
 
   // Hierarchy (for approval routing)
   reportsToId     String?
   reportsTo       User?        @relation("Hierarchy", fields: [reportsToId], references: [id])
   directReports   User[]       @relation("Hierarchy")
 
-  // Guest/Partner restrictions
+  // Guest/Partner restrictions (applies within allowed workspaces)
   allowedProductTags   String[]    // Filter: only see products with these tags
   allowedFamilyIds     String[]    // Filter: only see products in these families
 
@@ -312,6 +404,47 @@ model User {
   @@unique([email, organizationId])
   @@index([organizationId])
   @@index([userType])
+}
+
+// Workspace access per user (replaces old Scope model)
+model WorkspaceAccess {
+  id              String       @id @default(cuid())
+
+  userId          String
+  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  workspace       Workspace    // DESIGN, OPERATIONS, MARKETING, COMPLIANCE
+  authority       Authority    // VIEWER, CONTRIBUTOR, EDITOR, MANAGER
+
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@unique([userId, workspace])  // One authority level per workspace per user
+  @@index([userId])
+  @@index([workspace])
+}
+
+// Pre-defined role templates for easy user setup
+model RoleTemplate {
+  id              String       @id @default(cuid())
+
+  organizationId  String?      // null = system template, otherwise org-specific
+  organization    Organization? @relation(fields: [organizationId], references: [id])
+
+  name            String       // "Marketing Manager", "Compliance Officer", etc.
+  description     String?
+
+  // Template access configuration (JSON for flexibility)
+  // Format: { "DESIGN": "VIEWER", "MARKETING": "MANAGER", ... }
+  workspaceAuthorities Json
+
+  isAdmin         Boolean      @default(false)
+  isDefault       Boolean      @default(false)  // Show in quick-select
+
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@unique([organizationId, name])
 }
 ```
 
@@ -812,81 +945,86 @@ DPP Issued ───────────────────────
 
 ## 8. Approval Routing
 
-When a CONTRIBUTOR submits a version for review, it needs to be routed to an appropriate approver.
+When a CONTRIBUTOR submits a version for review, it needs to be routed to an appropriate approver **within the same workspace**.
 
 ### Routing Logic
 
 ```typescript
-async function routeForApproval(version: ProductVersion, requester: User): Promise<void> {
-  // Determine which scope(s) were modified
-  const modifiedScopes = detectModifiedScopes(version.dataDiff);
+async function routeForApproval(
+  version: ProductVersion,
+  requester: User,
+  workspace: Workspace
+): Promise<void> {
+  // Approval is routed within the workspace where the change was made
 
-  // 1. Try direct manager first
+  // 1. Try direct manager first (if they have EDITOR/MANAGER in this workspace)
   if (requester.reportsToId) {
     const manager = await getUser(requester.reportsToId);
-    if (canApprove(manager, modifiedScopes)) {
+    if (canApproveInWorkspace(manager, workspace)) {
       await assignToUser(version, manager.id);
       return;
     }
   }
 
-  // 2. Find any EDITOR/MANAGER with matching scope(s)
-  const approvers = await findUsers({
+  // 2. Find any EDITOR/MANAGER with access to this workspace
+  const approvers = await findUsersWithWorkspaceAccess({
     organizationId: requester.organizationId,
+    workspace: workspace,
     authority: { in: ['EDITOR', 'MANAGER'] },
-    scopes: { hasAny: modifiedScopes },
     isActive: true,
   });
 
   if (approvers.length === 0) {
-    throw new Error('No approvers available for this scope');
+    throw new Error(`No approvers available for ${workspace} workspace`);
   }
 
-  // 3. Assign to scope (any matching approver can pick it up)
-  await assignToScope(version, modifiedScopes);
+  // 3. Assign to workspace (any matching approver can pick it up)
+  await assignToWorkspace(version, workspace);
   await notifyApprovers(approvers, version);
 }
 
-function canApprove(user: User, scopes: Scope[]): boolean {
-  if (user.authority !== 'EDITOR' && user.authority !== 'MANAGER') {
-    return false;
-  }
-  return scopes.every(scope => user.scopes.includes(scope));
+function canApproveInWorkspace(user: User, workspace: Workspace): boolean {
+  const access = user.workspaceAccess.find(wa => wa.workspace === workspace);
+  if (!access) return false;
+  return access.authority === 'EDITOR' || access.authority === 'MANAGER';
 }
 ```
 
 ### Approval Inbox
 
-Approvers see pending versions in their inbox:
+Approvers see pending versions in their inbox, filtered by the workspaces they have EDITOR/MANAGER access to:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │  APPROVAL INBOX                                              3 pending      │
+│  Filter: [All Workspaces ▼]                                                 │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │  ┌─────────────────────────────────────────────────────────────────────────┐│
-│  │ [COMPLIANCE] Organic Cotton T-Shirt (TSH-001)                           ││
+│  │ [DESIGN] Organic Cotton T-Shirt (TSH-001)                               ││
 │  │ Submitted by: Maria Garcia • 2 hours ago                                ││
-│  │ Changes: materials.fiberComposition, certifications                     ││
+│  │ Changes: materials.fiberComposition, BOM updates                        ││
 │  │ [View Diff] [Approve] [Reject]                                          ││
 │  └─────────────────────────────────────────────────────────────────────────┘│
 │                                                                              │
 │  ┌─────────────────────────────────────────────────────────────────────────┐│
-│  │ [COMMERCIAL] Denim Jacket (JKT-042)                                     ││
+│  │ [MARKETING] Denim Jacket (JKT-042)                                      ││
 │  │ Submitted by: External Agency • 5 hours ago                             ││
 │  │ Changes: price, description, images                                     ││
 │  │ [View Diff] [Approve] [Reject]                                          ││
 │  └─────────────────────────────────────────────────────────────────────────┘│
 │                                                                              │
 │  ┌─────────────────────────────────────────────────────────────────────────┐│
-│  │ [COMMERCIAL + COMPLIANCE] Winter Coat (WC-099)                          ││
+│  │ [OPERATIONS] Winter Coat (WC-099)                                       ││
 │  │ Submitted by: John Intern • 1 day ago                                   ││
-│  │ Changes: price, materials, carbonFootprint                              ││
+│  │ Changes: supplier info, inventory levels                                ││
 │  │ [View Diff] [Approve] [Reject]                                          ││
 │  └─────────────────────────────────────────────────────────────────────────┘│
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+**Note:** Users only see approvals for workspaces where they have EDITOR or MANAGER authority.
 
 ---
 
@@ -901,21 +1039,24 @@ Approvers see pending versions in their inbox:
 │                                                                              │
 │  ┌─────────────────────────────────────────────────────────────────────────┐│
 │  │ Sarah Chen                              sarah@company.com               ││
-│  │ MANAGER • Commercial, Compliance, Admin                                 ││
+│  │ Full Admin (all workspaces)                                   [Admin]   ││
+│  │ Design: MGR │ Operations: MGR │ Marketing: MGR │ Compliance: MGR        ││
 │  │ Internal User • Last active: 2 hours ago                                ││
 │  │ [Edit] [Deactivate]                                                     ││
 │  └─────────────────────────────────────────────────────────────────────────┘│
 │                                                                              │
 │  ┌─────────────────────────────────────────────────────────────────────────┐│
 │  │ John Smith                              john@company.com                ││
-│  │ EDITOR • Commercial, Compliance                                         ││
+│  │ Marketing Manager                                                       ││
+│  │ Design: - │ Operations: - │ Marketing: MGR │ Compliance: VIEW           ││
 │  │ Internal User • Last active: 1 day ago                                  ││
 │  │ [Edit] [Deactivate]                                                     ││
 │  └─────────────────────────────────────────────────────────────────────────┘│
 │                                                                              │
 │  ┌─────────────────────────────────────────────────────────────────────────┐│
 │  │ Maria Garcia                            maria@agency.com                ││
-│  │ CONTRIBUTOR • Commercial                                                ││
+│  │ External Contributor                                                    ││
+│  │ Design: - │ Operations: - │ Marketing: CONTRIB │ Compliance: -          ││
 │  │ Guest Partner • Products: summer-2026, t-shirts                         ││
 │  │ [Edit] [Revoke Access]                                                  ││
 │  └─────────────────────────────────────────────────────────────────────────┘│
@@ -936,9 +1077,20 @@ Approvers see pending versions in their inbox:
 │  User Type:    (•) Internal User                                           │
 │                ( ) Guest Partner                                            │
 │                                                                              │
-│  Authority:    [ CONTRIBUTOR                              ▼]               │
+│  ─── Quick Setup: Role Template ─────────────────────────────────────────   │
 │                                                                              │
-│  Scopes:       [✓] Commercial    [✓] Compliance    [ ] Admin               │
+│  [ Marketing Manager                                      ▼]               │
+│                                                                              │
+│  ─── Or Configure Workspace Access ──────────────────────────────────────   │
+│                                                                              │
+│  │ Workspace    │ Authority                                                │
+│  ├──────────────┼───────────────────────────────────────────────────────   │
+│  │ Design       │ [ No Access ▼]                                           │
+│  │ Operations   │ [ No Access ▼]                                           │
+│  │ Marketing    │ [ MANAGER   ▼]  ← edit from template                     │
+│  │ Compliance   │ [ VIEWER    ▼]                                           │
+│                                                                              │
+│  [ ] Grant Admin access (user management, billing, API keys)               │
 │                                                                              │
 │  ─── Guest Partner Options (if selected) ─────────────────────────────────  │
 │                                                                              │
@@ -1105,12 +1257,13 @@ POST   /api/v1/products/:id/versions/:version/revert  # Revert to version
 
 | Area | Implementation |
 |------|----------------|
-| **Authority enforcement** | Middleware checks authority before any write operation |
-| **Scope enforcement** | Field-level checks prevent cross-scope modifications |
-| **Guest restrictions** | Product queries filtered by allowedProductTags/allowedFamilyIds |
+| **Workspace enforcement** | Middleware checks workspace access + authority before any operation |
+| **Authority per workspace** | Users can only perform actions matching their authority in that workspace |
+| **Admin separation** | Admin access is separate from workspace authority |
+| **Guest restrictions** | Product queries filtered by allowedProductTags/allowedFamilyIds within allowed workspaces |
 | **Magic link security** | Cryptographically random tokens, optional expiry |
 | **DID ownership** | Users cannot access other users' private keys |
-| **Audit completeness** | Every action logged with user context |
+| **Audit completeness** | Every action logged with user context and workspace |
 | **Checkout locking** | Prevents concurrent edits, auto-expires after inactivity |
 
 ---
@@ -1119,6 +1272,8 @@ POST   /api/v1/products/:id/versions/:version/revert  # Revert to version
 
 | Document | Description |
 |----------|-------------|
+| [GOLDEN_RECORD.md](./GOLDEN_RECORD.md) | How workspaces contribute to The Hub |
+| [SELF_SERVICE_ONBOARDING.md](./SELF_SERVICE_ONBOARDING.md) | Onboarding flow and default workspace assignment |
 | [VERIFIABLE_CREDENTIALS.md](./VERIFIABLE_CREDENTIALS.md) | DID hierarchy and VC signing |
 | [MULTI_PARTY_ATTESTATION.md](./MULTI_PARTY_ATTESTATION.md) | Third-party contributor workflow |
 | [DATA_SOVEREIGNTY.md](./DATA_SOVEREIGNTY.md) | Data export including user DIDs |
@@ -1126,4 +1281,4 @@ POST   /api/v1/products/:id/versions/:version/revert  # Revert to version
 
 ---
 
-*Last Updated: January 2026*
+*Last Updated: January 11, 2026*
