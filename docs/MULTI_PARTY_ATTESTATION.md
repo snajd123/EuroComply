@@ -37,42 +37,63 @@ Attestation is a cross-cutting feature available in **all four EuroComply worksp
 │  1. REQUEST                    2. ONBOARD                   3. CONTRIBUTE    │
 │  ─────────                     ─────────                    ───────────      │
 │  Customer creates              Third party                  Third party      │
-│  request, specifies            signs up, gets               fills data,      │
-│  fields needed                 their own did:key            signs with DID   │
+│  request from any              signs up, gets               fills data,      │
+│  workspace                     their own did:key            signs with DID   │
 │                                                                              │
 │       │                              │                            │          │
 │       ▼                              ▼                            ▼          │
-│  ┌─────────┐    Email      ┌──────────────┐           ┌─────────────────┐   │
-│  │ Product │──────────────►│  Contributor │──────────►│   Attestation   │   │
-│  │         │    + Link     │              │  Signs    │       VC        │   │
-│  └─────────┘               │  did:key:z...│           │                 │   │
-│       │                    └──────────────┘           │ issuer: z...    │   │
-│       │                                               │ fields: [...]   │   │
-│       │                                               │ signature: ...  │   │
-│       │                                               └─────────────────┘   │
-│       │                                                        │            │
-│       │                    4. REVIEW                           │            │
-│       │                    ────────                            │            │
-│       ▼                                                        ▼            │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │  Customer reviews contribution, approves or rejects                  │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
+│  ┌─────────────┐  Email      ┌──────────────┐           ┌─────────────────┐ │
+│  │  WORKSPACE  │────────────►│  Contributor │──────────►│   Attestation   │ │
+│  │  (any)      │  + Link     │              │  Signs    │       VC        │ │
+│  │             │             │  did:key:z...│           │                 │ │
+│  │ • Design    │             └──────────────┘           │ issuer: z...    │ │
+│  │ • Operations│                                        │ fields: [...]   │ │
+│  │ • Marketing │                                        │ signature: ...  │ │
+│  │ • Compliance│                                        └─────────────────┘ │
+│  └─────────────┘                                                  │          │
+│       ▲                                                           │          │
+│       │                    4. REVIEW                              │          │
+│       │                    ────────                               │          │
+│       │                                                           ▼          │
+│       │           ┌───────────────────────────────────────────────────────┐ │
+│       │           │  Customer reviews contribution in REQUESTING WORKSPACE │ │
+│       │           │  (approves or rejects)                                 │ │
+│       │           └───────────────────────────────────────────────────────┘ │
+│       │                                    │                                 │
+│       │                                    │ approve                         │
+│       │                                    ▼                                 │
+│       │           ┌───────────────────────────────────────────────────────┐ │
+│       │           │               5. STORE IN ATTESTATION MODULE           │ │
+│       │           │                                                        │ │
+│       │           │  Approved attestation linked to product in the         │ │
+│       │           │  requesting workspace's Attestation module             │ │
+│       │           │                                                        │ │
+│       │           │  Attestation becomes part of the Golden Record         │ │
+│       │           │  (visible across all workspaces)                       │ │
+│       │           └───────────────────────────────────────────────────────┘ │
+│       │                                    │                                 │
+│       │                                    │                                 │
+│       │                                    ▼                                 │
+│       │   ┌─────────────────────────────────────────────────────────────┐   │
+│       │   │         6. DPP ISSUANCE (Later, in Compliance workspace)    │   │
+│       │   │                                                             │   │
+│       │   │  When product reaches 100% completeness and user approves:  │   │
+│       │   │  • Compliance workspace aggregates all approved attestations │   │
+│       │   │  • DPP VC issued with attestations array                    │   │
+│       │   │  • Each attestation linked by reference                     │   │
+│       │   └─────────────────────────────────────────────────────────────┘   │
 │       │                                                                     │
-│       │                    5. AGGREGATE                                     │
-│       │                    ───────────                                      │
-│       ▼                                                                     │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │                         PRODUCT DPP (VC)                             │   │
-│  │                                                                      │   │
-│  │  issuer: did:key:zCustomer...                                       │   │
-│  │  attestations: [                                                     │   │
-│  │    { issuer: did:key:zCertifier..., fields: ["certifications"] },   │   │
-│  │    { issuer: did:key:zManufacturer..., fields: ["materials"] }      │   │
-│  │  ]                                                                   │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
+│       └─────────────────────────────────────────────────────────────────────┘
+│         Attestation data visible in all workspaces (flows to Hub)            │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+**Key Points:**
+- Attestations are requested from **any workspace** (Design, Operations, Marketing, Compliance)
+- After approval, attestations are stored in the **Attestation module** (not directly in DPP)
+- Attestation data becomes part of the **Golden Record** and is visible across all workspaces
+- DPP issuance happens **later** in the Compliance workspace, aggregating all approved attestations
 
 ### Linked VC Model
 
@@ -550,9 +571,13 @@ The final DPP includes references to all approved attestation VCs.
 ### Customer: Request Data from Third Party
 
 ```
-1. Navigate to product in PIM
+1. Navigate to product in any workspace:
+   - Design: Materials, certifications, technical specs
+   - Operations: Supplier audits, transport emissions
+   - Marketing: Brand claims, sustainability certs
+   - Compliance: Regulatory certifications
 2. See incomplete field (e.g., "Materials: Missing")
-3. Click "Request Data"
+3. Click "Request Attestation"
 4. Fill request form:
    - Recipient email: manufacturer@example.com
    - Type: MANUFACTURER (optional hint)
@@ -563,6 +588,8 @@ The final DPP includes references to all approved attestation VCs.
 5. Click "Send Request"
 6. Email sent to manufacturer with unique link
 7. Wait for notification of contribution
+8. Review and approve in the SAME workspace where you requested it
+9. Approved attestation stored in Attestation module, visible across all workspaces
 ```
 
 ### Contributor: Provide Attestation
@@ -597,20 +624,23 @@ The final DPP includes references to all approved attestation VCs.
 
 ```
 1. Receive notification: "New contribution from EcoTextiles GmbH"
-2. Navigate to product > Contributions
-3. See pending contribution:
+2. Notification links to the WORKSPACE where request originated
+   (e.g., Design workspace if materials were requested there)
+3. Navigate to product > Attestations (in requesting workspace)
+4. See pending contribution:
    - Contributor: EcoTextiles GmbH (MANUFACTURER)
    - Fields: materials, countryOfOrigin
    - Signed: 2026-01-10
    - Expiry: Never
-4. Review data:
+5. Review data:
    - Materials: 95% organic cotton, 5% elastane
    - Country of origin: India
-5. Decision:
-   - Click "Approve" → Data linked to product
+6. Decision:
+   - Click "Approve" → Attestation stored in Attestation module
    - Or "Reject" with notes → Contributor notified
-6. Product completeness updated
-7. When ready, issue DPP with attestation included
+7. Approved attestation visible across all workspaces (Golden Record)
+8. Product completeness updated
+9. Later: Issue DPP in Compliance workspace (aggregates all attestations)
 ```
 
 ### Verifier: View DPP with Attestations
@@ -853,4 +883,4 @@ GET    /api/v1/contributors/:id               Get contributor details
 
 ---
 
-*Last Updated: January 2026*
+*Last Updated: 2026-01-11*
