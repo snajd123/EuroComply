@@ -23,7 +23,7 @@ Different roles need different views of the same data. EuroComply provides **fou
 | **Marketing** | Brand Managers, E-commerce | Product content, images, channel syndication |
 | **Compliance** | Compliance Officers, QA | DPP issuance, certifications, audits |
 
-All workspaces read from and write to the same **Hub** - the central source of truth. Changes in one workspace are immediately visible in others.
+Each workspace manages its own data in **The Hub** - the central database. Product identity (SKU, GTIN) links workspace-specific data together.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -42,84 +42,80 @@ All workspaces read from and write to the same **Hub** - the central source of t
                               ▼
        ┌─────────────────────────────────────────────────────────────────┐
        │                         THE HUB                                  │
-       │              (Central Data Model - Single Truth)                 │
+       │                   (Central Database)                             │
        │                                                                  │
-       │   Products • Variants • Materials • Suppliers • Certifications  │
+       │   Product Identity • Workspace Data • Materials • Suppliers     │
        └─────────────────────────────────────────────────────────────────┘
 ```
 
 **Workspace access is role-based.** All customers receive all workspaces - differentiation is based on catalog capacity, not features. Users see the workspaces relevant to their role (e.g., a Distributor may not need the Design workspace).
 
-### Core Concept: The Hub (Golden Record)
+### Core Concept: Workspace Data Ownership
 
-At the center of EuroComply is **The Hub** - the central data store where every product has a single **Golden Record**.
+At the center of EuroComply is **The Hub** - the central database. Each product has an **identity record** (SKU, GTIN) that links to **workspace-specific data**.
 
-#### What is a Golden Record?
+#### Product = Identity + Links
 
-The Golden Record is a Master Data Management (MDM) concept: the single, authoritative version of a product's data. Instead of scattered data across spreadsheets, ERP, PLM, and PIM systems, EuroComply unifies everything into one record per product.
+A Product in EuroComply is NOT a monolithic record. It contains only identity information and links to workspace data:
 
-| Problem | Solution |
-|---------|----------|
-| Data scattered across systems | One Golden Record per product |
-| Conflicting versions of truth | Single authoritative source |
-| Manual sync between tools | Automatic real-time sync |
-| "Which spreadsheet is current?" | Always current in the Hub |
+| Product Identity | Workspace Data (separate tables) |
+|-----------------|----------------------------------|
+| SKU | Design: DesignVersion (versioned) |
+| GTIN/EAN | Marketing: MarketingVersion (versioned) |
+| Product Family | Operations: BatchRecord, MaterialOrder (immutable) |
+| Created/Updated timestamps | Compliance: DPPSnapshot (immutable) |
 
-#### Golden Record Structure
+#### Workspace Data Ownership
+
+Each workspace owns and versions its own data independently:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                           THE HUB (Golden Record)                            │
+│                           THE HUB (Central Database)                         │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  IDENTITY                                                                    │
-│  └── SKU, GTIN/EAN, Brand+SKU, Serial Numbers                               │
+│  PRODUCT (Identity Only)                                                     │
+│  └── SKU, GTIN/EAN, productFamilyId                                         │
 │                                                                              │
-│  DESIGN DATA              OPERATIONS DATA           MARKETING DATA          │
-│  ├── Bill of Materials    ├── Batch/Lot Numbers     ├── Names (multi-lang)  │
-│  ├── Material Specs       ├── Serial Tracking       ├── Descriptions        │
-│  ├── Revision History     ├── EPCIS Events          ├── Images, Media       │
-│  └── Technical Docs       └── Inventory Levels      └── Pricing, Channels   │
+│  DESIGN DATA (Versioned)      OPERATIONS DATA (Immutable Records)           │
+│  ├── DesignVersion v1         ├── BatchRecord (locks Design version)        │
+│  ├── DesignVersion v2         ├── MaterialOrder                             │
+│  └── DesignVersion v3         └── EPCIS Events                              │
 │                                                                              │
-│  ATTESTATIONS (Third-Party Verified)                                        │
-│  ├── Material origin (signed by supplier)                                   │
-│  ├── Carbon footprint (signed by lab)                                       │
-│  └── Certifications (signed by certifier)                                   │
-│                                                                              │
-│  COMPLIANCE METADATA                                                         │
-│  ├── Completeness scores (DPP: 100%, Shopify: 95%)                         │
-│  ├── DPP issuance history (v1, v2, ...)                                    │
-│  └── Audit trail (who changed what, when)                                  │
+│  MARKETING DATA (Versioned)   COMPLIANCE DATA (Immutable Snapshots)         │
+│  ├── MarketingVersion v1      ├── DPPSnapshot (captures Design + Marketing) │
+│  ├── MarketingVersion v2      └── Attestations (third-party verified)       │
+│  └── MarketingVersion v3                                                    │
 │                                                                              │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                          WORKSPACE ACCESS                                    │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐ │
 │  │ Design      │  │ Operations  │  │ Marketing   │  │ Compliance          │ │
-│  │ WRITE       │  │ WRITE       │  │ WRITE       │  │ READ + ISSUE        │ │
+│  │ WRITE+VER   │  │ WRITE       │  │ WRITE+VER   │  │ READ + ISSUE        │ │
 │  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────────────┘ │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 #### How It Works
 
-1. **Workspaces write to the Hub** - Design, Operations, and Marketing each contribute their data
-2. **Data is always synchronized** - Changes in any workspace are immediately visible in all others
-3. **Compliance reads the Hub** - When a product reaches 100% completeness, it appears in the DPP Ready list
-4. **DPP is a signed snapshot** - The issued DPP credential captures the Golden Record at that moment
+1. **Design creates versioned product definitions** - BOMs, materials, specs tracked with full version history
+2. **Marketing creates versioned content** - Names, descriptions, images with independent versioning (can view Design data while editing)
+3. **Operations creates immutable records** - Batch records lock a specific Design version at production time
+4. **Compliance issues immutable snapshots** - DPP captures specific Design + Marketing versions at issuance
 
-#### Golden Record vs. DPP Credential
+#### Versioned Data vs. DPP Snapshot
 
-| Golden Record | DPP Credential |
-|---------------|----------------|
-| Live data in the Hub | Signed snapshot at issuance |
-| Always updatable | Immutable once signed |
-| One per product | Multiple versions possible |
+| Workspace Data | DPP Snapshot |
+|----------------|--------------|
+| Live, versioned history | Immutable at issuance |
+| Multiple versions per product | Captures specific version numbers |
+| Editable (new versions) | Never changes once issued |
 | Internal use | Public-facing proof |
 
-When the Golden Record changes after DPP issuance, the existing DPP remains valid (it was true at issuance). Organizations can issue a new DPP version when needed.
+When workspace data changes after DPP issuance, the existing DPP remains valid (it captured the version numbers at issuance). Organizations can issue a new DPP version that captures newer versions.
 
-See [GOLDEN_RECORD.md](docs/GOLDEN_RECORD.md) for complete documentation on the Golden Record model.
+See [USER_MANAGEMENT.md](docs/USER_MANAGEMENT.md) for complete documentation on version control and workspace data ownership.
 
 ---
 
@@ -486,15 +482,36 @@ EuroComply uses a **dual-path architecture** for cost-effective billion-scale DP
 
 ```
 Organization (tenant)
-├── Products (Golden Records)
-│   ├── attributes: JSONB (dynamic, validated by family)
-│   ├── completeness: JSONB (per-channel scores)
-│   ├── dppData: JSONB (compliance snapshot)
-│   ├── price: Decimal (multi-currency)
-│   └── Variants
-│       └── attributes: JSONB (overrides parent)
+├── Products (Identity Only)
+│   ├── sku: String (unique within org)
+│   ├── gtin: String (optional, globally unique)
+│   └── productFamilyId: references ProductFamily
+│
+├── DesignVersions (versioned - owned by Design workspace)
+│   ├── productId, versionNumber, status (DRAFT|RELEASED|ACTIVE|ARCHIVED)
+│   ├── attributes: JSONB (BOMs, materials, specs)
+│   ├── checkedOutBy, checkedOutAt (locking)
+│   └── releasedAt, releasedBy
+│
+├── MarketingVersions (versioned - owned by Marketing workspace)
+│   ├── productId, versionNumber, status (DRAFT|RELEASED|ACTIVE|ARCHIVED)
+│   ├── content: JSONB (names, descriptions, SEO)
+│   ├── checkedOutBy, checkedOutAt (locking)
+│   └── releasedAt, releasedBy
+│
+├── BatchRecords (immutable - owned by Operations workspace)
+│   ├── productId, batchNumber, quantity
+│   ├── designVersionId (locks specific Design version)
+│   └── producedAt, facility, EPCIS events
+│
+├── DPPSnapshots (immutable - owned by Compliance workspace)
+│   ├── productId, passportId
+│   ├── designVersionId, marketingVersionId (captured versions)
+│   ├── snapshotData: JSONB (full captured data)
+│   └── issuedAt, issuedBy
+│
 ├── ProductFamilies (attribute schemas)
-│   ├── attributeSchema: JSONB (field definitions)
+│   ├── attributeSchema: JSONB (field definitions per workspace)
 │   ├── completenessRules: JSONB (per-channel requirements)
 │   └── templateId?: references ProductFamilyTemplate
 ├── ProductFamilyTemplates (industry presets)
@@ -519,14 +536,25 @@ Contributors (third-party attestors - cross-organization)
 └── verificationLevel: SELF_ATTESTED | DOMAIN_VERIFIED
 ```
 
+### Workspace Data Architecture
+
+Each workspace owns its data with different versioning strategies:
+
+| Workspace | Data Tables | Versioning |
+|-----------|-------------|------------|
+| **Design** | DesignVersion | Full versioning (v1, v2, v3...) with checkout locking |
+| **Marketing** | MarketingVersion | Full versioning (independent from Design) |
+| **Operations** | BatchRecord, MaterialOrder | Immutable records (locks Design version at production) |
+| **Compliance** | DPPSnapshot | Immutable snapshots (captures Design + Marketing versions) |
+
 ### Hybrid Schema Design
 
 The database uses a hybrid relational/JSONB approach:
 
-- **Relational columns**: Universal fields (SKU, GTIN, name, status, price)
-- **JSONB columns**: Dynamic attributes validated by ProductFamily schema
+- **Relational columns**: Identity fields (SKU, GTIN), foreign keys, version metadata
+- **JSONB columns**: Workspace-specific attributes validated by ProductFamily schema
 
-This provides SQL query performance for core fields with NoSQL flexibility for category-specific data.
+This provides SQL query performance for lookups with NoSQL flexibility for workspace-specific data.
 
 ---
 
@@ -680,13 +708,12 @@ Organizations own their data. Full portability guaranteed:
 
 | Document | Description |
 |----------|-------------|
-| [GOLDEN_RECORD.md](./docs/GOLDEN_RECORD.md) | Golden Record concept and data model |
+| [USER_MANAGEMENT.md](./docs/USER_MANAGEMENT.md) | User roles, permissions, and workspace data ownership |
 | [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) | Technical implementation roadmap |
 | [BUSINESS_MODEL.md](./docs/BUSINESS_MODEL.md) | Pricing and business model |
 | [SCALABILITY.md](./docs/SCALABILITY.md) | Billion-scale DPP serving architecture |
 | [EPCIS_INTEGRATION.md](./docs/EPCIS_INTEGRATION.md) | Supply chain lifecycle tracking |
 | [EU_INTEGRATION.md](./docs/EU_INTEGRATION.md) | EBSI and EU DPP Registry integration |
-| [USER_MANAGEMENT.md](./docs/USER_MANAGEMENT.md) | User roles, permissions, and version control |
 | [ARCHITECTURE_PORTABILITY.md](./docs/ARCHITECTURE_PORTABILITY.md) | Data portability architecture |
 | [VERIFIABLE_CREDENTIALS.md](./docs/VERIFIABLE_CREDENTIALS.md) | VC/DID technical details |
 | [MULTI_PARTY_ATTESTATION.md](./docs/MULTI_PARTY_ATTESTATION.md) | Third-party data contribution architecture |
