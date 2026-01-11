@@ -38,7 +38,23 @@ EuroComply stores DPP data centrally. This creates concerns:
 
 ## The Solution: Self-Contained Verifiable Credentials
 
-The VC contains ALL the DPP data (not references to it). The cryptographic signature proves authenticity. Verification works offline, forever, without EuroComply.
+The VC contains ALL the DPP data (not references to it). The cryptographic signature proves authenticity. **Signature verification** works offline, forever, without EuroComply.
+
+**Important Clarification: What "Offline" Means**
+
+| Capability | Offline? | Notes |
+|------------|----------|-------|
+| **Signature Verification** | ✅ Yes | did:key is self-contained, no server needed |
+| **Data Integrity Check** | ✅ Yes | Hash verification is local computation |
+| **Text Data Display** | ✅ Yes | All text/JSON embedded in VC |
+| **Image Rendering (URL mode)** | ❌ No | URLs require CDN access |
+| **Image Rendering (Base64 mode)** | ✅ Yes | Images embedded in VC (larger file size) |
+
+**Image Options at DPP Issuance:**
+- **URL Mode (default)**: Images stored as CDN URLs. Smaller VC file (~5KB), but requires network for full rendering.
+- **Base64 Mode**: Images embedded as base64 strings. Larger VC file (~2MB), but renders completely offline.
+
+Organizations can choose per-DPP or set an organization-wide default. For products printed on physical packaging (where QR codes are scanned), URL mode is recommended. For archival or offline-critical use cases, Base64 mode ensures complete independence.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐

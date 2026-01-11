@@ -53,10 +53,13 @@ EuroComply DPP Flow:
 
 Benefits:
 • Cryptographic tamper evidence (signature breaks if data changes)
-• Self-contained verification (no need to contact any server)
+• Signature verification offline (did:key is self-contained)
 • Issuer accountability (did:key proves who made the claim)
 • Portable (supplier owns it, can host anywhere)
 • Platform-independent (works even if EuroComply shuts down)
+
+Note: Signature verification is fully offline. Image rendering depends on
+storage mode: URL mode requires CDN access, Base64 mode is fully offline.
 ```
 
 ### What Makes This Different
@@ -66,7 +69,7 @@ Benefits:
 | **Tamper Evidence** | None - data can be silently changed | Cryptographic - any change breaks signature |
 | **Trust Model** | Trust the database operator | Trust math (cryptographic verification) |
 | **Issuer Proof** | "Trust me, I'm the manufacturer" | did:key signature proves issuer identity |
-| **Verification** | Requires server connection | Works offline, anywhere |
+| **Verification** | Requires server connection | Signature verification offline |
 | **Portability** | Locked to platform | Supplier owns, can move anywhere |
 | **Platform Dependency** | Dies with platform | Works forever |
 | **Interoperability** | Proprietary formats | W3C standard, works with EUDI wallets |
@@ -472,7 +475,8 @@ dpp-export-{supplier-id}.zip
 - Loads the VC from same folder
 - Verifies signature offline
 - Renders beautiful DPP page
-- Works forever without internet
+- Works offline for signature verification
+- Images require network if using URL mode (see Base64 mode for fully offline)
 
 ### What Organizations Can Do After Export
 
@@ -1065,13 +1069,240 @@ When verifying a DPP with attestations:
 - **Linked VCs**: Each attestation is its own VC, not embedded data
 - **Independent verification**: Each attestation can be verified separately
 - **Expiry tracking**: Attestations can expire (e.g., when certifications expire)
-- **Revocation**: Contributors can revoke their attestations
+- **Revocation**: Contributors can revoke their attestations (see Revocation section below)
 - **Versioning**: Attestations maintain version history with signatures
 - **Any field**: Third parties can attest any product field, not just certifications
 
 ---
 
-## 14. Summary
+## 14. Credential Revocation
+
+### Why Revocation Matters
+
+VCs are cryptographically signed and self-contained - they verify offline forever. But what if:
+- A certification expires or is withdrawn?
+- A product is recalled?
+- An attestation was made in error?
+- A contributor's account is compromised?
+
+**Revocation allows invalidating a VC after issuance without breaking cryptographic integrity.**
+
+### Status List 2021 (W3C Standard)
+
+We use [Status List 2021](https://www.w3.org/TR/vc-status-list/) - the W3C standard for VC revocation:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    STATUS LIST 2021 ARCHITECTURE                 │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ISSUING A VC                                                   │
+│  ────────────                                                   │
+│  Each VC gets a unique index in a bitstring status list:        │
+│                                                                  │
+│  VC 1 → Index 0                                                 │
+│  VC 2 → Index 1                                                 │
+│  VC 3 → Index 2                                                 │
+│  ...                                                             │
+│                                                                  │
+│  Status List (bitstring):                                       │
+│  [0, 0, 0, 0, 0, 0, 0, 0, ...]                                  │
+│   ↑  ↑  ↑                                                       │
+│   │  │  └── VC 3: valid (bit = 0)                              │
+│   │  └───── VC 2: valid (bit = 0)                              │
+│   └──────── VC 1: valid (bit = 0)                              │
+│                                                                  │
+│  REVOKING A VC                                                  │
+│  ─────────────                                                  │
+│  Set the bit at that index to 1:                                │
+│                                                                  │
+│  [0, 1, 0, 0, 0, 0, 0, 0, ...]                                  │
+│      ↑                                                          │
+│      └── VC 2: REVOKED (bit = 1)                               │
+│                                                                  │
+│  VERIFYING                                                      │
+│  ─────────                                                      │
+│  1. Verify signature (works offline)                            │
+│  2. Fetch status list from credentialStatus.statusListCredential│
+│  3. Check bit at statusListIndex                                │
+│  4. If bit = 1, credential is revoked                          │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### VC with Status List Reference
+
+```json
+{
+  "@context": [
+    "https://www.w3.org/2018/credentials/v1",
+    "https://w3id.org/vc/status-list/2021/v1"
+  ],
+  "type": ["VerifiableCredential", "DigitalProductPassport"],
+  "issuer": "did:key:z6MkOrg...",
+  "issuanceDate": "2026-01-10T12:00:00Z",
+  "credentialSubject": { ... },
+
+  "credentialStatus": {
+    "id": "https://api.eurocomply.eu/v1/status/org_abc123#42",
+    "type": "StatusList2021Entry",
+    "statusPurpose": "revocation",
+    "statusListIndex": "42",
+    "statusListCredential": "https://api.eurocomply.eu/v1/status/org_abc123"
+  },
+
+  "proof": { ... }
+}
+```
+
+### Status List Credential (Hosted)
+
+The status list itself is a signed VC:
+
+```json
+{
+  "@context": [
+    "https://www.w3.org/2018/credentials/v1",
+    "https://w3id.org/vc/status-list/2021/v1"
+  ],
+  "type": ["VerifiableCredential", "StatusList2021Credential"],
+  "issuer": "did:key:z6MkOrg...",
+  "issuanceDate": "2026-01-10T12:00:00Z",
+  "credentialSubject": {
+    "id": "https://api.eurocomply.eu/v1/status/org_abc123",
+    "type": "StatusList2021",
+    "statusPurpose": "revocation",
+    "encodedList": "H4sIAAAAAAAA/2NgGAWjYBSMglEwCkYBEwMAAAD//wMA..."
+  },
+  "proof": { ... }
+}
+```
+
+**The `encodedList` is a GZIP-compressed, Base64-encoded bitstring.**
+
+### Revocation Workflow
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    REVOCATION WORKFLOW                           │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  DPP REVOCATION (by organization admin)                         │
+│  ─────────────────────────────────────                          │
+│  Use cases:                                                     │
+│  • Product recall                                               │
+│  • Discovered data error                                        │
+│  • Superseded by new DPP version                               │
+│                                                                  │
+│  API: POST /api/v1/passports/:id/revoke                        │
+│  { "reason": "Product recalled due to safety issue" }           │
+│                                                                  │
+│  Effect:                                                        │
+│  1. Set bit in organization's status list                      │
+│  2. Re-sign status list credential                              │
+│  3. Update CDN-cached status list                              │
+│  4. DPP now shows "REVOKED" on verification                    │
+│                                                                  │
+│  ATTESTATION REVOCATION (by contributor)                        │
+│  ───────────────────────────────────────                        │
+│  Use cases:                                                     │
+│  • Certification expired/withdrawn                              │
+│  • Attestation made in error                                    │
+│  • Contributor account compromised                              │
+│                                                                  │
+│  API: POST /api/v1/attestations/:id/revoke                     │
+│  { "reason": "Certification withdrawn by certifying body" }     │
+│                                                                  │
+│  Effect:                                                        │
+│  1. Set bit in contributor's status list                       │
+│  2. DPP shows "Attestation revoked" for that field             │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Status List Hosting
+
+| Mode | Status List URL | Who Updates |
+|------|-----------------|-------------|
+| **Active Subscription** | `https://api.eurocomply.eu/v1/status/{orgId}` | EuroComply |
+| **Dormant Hosting** | Same URL (preserved) | EuroComply (read-only) |
+| **Self-Managed** | Customer's domain | Customer |
+| **GS1 Resolver** | Redirects to customer's hosted list | Customer |
+
+**Important:** After subscription cancellation:
+- **Dormant Hosting**: Status list remains frozen (no new revocations possible, existing revocations preserved)
+- **Self-Managed/GS1**: Customer exports status list and hosts it themselves
+
+### Verification Flow with Status Check
+
+```typescript
+async function verifyCredentialWithStatus(vc: VerifiableCredential): Promise<VerificationResult> {
+  // Step 1: Verify signature (works offline)
+  const signatureValid = await verifySignature(vc);
+  if (!signatureValid) {
+    return { valid: false, error: 'Invalid signature' };
+  }
+
+  // Step 2: Check revocation status (requires network)
+  if (vc.credentialStatus) {
+    const statusList = await fetch(vc.credentialStatus.statusListCredential);
+    const decodedList = decodeStatusList(statusList.credentialSubject.encodedList);
+    const index = parseInt(vc.credentialStatus.statusListIndex);
+
+    if (decodedList[index] === 1) {
+      return { valid: false, error: 'Credential revoked' };
+    }
+  }
+
+  // Step 3: Check expiration
+  if (vc.expirationDate && new Date(vc.expirationDate) < new Date()) {
+    return { valid: false, error: 'Credential expired' };
+  }
+
+  return { valid: true };
+}
+```
+
+### Offline vs Online Verification
+
+| Check | Offline? | Notes |
+|-------|----------|-------|
+| Signature verification | ✅ Yes | did:key is self-contained |
+| Expiration check | ✅ Yes | Date comparison is local |
+| **Revocation check** | ❌ No | Requires fetching status list |
+
+**Graceful degradation:** If status list is unreachable:
+- Display: "Signature valid, revocation status unavailable"
+- Let verifier decide whether to accept
+
+### Status List Caching
+
+To minimize network calls, status lists are cached:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  CACHING STRATEGY                                                │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  CDN Layer (Cloudflare):                                        │
+│  Cache-Control: public, max-age=300, stale-while-revalidate=60 │
+│  (5-minute cache with stale serving during refresh)             │
+│                                                                  │
+│  Client-Side:                                                   │
+│  • Cache status list per organization                           │
+│  • Re-fetch if older than 5 minutes                            │
+│  • Batch multiple VC checks against same status list            │
+│                                                                  │
+│  Revocation Propagation:                                        │
+│  • Revocation takes effect within 5 minutes (cache TTL)         │
+│  • Critical revocations: Purge CDN cache immediately            │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 15. Summary
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -1110,7 +1341,7 @@ When verifying a DPP with attestations:
 
 ---
 
-## 15. References
+## 16. References
 
 - [W3C Verifiable Credentials Data Model](https://www.w3.org/TR/vc-data-model/)
 - [W3C Decentralized Identifiers (DIDs)](https://www.w3.org/TR/did-core/)
@@ -1122,4 +1353,4 @@ When verifying a DPP with attestations:
 
 ---
 
-*Last Updated: January 2026*
+*Last Updated: 2026-01-11*
