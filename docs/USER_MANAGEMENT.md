@@ -48,7 +48,7 @@ EuroComply implements a comprehensive user management system with role-based acc
 | Aspect | Internal User | Guest Partner | Transactional Partner |
 |--------|---------------|---------------|----------------------|
 | **Authentication** | Email + Password | Magic Link | Magic Link |
-| **Link Expiry** | N/A | Configurable (default: never) | Configurable (default: never) |
+| **Link Expiry** | N/A | Configurable (default: 30 days) | Configurable (default: 7 days) |
 | **DID Storage** | walt.id Custodian | walt.id Custodian | Ephemeral (session only) |
 | **Workspace Access** | Per-workspace authority | Limited workspaces + product filters | Single workspace, specific products |
 | **Product Access** | Based on workspace | Filtered by tags/families | Specific products only |
@@ -97,13 +97,34 @@ Authority determines what actions a user can perform **within a workspace**. Use
 
 These permissions apply **within each workspace** the user has access to:
 
+**Design & Marketing Workspaces (Versioned):**
+
 | Action | VIEWER | CONTRIBUTOR | EDITOR | MANAGER |
 |--------|:------:|:-----------:|:------:|:-------:|
 | View workspace data | ✓ | ✓ | ✓ | ✓ |
 | Edit data (draft) | - | ✓ | ✓ | ✓ |
-| Self-sign changes | - | - | ✓ | ✓ |
-| Approve others' changes | - | - | ✓ | ✓ |
-| Issue DPPs (Compliance only) | - | - | - | ✓ |
+| Self-sign/release versions | - | - | ✓ | ✓ |
+| Approve others' versions | - | - | ✓ | ✓ |
+| View audit log | ✓ | ✓ | ✓ | ✓ |
+
+**Operations Workspace (Four-Eyes Principle):**
+
+| Action | VIEWER | CONTRIBUTOR | EDITOR | MANAGER |
+|--------|:------:|:-----------:|:------:|:-------:|
+| View workspace data | ✓ | ✓ | ✓ | ✓ |
+| Create batch/order (PENDING) | - | ✓ | ✓ | ✓ |
+| Edit PENDING records | - | ✓ (own) | ✓ | ✓ |
+| Commit (lock) records | - | - | ✓ | ✓ |
+| Update status (after commit) | - | - | ✓ | ✓ |
+| View audit log | ✓ | ✓ | ✓ | ✓ |
+
+**Compliance Workspace:**
+
+| Action | VIEWER | CONTRIBUTOR | EDITOR | MANAGER |
+|--------|:------:|:-----------:|:------:|:-------:|
+| View DPPs and compliance data | ✓ | ✓ | ✓ | ✓ |
+| Issue DPPs | - | - | - | ✓ |
+| Revoke DPPs | - | - | - | ✓ |
 | View audit log | ✓ | ✓ | ✓ | ✓ |
 
 **Admin-only actions** (separate from workspace authority):
@@ -388,6 +409,10 @@ Marketing follows the same workflow as Design, with one key feature:
 │  MARKETING EDITOR - Creating v5                                             │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
+│  ⚠️ Design has updated since your draft was created (v3 → v4)              │
+│  [View Design Changes] [Acknowledge & Continue]                             │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│                                                                              │
 │  Product Description:                                                       │
 │  ┌─────────────────────────────────────────────────────────────────────────┐│
 │  │ Made with 95% organic cotton from GOTS-certified suppliers. Our         ││
@@ -395,9 +420,9 @@ Marketing follows the same workflow as Design, with one key feature:
 │  └─────────────────────────────────────────────────────────────────────────┘│
 │                                                                              │
 │  ─────────────────────────────────────────────────────────────────────────  │
-│  📋 Design Data (read-only reference)                   [Version: v3 ▼]    │
+│  📋 Design Data (read-only reference)                   [Version: v4 ▼]    │
 │  ─────────────────────────────────────────────────────────────────────────  │
-│  │ Fiber Composition: 95% organic cotton, 5% elastane                      │
+│  │ Fiber Composition: 97% organic cotton, 3% elastane  ← CHANGED           │
 │  │ Weight: 180 gsm                                                         │
 │  │ Certifications: GOTS (CU-123456), OEKO-TEX Standard 100                │
 │  │ Care Instructions: Machine wash cold, tumble dry low                    │
@@ -405,15 +430,26 @@ Marketing follows the same workflow as Design, with one key feature:
 │  ─────────────────────────────────────────────────────────────────────────  │
 │                                                                              │
 │  Marketing can VIEW any Design version while editing.                       │
-│  Marketing versions are independent - no stored reference to Design.        │
+│  basedOnDesignVersionId tracks which Design version was current at draft.   │
 │                                                                              │
 │                                                   [Save Draft] [Release]    │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Operations Workflow (Immutable Records)
+**Design Sync Awareness:**
 
-Operations creates **immutable transaction records** that lock Design version references:
+When creating a Marketing draft, the system records `basedOnDesignVersionId` (the current Design version). If Design releases a new version while Marketing is still in draft:
+
+1. **Warning banner** appears showing Design has updated
+2. **View Changes** shows diff between original and new Design version
+3. **Acknowledge** dismisses warning but is logged in audit trail
+4. **On Release**, `basedOnDesignVersionId` is updated to current Design version
+
+This prevents Marketing from unknowingly publishing content that references outdated specs.
+
+### Operations Workflow (PENDING → COMMITTED)
+
+Operations uses a **draft-then-commit workflow** to prevent typos from being immediately locked:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -424,8 +460,6 @@ Operations creates **immutable transaction records** that lock Design version re
 │                                                                              │
 │  Design Version: [v3 (Current) ▼]  ← Select which version to produce       │
 │                                                                              │
-│  ⚠️ Once created, the Design reference cannot be changed.                   │
-│                                                                              │
 │  Batch Details:                                                             │
 │  ├── Quantity: [5000        ]                                               │
 │  ├── Production Line: [Line A ▼]                                            │
@@ -435,25 +469,60 @@ Operations creates **immutable transaction records** that lock Design version re
 │  ├── Organic Cotton: [cotton_lot_801 ▼]                                     │
 │  └── Elastane: [elastane_lot_460 ▼]                                         │
 │                                                                              │
-│                                                [Cancel] [Create Batch]      │
+│                                              [Cancel] [Create as Pending]   │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**After creation (PENDING state):**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  BATCH #12350                                          Status: ⏳ PENDING    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Created by: Maria Garcia (CONTRIBUTOR) • 10 minutes ago                    │
+│  Auto-commit in: 50 minutes                                                 │
 │                                                                              │
 │  ─────────────────────────────────────────────────────────────────────────  │
-│  After creation, this batch record is LOCKED:                               │
-│  • Design reference: v3 (immutable)                                         │
+│  Design Reference: v3  │  Quantity: 5000  │  Line: A                        │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│                                                                              │
+│  ⚠️ This batch is still editable. Review details before committing.        │
+│                                                                              │
+│                              [Edit] [Delete] [Commit Now (Lock)]            │
+│                                                                              │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│  After commit, record becomes IMMUTABLE:                                    │
+│  • Design reference: locked                                                 │
 │  • Material lots: locked                                                    │
-│  • Only status changes allowed (PLANNED → IN_PRODUCTION → COMPLETED)       │
+│  • Only status transitions allowed                                          │
 │  • Corrections create new records, not edits                                │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Immutable Record Types in Operations:**
+**Four-Eyes Principle in Operations:**
 
-| Record Type | Locked At | Can Change |
-|-------------|-----------|------------|
-| Batch | Creation | Status only (PLANNED → IN_PRODUCTION → COMPLETED) |
-| Material Order | Creation | Status only (ORDERED → SHIPPED → RECEIVED) |
-| EPCIS Event | Creation | Nothing (append-only by standard) |
-| Quality Check | Creation | Nothing (results are final) |
+| Authority | Can Create Batch | Can Commit Batch | Notes |
+|-----------|------------------|------------------|-------|
+| CONTRIBUTOR | ✓ (creates PENDING) | - | Must wait for EDITOR/MANAGER to commit |
+| EDITOR | ✓ (creates PENDING) | ✓ | Can commit own batches |
+| MANAGER | ✓ (creates PENDING) | ✓ | Can commit any batch |
+
+**Commit Rules:**
+- **CONTRIBUTORs** create PENDING batches that require EDITOR/MANAGER approval to commit
+- **EDITORs/MANAGERs** can self-commit or let auto-commit handle it
+- **Auto-commit**: Batches auto-commit after 1 hour (configurable) if no manual commit
+- **Delete**: PENDING batches can be deleted before commit (logged in audit)
+
+**Immutable Record Types in Operations (After Commit):**
+
+| Record Type | Editable Until | After Commit |
+|-------------|----------------|--------------|
+| Batch | PENDING → COMMITTED | Status only (PLANNED → IN_PRODUCTION → COMPLETED) |
+| Material Order | PENDING → COMMITTED | Status only (ORDERED → SHIPPED → RECEIVED) |
+| EPCIS Event | Never (immutable at capture) | Nothing (append-only by standard) |
+| Quality Check | Never (immutable at capture) | Nothing (results are final) |
 
 **Corrections (Not Edits):**
 ```
@@ -690,7 +759,8 @@ Version control is per-workspace. Design and Marketing have formal versions, Ope
 // Shared version status for Design and Marketing
 enum VersionStatus {
   DRAFT           // Being edited
-  PENDING_REVIEW  // Awaiting approval (CONTRIBUTOR workflow)
+  PENDING_REVIEW  // Awaiting approval (CONTRIBUTOR workflow) - not yet claimed
+  IN_REVIEW       // Claimed by a specific approver - prevents duplicate reviews
   RELEASED        // Current version, ready for use
   ACTIVE          // Has live references (batches, DPPs) - cannot modify
   ARCHIVED        // No active references, historical only
@@ -721,8 +791,12 @@ model DesignVersion {
   createdBy       User          @relation("DesignVersionCreator", fields: [createdById], references: [id])
   createdAt       DateTime      @default(now())
 
-  // Review (CONTRIBUTOR workflow)
-  reviewedById    String?
+  // Review (CONTRIBUTOR workflow with claim system)
+  claimedById     String?       // Who claimed this for review (IN_REVIEW state)
+  claimedBy       User?         @relation("DesignVersionClaimer", fields: [claimedById], references: [id])
+  claimedAt       DateTime?     // When claimed
+
+  reviewedById    String?       // Who approved/rejected
   reviewedBy      User?         @relation("DesignVersionReviewer", fields: [reviewedById], references: [id])
   reviewedAt      DateTime?
   reviewNotes     String?
@@ -736,10 +810,12 @@ model DesignVersion {
   // References (when ACTIVE, these prevent archiving)
   referencingBatches    BatchRecord[]     @relation("BatchDesignVersion")
   referencingDPPs       DPPSnapshot[]     @relation("DPPDesignVersion")
+  referencingMarketing  MarketingVersion[] @relation("MarketingDesignReference")
 
   @@unique([productId, version])
   @@index([productId, status])
   @@index([createdById])
+  @@index([claimedById])
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -757,6 +833,11 @@ model MarketingVersion {
   // Marketing data snapshot
   marketingData   Json          // { name, description, images, price, categories... }
 
+  // Soft link to Design version at time of writing (for sync awareness)
+  // This records which Design version was current when Marketing was created/edited
+  basedOnDesignVersionId  String?
+  basedOnDesignVersion    DesignVersion? @relation("MarketingDesignReference", fields: [basedOnDesignVersionId], references: [id])
+
   // Diff from previous version
   changesSummary  String[]      // ["price: €49 → €59", "updated description"]
   dataDiff        Json?
@@ -766,8 +847,12 @@ model MarketingVersion {
   createdBy       User          @relation("MarketingVersionCreator", fields: [createdById], references: [id])
   createdAt       DateTime      @default(now())
 
-  // Review (CONTRIBUTOR workflow)
-  reviewedById    String?
+  // Review (CONTRIBUTOR workflow with claim system)
+  claimedById     String?       // Who claimed this for review (IN_REVIEW state)
+  claimedBy       User?         @relation("MarketingVersionClaimer", fields: [claimedById], references: [id])
+  claimedAt       DateTime?     // When claimed
+
+  reviewedById    String?       // Who approved/rejected
   reviewedBy      User?         @relation("MarketingVersionReviewer", fields: [reviewedById], references: [id])
   reviewedAt      DateTime?
   reviewNotes     String?
@@ -784,6 +869,7 @@ model MarketingVersion {
   @@unique([productId, version])
   @@index([productId, status])
   @@index([createdById])
+  @@index([claimedById])
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -791,10 +877,12 @@ model MarketingVersion {
 // ═══════════════════════════════════════════════════════════════════════════
 
 enum BatchStatus {
-  PLANNED
-  IN_PRODUCTION
-  COMPLETED
-  CANCELLED
+  PENDING         // Draft state - can be edited until committed
+  COMMITTED       // Locked - no edits, ready for production
+  PLANNED         // Committed + scheduled for production
+  IN_PRODUCTION   // Currently being produced
+  COMPLETED       // Production finished
+  CANCELLED       // Cancelled (never produced)
 }
 
 model BatchRecord {
@@ -804,28 +892,35 @@ model BatchRecord {
   product         Product       @relation(fields: [productId], references: [id])
   organizationId  String
 
-  // Locked Design reference (immutable after creation)
+  // Design reference (locked after COMMITTED)
   designVersionId String
   designVersion   DesignVersion @relation("BatchDesignVersion", fields: [designVersionId], references: [id])
 
-  // Batch details (immutable after creation)
+  // Batch details (editable while PENDING, locked after COMMITTED)
   quantity        Int
   materialLots    Json          // [{ materialId, lotNumber, quantity }]
   productionLine  String?
   plannedStart    DateTime?
 
-  // Status (only field that can change)
-  status          BatchStatus   @default(PLANNED)
+  // Status with PENDING draft state
+  status          BatchStatus   @default(PENDING)
   statusHistory   Json          // [{ status, timestamp, changedBy }]
+
+  // Commit workflow (four-eyes principle)
+  committedById   String?       // EDITOR/MANAGER who committed
+  committedBy     User?         @relation("BatchCommitter", fields: [committedById], references: [id])
+  committedAt     DateTime?     // When locked
+  autoCommitAt    DateTime?     // Auto-commit deadline (default: 1 hour after creation)
 
   // Authorship
   createdById     String
   createdBy       User          @relation("BatchCreator", fields: [createdById], references: [id])
   createdAt       DateTime      @default(now())
 
-  // Cryptographic signature at creation
+  // Cryptographic signature at commit (not creation)
   signerDid       String?
   signature       String?
+  signedAt        DateTime?
 
   // Linked records
   corrections     BatchCorrection[]
@@ -1049,10 +1144,12 @@ model MagicLinkSettings {
   organizationId      String       @unique
   organization        Organization @relation(fields: [organizationId], references: [id])
 
-  // Defaults for new magic links
-  defaultExpiryDays   Int?         // null = never expires (default)
-  maxExpiryDays       Int?         // null = no limit
-  allowCustomExpiry   Boolean      @default(true)
+  // Defaults for new magic links (secure defaults)
+  defaultGuestExpiryDays         Int      @default(30)   // Guest Partners: 30 days
+  defaultTransactionalExpiryDays Int      @default(7)    // Transactional: 7 days
+  maxExpiryDays                  Int?                     // null = no limit (admin can set longer)
+  allowNeverExpires              Boolean  @default(false) // Require explicit opt-in for no expiry
+  allowCustomExpiry              Boolean  @default(true)
 }
 ```
 
@@ -1083,6 +1180,93 @@ model AuditLog {
   @@index([organizationId, createdAt])
   @@index([resourceType, resourceId])
   @@index([userId])
+}
+```
+
+### UserDIDHistory Model
+
+Tracks DID changes over time to enable historical signature verification when users rotate keys.
+
+```prisma
+model UserDIDHistory {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id])
+  organizationId  String
+
+  // The DID that was active
+  did             String
+  keyId           String?   // Reference in walt.id Custodian
+
+  // Validity period
+  validFrom       DateTime  @default(now())  // When this DID became active
+  validTo         DateTime?                   // When replaced (null = current)
+
+  // Rotation metadata
+  rotationReason  String?   // "key_compromise", "routine", "user_request"
+  rotatedById     String?   // Who initiated the rotation
+  rotatedAt       DateTime?
+
+  createdAt       DateTime  @default(now())
+
+  @@index([userId])
+  @@index([did])
+  @@index([organizationId, validFrom])
+}
+```
+
+**DID Rotation Workflow:**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  DID ROTATION (Key Rotation)                                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  1. User or Admin requests key rotation                                      │
+│     └── Reasons: suspected compromise, routine policy, user request         │
+│                                                                              │
+│  2. System generates new did:key via walt.id                                │
+│                                                                              │
+│  3. UserDIDHistory entry created:                                           │
+│     └── Old DID: validTo = now()                                            │
+│     └── New DID: validFrom = now(), validTo = null                          │
+│                                                                              │
+│  4. User.did updated to new DID                                             │
+│                                                                              │
+│  5. Historical signatures remain valid:                                     │
+│     └── Verify against UserDIDHistory using signature timestamp             │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Signature Verification with DID History:**
+
+```typescript
+async function verifyHistoricalSignature(
+  signature: string,
+  signerDid: string,
+  signedAt: DateTime,
+  userId: string
+): Promise<VerificationResult> {
+  // Find the DID that was valid at the time of signing
+  const didRecord = await prisma.userDIDHistory.findFirst({
+    where: {
+      userId,
+      did: signerDid,
+      validFrom: { lte: signedAt },
+      OR: [
+        { validTo: null },           // Still current
+        { validTo: { gte: signedAt }} // Was valid at signing time
+      ]
+    }
+  });
+
+  if (!didRecord) {
+    return { valid: false, reason: 'DID not found in history for signing time' };
+  }
+
+  // Verify the signature using the historical DID
+  return await verifyJws(signature, signerDid);
 }
 ```
 
@@ -1447,7 +1631,35 @@ DPP Issued ───────────────────────
 
 ## 8. Approval Routing
 
-When a CONTRIBUTOR submits a version for review, it needs to be routed to an appropriate approver **within the same workspace**.
+When a CONTRIBUTOR submits a version for review, it needs to be routed to an appropriate approver **within the same workspace**. To prevent the "bystander effect" (multiple approvers notified, none act), we use a **claim system**.
+
+### Claim-Based Approval Workflow
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  APPROVAL STATE MACHINE                                                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  PENDING_REVIEW ──────────────────────────────────────────────────────────  │
+│  │ • Visible to all eligible approvers in workspace                         │
+│  │ • Multiple people notified                                               │
+│  │ • First to claim "wins"                                                  │
+│  │                                                                          │
+│  │  [Claim for Review]                                                      │
+│  │         │                                                                │
+│  ▼         ▼                                                                │
+│  IN_REVIEW ───────────────────────────────────────────────────────────────  │
+│  │ • Claimed by specific approver                                           │
+│  │ • Other approvers see "Being reviewed by Sarah Chen"                     │
+│  │ • Claim expires after 24 hours if no action (returns to PENDING_REVIEW) │
+│  │                                                                          │
+│  │  [Approve] [Reject] [Release Claim]                                      │
+│  │      │         │          │                                              │
+│  ▼      ▼         ▼          ▼                                              │
+│  RELEASED     REJECTED    PENDING_REVIEW                                    │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
 ### Routing Logic
 
@@ -1457,18 +1669,9 @@ async function routeForApproval(
   requester: User,
   workspace: Workspace
 ): Promise<void> {
-  // Approval is routed within the workspace where the change was made
+  // Set to PENDING_REVIEW - visible to all eligible approvers
 
-  // 1. Try direct manager first (if they have EDITOR/MANAGER in this workspace)
-  if (requester.reportsToId) {
-    const manager = await getUser(requester.reportsToId);
-    if (canApproveInWorkspace(manager, workspace)) {
-      await assignToUser(version, manager.id);
-      return;
-    }
-  }
-
-  // 2. Find any EDITOR/MANAGER with access to this workspace
+  // 1. Find all EDITOR/MANAGER users with access to this workspace
   const approvers = await findUsersWithWorkspaceAccess({
     organizationId: requester.organizationId,
     workspace: workspace,
@@ -1480,15 +1683,55 @@ async function routeForApproval(
     throw new Error(`No approvers available for ${workspace} workspace`);
   }
 
-  // 3. Assign to workspace (any matching approver can pick it up)
-  await assignToWorkspace(version, workspace);
+  // 2. Update version status
+  await prisma.designVersion.update({
+    where: { id: version.id },
+    data: { status: 'PENDING_REVIEW' }
+  });
+
+  // 3. Notify all eligible approvers
   await notifyApprovers(approvers, version);
 }
 
-function canApproveInWorkspace(user: User, workspace: Workspace): boolean {
-  const access = user.workspaceAccess.find(wa => wa.workspace === workspace);
-  if (!access) return false;
-  return access.authority === 'EDITOR' || access.authority === 'MANAGER';
+async function claimForReview(
+  versionId: string,
+  claimerId: User
+): Promise<void> {
+  // Atomic claim - prevents race conditions
+  const result = await prisma.designVersion.updateMany({
+    where: {
+      id: versionId,
+      status: 'PENDING_REVIEW',  // Only claim if still pending
+      claimedById: null          // Not already claimed
+    },
+    data: {
+      status: 'IN_REVIEW',
+      claimedById: claimerId,
+      claimedAt: new Date()
+    }
+  });
+
+  if (result.count === 0) {
+    throw new Error('Version already claimed or not pending review');
+  }
+
+  // Notify author that review has started
+  await notifyAuthor(versionId, 'Review started by ' + claimer.name);
+}
+
+async function releaseClaimExpired(): Promise<void> {
+  // Cron job: Release claims older than 24 hours
+  await prisma.designVersion.updateMany({
+    where: {
+      status: 'IN_REVIEW',
+      claimedAt: { lt: subHours(new Date(), 24) }
+    },
+    data: {
+      status: 'PENDING_REVIEW',
+      claimedById: null,
+      claimedAt: null
+    }
+  });
 }
 ```
 
@@ -1498,31 +1741,44 @@ Approvers see pending versions in their inbox, filtered by the workspaces they h
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  APPROVAL INBOX                                              2 pending      │
+│  APPROVAL INBOX                                              3 items        │
 │  Filter: [All Workspaces ▼]                                                 │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │  ┌─────────────────────────────────────────────────────────────────────────┐│
-│  │ [DESIGN] Organic Cotton T-Shirt (TSH-001)                v3-draft       ││
+│  │ [DESIGN] Organic Cotton T-Shirt (TSH-001)          ⏳ PENDING REVIEW    ││
 │  │ Submitted by: Maria Garcia (CONTRIBUTOR) • 2 hours ago                  ││
 │  │ Changes: materials.fiberComposition (90% → 95%), BOM updates            ││
-│  │ [View Diff] [Approve] [Reject]                                          ││
+│  │ [View Diff] [Claim for Review]                                          ││
 │  └─────────────────────────────────────────────────────────────────────────┘│
 │                                                                              │
 │  ┌─────────────────────────────────────────────────────────────────────────┐│
-│  │ [MARKETING] Denim Jacket (JKT-042)                       v4-draft       ││
+│  │ [MARKETING] Denim Jacket (JKT-042)                 🔒 IN REVIEW         ││
 │  │ Submitted by: External Agency (CONTRIBUTOR) • 5 hours ago               ││
-│  │ Changes: price (€89 → €99), updated product description                 ││
-│  │ [View Diff] [Approve] [Reject]                                          ││
+│  │ Being reviewed by: John Smith (claimed 1 hour ago)                      ││
+│  │ [View Diff] (Cannot claim - already being reviewed)                     ││
+│  └─────────────────────────────────────────────────────────────────────────┘│
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────────┐│
+│  │ [MARKETING] Summer Collection Banner               🔒 IN REVIEW (YOURS) ││
+│  │ Submitted by: Maria Garcia (CONTRIBUTOR) • 3 hours ago                  ││
+│  │ You claimed this for review                                             ││
+│  │ [View Diff] [Approve] [Reject] [Release Claim]                          ││
 │  └─────────────────────────────────────────────────────────────────────────┘│
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
+**Claim System Benefits:**
+- **Prevents bystander effect**: Someone must explicitly claim ownership
+- **Clear accountability**: One person responsible for each review
+- **Auto-release**: Stale claims released after 24 hours
+- **Visibility**: Everyone sees who is reviewing what
+
 **Note:**
 - Users only see approvals for workspaces where they have EDITOR or MANAGER authority
 - Only Design and Marketing have version approvals (CONTRIBUTOR workflow)
-- Operations creates immutable records directly (no approval workflow needed)
+- Operations uses four-eyes commit workflow instead (CONTRIBUTOR creates → EDITOR/MANAGER commits)
 
 ---
 
@@ -1600,8 +1856,12 @@ Approvers see pending versions in their inbox, filtered by the workspaces they h
 │                                                                              │
 │  ─── Magic Link Options ──────────────────────────────────────────────────  │
 │                                                                              │
-│  Link Expiry:  (•) Never expires                                           │
-│                ( ) Expires after [    ] days                                │
+│  Link Expiry:  (•) 30 days (recommended)                                    │
+│                ( ) 90 days                                                   │
+│                ( ) Custom: [    ] days                                       │
+│                ( ) Never expires ⚠️ (requires justification)                │
+│                                                                              │
+│  ⚠️ "Never expires" requires admin approval and is logged in audit trail.  │
 │                                                                              │
 │                                              [Cancel]  [Send Invitation]   │
 │                                                                              │
@@ -1690,6 +1950,8 @@ POST   /api/v1/products/:id/submit      # Submit for review (CONTRIBUTOR)
 ```
 GET    /api/v1/approvals                # List pending approvals
 GET    /api/v1/approvals/:versionId     # Get approval details + diff
+POST   /api/v1/approvals/:versionId/claim    # Claim for review (IN_REVIEW)
+POST   /api/v1/approvals/:versionId/release  # Release claim (back to PENDING_REVIEW)
 POST   /api/v1/approvals/:versionId/approve  # Approve version
 POST   /api/v1/approvals/:versionId/reject   # Reject version
 ```
@@ -1700,6 +1962,40 @@ POST   /api/v1/approvals/:versionId/reject   # Reject version
 GET    /api/v1/products/:id/versions           # List all versions
 GET    /api/v1/products/:id/versions/:version  # Get specific version
 POST   /api/v1/products/:id/versions/:version/revert  # Revert to version
+```
+
+### Operations - Batches
+
+```
+POST   /api/v1/batches                  # Create batch (PENDING status)
+GET    /api/v1/batches                  # List batches (with status filter)
+GET    /api/v1/batches/:id              # Get batch details
+PATCH  /api/v1/batches/:id              # Update PENDING batch (fails if committed)
+DELETE /api/v1/batches/:id              # Delete PENDING batch (fails if committed)
+POST   /api/v1/batches/:id/commit       # Lock batch (PENDING → COMMITTED)
+PATCH  /api/v1/batches/:id/status       # Update status (COMMITTED batches only)
+POST   /api/v1/batches/:id/corrections  # Add correction record
+GET    /api/v1/batches/:id/corrections  # List corrections for batch
+```
+
+### Operations - Material Orders
+
+```
+POST   /api/v1/material-orders          # Create order (PENDING status)
+GET    /api/v1/material-orders          # List orders
+GET    /api/v1/material-orders/:id      # Get order details
+PATCH  /api/v1/material-orders/:id      # Update PENDING order
+DELETE /api/v1/material-orders/:id      # Delete PENDING order
+POST   /api/v1/material-orders/:id/commit  # Lock order (PENDING → COMMITTED)
+PATCH  /api/v1/material-orders/:id/status  # Update status (COMMITTED orders only)
+```
+
+### DID Management
+
+```
+GET    /api/v1/users/:id/did            # Get user's current DID
+POST   /api/v1/users/:id/did/rotate     # Rotate user's DID (admin only)
+GET    /api/v1/users/:id/did/history    # Get DID rotation history
 ```
 
 ---
@@ -1759,10 +2055,92 @@ POST   /api/v1/products/:id/versions/:version/revert  # Revert to version
 | **Authority per workspace** | Users can only perform actions matching their authority in that workspace |
 | **Admin separation** | Admin access is separate from workspace authority |
 | **Guest restrictions** | Product queries filtered by allowedProductTags/allowedFamilyIds within allowed workspaces |
-| **Magic link security** | Cryptographically random tokens, optional expiry |
+| **Magic link security** | Cryptographically random tokens, secure defaults (30-day expiry) |
 | **DID ownership** | Users cannot access other users' private keys |
 | **Audit completeness** | Every action logged with user context and workspace |
-| **Checkout locking** | Prevents concurrent edits, auto-expires after inactivity |
+| **Checkout locking** | Prevents concurrent edits, admin can force-release if needed |
+
+### Admin Self-Grant Protection ("Break Glass" Audit)
+
+Admins can modify their own permissions, which creates a potential security concern. To maintain accountability:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  ADMIN SELF-GRANT RULES                                                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  When an admin modifies THEIR OWN permissions:                              │
+│                                                                              │
+│  1. AUDIT LOG ENTRY (mandatory)                                             │
+│     └── action: "admin.self_grant"                                          │
+│     └── metadata: { previousAccess, newAccess, justification }              │
+│     └── ipAddress, userAgent, timestamp                                     │
+│                                                                              │
+│  2. EMAIL NOTIFICATION                                                       │
+│     └── Sent to ALL other admins in the organization                        │
+│     └── Subject: "[Alert] Admin self-grant: Sarah Chen"                     │
+│     └── Body: Details of permission change + justification                  │
+│                                                                              │
+│  3. JUSTIFICATION REQUIRED                                                   │
+│     └── UI prompts for reason when admin elevates own permissions           │
+│     └── Stored in audit log for compliance review                           │
+│                                                                              │
+│  4. COOL-OFF PERIOD (optional, configurable)                                │
+│     └── Self-granted elevated permissions expire after 24 hours             │
+│     └── Must be re-granted by another admin for permanence                  │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Self-Grant Detection:**
+
+```typescript
+async function updateUserAccess(
+  targetUserId: string,
+  newAccess: WorkspaceAccess[],
+  requesterId: string,
+  justification?: string
+): Promise<void> {
+  const isSelfGrant = targetUserId === requesterId;
+
+  if (isSelfGrant) {
+    // Require justification for self-grants
+    if (!justification || justification.length < 10) {
+      throw new Error('Justification required for self-grant (min 10 chars)');
+    }
+
+    // Log with special action type
+    await auditLog.create({
+      action: 'admin.self_grant',
+      userId: requesterId,
+      resourceType: 'User',
+      resourceId: targetUserId,
+      metadata: {
+        previousAccess: await getCurrentAccess(targetUserId),
+        newAccess,
+        justification,
+        isSelfGrant: true
+      }
+    });
+
+    // Notify other admins
+    const otherAdmins = await getOtherAdmins(requesterId);
+    await sendAdminSelfGrantAlert(otherAdmins, requesterId, newAccess, justification);
+  }
+
+  // Proceed with update
+  await prisma.workspaceAccess.updateMany({ ... });
+}
+```
+
+**Weekly Admin Review Report:**
+
+Organizations receive a weekly email summarizing:
+- All admin self-grant actions
+- Permission changes by workspace
+- Users with elevated permissions
+
+This creates an audit trail for compliance and enables peer review of admin actions.
 
 ---
 
