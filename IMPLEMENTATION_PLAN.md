@@ -493,47 +493,109 @@ router.use('/syndication', requireModule('syndication'), syndicationRoutes);
 
 ## 6. Implementation Phases
 
+### Development Philosophy: Incremental Bottom-Up
+
+We build the platform **bottom-up**, following the natural product lifecycle flow. The Hub (data model) grows incrementally with each phase - we don't design the complete schema upfront.
+
+**Why bottom-up?**
+- Compliance (DPP output) depends on upstream data
+- Marketing content depends on product specs
+- You can't issue a DPP without knowing materials, suppliers, carbon footprint
+- Different customers have different entry points (manufacturers vs. distributors)
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    BOTTOM-UP BUILD ORDER                                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Phase 1: CORE HUB (Foundation)                                             │
+│           Products, Variants, Organization, User                            │
+│           All workspace shells navigable                                    │
+│                              │                                              │
+│                              ▼                                              │
+│  Phase 2: ENTRY POINTS (Where data originates)                             │
+│           ┌─────────────────┴─────────────────┐                            │
+│           ▼                                   ▼                            │
+│     Design Workspace               Operations Workspace                     │
+│     + Materials, BOMs              + Suppliers, Inventory                  │
+│     (for Manufacturers)            (for Distributors)                      │
+│           │                                   │                            │
+│           └─────────────────┬─────────────────┘                            │
+│                             ▼                                              │
+│  Phase 3: PRESENTATION (Content layer)                                     │
+│           Marketing Workspace                                               │
+│           + Assets, Channels, Content                                       │
+│                             │                                              │
+│                             ▼                                              │
+│  Phase 4: OUTPUT (Compliance layer)                                        │
+│           Compliance Workspace                                              │
+│           + Passports, EPCIS, Certifications                               │
+│                             │                                              │
+│                             ▼                                              │
+│  Phase 5+: ENHANCEMENTS                                                    │
+│           Attestation, Syndication, Retailer Access                        │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
 ### Phase Overview
 
-Each phase is a **full-stack vertical slice** - backend, frontend (workspace UI), and tests together. This enables demo-able progress and early feedback.
-
-**Key Principle:** Workspaces are built incrementally within each phase. Each phase delivers testable workspace functionality, not just backend APIs.
-
 ```
-Phase 1: Core + Schema      ──► Foundation + Workspace shell/navigation
-Phase 2: PIM + DAM          ──► Marketing Workspace (core features)
-Phase 3: Import Engine      ──► Import in Marketing + Design Workspaces
-Phase 4: Compliance + EPCIS ──► Compliance Workspace + Operations (EPCIS)
-Phase 5: Attestation        ──► Attestation across ALL workspaces
-Phase 6: Syndication        ──► Marketing Workspace (channel sync)
-Phase 7: Retailer Access    ──► Public API and widget
-Phase 8: Design + Ops Full  ──► Design Workspace (BOMs) + Operations (Inventory)
+Phase 1: Core Hub + Shells    ──► Foundation (minimum viable Hub)
+Phase 2: Design + Operations  ──► Entry points (Hub grows with Materials, Suppliers, BOMs, Inventory)
+Phase 3: Marketing            ──► Presentation (Hub grows with Assets, Channels)
+Phase 4: Compliance + EPCIS   ──► Output (Hub grows with Passports, Certifications)
+Phase 5: Attestation          ──► Cross-cutting (all workspaces)
+Phase 6: Syndication          ──► Channel push (Marketing)
+Phase 7: Retailer Access      ──► Public access
 ```
+
+### Hub Growth by Phase
+
+The Hub schema grows incrementally - we only add what's needed for each phase:
+
+| Phase | Hub Additions | Why |
+|-------|---------------|-----|
+| **1** | Product, Variant, Organization, User, ProductFamily | Minimum to exist |
+| **2** | Material, BOM, Supplier, InventoryItem, PurchaseOrder | Entry points need this |
+| **3** | Asset, Channel, ChannelListing | Content management |
+| **4** | Passport, Certification, EpcisRepository | Compliance output |
+| **5** | Contributor, DataRequest, Contribution | Attestation |
 
 ### Workspace Build Progression
 
-| Phase | Marketing | Compliance | Operations | Design |
-|-------|-----------|------------|------------|--------|
+| Phase | Design | Operations | Marketing | Compliance |
+|-------|--------|------------|-----------|------------|
 | 1 | Shell | Shell | Shell | Shell |
-| 2 | **Core PIM** | - | - | - |
-| 3 | Import | - | - | Import |
-| 4 | - | **Full DPP** | **EPCIS** | - |
+| 2 | **Core (BOMs, Materials)** | **Core (Inventory, Suppliers)** | - | - |
+| 3 | - | - | **Core (PIM, DAM)** | - |
+| 4 | - | EPCIS view | - | **Core (DPP)** |
 | 5 | Attestation | Attestation | Attestation | Attestation |
-| 6 | **Syndication** | - | - | - |
-| 7 | - | - | - | - |
-| 8 | - | - | **Inventory** | **BOMs** |
+| 6 | - | - | **Syndication** | - |
+
+### Two Customer Entry Points
+
+**Manufacturers start in Design:**
+```
+Phase 2 (Design) → Phase 2 (Operations) → Phase 3 (Marketing) → Phase 4 (Compliance)
+```
+
+**Distributors start in Operations:**
+```
+Phase 2 (Operations) → Phase 3 (Marketing) → Phase 4 (Compliance)
+```
 
 **Testable at each phase:**
-- Phase 2: Marketing workspace can create/edit products, manage assets
-- Phase 4: Compliance workspace can issue DPPs, Operations can view EPCIS timelines
-- Phase 6: Marketing workspace can sync to Shopify
-- Phase 8: Full Design/Operations workspace functionality
+- Phase 1: Users can log in, see all workspace shells, navigate
+- Phase 2: Manufacturers can create BOMs; Distributors can track inventory
+- Phase 3: Brand managers can create content, manage assets
+- Phase 4: Compliance officers can issue DPPs with complete upstream data
 
 ---
 
-### Phase 1: Core + Schema
+### Phase 1: Core Hub + Workspace Shells
 
-**Goal:** Establish foundation - auth, multi-tenancy, billing, database schema, and workspace shell
+**Goal:** Establish foundation - auth, multi-tenancy, billing, minimum viable Hub schema, and ALL workspace shells navigable
 
 | Task | Status |
 |------|--------|
@@ -598,22 +660,78 @@ Phase 8: Design + Ops Full  ──► Design Workspace (BOMs) + Operations (Inve
 | User wallet settings UI (view wallet, future: connect EUDI) | Planned |
 | Organization wallet settings UI (view wallet, LEI, future: connect EU Org Wallet) | Planned |
 
-**Outcome:** Users can sign up, start free trial, manage subscriptions with overage billing, and export data on cancellation. Enterprise customers can use SSO. Organizations can invite team members with role-based access control, and all product changes are version-controlled with cryptographic signatures. Wallet architecture supports global users (MANAGED) with optional EU identity enhancement (EUDI for users, EU Org Wallet for organizations) without code changes. Database schema supports all future features.
+**Outcome:** Users can sign up, start free trial, manage subscriptions with overage billing, and export data on cancellation. Enterprise customers can use SSO. Organizations can invite team members with role-based access control, and all product changes are version-controlled with cryptographic signatures. Wallet architecture supports global users (MANAGED) with optional EU identity enhancement (EUDI for users, EU Org Wallet for organizations) without code changes. Minimum viable Hub schema supports basic products.
 
 **Workspace Deliverable:** All four workspace shells are navigable with proper routing. Role-based access controls which workspaces users can see. Placeholder pages show "Coming Soon" for incomplete workspaces.
+
+**Hub at Phase 1:** Product, Variant, Organization, User, ProductFamily (minimum to exist)
 
 **Key Decision:** Design attestation models NOW (Contributor, DataRequest, Contribution, ContributionVersion) even though implementation is Phase 5. This prevents schema rework later.
 
 ---
 
-### Phase 2: PIM + DAM → Marketing Workspace
+### Phase 2: Design + Operations → Entry Points
 
-**Goal:** Full-stack product management in the Marketing Workspace - the core UI for brand managers and e-commerce teams
+**Goal:** Build the entry points where product data originates. Manufacturers start in Design (BOMs, materials), Distributors start in Operations (inventory, suppliers). The Hub grows to support these workflows.
 
-**Primary Workspace:** Marketing (PIM-lite)
+**Workspaces:** Design (PLM-lite), Operations (ERP-lite)
 
 | Task | Status |
 |------|--------|
+| **Hub Schema Additions** | |
+| Material model (fiber composition, chemical properties) | Planned |
+| BillOfMaterials model (tree structure, component relationships) | Planned |
+| Supplier model (contact, certifications, audits) | Planned |
+| InventoryItem model (locations, quantities, batch tracking) | Planned |
+| PurchaseOrder model (supplier, items, status) | Planned |
+| **Design Workspace - BOM Management** | |
+| Bill of Materials data model | Planned |
+| BOM editor UI (tree view, component list) | Planned |
+| Material specifications CRUD | Planned |
+| Component-supplier linking | Planned |
+| Revision history and approval workflow | Planned |
+| Design workspace navigation (BOMs, Materials, Revisions) | Planned |
+| **Operations Workspace - Inventory** | |
+| Inventory tracking data model (locations, quantities) | Planned |
+| Stock level dashboard | Planned |
+| Reorder point alerts | Planned |
+| Batch/lot tracking UI | Planned |
+| **Operations Workspace - Orders** | |
+| Simple purchase order model | Planned |
+| PO creation and tracking UI | Planned |
+| Supplier management dashboard | Planned |
+| Operations workspace navigation (Inventory, Orders, Suppliers) | Planned |
+
+**Outcome:** Two functional entry points for product data. Manufacturers can design products (BOMs, materials, specs) in Design Workspace. Distributors can track inventory and suppliers in Operations Workspace. Both paths feed the same Hub.
+
+**Workspace Deliverables:**
+- Design Workspace: Moves from "Coming Soon" to functional PLM-lite (BOMs, materials, revisions)
+- Operations Workspace: Moves from "Coming Soon" to functional ERP-lite (inventory, orders, suppliers)
+
+**Hub at Phase 2:** + Material, BOM, Supplier, InventoryItem, PurchaseOrder
+
+**Dependencies:** Phase 1 (auth, org, schema, workspace shells)
+
+**Note:** This is ERP-*lite* - inventory and procurement basics. Not full accounting, no GL, no payroll. This is PLM-*lite* - BOMs and materials, not full CAD integration.
+
+**Two Customer Entry Points:**
+- **Manufacturers:** Start in Design → create BOMs, materials → then track inventory in Operations
+- **Distributors:** Start in Operations → track inventory from suppliers → skip Design if not manufacturing
+
+---
+
+### Phase 3: Marketing → Presentation Layer
+
+**Goal:** Build the presentation layer where product content is managed for customers and channels. The Hub grows to support rich media and channel listings.
+
+**Workspace:** Marketing (PIM-lite)
+
+| Task | Status |
+|------|--------|
+| **Hub Schema Additions** | |
+| Asset model (images, documents, certificates) | Planned |
+| Channel model (Shopify, DPP, custom) | Planned |
+| ChannelListing model (per-product channel status) | Planned |
 | **Backend (PIM Module)** | |
 | Implement ProductFamilyTemplate system with industry presets | Planned |
 | Implement ProductFamily model with dynamic attribute schemas | Planned |
@@ -626,6 +744,12 @@ Phase 8: Design + Ops Full  ──► Design Workspace (BOMs) + Operations (Inve
 | **Backend (DAM Module)** | |
 | S3 upload for assets (images, documents, certificates) | Planned |
 | Asset-product associations with roles (hero, gallery, certificate) | Planned |
+| **Backend (Import Module)** | |
+| Implement stream-based file parser (CSV, Excel) | Planned |
+| Build Claude API integration for data extraction | Planned |
+| Set up BullMQ workers for async processing | Planned |
+| PDF/Image OCR support for product data | Planned |
+| Import history and error logs API | Planned |
 | **Marketing Workspace UI** | |
 | Build "Create Family" wizard (from template or from scratch) | Planned |
 | Template modification UI (add/remove/customize fields) | Planned |
@@ -634,13 +758,16 @@ Phase 8: Design + Ops Full  ──► Design Workspace (BOMs) + Operations (Inve
 | Add completeness visualization (traffic lights per channel) | Planned |
 | Bulk operations UI (multi-select in AG Grid) | Planned |
 | Basic asset management UI (gallery view, drag-drop upload) | Planned |
-| Marketing workspace navigation (Products, Families, Assets) | Planned |
+| Import wizard UI with column mapping | Planned |
+| Marketing workspace navigation (Products, Families, Assets, Import) | Planned |
 
-**Outcome:** Marketing Workspace is fully functional for product content management. Users can manage products with dynamic attributes, see completeness scores, upload assets, perform bulk operations, and export data.
+**Outcome:** Marketing Workspace is fully functional for product content management. Users can manage products with dynamic attributes, see completeness scores, upload assets, perform bulk operations, import from files, and export data.
 
-**Workspace Deliverable:** Marketing Workspace moves from "Coming Soon" to fully functional. Brand managers can create products, manage content, and track completeness.
+**Workspace Deliverable:** Marketing Workspace moves from "Coming Soon" to fully functional. Brand managers can create products, manage content, import data, and track completeness.
 
-**Dependencies:** Phase 1 (auth, org, schema, workspace shell)
+**Hub at Phase 3:** + Asset, Channel, ChannelListing
+
+**Dependencies:** Phase 1 (auth, org, schema), Phase 2 (products with upstream data)
 
 **Key Design: ProductFamily Templates**
 
@@ -661,46 +788,18 @@ This approach supports industries beyond ESPR compliance - any business needing 
 
 ---
 
-### Phase 3: Import Engine → Marketing + Design Workspaces
+### Phase 4: Compliance + EPCIS → Output Layer
 
-**Goal:** Enable bulk data onboarding from any format, accessible from Marketing and Design workspaces
-
-**Workspaces:** Marketing, Design
-
-| Task | Status |
-|------|--------|
-| **Backend (Import Module)** | |
-| Implement stream-based file parser (CSV, Excel) | Planned |
-| Build Claude API integration for data extraction | Planned |
-| Set up BullMQ workers for async processing | Planned |
-| PDF/Image OCR support for product data | Planned |
-| Import history and error logs API | Planned |
-| **Import UI (Shared Component)** | |
-| Create import wizard UI with column mapping | Planned |
-| Build mapping preview with validation errors | Planned |
-| Implement import progress tracking | Planned |
-| Import history view | Planned |
-| **Workspace Integration** | |
-| Add Import section to Marketing Workspace navigation | Planned |
-| Add Import section to Design Workspace navigation | Planned |
-| Context-aware import defaults (Marketing: content fields, Design: specs fields) | Planned |
-
-**Outcome:** Users can import 10,000 SKUs from any file format via intuitive wizard. Import is accessible from both Marketing Workspace (for content data) and Design Workspace (for technical specs).
-
-**Workspace Deliverable:** Import functionality available in Marketing and Design workspaces with context-appropriate defaults.
-
-**Dependencies:** Phase 2 (product model, families, completeness)
-
----
-
-### Phase 4: Compliance + EPCIS → Compliance & Operations Workspaces
-
-**Goal:** DPP workflow in Compliance Workspace + EPCIS lifecycle visualization in Operations Workspace
+**Goal:** Build the output layer where all upstream data flows into compliance artifacts. DPP workflow in Compliance Workspace + EPCIS lifecycle visualization. The Hub grows to support passports and certifications.
 
 **Workspaces:** Compliance (DPP-core), Operations (EPCIS features)
 
 | Task | Status |
 |------|--------|
+| **Hub Schema Additions** | |
+| Passport model (DPP with VC, QR code, lifecycle) | Planned |
+| Certification model (third-party certs) | Planned |
+| EpcisRepository model (connection config) | Planned |
 | **Backend (Compliance Module)** | |
 | Build DPP completeness rules (which fields required) | Planned |
 | Implement DPP Ready list (products at 100% DPP completeness) | Planned |
@@ -751,9 +850,11 @@ This approach supports industries beyond ESPR compliance - any business needing 
 
 **Workspace Deliverables:**
 - Compliance Workspace: Moves from "Coming Soon" to fully functional DPP issuance workflow
-- Operations Workspace: EPCIS lifecycle visualization functional (inventory/orders deferred to Phase 8)
+- Operations Workspace: Gains EPCIS lifecycle visualization (inventory/orders already in Phase 2)
 
-**Dependencies:** Phase 2 (completeness scoring, assets)
+**Hub at Phase 4:** + Passport, Certification, EpcisRepository
+
+**Dependencies:** Phase 3 (completeness scoring, assets)
 
 **Key Decisions:**
 - DPP VC schema includes `attestations[]` array from day one, even if empty. This enables Phase 5 integration without schema changes.
@@ -765,14 +866,19 @@ See [SCALABILITY.md](docs/SCALABILITY.md) for full architecture.
 
 ---
 
-### Phase 5: Multi-Party Attestation → ALL Workspaces
+### Phase 5: Multi-Party Attestation → Cross-Cutting
 
-**Goal:** Third-party data contributions with cryptographic signatures, available in ALL workspaces for different datapoints
+**Goal:** Third-party data contributions with cryptographic signatures, available in ALL workspaces for different datapoints. The Hub grows to support contributor management and attestation workflows.
 
 **Workspaces:** Design, Operations, Marketing, Compliance (ALL)
 
 | Task | Status |
 |------|--------|
+| **Hub Schema Additions** | |
+| Contributor model (third-party attestors with did:key) | Planned |
+| DataRequest model (invitation to contribute) | Planned |
+| Contribution model (attested data) | Planned |
+| ContributionVersion model (signed versions) | Planned |
 | **Backend (Attestation Module)** | |
 | Implement Contributor model with did:key generation | Planned |
 | Build DataRequest model and email invitation system | Planned |
@@ -807,7 +913,9 @@ See [SCALABILITY.md](docs/SCALABILITY.md) for full architecture.
 
 **Workspace Deliverable:** Attestation functionality integrated into all four workspaces with context-appropriate request templates.
 
-**Dependencies:** Phase 1 (schema), Phase 4 (DPP issuance)
+**Hub at Phase 5:** + Contributor, DataRequest, Contribution, ContributionVersion
+
+**Dependencies:** Phase 4 (DPP issuance)
 
 See [MULTI_PARTY_ATTESTATION.md](docs/MULTI_PARTY_ATTESTATION.md) for full architecture.
 
@@ -839,7 +947,7 @@ See [MULTI_PARTY_ATTESTATION.md](docs/MULTI_PARTY_ATTESTATION.md) for full archi
 
 **Workspace Deliverable:** Marketing Workspace gains full syndication capabilities. Channel management accessible from workspace navigation.
 
-**Dependencies:** Phase 2 (products), Phase 4 (DPP data)
+**Dependencies:** Phase 3 (Marketing products), Phase 4 (DPP data)
 
 ---
 
@@ -871,94 +979,65 @@ See [MULTI_PARTY_ATTESTATION.md](docs/MULTI_PARTY_ATTESTATION.md) for full archi
 
 ---
 
-### Phase 8: Design + Operations Full → Design & Operations Workspaces Complete
-
-**Goal:** Complete the Design Workspace (BOMs, materials) and Operations Workspace (inventory, orders)
-
-**Workspaces:** Design (PLM-lite), Operations (ERP-lite)
-
-| Task | Status |
-|------|--------|
-| **Design Workspace - BOM Management** | |
-| Bill of Materials data model | Planned |
-| BOM editor UI (tree view, component list) | Planned |
-| Material specifications CRUD | Planned |
-| Component-supplier linking | Planned |
-| Revision history and approval workflow | Planned |
-| Design workspace navigation (BOMs, Materials, Revisions) | Planned |
-| **Operations Workspace - Inventory** | |
-| Inventory tracking data model (locations, quantities) | Planned |
-| Stock level dashboard | Planned |
-| Reorder point alerts | Planned |
-| Batch/lot tracking UI | Planned |
-| **Operations Workspace - Orders** | |
-| Simple purchase order model | Planned |
-| PO creation and tracking UI | Planned |
-| Supplier management dashboard | Planned |
-| Operations workspace navigation (Inventory, Orders, Suppliers) | Planned |
-
-**Outcome:** Design Workspace is fully functional for BOM management and material specifications. Operations Workspace is fully functional for inventory tracking, simple purchase orders, and supplier management.
-
-**Workspace Deliverables:**
-- Design Workspace: Moves from "Coming Soon" / partial to fully functional PLM-lite
-- Operations Workspace: Moves from EPCIS-only to full ERP-lite functionality
-
-**Note:** This is ERP-*lite* - inventory and procurement basics. Not full accounting, no GL, no payroll. This is PLM-*lite* - BOMs and materials, not full CAD integration.
-
-**Dependencies:** Phase 2 (product model), Phase 4 (EPCIS infrastructure)
-
----
-
 ### Phase Dependency Graph
 
 ```
                     ┌─────────────────────────────┐
                     │         PHASE 1             │
-                    │   Core + Workspace Shell    │
+                    │   Core Hub + Workspace Shells│
                     └──────────────┬──────────────┘
                                    │
                                    ▼
                     ┌─────────────────────────────┐
                     │         PHASE 2             │
-                    │  PIM + DAM → Marketing WS   │
+                    │ Design + Operations (Entry) │
                     └──────────────┬──────────────┘
                                    │
-          ┌────────────────────────┼────────────────────────┐
-          ▼                        ▼                        ▼
-┌─────────────────┐    ┌─────────────────────┐    ┌─────────────────┐
-│     PHASE 3     │    │      PHASE 4        │    │     PHASE 6     │
-│     Import      │    │ Compliance + EPCIS  │    │   Syndication   │
-│ (Mktg + Design) │    │ (Compl + Ops WS)    │    │  (Marketing WS) │
-└─────────────────┘    └──────────┬──────────┘    └─────────────────┘
-                                  │
-                                  ▼
+                                   ▼
+                    ┌─────────────────────────────┐
+                    │         PHASE 3             │
+                    │ Marketing (Presentation)    │
+                    └──────────────┬──────────────┘
+                                   │
+                                   ▼
+                    ┌─────────────────────────────┐
+                    │         PHASE 4             │
+                    │ Compliance + EPCIS (Output) │
+                    └──────────────┬──────────────┘
+                                   │
+                                   ▼
                     ┌─────────────────────────────┐
                     │         PHASE 5             │
-                    │  Attestation (ALL WS)       │
+                    │  Attestation (Cross-cutting)│
                     └──────────────┬──────────────┘
                                    │
                     ┌──────────────┴──────────────┐
                     ▼                              ▼
      ┌─────────────────────────┐    ┌─────────────────────────┐
-     │        PHASE 7          │    │        PHASE 8          │
-     │    Retailer Access      │    │  Design + Ops Full WS   │
+     │        PHASE 6          │    │        PHASE 7          │
+     │   Syndication (Mktg)    │    │    Retailer Access      │
      └─────────────────────────┘    └─────────────────────────┘
 ```
 
-**Parallel Work Possible:**
-- Phase 3 (Import), Phase 4 (Compliance), and Phase 6 (Syndication) can run in parallel after Phase 2
-- Phase 5 (Attestation) requires Phase 4 (DPP structure) but integrates into ALL workspaces
-- Phase 7 (Retailer) and Phase 8 (Design + Ops) can run in parallel after Phase 5
-- Phase 8 depends on Phase 2 (product model) and Phase 4 (EPCIS infrastructure)
+**Why Linear Flow (Not Parallel)?**
+
+The bottom-up approach creates a natural data dependency chain:
+- Phase 2 (Design + Operations) must exist before Phase 3 (Marketing) can present products
+- Phase 3 (Marketing) must have content before Phase 4 (Compliance) can issue DPPs
+- Phase 4 (DPPs) must exist before Phase 5 (Attestation) can link third-party data
+
+**Parallel Work Possible After Phase 5:**
+- Phase 6 (Syndication) and Phase 7 (Retailer) can run in parallel after Phase 5
+- No Phase 8 - Design and Operations are now fully built in Phase 2
 
 **Workspace Completion Timeline:**
 
-| Workspace | Shell | Core Features | Full Features |
-|-----------|-------|---------------|---------------|
-| Marketing | Phase 1 | Phase 2 | Phase 6 |
-| Compliance | Phase 1 | Phase 4 | Phase 5 |
-| Operations | Phase 1 | Phase 4 (EPCIS) | Phase 8 |
-| Design | Phase 1 | Phase 3 (Import) | Phase 8 |
+| Workspace | Shell | Core Features | Enhanced Features |
+|-----------|-------|---------------|-------------------|
+| Design | Phase 1 | Phase 2 (BOMs, Materials) | Phase 5 (Attestation) |
+| Operations | Phase 1 | Phase 2 (Inventory, Suppliers) | Phase 4 (EPCIS), Phase 5 (Attestation) |
+| Marketing | Phase 1 | Phase 3 (PIM, DAM, Import) | Phase 6 (Syndication), Phase 5 (Attestation) |
+| Compliance | Phase 1 | Phase 4 (DPP) | Phase 5 (Attestation) |
 
 ---
 
