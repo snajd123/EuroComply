@@ -915,6 +915,71 @@ async function releaseExpiredCheckouts(): Promise<void> {
 | **72h** | **Survives weekends (Friday→Monday)** |
 | 168h (7 days) | Too long - blocks others unnecessarily |
 
+### Checkout vs. Version State Independence
+
+Checkout locking and version state (ACTIVE/RELEASED/ARCHIVED) are **independent concepts**:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    CHECKOUT vs. VERSION STATE                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  CHECKOUT = Permission to create a NEW draft version                        │
+│  VERSION STATE = Whether an EXISTING version can be modified                │
+│                                                                              │
+│  These are INDEPENDENT:                                                     │
+│  • Checkout is on the PRODUCT (who can create new drafts)                   │
+│  • Version state is on the VERSION (is this version editable)               │
+│                                                                              │
+│  SCENARIO: Design v2 is ACTIVE (referenced by BatchRecord #100)             │
+│  ─────────────────────────────────────────────────────────────              │
+│                                                                              │
+│  Q: Can Engineer A checkout to edit v2?                                     │
+│  A: NO - v2 is ACTIVE (immutable). But Engineer A CAN checkout              │
+│     to create v3 as a new DRAFT.                                            │
+│                                                                              │
+│  Q: What happens to BatchRecord #100?                                       │
+│  A: Nothing - it continues referencing v2. Production uses v2.              │
+│     The new v3 draft has no effect on existing batches.                     │
+│                                                                              │
+│  Q: When does v2 become editable again?                                     │
+│  A: NEVER. Once a version is referenced by immutable records,               │
+│     create a new version instead. v2 returns to RELEASED (then              │
+│     ARCHIVED) when all batches complete, but remains read-only.             │
+│                                                                              │
+│  TIMELINE EXAMPLE                                                           │
+│  ────────────────                                                           │
+│  Day 1: Design v2 released                                                  │
+│  Day 2: Operations creates Batch #100 with designVersionId = v2             │
+│         → v2 becomes ACTIVE (immutable)                                     │
+│  Day 3: Engineer discovers v2 needs safety update                           │
+│         → Engineer checks out product, creates v3 DRAFT                     │
+│         → v2 remains ACTIVE, Batch #100 unaffected                          │
+│  Day 4: v3 approved and released                                            │
+│         → New batches can use v3                                            │
+│         → Batch #100 still uses v2 (by design - immutable reference)        │
+│  Day 5: Batch #100 completes                                                │
+│         → v2 returns to RELEASED, then ARCHIVED (v3 is newer)               │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Key Rules:**
+
+| Scenario | Can Checkout? | Can Edit Existing Version? | Action |
+|----------|---------------|---------------------------|--------|
+| No versions exist | Yes | N/A | Creates v1 DRAFT |
+| Current version is DRAFT | Yes (if not locked) | Yes | Edit the DRAFT |
+| Current version is RELEASED | Yes | No | Creates new DRAFT (v+1) |
+| Current version is ACTIVE | Yes | **No** | Creates new DRAFT (v+1) |
+| Current version is ARCHIVED | Yes | No | Creates new DRAFT (v+1) |
+
+**Why This Design:**
+
+1. **Immutability guarantee**: Once Operations references a version, that exact specification is preserved forever
+2. **Continuous development**: Design can keep improving products without disrupting production
+3. **Audit trail**: Every version is preserved, every batch knows exactly what spec it used
+
 ---
 
 ## 5. Data Model
