@@ -147,12 +147,12 @@ EuroComply uses a modular architecture. Modules are the backend capabilities tha
 │               │               │               │                            │
 │ Uses:         │ Uses:         │ Uses:         │ Uses:                      │
 │ • Registry    │ • Registry    │ • PIM         │ • Compliance               │
-│ • Materials   │ • EPCIS       │ • DAM-Media   │ • Registry (read)          │
-│ • DAM-Tech    │ • Attestation │ • Syndication │ • EPCIS (read)             │
-│ • Attestation │ • Import      │ • Import      │ • Attestation              │
-│ • Import      │               │ • Registry*   │ • PIM (read)               │
+│   (write)     │   (read)      │ • DAM-Media   │ • Registry (read)          │
+│ • Materials   │ • EPCIS       │ • Syndication │ • EPCIS (read)             │
+│ • DAM-Tech    │   (write)     │ • Import      │ • Attestation              │
+│ • Attestation │ • Attestation │ • Registry    │ • PIM (read)               │
+│ • Import      │ • Import      │   (read)      │                            │
 └───────────────┴───────────────┴───────────────┴────────────────────────────┘
-                              * read-only
                                     │
                                     ▼
 ┌────────────────────────────────────────────────────────────────────────────┐
@@ -165,6 +165,8 @@ EuroComply uses a modular architecture. Modules are the backend capabilities tha
 - **Registry** = Technical DNA (product structure, BOMs, versions) - used by Design
 - **PIM** = Commercial Enrichment (marketing descriptions, SEO) - used by Marketing
 - **DAM** serves both: Tech docs/specs for Design, Media assets for Marketing
+
+**Note:** Operations creates BatchRecords that reference (lock) a specific DesignVersion, but does not modify the Registry product structure itself. Only Design has write access to product definitions in the Registry.
 
 **Note:** Multi-Party Attestation is available in ALL workspaces - different personas request attestations for different datapoints (Design: material certs, Operations: supplier audits, Marketing: brand claims, Compliance: regulatory certifications).
 
