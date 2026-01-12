@@ -919,6 +919,689 @@ All vendors assessed for:
 
 ---
 
+## 13. Multi-Tenancy Security
+
+EuroComply uses a **shared database, row-level security** model for multi-tenancy. All organizations share the same PostgreSQL cluster, with strict isolation enforced at multiple layers.
+
+### 13.1 Tenant Isolation Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    MULTI-TENANCY ISOLATION LAYERS                │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  LAYER 1: APPLICATION MIDDLEWARE                                │
+│  ───────────────────────────────                                │
+│  • Every request extracts organizationId from auth context      │
+│  • OrganizationId injected into Prisma client                   │
+│  • Queries automatically scoped before reaching database        │
+│                                                                  │
+│  LAYER 2: PRISMA CLIENT EXTENSION                               │
+│  ────────────────────────────────                               │
+│  • All queries automatically filtered by organizationId         │
+│  • Prevents accidental cross-tenant queries                     │
+│  • Audit logging for all data access                            │
+│                                                                  │
+│  LAYER 3: POSTGRESQL ROW-LEVEL SECURITY (RLS)                   │
+│  ────────────────────────────────────────────                   │
+│  • Database-level enforcement (defense in depth)                │
+│  • Policies on all tenant-scoped tables                         │
+│  • Blocks queries even if application layer bypassed            │
+│                                                                  │
+│  LAYER 4: API RESPONSE FILTERING                                │
+│  ───────────────────────────────                                │
+│  • Double-check organizationId before returning data            │
+│  • Strip sensitive cross-tenant references                      │
+│  • Log any anomalies                                            │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 13.2 Row-Level Security (RLS) Implementation
+
+PostgreSQL RLS policies enforce tenant isolation at the database level:
+
+```sql
+-- ============================================================
+-- ROW-LEVEL SECURITY POLICIES
+-- ============================================================
+
+-- Enable RLS on all tenant-scoped tables
+ALTER TABLE "Product" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "Passport" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "Attestation" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "ApiKey" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "User" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "OrganizationWallet" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "EPCISEvent" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "Batch" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "Order" ENABLE ROW LEVEL SECURITY;
+
+-- ============================================================
+-- POLICY: Products - organization can only see their own products
+-- ============================================================
+CREATE POLICY "products_tenant_isolation" ON "Product"
+  FOR ALL
+  USING (
+    "organizationId" = current_setting('app.current_organization_id', true)::text
+  )
+  WITH CHECK (
+    "organizationId" = current_setting('app.current_organization_id', true)::text
+  );
+
+-- ============================================================
+-- POLICY: Passports - organization can only see their own DPPs
+-- ============================================================
+CREATE POLICY "passports_tenant_isolation" ON "Passport"
+  FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM "Product" p
+      WHERE p."id" = "Passport"."productId"
+      AND p."organizationId" = current_setting('app.current_organization_id', true)::text
+    )
+  );
+
+-- ============================================================
+-- POLICY: EPCIS Events - organization can only see their own events
+-- ============================================================
+CREATE POLICY "epcis_events_tenant_isolation" ON "EPCISEvent"
+  FOR ALL
+  USING (
+    "organizationId" = current_setting('app.current_organization_id', true)::text
+  )
+  WITH CHECK (
+    "organizationId" = current_setting('app.current_organization_id', true)::text
+  );
+
+-- ============================================================
+-- POLICY: Attestations - special handling for cross-org attestations
+-- ============================================================
+-- Attestations can be viewed by:
+-- 1. The organization that owns the product (attestation target)
+-- 2. The organization that issued the attestation (contributor)
+CREATE POLICY "attestations_tenant_isolation" ON "Attestation"
+  FOR SELECT
+  USING (
+    -- Product owner can see attestations on their products
+    EXISTS (
+      SELECT 1 FROM "Product" p
+      WHERE p."id" = "Attestation"."productId"
+      AND p."organizationId" = current_setting('app.current_organization_id', true)::text
+    )
+    OR
+    -- Contributor can see their own attestations
+    "contributorOrganizationId" = current_setting('app.current_organization_id', true)::text
+  );
+
+-- Contributors can only INSERT/UPDATE their own attestations
+CREATE POLICY "attestations_contributor_write" ON "Attestation"
+  FOR INSERT
+  WITH CHECK (
+    "contributorOrganizationId" = current_setting('app.current_organization_id', true)::text
+  );
+
+CREATE POLICY "attestations_contributor_update" ON "Attestation"
+  FOR UPDATE
+  USING (
+    "contributorOrganizationId" = current_setting('app.current_organization_id', true)::text
+  );
+```
+
+### 13.3 Application-Level Tenant Scoping
+
+The application layer enforces tenant isolation before queries reach the database:
+
+```typescript
+// ============================================================
+// PRISMA CLIENT EXTENSION FOR TENANT SCOPING
+// ============================================================
+
+import { PrismaClient } from '@prisma/client';
+
+// Create a tenant-scoped Prisma client
+function createTenantScopedClient(organizationId: string): PrismaClient {
+  const prisma = new PrismaClient().$extends({
+    query: {
+      // Automatically filter all queries by organizationId
+      $allModels: {
+        async findMany({ model, operation, args, query }) {
+          // Add organizationId filter for tenant-scoped models
+          if (TENANT_SCOPED_MODELS.includes(model)) {
+            args.where = {
+              ...args.where,
+              organizationId: organizationId,
+            };
+          }
+          return query(args);
+        },
+
+        async findUnique({ model, operation, args, query }) {
+          const result = await query(args);
+          // Verify result belongs to tenant
+          if (result && TENANT_SCOPED_MODELS.includes(model)) {
+            if (result.organizationId !== organizationId) {
+              throw new ForbiddenError('Resource not accessible');
+            }
+          }
+          return result;
+        },
+
+        async create({ model, operation, args, query }) {
+          // Ensure organizationId is set correctly on create
+          if (TENANT_SCOPED_MODELS.includes(model)) {
+            args.data.organizationId = organizationId;
+          }
+          return query(args);
+        },
+
+        async update({ model, operation, args, query }) {
+          // Verify ownership before update
+          if (TENANT_SCOPED_MODELS.includes(model)) {
+            args.where = {
+              ...args.where,
+              organizationId: organizationId,
+            };
+          }
+          return query(args);
+        },
+
+        async delete({ model, operation, args, query }) {
+          // Verify ownership before delete
+          if (TENANT_SCOPED_MODELS.includes(model)) {
+            args.where = {
+              ...args.where,
+              organizationId: organizationId,
+            };
+          }
+          return query(args);
+        },
+      },
+    },
+  });
+
+  return prisma;
+}
+
+const TENANT_SCOPED_MODELS = [
+  'Product',
+  'Passport',
+  'Attestation',
+  'ApiKey',
+  'User',
+  'OrganizationWallet',
+  'EPCISEvent',
+  'Batch',
+  'Order',
+];
+```
+
+**Request Middleware:**
+
+```typescript
+// ============================================================
+// TENANT CONTEXT MIDDLEWARE
+// ============================================================
+
+import { AsyncLocalStorage } from 'async_hooks';
+
+// Tenant context stored per-request
+const tenantContext = new AsyncLocalStorage<{ organizationId: string }>();
+
+// Middleware to set tenant context from authenticated user
+export function tenantMiddleware(req: Request, res: Response, next: NextFunction) {
+  const user = req.user; // From auth middleware
+
+  if (!user?.organizationId) {
+    return res.status(401).json({
+      success: false,
+      error: { code: 'UNAUTHORIZED', message: 'Organization context required' },
+    });
+  }
+
+  // Run request within tenant context
+  tenantContext.run({ organizationId: user.organizationId }, () => {
+    // Also set PostgreSQL session variable for RLS
+    req.prisma.$executeRaw`SELECT set_config('app.current_organization_id', ${user.organizationId}, true)`;
+    next();
+  });
+}
+
+// Get current tenant context
+export function getCurrentOrganizationId(): string {
+  const context = tenantContext.getStore();
+  if (!context?.organizationId) {
+    throw new Error('Tenant context not set');
+  }
+  return context.organizationId;
+}
+```
+
+### 13.4 EPCIS Event Tenant Isolation
+
+EPCIS events require special handling because they may reference products across organizations in supply chain scenarios:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    EPCIS TENANT ISOLATION                        │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  HOSTED OPENEPCIS (Multi-tenant)                                │
+│  ───────────────────────────────                                │
+│  • All events have organization_id column                       │
+│  • RLS policy enforces tenant isolation                         │
+│  • Events cannot reference products from other orgs             │
+│                                                                  │
+│  CROSS-ORGANIZATION SUPPLY CHAIN:                               │
+│  ─────────────────────────────────                              │
+│  Each organization captures their OWN events:                   │
+│                                                                  │
+│  Supplier (Org A):                                              │
+│  • ObjectEvent: "shipped batch to Manufacturer"                 │
+│  • Stored in Org A's EPCIS partition                            │
+│                                                                  │
+│  Manufacturer (Org B):                                          │
+│  • ObjectEvent: "received batch from Supplier"                  │
+│  • Stored in Org B's EPCIS partition                            │
+│                                                                  │
+│  DPP aggregates from BOTH sources:                              │
+│  • Query Org A's events (via API with permission)               │
+│  • Query Org B's events (own events)                            │
+│  • Or query external EPCIS (SAP, IBM) via credentials           │
+│                                                                  │
+│  DATA NEVER CROSSES TENANT BOUNDARIES IN OUR DB                 │
+│  Supply chain visibility via:                                   │
+│  • Explicit API permissions (contributor access)                │
+│  • External EPCIS repository credentials                        │
+│  • GS1 EPCIS network queries                                    │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**EPCIS Event Schema with Tenant Isolation:**
+
+```prisma
+model EPCISEvent {
+  id              String   @id @default(cuid())
+  organizationId  String   // REQUIRED - tenant isolation
+  organization    Organization @relation(fields: [organizationId], references: [id])
+
+  // EPCIS 2.0 fields
+  eventType       EPCISEventType
+  eventTime       DateTime
+  eventTimeZoneOffset String
+  bizStep         String?
+  disposition     String?
+  readPoint       String?  // GLN
+  bizLocation     String?  // GLN
+
+  // Product reference (within same org only)
+  productId       String?
+  product         Product? @relation(fields: [productId], references: [id])
+
+  // Event data (JSON-LD)
+  eventData       Json
+
+  createdAt       DateTime @default(now())
+
+  // Indexes for efficient tenant-scoped queries
+  @@index([organizationId])
+  @@index([organizationId, eventTime])
+  @@index([organizationId, productId])
+}
+```
+
+**EPCIS Query Scoping:**
+
+```typescript
+// EPCIS queries are ALWAYS scoped to organization
+async function queryEPCISEvents(
+  organizationId: string,
+  filters: EPCISQueryFilters
+): Promise<EPCISEvent[]> {
+  return prisma.ePCISEvent.findMany({
+    where: {
+      organizationId: organizationId, // MANDATORY - never omit
+      eventTime: {
+        gte: filters.eventTimeGte,
+        lte: filters.eventTimeLte,
+      },
+      eventType: filters.eventType,
+      bizStep: filters.bizStep,
+    },
+    orderBy: { eventTime: 'desc' },
+    take: filters.limit ?? 100,
+  });
+}
+
+// Cross-organization EPCIS access requires explicit permission
+async function querySupplierEPCIS(
+  myOrganizationId: string,
+  supplierOrganizationId: string,
+  productId: string
+): Promise<EPCISEvent[]> {
+  // 1. Verify supplier has granted access
+  const permission = await prisma.supplierPermission.findFirst({
+    where: {
+      grantedByOrganizationId: supplierOrganizationId,
+      grantedToOrganizationId: myOrganizationId,
+      productId: productId,
+      scope: 'epcis:read',
+      status: 'ACTIVE',
+    },
+  });
+
+  if (!permission) {
+    throw new ForbiddenError('No EPCIS access granted by supplier');
+  }
+
+  // 2. Query supplier's events (with their permission token)
+  return queryEPCISWithPermission(supplierOrganizationId, productId, permission);
+}
+```
+
+### 13.5 Data Leakage Prevention
+
+Multiple safeguards prevent accidental data exposure across tenants:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    DATA LEAKAGE PREVENTION                       │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  1. QUERY SAFEGUARDS                                            │
+│  ───────────────────                                            │
+│  • Never use raw SQL without organizationId filter              │
+│  • Prisma extension adds filter automatically                   │
+│  • Static analysis (ESLint rule) flags missing filters          │
+│                                                                  │
+│  2. API RESPONSE FILTERING                                      │
+│  ─────────────────────────                                      │
+│  • Response serializer checks organizationId                    │
+│  • Strip internal IDs that could leak tenant info               │
+│  • Normalize external references                                │
+│                                                                  │
+│  3. ERROR MESSAGES                                              │
+│  ────────────────                                               │
+│  • Generic "Resource not found" for cross-tenant access         │
+│  • Don't reveal whether resource exists in another tenant       │
+│  • Log details for audit, not in response                       │
+│                                                                  │
+│  4. PAGINATION SAFETY                                           │
+│  ────────────────────                                           │
+│  • Cursor-based pagination includes organizationId              │
+│  • Prevent cursor manipulation to access other tenants          │
+│  • Total counts scoped to tenant                                │
+│                                                                  │
+│  5. SEARCH & FILTERING                                          │
+│  ─────────────────────                                          │
+│  • Full-text search indexes partitioned by organization         │
+│  • Filter suggestions scoped to tenant data only                │
+│  • No cross-tenant search results                               │
+│                                                                  │
+│  6. FILE STORAGE                                                │
+│  ────────────────                                               │
+│  • S3 paths include organizationId: /org_{id}/products/...     │
+│  • Pre-signed URLs scoped to organization prefix                │
+│  • CloudFront signed cookies validate organization              │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Query Safety Checks:**
+
+```typescript
+// ============================================================
+// QUERY SAFETY UTILITIES
+// ============================================================
+
+// Validate that a query result belongs to the expected tenant
+function assertTenantOwnership<T extends { organizationId: string }>(
+  result: T | null,
+  expectedOrganizationId: string,
+  resourceType: string
+): asserts result is T {
+  if (!result) {
+    throw new NotFoundError(`${resourceType} not found`);
+  }
+
+  if (result.organizationId !== expectedOrganizationId) {
+    // Log security event - potential enumeration attempt
+    securityLog.warn('Cross-tenant access attempt', {
+      expectedOrganizationId,
+      actualOrganizationId: result.organizationId,
+      resourceType,
+    });
+
+    // Return same error as "not found" to prevent enumeration
+    throw new NotFoundError(`${resourceType} not found`);
+  }
+}
+
+// Safe ID lookup that prevents tenant enumeration
+async function safeGetProduct(
+  productId: string,
+  organizationId: string
+): Promise<Product> {
+  const product = await prisma.product.findFirst({
+    where: {
+      id: productId,
+      organizationId: organizationId, // Always include tenant filter
+    },
+  });
+
+  if (!product) {
+    // Don't reveal if product exists in another tenant
+    throw new NotFoundError('Product not found');
+  }
+
+  return product;
+}
+```
+
+### 13.6 Cross-Tenant Access Patterns
+
+Some features require controlled cross-tenant access. These are explicitly designed:
+
+| Pattern | Use Case | Security Control |
+|---------|----------|------------------|
+| **Contributor Access** | Supplier adds attestation to brand's product | Invitation token, scoped to specific product |
+| **Retailer View** | Retailer views DPP for products they carry | Retailer organization linked, read-only access |
+| **EPCIS Read** | Query supplier's supply chain events | Explicit permission grant, audit logged |
+| **Public DPP** | Consumer scans QR code | Public endpoint, no auth, no tenant context |
+
+**Contributor Access Implementation:**
+
+```typescript
+// Contributor (external org) adding attestation to another org's product
+async function addContributorAttestation(
+  contributorOrgId: string,  // The attestation issuer
+  inviteToken: string,       // Proves permission to access product
+  attestationData: AttestationInput
+): Promise<Attestation> {
+  // 1. Validate invitation token
+  const invitation = await prisma.contributorInvitation.findUnique({
+    where: { token: inviteToken },
+  });
+
+  if (!invitation || invitation.status !== 'PENDING') {
+    throw new ForbiddenError('Invalid or expired invitation');
+  }
+
+  // 2. Verify contributor organization matches
+  if (invitation.invitedOrganizationId !== contributorOrgId) {
+    throw new ForbiddenError('Invitation not for this organization');
+  }
+
+  // 3. Create attestation with cross-org reference
+  const attestation = await prisma.attestation.create({
+    data: {
+      productId: invitation.productId,
+      contributorOrganizationId: contributorOrgId,  // Their org
+      // productId belongs to different org - allowed via invitation
+      ...attestationData,
+    },
+  });
+
+  // 4. Log cross-tenant access
+  await auditLog.record({
+    action: 'attestation.create.cross_tenant',
+    contributorOrgId,
+    targetProductId: invitation.productId,
+    invitationId: invitation.id,
+  });
+
+  return attestation;
+}
+```
+
+### 13.7 Tenant Isolation Testing
+
+Automated tests verify tenant isolation:
+
+```typescript
+// ============================================================
+// TENANT ISOLATION TEST SUITE
+// ============================================================
+
+describe('Tenant Isolation', () => {
+  let orgA: Organization;
+  let orgB: Organization;
+  let productA: Product;
+  let productB: Product;
+
+  beforeAll(async () => {
+    orgA = await createTestOrganization('Org A');
+    orgB = await createTestOrganization('Org B');
+    productA = await createTestProduct(orgA.id, { name: 'Product A' });
+    productB = await createTestProduct(orgB.id, { name: 'Product B' });
+  });
+
+  describe('Product Access', () => {
+    it('should not allow Org A to read Org B products', async () => {
+      const client = createTenantScopedClient(orgA.id);
+
+      // Direct query should return null (not error - to prevent enumeration)
+      const product = await client.product.findUnique({
+        where: { id: productB.id },
+      });
+      expect(product).toBeNull();
+    });
+
+    it('should not allow Org A to update Org B products', async () => {
+      const client = createTenantScopedClient(orgA.id);
+
+      await expect(
+        client.product.update({
+          where: { id: productB.id },
+          data: { name: 'Hacked' },
+        })
+      ).rejects.toThrow(); // Should fail silently (no matching records)
+    });
+
+    it('should not leak product existence across tenants', async () => {
+      // API should return same 404 whether product exists in another tenant or doesn't exist at all
+      const responseExistsOtherTenant = await api
+        .get(`/api/v1/products/${productB.id}`)
+        .auth(orgA.token);
+
+      const responseNotExists = await api
+        .get(`/api/v1/products/nonexistent_id`)
+        .auth(orgA.token);
+
+      expect(responseExistsOtherTenant.status).toBe(404);
+      expect(responseNotExists.status).toBe(404);
+      expect(responseExistsOtherTenant.body).toEqual(responseNotExists.body);
+    });
+  });
+
+  describe('EPCIS Event Isolation', () => {
+    it('should not allow cross-tenant EPCIS queries', async () => {
+      // Create event in Org A
+      await createEPCISEvent(orgA.id, { bizStep: 'shipping' });
+
+      // Query from Org B should return empty
+      const events = await queryEPCISEvents(orgB.id, {});
+      expect(events).toHaveLength(0);
+    });
+  });
+
+  describe('Attestation Cross-Tenant Access', () => {
+    it('should allow attestation via invitation only', async () => {
+      // Org B cannot attest to Org A product without invitation
+      await expect(
+        createAttestation(orgB.id, productA.id, { type: 'certification' })
+      ).rejects.toThrow('Product not accessible');
+
+      // Create invitation
+      const invitation = await createContributorInvitation(
+        orgA.id,
+        productA.id,
+        orgB.id
+      );
+
+      // Now Org B can attest
+      const attestation = await addContributorAttestation(
+        orgB.id,
+        invitation.token,
+        { type: 'certification', data: {} }
+      );
+
+      expect(attestation.contributorOrganizationId).toBe(orgB.id);
+    });
+  });
+
+  describe('RLS Enforcement', () => {
+    it('should enforce RLS even with raw queries', async () => {
+      // Simulate bypassing Prisma extension with raw query
+      // RLS should still protect data
+      const results = await prisma.$queryRaw`
+        SELECT * FROM "Product" WHERE id = ${productB.id}
+      `;
+
+      // With RLS enabled and context set to Org A, should return empty
+      expect(results).toHaveLength(0);
+    });
+  });
+});
+```
+
+### 13.8 Monitoring for Tenant Violations
+
+Security monitoring detects potential tenant isolation breaches:
+
+```typescript
+// Security alerts for tenant isolation violations
+const tenantSecurityAlerts = [
+  {
+    name: 'Cross-Tenant Access Attempt',
+    condition: 'log.message contains "Cross-tenant access attempt"',
+    action: 'Alert security team immediately',
+    severity: 'high',
+  },
+  {
+    name: 'RLS Policy Violation',
+    condition: 'pg_stat_user_tables.rls_policy_violation > 0',
+    action: 'Investigate query pattern, potential attack',
+    severity: 'critical',
+  },
+  {
+    name: 'Unusual Cross-Org Queries',
+    condition: 'attestation.cross_tenant_count > 100 in 1h',
+    action: 'Review contributor invitation patterns',
+    severity: 'medium',
+  },
+  {
+    name: 'Missing organizationId in Query',
+    condition: 'log.query not contains "organizationId"',
+    action: 'Code review, potential isolation bypass',
+    severity: 'high',
+  },
+];
+```
+
+---
+
 ## Related Documentation
 
 - [GDPR_COMPLIANCE.md](./GDPR_COMPLIANCE.md) - Data protection and privacy
