@@ -265,13 +265,17 @@ ProductFamilyTemplate (Industry Templates)
 ├── isRegulated: boolean (true if ESPR/compliance requirements apply)
 └── version: number (templates can be updated)
 
-Product (Golden Record)
+Product (Identity + Links to Workspace Data)
 ├── Core fields: sku, gtin, name, status
 ├── attributes: JSONB (validated by family)
 ├── completeness: JSONB (per-channel scores)
-├── dppData: JSONB (compliance snapshot)
 ├── price, currency (multi-currency)
-└── Variants[]
+├── Variants[]
+└── Workspace Data (separate tables, see USER_MANAGEMENT.md):
+    ├── DesignVersions[] (versioned - BOM, materials, specs)
+    ├── MarketingVersions[] (versioned - descriptions, media)
+    ├── BatchRecords[] (immutable - production records)
+    └── DPPSnapshots[] (immutable - compliance snapshots)
 
 ProductVariant
 ├── sku, gtin
