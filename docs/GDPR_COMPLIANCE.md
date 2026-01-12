@@ -73,7 +73,7 @@ We use the following sub-processors:
 | Cloudflare | CDN, WAF, DDoS protection | Global (EU origin) | ✅ |
 | Stripe | Payment processing | EU | ✅ |
 | Resend | Transactional email | EU | ✅ |
-| OpenAI | AI-powered data import | US (with DPA) | ✅ |
+| Anthropic (Claude) | AI-powered data import | US (with DPA) | ✅ |
 | Hetzner | DPP hosting (read path) | Germany | ✅ |
 
 Customers are notified of sub-processor changes via email 30 days in advance.
@@ -611,37 +611,66 @@ const DELETION_JOBS = [
 |-------------|-----------|------------|
 | **EU/EEA** | Adequacy (home) | Full GDPR applies |
 | **UK** | Adequacy decision | EU-UK adequacy (2021) |
-| **US (OpenAI)** | SCCs + DPA | Standard Contractual Clauses |
+| **US (Anthropic)** | SCCs + DPA | Standard Contractual Clauses |
 
-### 6.2 Transfer Impact Assessment (OpenAI)
+### 6.2 Transfer Impact Assessment (Anthropic Claude)
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    TIA: OPENAI DATA PROCESSING                   │
+│                    TIA: ANTHROPIC CLAUDE DATA PROCESSING         │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
 │  PURPOSE                                                        │
 │  AI-powered import of product data from unstructured files     │
+│  using Claude Haiku model for document extraction              │
 │                                                                  │
 │  DATA TRANSFERRED                                               │
 │  • Product descriptions                                         │
 │  • Material compositions                                        │
-│  • Supplier names (may include contact persons)                │
+│  • Supplier information (company names, contact persons)       │
+│  • PDF/document content (may contain embedded PII):            │
+│    - Sales representative names and emails                     │
+│    - Factory manager contacts                                  │
+│    - Designer/engineer credits                                 │
+│    - QA inspector signatures                                   │
+│    - Certifier personal details                                │
 │                                                                  │
-│  SAFEGUARDS                                                     │
-│  • SCCs (Standard Contractual Clauses) in place               │
-│  • DPA with OpenAI (data not used for training)               │
-│  • API usage only (no stored data in OpenAI)                  │
-│  • Data deleted from OpenAI within 30 days                    │
-│  • Enterprise API tier (enhanced privacy controls)             │
+│  CONTRACTUAL SAFEGUARDS                                        │
+│  • SCCs (Standard Contractual Clauses) required               │
+│  • DPA with Anthropic (data not used for training)            │
+│  • API usage only (no persistent storage by Anthropic)        │
+│  • Data deleted from Anthropic within 30 days                 │
 │                                                                  │
 │  RISK ASSESSMENT                                               │
-│  • US surveillance laws (FISA 702): Potential risk            │
-│  • Mitigation: SCCs, supplementary measures, encryption       │
-│  • Residual risk: LOW (product data, minimal PII)             │
+│  ─────────────────                                             │
+│  US surveillance laws (FISA 702): MATERIAL RISK                │
+│  │                                                              │
+│  ├── Risk factors:                                             │
+│  │   • Anthropic is US-based company subject to FISA 702      │
+│  │   • Uploaded documents routinely contain PII beyond         │
+│  │     "minimal product data"                                  │
+│  │   • No pre-transmission PII filtering currently exists     │
+│  │   • Customer cannot verify 30-day deletion                 │
+│  │                                                              │
+│  ├── Mitigating factors:                                       │
+│  │   • SCCs provide legal framework                           │
+│  │   • Anthropic DPA prohibits training on customer data      │
+│  │   • Customer can opt-out of AI import entirely             │
+│  │   • Data is transient (API call, not stored)               │
+│  │                                                              │
+│  └── RESIDUAL RISK: MEDIUM-HIGH (without PII sanitization)    │
+│                      MEDIUM (with PII sanitization layer)      │
+│                      LOW (with EU-hosted AI alternative)       │
 │                                                                  │
-│  CONCLUSION                                                     │
-│  Transfer permitted with safeguards. Regular review scheduled. │
+│  REQUIRED BEFORE PRODUCTION                                    │
+│  ──────────────────────────                                    │
+│  ☐ Execute DPA with Anthropic                                 │
+│  ☐ Implement PII detection/sanitization layer                 │
+│  ☐ Implement customer opt-out toggle                          │
+│  ☐ Add audit logging for all AI API calls                     │
+│  ☐ Document PII categories in customer-facing privacy notice  │
+│                                                                  │
+│  See: docs/AI_DATA_SANITIZATION.md for technical architecture  │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -655,6 +684,23 @@ Settings → Privacy → AI Features → Disable AI Import
 ```
 
 With AI disabled, all data processing remains within EU infrastructure.
+
+**Important**: This setting must be implemented before the AI import feature launches. Until implemented, the safeguard documented here is not enforceable.
+
+### 6.4 PII Categories in AI Import
+
+The following personal data categories may be present in documents uploaded for AI extraction:
+
+| PII Category | Typical Source | Risk Level | Mitigation |
+|--------------|----------------|------------|------------|
+| Employee names | Spec sheets, supplier docs | High | Sanitize before transmission |
+| Email addresses | Contact sections, headers | High | Detect and redact |
+| Phone numbers | Contact sections | Medium | Detect and redact |
+| Physical addresses | Letterheads, footers | Medium | Detect and redact |
+| Signatures | Approval sections, certificates | Low | Usually image, not extracted |
+| Professional certifications | Auditor credentials | Low | May be required for DPP |
+
+**Recommendation**: Implement PII sanitization layer (see `AI_DATA_SANITIZATION.md`) before production deployment of AI import feature.
 
 ---
 
@@ -940,7 +986,7 @@ EuroComply has conducted a DPIA for its core processing activities as required b
 | User account management | Low | Standard security controls, encryption at rest |
 | Product data storage | Low | Tenant isolation, access control |
 | DPP issuance (with PII) | Medium | Role-based identifiers recommended, off-chain pattern for names |
-| AI-powered import (OpenAI) | Medium | SCCs, DPA, no training on data, 30-day deletion |
+| AI-powered import (Anthropic Claude) | Medium-High | SCCs, DPA required; PII sanitization layer required before production (see AI_DATA_SANITIZATION.md) |
 | EPCIS event storage | Low | Organization-scoped, no PII in events |
 | Magic link authentication | Low | Hashed tokens, short expiry, single-use |
 

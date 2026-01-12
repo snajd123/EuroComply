@@ -823,7 +823,7 @@ All vendors assessed for:
 | Cloudflare | CDN, WAF | SOC 2, ISO 27001, GDPR |
 | Stripe | Payments | PCI-DSS Level 1, SOC 2 |
 | Resend | Email | SOC 2, GDPR |
-| OpenAI | AI import | DPA in place |
+| Anthropic (Claude) | AI import | DPA required before production |
 
 ---
 
