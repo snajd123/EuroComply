@@ -296,27 +296,156 @@ async function issueDPP(product: Product, vc: VerifiableCredential): Promise<Pas
   return passport;
 }
 
-// Push files to all origin servers
+// Push files to all origin servers using resilient queue-based distribution
 async function pushToOrigins(params: { path: string; files: Record<string, string> }): Promise<void> {
+  // Queue-based file distribution with retry logic
+  // See "Resilient File Distribution" section below for full architecture
+  await fileDistributionQueue.add('push-dpp-files', {
+    path: params.path,
+    files: params.files,
+    priority: 'normal',
+  });
+}
+```
+
+### Resilient File Distribution (Queue-Based)
+
+The static file push to origin servers uses a resilient job queue instead of synchronous `Promise.all()`:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│              QUEUE-BASED FILE DISTRIBUTION                       │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  PROBLEM WITH SYNCHRONOUS PUSH                                  │
+│  ─────────────────────────────                                  │
+│  • Promise.all() fails if ANY origin is unreachable             │
+│  • DPP issuance blocked by network issues                       │
+│  • No retry logic for transient failures                        │
+│  • User waits for all 3 origins to complete                     │
+│                                                                  │
+│  SOLUTION: BullMQ Job Queue                                     │
+│  ───────────────────────────                                    │
+│  1. DPP issuance completes immediately (writes to DB)           │
+│  2. File push job added to queue (async)                        │
+│  3. Worker processes with exponential backoff retry             │
+│  4. Partial success = degraded OK (2/3 origins)                 │
+│  5. Full failure = alert + manual intervention                  │
+│                                                                  │
+│  FLOW:                                                          │
+│  ┌────────────┐     ┌─────────────┐     ┌─────────────────┐    │
+│  │  Issue DPP │────▶│ Redis Queue │────▶│ Distribution    │    │
+│  │  (instant) │     │  (BullMQ)   │     │ Worker          │    │
+│  └────────────┘     └─────────────┘     └────────┬────────┘    │
+│                                                   │              │
+│                          ┌───────────────────────┼───────┐      │
+│                          ▼                       ▼       ▼      │
+│                     ┌─────────┐           ┌─────────┐ ┌─────────┐│
+│                     │Origin 1 │           │Origin 2 │ │Origin 3 ││
+│                     │(Germany)│           │(Finland)│ │(Germany)││
+│                     └─────────┘           └─────────┘ └─────────┘│
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### Queue Configuration
+
+```typescript
+// File distribution queue configuration
+const fileDistributionQueue = new Queue('file-distribution', {
+  connection: redis,
+  defaultJobOptions: {
+    attempts: 3,
+    backoff: {
+      type: 'exponential',
+      delay: 2000, // 2s, 4s, 8s
+    },
+    removeOnComplete: 100,
+    removeOnFail: 1000,
+  },
+});
+
+// Job priorities
+const PRIORITIES = {
+  critical: 1,  // Revocations (immediate visibility required)
+  high: 2,      // Updates to active DPPs
+  normal: 3,    // New DPP issuance
+  low: 4,       // Batch operations
+};
+```
+
+#### Distribution Worker
+
+```typescript
+const fileDistributionWorker = new Worker('file-distribution', async (job) => {
+  const { path, files } = job.data;
   const origins = [
     { host: 'origin1.eurocomply.eu', path: '/var/www/dpp' },
     { host: 'origin2.eurocomply.eu', path: '/var/www/dpp' },
     { host: 'origin3.eurocomply.eu', path: '/var/www/dpp' },
   ];
 
-  // Write to primary, lsyncd replicates to others
-  // Or parallel push to all for immediate consistency
-  await Promise.all(origins.map(origin =>
-    sshExec(origin.host, `mkdir -p ${origin.path}/${params.path}`)
-  ));
+  const results = await Promise.allSettled(
+    origins.map(async (origin) => {
+      await sshExec(origin.host, `mkdir -p ${origin.path}/${path}`);
+      for (const [filename, content] of Object.entries(files)) {
+        await scpPush(origin.host, content, `${origin.path}/${path}/${filename}`);
+      }
+      return origin.host;
+    })
+  );
 
-  await Promise.all(origins.map(origin =>
-    Object.entries(params.files).map(([filename, content]) =>
-      scpPush(origin.host, content, `${origin.path}/${params.path}/${filename}`)
-    )
-  ).flat());
-}
+  // Count successes
+  const succeeded = results.filter(r => r.status === 'fulfilled');
+  const failed = results.filter(r => r.status === 'rejected');
+
+  // Partial success handling (2/3 = degraded OK)
+  if (succeeded.length >= 2) {
+    if (failed.length > 0) {
+      // Log degraded state, but don't fail the job
+      await logDegradedState(path, failed);
+    }
+    return { status: 'ok', succeeded: succeeded.length, failed: failed.length };
+  }
+
+  // Full failure (0-1 origins) - retry
+  throw new Error(`Distribution failed: only ${succeeded.length}/3 origins succeeded`);
+}, {
+  connection: redis,
+  concurrency: 5, // Process 5 DPPs in parallel
+});
+
+// Alert on persistent failures
+fileDistributionWorker.on('failed', async (job, err) => {
+  if (job.attemptsMade >= job.opts.attempts) {
+    await alertOps({
+      type: 'FILE_DISTRIBUTION_FAILED',
+      path: job.data.path,
+      attempts: job.attemptsMade,
+      error: err.message,
+    });
+  }
+});
 ```
+
+#### Degraded State Handling
+
+| Origins OK | Status | Action |
+|------------|--------|--------|
+| 3/3 | Healthy | Normal operation |
+| 2/3 | Degraded | Log warning, schedule repair job |
+| 1/3 | Critical | Alert ops, block new distributions to failed origins |
+| 0/3 | Failed | Retry with backoff, alert if persistent |
+
+#### Benefits
+
+| Metric | Synchronous | Queue-Based |
+|--------|-------------|-------------|
+| DPP issuance latency | 3-5s (waits for all origins) | <500ms (instant) |
+| Failure mode | All-or-nothing | Graceful degradation |
+| Retry logic | None | Exponential backoff (3 attempts) |
+| User experience | Blocked on network | Non-blocking |
+| Monitoring | None | Job status, metrics, alerts |
 
 ---
 

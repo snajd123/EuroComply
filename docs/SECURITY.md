@@ -20,7 +20,7 @@
 
 ### 2.1 User Authentication (Magic Links)
 
-EuroComply uses passwordless authentication via magic links:
+EuroComply uses passwordless authentication via magic links with enhanced security:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -32,14 +32,20 @@ EuroComply uses passwordless authentication via magic links:
 │     • Random token (32 bytes, crypto-secure)                   │
 │     • Token hash (SHA-256, stored in DB)                       │
 │     • Expiry (15 minutes)                                      │
-│  3. Email sent with: https://app.eurocomply.eu/auth?token=...  │
-│  4. User clicks link                                           │
-│  5. Server:                                                    │
-│     • Hashes received token                                    │
+│  3. Email sent with: https://app.eurocomply.eu/auth/verify     │
+│     (landing page, token passed to client)                     │
+│  4. User clicks link, landing page loads                       │
+│  5. Client-side JavaScript:                                    │
+│     • Extracts token from URL                                  │
+│     • Immediately clears URL via history.replaceState()        │
+│     • Submits token via POST /auth/verify (body, not URL)      │
+│  6. Server:                                                    │
+│     • Rejects GET requests (405 Method Not Allowed)            │
+│     • Hashes received token from POST body                     │
 │     • Compares to stored hash                                  │
 │     • Checks expiry                                            │
 │     • Issues session (JWT in HttpOnly cookie)                  │
-│  6. Stored token hash deleted                                  │
+│  7. Stored token hash deleted (single-use)                     │
 │                                                                  │
 │  SECURITY PROPERTIES                                            │
 │  ─────────────────────                                          │
@@ -47,8 +53,47 @@ EuroComply uses passwordless authentication via magic links:
 │  • Single-use (deleted after verification)                     │
 │  • Short expiry (15 minutes)                                   │
 │  • Rate-limited (5 requests per email per hour)                │
+│  • POST-only verification (token not in URL/logs/referrer)     │
+│  • Referrer-Policy: no-referrer (prevents token leakage)       │
+│  • URL cleared immediately via history.replaceState()          │
+│                                                                  │
+│  SECURITY HEADERS (all magic link responses)                   │
+│  ───────────────────────────────────────────                   │
+│  • Referrer-Policy: no-referrer                                │
+│  • Cache-Control: no-store, no-cache, must-revalidate          │
+│  • X-Content-Type-Options: nosniff                             │
+│  • X-Frame-Options: DENY                                       │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
+```
+
+#### Magic Link Security Implementation
+
+```typescript
+// POST-based verification endpoint (packages/auth)
+// GET requests are rejected with 405 Method Not Allowed
+
+import { verifyMagicLink, createMagicLinkResponse } from '@eurocomply/auth';
+
+app.post('/auth/verify', async (req, res) => {
+  const result = await verifyMagicLink(
+    { method: req.method, body: req.body, query: req.query },
+    tokenStore
+  );
+  const response = createMagicLinkResponse(result);
+
+  // Security headers automatically applied
+  res.set(response.headers);
+  res.status(response.statusCode).json(response.body);
+});
+
+// Client-side: Clear token from URL immediately
+// (included in response as clientScript)
+if (window.history && window.history.replaceState) {
+  const url = new URL(window.location.href);
+  url.searchParams.delete('token');
+  window.history.replaceState({}, document.title, url.pathname);
+}
 ```
 
 ### 2.2 API Key Authentication

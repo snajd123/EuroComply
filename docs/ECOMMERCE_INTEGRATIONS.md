@@ -191,6 +191,91 @@ The app subscribes to these webhooks:
 - **Rate Limiting**: BullMQ queue respects Shopify's 2 req/sec limit
 - **Deletions**: Products are archived, not deleted (audit trail)
 
+### Conflict Resolution
+
+When both Shopify and EuroComply have been modified since the last sync, a conflict occurs. The system uses timestamp-based conflict detection and resolution:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    SYNC CONFLICT RESOLUTION                      │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  CONFLICT DETECTION                                             │
+│  ──────────────────                                             │
+│  1. Track lastSyncedAt timestamp for each product               │
+│  2. Track shopifyUpdatedAt and eurocomplyUpdatedAt              │
+│  3. Conflict = both updated after lastSyncedAt                  │
+│                                                                  │
+│  RESOLUTION STRATEGY                                            │
+│  ───────────────────                                            │
+│  Default: EuroComply wins (source of truth for compliance)      │
+│                                                                  │
+│  • Commercial data (title, description, price):                 │
+│    → Shopify wins (sales channel is authoritative)              │
+│  • Compliance data (materials, certifications, DPP):            │
+│    → EuroComply wins (compliance system is authoritative)       │
+│  • Technical identity (SKU, GTIN):                              │
+│    → Alert user, require manual resolution                      │
+│                                                                  │
+│  CONFLICT RESPONSE OPTIONS                                      │
+│  ─────────────────────────                                      │
+│  1. AUTO_RESOLVE: Apply default strategy silently               │
+│  2. ALERT_USER: Notify user, apply default after 24h            │
+│  3. REQUIRE_MANUAL: Block sync until user resolves              │
+│                                                                  │
+│  Organization setting: syncConflictMode (default: ALERT_USER)   │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### Conflict Detection Fields
+
+| Field Category | Fields | Default Winner | Rationale |
+|----------------|--------|----------------|-----------|
+| Commercial | title, body_html, price, tags | Shopify | Sales channel is source of truth |
+| Technical Identity | sku, barcode/gtin, vendor | Manual | Critical for product matching |
+| Compliance | materials, certifications, dpp_* | EuroComply | Compliance system is source of truth |
+| Media | images | Shopify | DAM import is one-way |
+
+#### Conflict Notification
+
+When a conflict is detected with `ALERT_USER` mode:
+
+```json
+{
+  "type": "SYNC_CONFLICT",
+  "productId": "prod_xxx",
+  "shopifyProductId": 12345,
+  "conflictingFields": ["title", "body_html"],
+  "shopifyValues": {
+    "title": "Updated Title from Shopify",
+    "body_html": "<p>New description</p>"
+  },
+  "eurocomplyValues": {
+    "title": "Original Title",
+    "body_html": "<p>Original description</p>"
+  },
+  "detectedAt": "2026-01-12T10:00:00Z",
+  "autoResolveAt": "2026-01-13T10:00:00Z",
+  "resolution": "PENDING"
+}
+```
+
+#### Manual Conflict Resolution
+
+Users can resolve conflicts via the dashboard or API:
+
+```
+POST /api/v1/syndication/shopify/conflicts/:conflictId/resolve
+{
+  "resolution": "USE_SHOPIFY" | "USE_EUROCOMPLY" | "MERGE",
+  "mergeStrategy": {
+    "title": "shopify",
+    "body_html": "eurocomply"
+  }
+}
+```
+
 ### Post-Import Enrichment
 
 After Shopify import, products typically need enrichment before DPP issuance:
