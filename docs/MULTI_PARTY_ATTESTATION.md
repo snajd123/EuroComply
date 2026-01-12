@@ -426,6 +426,27 @@ Attestations can have expiry dates or be indefinite. Both customer and contribut
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
+### Effect of Expiry on Issued DPPs
+
+**Critical Principle**: An issued DPP remains valid without any expiry note. The DPP was valid at the time of issuance - that's what matters.
+
+| What Expires | Effect on Existing DPPs | Effect on New DPPs |
+|--------------|------------------------|-------------------|
+| Attestation expiry date passes | **No change** - DPP remains fully valid | Attestation cannot be included |
+| Certification in attestation expires | **No change** - DPP remains fully valid | Attestation cannot be included |
+
+**Why this matters:**
+- DPPs are immutable VCs sealed at issuance time
+- At issuance, all certifications and attestations were valid
+- Later expiry doesn't retroactively invalidate the DPP
+- This matches ESPR intent: accurate info at time of market placement
+
+**Example:**
+- Jan 2026: DPP issued with GOTS certification (valid until Jun 2027)
+- Jul 2027: GOTS certification expires
+- The Jan 2026 DPP remains valid - it correctly stated the certification was valid at issuance
+- New DPPs cannot include this attestation until certification is renewed
+
 ---
 
 ## Verifiable Credential Structures
@@ -733,7 +754,8 @@ Attested by: Control Union Certifications
 
 [Request Renewal] button
 
-After expiry, this attestation will no longer be included in new DPPs.
+After expiry, this attestation cannot be included in NEW DPPs.
+Already-issued DPPs remain valid - they were accurate at time of issuance.
 ```
 
 **Attestation Revoked:**

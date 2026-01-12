@@ -1073,6 +1073,43 @@ When verifying a DPP with attestations:
 - **Versioning**: Attestations maintain version history with signatures
 - **Any field**: Third parties can attest any product field, not just certifications
 
+### DPP Validity After Issuance
+
+**Critical Principle**: An issued DPP remains valid regardless of later certification or attestation expiry. The DPP was valid at the time of issuance - that's what matters for regulatory compliance.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  DPP VALIDITY RULE                                               │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ISSUED DPP = VALID SNAPSHOT IN TIME                            │
+│  ───────────────────────────────────                            │
+│                                                                  │
+│  When a DPP is issued:                                          │
+│  • All attestations were valid at that moment                   │
+│  • All certifications were current at that moment               │
+│  • The DPP is cryptographically sealed with that state          │
+│                                                                  │
+│  If a certification later expires:                              │
+│  ✓ Existing DPPs remain valid (they were accurate when issued) │
+│  ✓ No "expiry note" added to existing DPPs                     │
+│  ✗ NEW DPPs cannot be issued using the expired attestation     │
+│                                                                  │
+│  This matches regulatory intent:                                │
+│  • ESPR requires accurate DPP at time of market placement       │
+│  • Products sold in 2026 with valid GOTS cert remain compliant │
+│  • Cert expiring in 2027 doesn't retroactively invalidate DPPs │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+| Scenario | Effect on Existing DPPs | Effect on New DPPs |
+|----------|------------------------|-------------------|
+| Certification expires | No change - remains valid | Cannot include unless renewed |
+| Attestation expires | No change - remains valid | Cannot include unless renewed |
+| Attestation revoked | No change - but verifier can check revocation status | Cannot include |
+| Product recalled | DPP can be revoked via Status List 2021 | N/A |
+
 ---
 
 ## 14. Credential Revocation

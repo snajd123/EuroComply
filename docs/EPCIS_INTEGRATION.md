@@ -32,6 +32,12 @@ EuroComply operates a **Hybrid EPCIS Model**:
 1. **Read from enterprise EPCIS** - Query existing SAP/IBM/TraceLink repositories
 2. **Host OpenEPCIS for SMB** - Provide EPCIS hosting for customers/suppliers who don't have their own
 
+**Standards Compliance**: Our hosted OpenEPCIS is a **fully standards-compliant GS1 EPCIS 2.0 repository**. It IS EPCIS - not a proprietary alternative. Any EPCIS 2.0 client can connect to it using standard REST APIs, and events stored there are portable to any other EPCIS repository. This means:
+- External systems can read/write to our hosted repository via standard EPCIS 2.0 REST API
+- Events can be exported and imported to/from other EPCIS repositories
+- Our Operations workspace auto-generates valid EPCIS 2.0 events
+- The same query client that reads SAP/IBM EPCIS also reads our hosted OpenEPCIS
+
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │  HYBRID EPCIS ARCHITECTURE                                       │
