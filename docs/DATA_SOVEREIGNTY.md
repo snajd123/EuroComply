@@ -459,6 +459,172 @@ curl -X GET https://api.eurocomply.eu/v1/organization/export/viewer/prod_123 \
   -o dpp-viewer.html
 ```
 
+### API Schemas
+
+#### POST `/api/v1/organization/export/keys` - Export Signing Keys
+
+**Request Schema:**
+
+```typescript
+interface ExportKeysRequest {
+  // REQUIRED: Explicit confirmation to export private key material
+  // Requests without this field or with value `false` will be rejected with 400 error
+  confirmKeyExport: true;
+
+  // Optional: Format for the exported key (default: "jwk")
+  format?: "jwk" | "pem";
+}
+```
+
+**Response Schema:**
+
+```typescript
+interface ExportKeysResponse {
+  success: true;
+  data: {
+    // The organization's DID
+    did: string;  // e.g., "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK"
+
+    // The private key in JWK format (SENSITIVE - contains "d" parameter)
+    privateKeyJwk: {
+      kty: "OKP";
+      crv: "Ed25519";
+      x: string;   // Public key component (base64url)
+      d: string;   // Private key component (base64url) - SENSITIVE
+    };
+
+    // Key metadata
+    keyId: string;
+    algorithm: "EdDSA";
+    createdAt: string;  // ISO 8601
+
+    // Export metadata
+    exportedAt: string;  // ISO 8601
+    exportedBy: string;  // User ID who performed the export
+  };
+  meta: {
+    requestId: string;
+    timestamp: string;
+  };
+}
+```
+
+**Error Responses:**
+
+```typescript
+// 400 Bad Request - Missing or false confirmation
+{
+  success: false,
+  error: {
+    code: "CONFIRMATION_REQUIRED",
+    message: "Private key export requires explicit confirmation. Set confirmKeyExport: true to proceed.",
+    details: {
+      field: "confirmKeyExport",
+      required: true
+    }
+  }
+}
+
+// 403 Forbidden - Insufficient permissions
+{
+  success: false,
+  error: {
+    code: "INSUFFICIENT_PERMISSIONS",
+    message: "Only organization admins can export signing keys."
+  }
+}
+
+// 429 Too Many Requests - Rate limited
+{
+  success: false,
+  error: {
+    code: "RATE_LIMITED",
+    message: "Key export is limited to 3 requests per hour. Try again later.",
+    details: {
+      retryAfter: 1800  // seconds
+    }
+  }
+}
+```
+
+#### POST `/api/v1/organization/export/dpp/:productId` - Export DPP Package
+
+**Request Schema:**
+
+```typescript
+interface ExportDppRequest {
+  // Include private key for ownership transfer (default: false)
+  includePrivateKey?: boolean;
+
+  // Image embedding mode (default: "url")
+  imageMode?: "url" | "base64";
+
+  // Include offline HTML viewer (default: true)
+  includeViewer?: boolean;
+}
+```
+
+**Response Schema:**
+
+```typescript
+interface ExportDppResponse {
+  success: true;
+  data: {
+    // Download URL for the ZIP package (expires in 1 hour)
+    downloadUrl: string;
+
+    // Package contents manifest
+    manifest: {
+      credential: string;      // "credential.jwt"
+      passport: string;        // "passport.json"
+      viewer: string | null;   // "viewer.html" or null
+      images: string[];        // ["images/product-hero.jpg", ...]
+      readme: string;          // "README.md"
+    };
+
+    // Package metadata
+    productId: string;
+    exportedAt: string;
+    expiresAt: string;  // Download URL expiration
+    sizeBytes: number;
+  };
+  meta: {
+    requestId: string;
+    timestamp: string;
+  };
+}
+```
+
+### Security Requirements for Key Export
+
+> ⚠️ **CRITICAL**: Private key export is a sensitive operation that must be protected.
+
+**Mandatory Confirmation:**
+- The `confirmKeyExport: true` parameter is **REQUIRED** for the `/export/keys` endpoint
+- Requests without this parameter or with `confirmKeyExport: false` MUST return `400 Bad Request`
+- This prevents accidental key exposure via scripts or automation that don't explicitly handle key material
+
+**Access Control:**
+- Only users with `ADMIN` role on the organization can export signing keys
+- The `MANAGER` role is insufficient - key export requires explicit admin privileges
+- API keys cannot be used for key export - only user sessions with MFA verified
+
+**Rate Limiting:**
+- Key export is limited to **3 requests per hour** per organization
+- This prevents bulk extraction in case of compromised credentials
+- Rate limit resets on the hour
+
+**Audit Logging:**
+- Every key export attempt (success or failure) MUST be logged
+- Log entries include: user ID, timestamp, IP address, user agent, success/failure
+- Failed attempts due to missing confirmation should be flagged for review
+- Logs are retained for 2 years minimum (GDPR compliance)
+
+**Additional Safeguards:**
+- Key export triggers an email notification to all organization admins
+- Export response includes `exportedBy` field for accountability
+- Consider implementing a 24-hour delay option for high-security organizations
+
 ---
 
 ## Pricing
