@@ -104,6 +104,8 @@ Each workspace owns and versions its own data independently:
 3. **Operations creates immutable records** - Batch records lock a specific Design version at production time
 4. **Compliance issues immutable snapshots** - DPP captures specific Design + Marketing versions at issuance
 
+**Compliance Write Behavior:** While Compliance has read-only access to Design, Marketing, and Operations data, the "ISSUE" operation writes to Compliance-owned tables: `Passport` (the issued VC) and `DPPSnapshot` (the immutable data capture). This maintains separation of concerns - Compliance cannot modify source data, only create signed snapshots of it.
+
 #### Versioned Data vs. DPP Snapshot
 
 | Workspace Data | DPP Snapshot |
