@@ -1884,12 +1884,73 @@ EPCIS_DEFAULT_PAGE_SIZE=100
 EPCIS_CACHE_ENABLED=true
 EPCIS_CACHE_TTL_SECONDS=300  # 5 minutes
 
-# Carbon calculation factors (kg CO2e per km)
+# Carbon calculation factors (kg CO2e per km) - SYSTEM DEFAULTS
+# See "Carbon Factor Configuration" section below for details
 CARBON_ROAD_KG_PER_KM=0.0001
 CARBON_RAIL_KG_PER_KM=0.00003
 CARBON_SEA_KG_PER_KM=0.00001
 CARBON_AIR_KG_PER_KM=0.0005
 ```
+
+### Carbon Factor Configuration
+
+The default carbon emission factors are based on industry-standard sources:
+
+| Mode | Default Factor | Unit | Source |
+|------|----------------|------|--------|
+| Road | 0.0001 | kg CO2e/km | DEFRA 2023 (Average HGV) |
+| Rail | 0.00003 | kg CO2e/km | DEFRA 2023 (Freight rail) |
+| Sea | 0.00001 | kg CO2e/km | IMO 2023 (Container ship) |
+| Air | 0.0005 | kg CO2e/km | DEFRA 2023 (Air freight) |
+
+**Sources:**
+- UK DEFRA: [Greenhouse Gas Reporting Conversion Factors 2023](https://www.gov.uk/government/publications/greenhouse-gas-reporting-conversion-factors-2023)
+- IMO: [Fourth IMO GHG Study 2020](https://www.imo.org/en/OurWork/Environment/Pages/Fourth-IMO-Greenhouse-Gas-Study-2020.aspx)
+- EPA: [Emission Factors for Greenhouse Gas Inventories](https://www.epa.gov/climateleadership/ghg-emission-factors-hub)
+
+**Important Notes:**
+- These are **system-wide defaults** used when organizations don't configure custom factors
+- Values represent averages; actual emissions vary by vehicle type, load, route, etc.
+- Factors are per-product (i.e., divided by typical cargo capacity)
+
+**Organization-Specific Configuration:**
+
+Organizations can override defaults with their own emission factors:
+
+```prisma
+model OrganizationCarbonFactors {
+  id              String        @id @default(cuid())
+  organizationId  String        @unique
+  organization    Organization  @relation(fields: [organizationId], references: [id])
+
+  // Custom factors (null = use system default)
+  roadFactor      Float?        // kg CO2e per km
+  railFactor      Float?
+  seaFactor       Float?
+  airFactor       Float?
+
+  // Metadata
+  source          String?       // "Internal LCA study", "EcoInvent 3.9", etc.
+  validFrom       DateTime      @default(now())
+  validUntil      DateTime?     // Optional expiry for annual review
+  notes           String?
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+}
+```
+
+**When to configure custom factors:**
+- Organization has verified data from their logistics providers
+- Using specific vehicle types (e.g., electric trucks, LNG ships)
+- Operating in regions with different energy mixes
+- Required for specific certifications (e.g., Science Based Targets)
+
+**Update Policy:**
+- System defaults are reviewed and updated annually (Q1)
+- Organizations are notified when defaults change
+- Custom factors are not affected by system updates
+- Organizations with expired `validUntil` dates are reminded to review their factors
 
 ---
 
@@ -2040,4 +2101,4 @@ function sgtinToGtin(sgtin: string): { gtin: string; serial: string } {
 
 ---
 
-*Last Updated: 2026-01-11*
+*Last Updated: 2026-01-12*

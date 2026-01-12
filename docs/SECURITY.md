@@ -251,10 +251,11 @@ async function authorizeRequest(userId: string, resource: Resource, action: Acti
 ```typescript
 // Sensitive fields are encrypted at application level
 const ENCRYPTED_FIELDS = [
-  'organization.vatNumber',    // PII
-  'user.email',                // PII (also hashed for lookup)
-  'apiKey.keyHash',            // Already hashed, but encrypted too
-  'signingKey.privateKeyJwk',  // Cryptographic material
+  'organization.vatNumber',       // PII
+  'user.email',                   // PII (also hashed for lookup)
+  'apiKey.keyHash',               // Already hashed, but encrypted too
+  'signingKey.privateKeyJwk',     // Cryptographic material
+  'epcisRepository.credentials',  // External system credentials (OAuth, API keys)
 ];
 
 // Encryption uses envelope encryption
@@ -411,6 +412,95 @@ POST /api/v1/organization/export-keys
 // - All issued VCs
 // - Status list (for revocation)
 ```
+
+### 6.4 Organization Key Compromise Recovery
+
+Organization signing keys are **identity-bound** - they represent the organization's cryptographic identity. Regular rotation is not performed because:
+- did:key identifiers are derived from the public key
+- Changing keys = changing identity
+- All previously issued VCs reference the original did:key
+
+However, if an organization's signing key is compromised, a recovery procedure is required:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    KEY COMPROMISE RECOVERY                       │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  WHEN A COMPROMISE IS SUSPECTED:                                │
+│  ───────────────────────────────                                │
+│  1. Admin reports compromise via dashboard or support           │
+│  2. Old key immediately disabled (no new signatures)            │
+│  3. Review recent VC issuances for unauthorized activity        │
+│                                                                  │
+│  RECOVERY PROCEDURE:                                            │
+│  ──────────────────                                             │
+│  1. GENERATE NEW IDENTITY                                       │
+│     • New Ed25519 keypair created                               │
+│     • New did:key assigned to organization                      │
+│     • Old did:key marked as "compromised" in our records        │
+│                                                                  │
+│  2. REVOKE SUSPICIOUS VCs                                       │
+│     • Use StatusList2021 to revoke VCs issued during            │
+│       suspected compromise window                               │
+│     • Verifiers checking these VCs will see revoked status      │
+│                                                                  │
+│  3. RE-ISSUE AFFECTED DPPs                                      │
+│     • DPPs issued before compromise: Re-sign with new key       │
+│     • New VCs reference new did:key                             │
+│     • Old VCs remain verifiable but linked to compromised key   │
+│                                                                  │
+│  4. PUBLISH COMPROMISE NOTICE (Optional)                        │
+│     • Organization can publish notice at well-known URL         │
+│     • Links old did:key to new did:key with explanation         │
+│                                                                  │
+│  TRANSITION PERIOD:                                             │
+│  ─────────────────                                              │
+│  • 30-day window where both old and new identities recognized   │
+│  • Verifiers warned: "Issuer has rotated identity due to        │
+│    security incident. Verify with new did:key."                 │
+│  • After 30 days: Old did:key verification shows warning only   │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Key Compromise Database Schema:**
+
+```prisma
+model OrganizationKeyHistory {
+  id              String        @id @default(cuid())
+  organizationId  String
+  organization    Organization  @relation(fields: [organizationId], references: [id])
+
+  did             String        // did:key:z6Mk...
+  status          KeyStatus     // ACTIVE, ROTATED, COMPROMISED
+  compromisedAt   DateTime?     // When compromise was reported
+  revokedVcCount  Int?          // VCs revoked due to this compromise
+  replacedById    String?       // New key that replaced this one
+  reason          String?       // Rotation reason
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([organizationId])
+  @@index([did])
+}
+
+enum KeyStatus {
+  ACTIVE       // Current signing key
+  ROTATED      // Replaced by newer key (normal transition)
+  COMPROMISED  // Key was compromised, VCs may be revoked
+}
+```
+
+**Important Considerations:**
+
+| Scenario | Impact | Mitigation |
+|----------|--------|------------|
+| VCs signed before compromise | Still valid, signature is authentic | Keep old key verification but show warning |
+| VCs signed by attacker | Invalid/unauthorized | Revoke via StatusList2021 |
+| Products in market with old QR codes | VCs verify but show key history | Re-issue if customer requests |
+| Third-party verifiers | May not know about compromise | Publish well-known compromise notice |
 
 ---
 
@@ -741,4 +831,4 @@ All vendors assessed for:
 
 ---
 
-*Last Updated: 2026-01-11*
+*Last Updated: 2026-01-12*

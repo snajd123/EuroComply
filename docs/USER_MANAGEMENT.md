@@ -350,29 +350,89 @@ Version control varies by workspace type. Design and Marketing maintain formal v
 │                    VERSION STATE LIFECYCLE                                   │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  DRAFT ──────→ PENDING_REVIEW ──────→ RELEASED ──────→ ARCHIVED            │
-│    │                │                     │               │                 │
-│    │           (CONTRIBUTOR               │               │                 │
-│    │            workflow)                 │               │                 │
-│    │                                      │               │                 │
-│    ▼                ▼                     ▼               ▼                 │
-│  Being          Awaiting              Current         Historical           │
-│  edited         approval              version         only                  │
-│                                          │                                  │
-│                                          ▼                                  │
-│                                       ACTIVE                                │
-│                                    (if referenced                           │
-│                                     by Operations                           │
-│                                     or Compliance)                          │
-│                                                                              │
-│  Rules:                                                                     │
-│  • DRAFT → Can edit freely                                                  │
-│  • RELEASED → New version created if edits needed                          │
-│  • ACTIVE → CANNOT modify or archive until references cleared              │
-│  • ARCHIVED → Read-only, no new references allowed                         │
+│  DRAFT ──────→ PENDING_REVIEW ──────→ RELEASED ◄─────── ACTIVE             │
+│    │                │                     │    ─────────►  │                │
+│    │           (CONTRIBUTOR               │   (refs added) │                │
+│    │            workflow)                 │                │                │
+│    │                                      ▼                ▼                │
+│    ▼                ▼                  ARCHIVED ◄──── (refs cleared)       │
+│  Being          Awaiting                  │                                 │
+│  edited         approval              Historical                            │
+│                                          only                               │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+**State Transition Rules:**
+
+| Transition | Trigger | Automatic? |
+|------------|---------|------------|
+| DRAFT → PENDING_REVIEW | CONTRIBUTOR submits for review | Manual |
+| PENDING_REVIEW → RELEASED | EDITOR/MANAGER approves | Manual |
+| DRAFT → RELEASED | EDITOR/MANAGER releases directly | Manual |
+| RELEASED → ACTIVE | Operations creates batch referencing this version, OR Compliance issues DPP with this version | **Automatic** |
+| ACTIVE → RELEASED | All referencing batches reach terminal state (COMPLETED, CANCELLED) AND all referencing DPPs superseded or revoked | **Automatic** (checked hourly) |
+| RELEASED → ARCHIVED | Newer version released, no active references | **Automatic** |
+| ACTIVE → ARCHIVED | References cleared + newer version exists | **Automatic** |
+
+**ACTIVE State Details:**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    ACTIVE STATE BEHAVIOR                                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  A version becomes ACTIVE when:                                             │
+│  • Operations creates a Batch with designVersionId = this version           │
+│  • Compliance issues a DPP with designVersionId = this version              │
+│                                                                              │
+│  While ACTIVE:                                                              │
+│  • Version is IMMUTABLE (no edits allowed)                                  │
+│  • Cannot be archived or deleted                                            │
+│  • System tracks reference count:                                           │
+│    - activeBatchCount: Batches in non-terminal state                        │
+│    - activeDppCount: DPPs not superseded or revoked                         │
+│                                                                              │
+│  A version returns to RELEASED when:                                        │
+│  • activeBatchCount = 0 AND activeDppCount = 0                              │
+│  • Checked automatically by background job (hourly)                         │
+│  • Can also be triggered manually by admin                                  │
+│                                                                              │
+│  Example:                                                                   │
+│  ─────────                                                                  │
+│  Design v3 (RELEASED)                                                       │
+│      │                                                                      │
+│      ├── Batch #100 created → v3 becomes ACTIVE                            │
+│      │                                                                      │
+│      ├── Batch #100 COMPLETED → check refs                                  │
+│      │   └── activeBatchCount: 0, activeDppCount: 0                         │
+│      │   └── v3 returns to RELEASED (or ARCHIVED if v4 exists)             │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Reference Tracking Schema:**
+
+```prisma
+model DesignVersion {
+  // ... existing fields ...
+
+  // Reference tracking (updated by triggers/jobs)
+  activeBatchCount    Int       @default(0)
+  activeDppCount      Int       @default(0)
+  lastReferenceCheck  DateTime?
+}
+```
+
+**Rules Summary:**
+
+| State | Can Edit? | Can Archive? | Can Reference? |
+|-------|-----------|--------------|----------------|
+| DRAFT | ✓ | ✓ (delete) | ✗ |
+| PENDING_REVIEW | ✗ | ✓ (reject) | ✗ |
+| RELEASED | ✗ (create new) | ✓ (if no refs) | ✓ |
+| ACTIVE | ✗ | ✗ | ✓ (already has refs) |
+| ARCHIVED | ✗ | N/A | ✗ |
 
 ### Design Workflow (Versioned)
 
@@ -2833,4 +2893,4 @@ This creates an audit trail for compliance and enables peer review of admin acti
 
 ---
 
-*Last Updated: January 11, 2026*
+*Last Updated: January 12, 2026*

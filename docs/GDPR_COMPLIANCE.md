@@ -262,7 +262,146 @@ The EU Ecodesign for Sustainable Products Regulation (ESPR) mandates DPP data re
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### 5.3 Deletion Procedures
+### 5.3 Personal Data in Digital Product Passports
+
+DPPs are issued as **immutable Verifiable Credentials (VCs)**. Once signed, the data is cryptographically sealed and cannot be modified without invalidating the signature. This creates a tension with GDPR erasure rights.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    PERSONAL DATA IN VCs                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  THE LEGAL FRAMEWORK                                            │
+│  ─────────────────────                                          │
+│                                                                  │
+│  GDPR Art. 17(3)(b): Right to erasure does NOT apply when       │
+│  processing is necessary "for compliance with a legal           │
+│  obligation which requires processing."                         │
+│                                                                  │
+│  HOWEVER: This exception only covers data STRICTLY REQUIRED     │
+│  by ESPR. Voluntary data (designer names, marketing details)    │
+│  remains subject to erasure.                                    │
+│                                                                  │
+│  WHAT ESPR ACTUALLY REQUIRES                                    │
+│  ───────────────────────────                                    │
+│  • Economic operator identification (company, not individuals)  │
+│  • Substance of concern declarations                            │
+│  • Compliance documentation references                          │
+│  • Product specifications and materials                         │
+│                                                                  │
+│  WHAT ESPR DOES NOT REQUIRE                                     │
+│  ──────────────────────────                                     │
+│  • Individual designer names                                    │
+│  • Quality inspector personal names                             │
+│  • Factory manager personal details                             │
+│  • Individual auditor names (organization + cert number is OK)  │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### Strategy A: Role-Based Identifiers (Recommended)
+
+**Never put personal names in Verifiable Credentials unless strictly mandated by ESPR.**
+
+| Instead of | Use |
+|------------|-----|
+| "Inspector: Maria Garcia" | "Inspector ID: QC-7742 (Verified by Bureau Veritas)" |
+| "Designer: John Smith" | "Design Lead: Staff ID 4402" or "Design Dept, Milan HQ" |
+| "Factory Manager: Hans Mueller" | "Production Site: GLN 4012345000001" |
+| "Auditor: Anna Kowalski, TÜV" | "Certified by: TÜV SÜD, Certificate #12345678" |
+
+This approach:
+- Meets traceability requirements (IDs can be resolved internally)
+- Avoids GDPR erasure complications
+- Preserves audit trail without PII in the sealed VC
+
+#### Strategy B: Off-Chain Personal Data
+
+If personal names are needed for marketing value (e.g., "Handmade by..."):
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    OFF-CHAIN DATA PATTERN                        │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  IN THE VERIFIABLE CREDENTIAL (Immutable):                      │
+│  ─────────────────────────────────────────                      │
+│  {                                                               │
+│    "credentialSubject": {                                       │
+│      "designerRef": "https://eurocomply.eu/staff/4402",        │
+│      // Reference to mutable data, not embedded name            │
+│    }                                                             │
+│  }                                                               │
+│                                                                  │
+│  ON EUROCOMPLY SERVER (Mutable):                                │
+│  ───────────────────────────────                                │
+│  GET /staff/4402 → { "name": "Maria Garcia", "role": "Lead" }  │
+│                                                                  │
+│  IF GDPR ERASURE REQUESTED:                                     │
+│  ───────────────────────────                                    │
+│  GET /staff/4402 → { "name": "Redacted", "role": "Designer" }  │
+│                                                                  │
+│  RESULT: VC signature remains valid, PII is erasable           │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### Strategy C: Consent for Sealed Data
+
+For professional certifiers whose names may appear in VCs:
+
+1. **Categorize as Business Contacts**: In the DPA, classify certifiers as business contacts acting in professional capacity (lower privacy expectation)
+
+2. **Explicit Consent Warning**: Before sealing a VC with personal names:
+   ```
+   ⚠️ Your name will be permanently sealed in this Product Passport.
+   This data cannot be modified or removed without invalidating the
+   passport. Do you consent to this permanent inclusion?
+
+   [I Consent] [Use Role ID Instead]
+   ```
+
+3. **Record Consent**: Store consent record separately with timestamp and scope
+
+#### Handling Erasure Requests
+
+When a data subject requests erasure of their name from a DPP:
+
+| Scenario | Response |
+|----------|----------|
+| Name is in mutable off-chain data | Redact immediately, inform requester |
+| Name is sealed in VC but not ESPR-mandated | Explain technical limitation, offer pseudonymization of display name in UI, document inability to modify VC |
+| Name is sealed in VC and ESPR-mandated | Refuse citing Art. 17(3)(b), document legal basis |
+| Name is in our operational data (not VC) | Delete immediately |
+
+**Response Template:**
+
+```
+Subject: Response to Your Data Erasure Request
+
+We have processed your request regarding [Name] in the following manner:
+
+1. Operational records: DELETED
+2. Mutable references: REDACTED
+3. Sealed Verifiable Credentials:
+
+   Your name appears in [X] Digital Product Passports issued as
+   immutable Verifiable Credentials. Under GDPR Article 17(3)(b),
+   we are unable to erase this data as it is required for compliance
+   with EU Regulation 2024/1781 (ESPR).
+
+   We have:
+   - Updated display systems to show "Redacted" where possible
+   - Documented this request in our records
+   - Flagged these VCs for deletion when the 10-year retention
+     period expires
+
+If you believe this determination is incorrect, you may contact
+our DPO at dpo@eurocomply.eu or lodge a complaint with your
+supervisory authority.
+```
+
+### 5.4 Deletion Procedures
 
 ```typescript
 // Automated deletion jobs
@@ -556,10 +695,28 @@ const CONSENT_CONFIG = {
   // No marketing cookies
   // No third-party tracking
 
-  storage: 'localStorage',  // Consent stored locally
-  expiry: '1 year',         // Re-prompt after 1 year
+  storage: {
+    type: 'cookie',           // Use HTTP-only cookie, NOT localStorage
+    name: 'consent_prefs',
+    httpOnly: false,          // Must be readable by JS for banner logic
+    secure: true,             // HTTPS only
+    sameSite: 'Strict',
+    maxAge: 365 * 24 * 60 * 60, // 1 year in seconds
+  },
+  expiry: '1 year',           // Re-prompt after 1 year
 };
 ```
+
+**Why cookies instead of localStorage?**
+
+| Approach | Problem |
+|----------|---------|
+| localStorage | Cleared when user clears "site data" → consent re-prompted unnecessarily |
+| localStorage | Some EU interpretations consider localStorage itself to require consent (circular dependency) |
+| sessionStorage | Lost on browser close → repeated consent prompts |
+| **First-party cookie** | Standard approach, survives cache clears, well-understood legally |
+
+The consent cookie is classified as "strictly necessary" under ePrivacy Directive Article 5(3) because it records the user's consent preferences - not tracking data.
 
 ### 10.3 Third-Party Tracking
 
@@ -665,4 +822,4 @@ Current Privacy Policy version: 1.0 (2026-01-01)
 
 ---
 
-*Last Updated: 2026-01-11*
+*Last Updated: 2026-01-12*

@@ -144,20 +144,31 @@ export/
 
 ### Scenario 1: Subscription Cancellation
 
-**ESPR Compliance:** DPPs must remain accessible for 10+ years after issuance. At cancellation, organizations must choose one of three options for their published DPPs:
+**ESPR Compliance:** DPPs must remain accessible for 10+ years after issuance. At cancellation, organizations must choose one of four options for their published DPPs:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                    CANCELLATION OPTIONS                          │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  OPTION A: DORMANT HOSTING (Recommended for ESPR compliance)    │
+│  OPTION A: COMPLIANCE ARCHIVE (Recommended)                     │
 │  ─────────────────────────────────────────────────────────────  │
-│  • €99/year or €500 one-time (per 10,000 SKUs)                  │
+│  Annual subscription for long-term DPP hosting:                 │
+│                                                                  │
+│  │ SKU Tier        │ Annual Fee │                               │
+│  │─────────────────│────────────│                               │
+│  │ 0 - 10,000      │ €99/year   │                               │
+│  │ 10,001 - 50,000 │ €299/year  │                               │
+│  │ 50,000+         │ Custom     │                               │
+│                                                                  │
 │  • Published DPPs remain accessible via original URLs           │
 │  • QR codes continue working (no reprinting needed)             │
 │  • No dashboard access, no new DPP issuance                     │
 │  • 10-year retention guaranteed (ESPR requirement)              │
+│  • Includes: SSL, domain, security patches, resolver updates    │
+│                                                                  │
+│  ⚠️  No one-time fee option. 10-year maintenance costs          │
+│      (security, SSL, domain renewals) cannot be predicted.      │
 │                                                                  │
 │  OPTION B: GS1 RESOLVER REDIRECT                                │
 │  ─────────────────────────────────────────────────────────────  │
@@ -175,6 +186,16 @@ export/
 │  • Requires: Own domain, hosting, technical setup               │
 │  • Best for organizations with IT resources                     │
 │                                                                  │
+│  OPTION D: CANCELLATION WAIVER (Not Recommended)                │
+│  ─────────────────────────────────────────────────────────────  │
+│  • Full data export provided                                    │
+│  • DPPs become inaccessible after grace period                  │
+│  • Customer signs legal waiver acknowledging:                   │
+│    - Potential ESPR non-compliance (Art. 9 & 10)                │
+│    - Risk of market withdrawal and fines                        │
+│    - EuroComply released from all DPP availability liability    │
+│  • Only for products no longer in EU market                     │
+│                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────┐
@@ -182,7 +203,7 @@ export/
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
 │  Day 0: Organization initiates cancellation                     │
-│         → MUST SELECT one of the three options above            │
+│         → MUST SELECT one of the four options above             │
 │         → System generates export package                       │
 │         → Download link provided                                 │
 │                                                                  │
@@ -192,19 +213,21 @@ export/
 │         → Reminder emails sent                                  │
 │                                                                  │
 │  Day 30: Subscription ends                                      │
-│         → If Option A: Transition to Dormant Hosting            │
+│         → If Option A: Transition to Compliance Archive         │
 │         → If Option B/C: Final redirect configured              │
+│         → If Option D: Waiver signed, DPPs taken offline        │
 │         → Dashboard access removed                              │
 │                                                                  │
 │  After Day 30:                                                  │
-│         → Option A: DPPs served from Dormant archive            │
+│         → Option A: DPPs served from Compliance Archive         │
 │         → Option B: GS1 resolver redirects to new host          │
 │         → Option C: EuroComply 301 redirects to customer domain │
-│         → All: did:key verification still works offline         │
+│         → Option D: DPPs return 410 Gone (waiver on file)       │
+│         → All (A-C): did:key verification still works offline   │
 │                                                                  │
-│  ⚠️  NO OPTION = ESPR NON-COMPLIANCE                            │
-│      Organizations MUST choose before Day 30                    │
+│  ⚠️  NO OPTION = BLOCKED                                        │
 │      System blocks cancellation until option selected           │
+│      Organization must acknowledge compliance responsibility     │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -215,8 +238,44 @@ export/
 |----------|-----------------|--------------|
 | Customer cancels, no action | QR codes break → ESPR violation | Blocked until option selected |
 | Products in market after cancel | Consumers scan dead links | DPPs remain accessible |
-| Business failure | Data lost | Dormant Hosting preserves compliance |
+| Business failure | Data lost | Compliance Archive preserves compliance |
 | Migration to competitor | Break existing QR codes | Redirect maintains continuity |
+
+### Legal Responsibility Clarification
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    WHO IS RESPONSIBLE?                           │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ESPR REGULATION (EU) 2024/1781                                 │
+│  ─────────────────────────────────────────────────────────────  │
+│                                                                  │
+│  Article 9 & 10: The "Economic Operator" (manufacturer,         │
+│  importer, or authorized representative placing the product     │
+│  on the EU market) bears legal responsibility for DPP           │
+│  availability, accuracy, and completeness.                      │
+│                                                                  │
+│  Article 2(32): EuroComply is a "DPP Service Provider" -        │
+│  an independent third party authorized by the economic          │
+│  operator. Our liability is contractual (to the customer),      │
+│  not regulatory (to Market Surveillance Authorities).           │
+│                                                                  │
+│  ─────────────────────────────────────────────────────────────  │
+│                                                                  │
+│  IN PRACTICE:                                                   │
+│  • Customer faces enforcement action if DPPs are inaccessible   │
+│  • EuroComply faces breach of contract claims only if we fail   │
+│    to perform services as agreed                                │
+│  • Our role: Enable compliance, not guarantee it                │
+│                                                                  │
+│  TERMS OF SERVICE SHOULD STATE:                                 │
+│  "Customer retains sole responsibility for ensuring continued   │
+│  availability of DPP data as required by ESPR. EuroComply is    │
+│  a data processor and infrastructure provider only."            │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
 
 ### Scenario 2: Migration to Self-Hosting
 
@@ -335,20 +394,30 @@ export/
 
 ## Hosting Options After Export
 
-### Option 0: Dormant Hosting (Stay with EuroComply)
+### Option 0: Compliance Archive (Stay with EuroComply)
 
 If you cancel your active subscription but want QR codes to keep working without managing your own hosting:
 
 ```
-Dormant Hosting Plan:
-  • €99/year OR €500 one-time (per 10,000 SKUs)
+Compliance Archive Plan (Annual):
+  │ SKU Tier        │ Annual Fee │
+  │─────────────────│────────────│
+  │ 0 - 10,000      │ €99/year   │
+  │ 10,001 - 50,000 │ €299/year  │
+  │ 50,000+         │ Custom     │
+
+Includes:
   • Static DPP pages remain accessible
   • QR codes continue working
+  • SSL certificate renewals
+  • Security patches and resolver updates
   • No editing, no new DPPs, no imports
   • 10+ year retention (ESPR compliant)
 ```
 
-This is optional - you can always export and self-host instead. Dormant Hosting is for organizations that want a "set and forget" solution for products already in market.
+This is optional - you can always export and self-host instead. Compliance Archive is for organizations that want a "set and forget" solution for products already in market.
+
+**Why no one-time fee?** Supporting URL resolution for 10+ years involves ongoing costs: SSL renewals, domain management, security patches, and potential W3C/GS1 standard updates. A one-time fee cannot reliably cover these unpredictable long-term costs.
 
 ### Option 1: Static File Hosting
 
@@ -620,4 +689,4 @@ ESPR requires DPP data to remain accessible for the product's lifetime.
 
 ---
 
-*Last Updated: 2026-01-11*
+*Last Updated: 2026-01-12*
