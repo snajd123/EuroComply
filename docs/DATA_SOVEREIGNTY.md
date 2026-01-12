@@ -432,7 +432,9 @@ const newKeyId = await didKeyService.importPrivateKey(privateKey);
 | `/api/v1/organization/export/did` | GET | Get or create organization's did:key |
 | `/api/v1/organization/export/dpp/:productId` | POST | Export DPP as portable package |
 | `/api/v1/organization/export/keys` | POST | Export signing keys (requires confirmation) |
+| `/api/v1/organization/export/status-list` | POST | Export status list credential for self-hosting |
 | `/api/v1/organization/export/viewer/:productId` | GET | Download offline HTML viewer |
+| `/api/v1/organization/export/full` | POST | Full organization export (all data) |
 
 **Usage Examples:**
 
@@ -457,6 +459,18 @@ curl -X POST https://api.eurocomply.eu/v1/organization/export/keys \
 curl -X GET https://api.eurocomply.eu/v1/organization/export/viewer/prod_123 \
   -H "Authorization: Bearer <token>" \
   -o dpp-viewer.html
+
+# Export status list for self-hosting (requires confirmation)
+curl -X POST https://api.eurocomply.eu/v1/organization/export/status-list \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"confirmExport": true, "includeHostingInstructions": true}'
+
+# Full organization export (all VCs, keys, status list, products)
+curl -X POST https://api.eurocomply.eu/v1/organization/export/full \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"confirmExport": true, "includePrivateKeys": true}'
 ```
 
 ### API Schemas
@@ -587,6 +601,191 @@ interface ExportDppResponse {
     exportedAt: string;
     expiresAt: string;  // Download URL expiration
     sizeBytes: number;
+  };
+  meta: {
+    requestId: string;
+    timestamp: string;
+  };
+}
+```
+
+#### POST `/api/v1/organization/export/status-list` - Export Status List
+
+> ⚠️ **Important**: Status list export is required for self-hosting revocation support after leaving EuroComply. See [ARCHITECTURE_PORTABILITY.md](./ARCHITECTURE_PORTABILITY.md#status-list-migration-guide) for migration guide.
+
+**Request Schema:**
+
+```typescript
+interface ExportStatusListRequest {
+  // REQUIRED: Explicit confirmation to export status list
+  confirmExport: true;
+
+  // Include self-hosting instructions and server code examples (default: true)
+  includeHostingInstructions?: boolean;
+}
+```
+
+**Response Schema:**
+
+```typescript
+interface ExportStatusListResponse {
+  success: true;
+  data: {
+    // The signed Status List 2021 Credential
+    statusListCredential: {
+      "@context": string[];
+      type: ["VerifiableCredential", "StatusList2021Credential"];
+      issuer: string;  // did:key of organization
+      issuanceDate: string;
+      credentialSubject: {
+        id: string;  // The URL that must remain accessible
+        type: "StatusList2021";
+        statusPurpose: "revocation";
+        encodedList: string;  // GZIP + Base64 encoded bitstring
+      };
+      proof: object;  // Ed25519Signature2020
+    };
+
+    // Metadata for migration
+    metadata: {
+      organizationId: string;
+      totalCredentialsIssued: number;
+      revokedCount: number;
+      revokedIndices: number[];  // Which indices are revoked
+      lastUpdated: string;  // ISO 8601
+      originalUrl: string;  // URL that must be preserved
+    };
+
+    // Self-hosting requirements
+    selfHostingRequirements: {
+      // This exact URL must serve the status list credential
+      requiredUrl: string;
+      // HTTP headers to set
+      contentType: "application/json";
+      corsHeaders: {
+        "Access-Control-Allow-Origin": "*";
+        "Access-Control-Allow-Methods": "GET, OPTIONS";
+      };
+      cacheControl: "public, max-age=300";  // 5 minute cache recommended
+    };
+
+    // Optional: Code examples for self-hosting
+    hostingExamples?: {
+      cloudflareWorker: string;   // JavaScript code
+      nginxConfig: string;        // nginx.conf snippet
+      expressServer: string;      // Node.js/Express code
+      staticHosting: string;      // Instructions for S3/GCS/etc
+    };
+  };
+  meta: {
+    requestId: string;
+    timestamp: string;
+  };
+}
+```
+
+**Error Responses:**
+
+```typescript
+// 400 Bad Request - Missing confirmation
+{
+  success: false,
+  error: {
+    code: "CONFIRMATION_REQUIRED",
+    message: "Status list export requires explicit confirmation. Set confirmExport: true to proceed."
+  }
+}
+
+// 403 Forbidden - Insufficient permissions
+{
+  success: false,
+  error: {
+    code: "INSUFFICIENT_PERMISSIONS",
+    message: "Only organization admins can export the status list."
+  }
+}
+```
+
+#### POST `/api/v1/organization/export/full` - Full Organization Export
+
+**Request Schema:**
+
+```typescript
+interface FullExportRequest {
+  // REQUIRED: Explicit confirmation for full export
+  confirmExport: true;
+
+  // Include private signing keys (default: false)
+  includePrivateKeys?: boolean;
+
+  // Include status list with hosting instructions (default: true)
+  includeStatusList?: boolean;
+
+  // Image mode for VCs (default: "url")
+  imageMode?: "url" | "base64";
+}
+```
+
+**Response Schema:**
+
+```typescript
+interface FullExportResponse {
+  success: true;
+  data: {
+    // Download URL for ZIP archive (expires in 24 hours)
+    downloadUrl: string;
+    expiresAt: string;
+
+    // Archive contents manifest
+    manifest: {
+      // Identity
+      identity: {
+        didDocument: "identity/did-document.json";
+        privateKey: "identity/private-key.jwk" | null;
+      };
+
+      // Credentials
+      credentials: {
+        count: number;
+        directory: "credentials/";
+        files: string[];  // ["prod_001.vc.json", ...]
+      };
+
+      // Status list
+      statusList: {
+        credential: "status/status-list.json";
+        metadata: "status/metadata.json";
+        hostingInstructions: "status/HOSTING.md";
+      } | null;
+
+      // Products data
+      products: {
+        count: number;
+        directory: "products/";
+        files: string[];
+      };
+
+      // QR codes
+      qrCodes: {
+        directory: "qr-codes/";
+        files: string[];
+      };
+
+      // Migration guides
+      documentation: {
+        readme: "README.md";
+        migrationGuide: "MIGRATION.md";
+        statusListHosting: "STATUS_LIST_HOSTING.md";
+      };
+    };
+
+    // Export statistics
+    statistics: {
+      totalProducts: number;
+      totalCredentials: number;
+      totalRevokedCredentials: number;
+      archiveSizeBytes: number;
+    };
   };
   meta: {
     requestId: string;

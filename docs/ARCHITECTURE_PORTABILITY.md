@@ -59,11 +59,12 @@ Our architecture is deliberately simple. We target SMEs (99% of EU businesses) w
 │     • The VC IS the sovereign asset                             │
 │     • No external data dependencies                             │
 │                                                                  │
-│  3. NO LOCK-IN                                                  │
+│  3. MINIMAL LOCK-IN (with caveats - see Portability Limitations)│
 │     • Export all data at any time                               │
 │     • Take VCs to any other platform                            │
 │     • Continue signing with exported keys                       │
 │     • One-click export includes VC + images + offline viewer    │
+│     • ⚠️ Status List URLs in issued VCs create dependencies     │
 │                                                                  │
 │  4. VERIFICATION WITHOUT EUROCOMPLY                             │
 │     • did:key is self-contained (public key IS the identifier)  │
@@ -79,6 +80,85 @@ Our architecture is deliberately simple. We target SMEs (99% of EU businesses) w
 ```
 
 See [DATA_SOVEREIGNTY.md](./DATA_SOVEREIGNTY.md) for detailed architecture and rejected alternatives.
+
+---
+
+## Portability Limitations (Honest Assessment)
+
+> ⚠️ **Important**: While we minimize lock-in, true zero-dependency portability is not achievable with revocation support. This section explains the tradeoffs.
+
+### The did:key vs Status List 2021 Tension
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    PORTABILITY REALITY CHECK                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  WHAT did:key PROVIDES (fully portable):                                    │
+│  ✅ Signature verification - works offline, forever, no server needed       │
+│  ✅ Issuer identity - public key embedded in the DID itself                 │
+│  ✅ Tamper detection - cryptographic proof of data integrity                │
+│  ✅ Key export - take your signing keys anywhere                            │
+│                                                                              │
+│  WHAT Status List 2021 REQUIRES (creates dependency):                       │
+│  ❌ Network access to check revocation status                               │
+│  ❌ Status list URL hardcoded in every issued VC                            │
+│  ❌ URL cannot be changed without re-issuing the VC                         │
+│                                                                              │
+│  EXAMPLE - Every VC we issue contains:                                      │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │ "credentialStatus": {                                                │   │
+│  │   "statusListCredential": "https://api.eurocomply.eu/v1/status/..." │   │
+│  │ }                                                ▲                   │   │
+│  │                                                  │                   │   │
+│  │                            This URL is IMMUTABLE after issuance     │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                              │
+│  IMPLICATIONS FOR EXPORTED VCs:                                             │
+│  • Signature verification: ✅ Works forever, offline                        │
+│  • Revocation checking: ❌ Requires EuroComply URL to be accessible         │
+│  • New revocations: ❌ Cannot revoke without access to status list server   │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### What This Means in Practice
+
+| Scenario | Signature Valid? | Revocation Checkable? | Can Issue New Revocations? |
+|----------|------------------|----------------------|---------------------------|
+| Active subscription | ✅ Yes | ✅ Yes | ✅ Yes |
+| Compliance Archive (€99/yr) | ✅ Yes | ✅ Yes (frozen) | ❌ No |
+| Self-hosted status list | ✅ Yes | ✅ Yes | ✅ Yes |
+| Export without hosting | ✅ Yes | ❌ No (URL dead) | ❌ No |
+| EuroComply shuts down | ✅ Yes | ❌ No (unless migrated) | ❌ No |
+
+### Migration Options for Full Independence
+
+**Option 1: Self-Host Status List (Recommended for technical users)**
+```
+1. Export status list credential from EuroComply
+2. Deploy status list server on your infrastructure
+3. Configure DNS/redirects so original URL resolves to your server
+4. Full control over revocations
+```
+
+**Option 2: Compliance Archive (Recommended for non-technical users)**
+```
+1. Subscribe to Compliance Archive (€99/year)
+2. Status list remains accessible at original URL
+3. No new revocations possible (frozen state)
+4. Existing revocations preserved
+```
+
+**Option 3: Accept Revocation Loss**
+```
+1. Export all VCs and keys
+2. Host VCs anywhere
+3. Signature verification still works
+4. Revocation status unknown (verifiers see "status unavailable")
+```
+
+See [Status List Migration Guide](#status-list-migration-guide) below for detailed instructions.
 
 ---
 
@@ -536,6 +616,299 @@ const signedVc = await signCredential(credential, privateKey);
 
 // Save or publish
 fs.writeFileSync('new-product.vc.json', JSON.stringify(signedVc, null, 2));
+```
+
+---
+
+## Status List Migration Guide
+
+When leaving EuroComply, you need a plan for the status list URLs embedded in your issued VCs. Here are detailed instructions for each option.
+
+### Option A: Self-Hosted Status List Server
+
+**Requirements:**
+- Web server capable of serving JSON (nginx, Apache, S3, Cloudflare Workers, etc.)
+- SSL certificate for HTTPS
+- Ability to configure redirects or serve at the exact EuroComply URL path
+
+**Step 1: Export Status List**
+
+```bash
+# Export your organization's status list credential
+curl -X POST https://api.eurocomply.eu/v1/organization/export/status-list \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"confirmExport": true}' \
+  -o status-list-export.json
+```
+
+**Response includes:**
+```json
+{
+  "statusListCredential": {
+    "@context": ["https://www.w3.org/2018/credentials/v1", "https://w3id.org/vc/status-list/2021/v1"],
+    "type": ["VerifiableCredential", "StatusList2021Credential"],
+    "issuer": "did:key:z6MkOrg...",
+    "credentialSubject": {
+      "id": "https://api.eurocomply.eu/v1/status/org_abc123",
+      "type": "StatusList2021",
+      "statusPurpose": "revocation",
+      "encodedList": "H4sIAAAAAAAA/2NgGAWjYBSMglEwCkYBEwMAAAD//wMA..."
+    },
+    "proof": { ... }
+  },
+  "metadata": {
+    "totalCredentialsIssued": 1250,
+    "revokedCount": 3,
+    "lastUpdated": "2026-01-12T10:00:00Z",
+    "originalUrl": "https://api.eurocomply.eu/v1/status/org_abc123"
+  },
+  "selfHostingInstructions": {
+    "requiredUrl": "https://api.eurocomply.eu/v1/status/org_abc123",
+    "contentType": "application/json",
+    "cacheControl": "public, max-age=300"
+  }
+}
+```
+
+**Step 2: Deploy Status List Server**
+
+Option A - Static hosting (no new revocations):
+```bash
+# Upload to any static host that can serve at the required URL
+# You'll need EuroComply to configure a redirect, OR use Cloudflare Workers
+
+# Example: Cloudflare Worker
+export default {
+  async fetch(request) {
+    const statusList = { /* your exported status list credential */ };
+    return new Response(JSON.stringify(statusList), {
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+      }
+    });
+  }
+};
+```
+
+Option B - Dynamic server (supports new revocations):
+```typescript
+// Minimal status list server (Node.js/Express)
+import express from 'express';
+import { updateStatusList, signStatusList } from './status-list-utils';
+
+const app = express();
+let statusListCredential = /* load from export */;
+
+// Serve status list
+app.get('/v1/status/:orgId', (req, res) => {
+  res.json(statusListCredential);
+});
+
+// Revoke a credential (protected endpoint)
+app.post('/v1/status/:orgId/revoke', authenticate, async (req, res) => {
+  const { statusListIndex, reason } = req.body;
+  statusListCredential = await updateStatusList(statusListCredential, statusListIndex);
+  statusListCredential = await signStatusList(statusListCredential, privateKey);
+  res.json({ success: true });
+});
+```
+
+**Step 3: Configure URL Resolution**
+
+Your issued VCs contain `https://api.eurocomply.eu/v1/status/org_abc123`. You have three options:
+
+1. **EuroComply Redirect** (Compliance Archive customers):
+   - We configure 301 redirect to your server
+   - Original URL → Your server
+
+2. **GS1 Resolver** (if using GS1 Digital Link):
+   - Update GS1 resolver to point to your status list
+   - Only works if status list URL uses GS1 format
+
+3. **Domain Takeover** (not recommended):
+   - Would require EuroComply to transfer subdomain control
+   - Complex and rarely practical
+
+### Option B: Compliance Archive (Frozen Status List)
+
+If you don't want to self-host, the Compliance Archive preserves your status list:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  COMPLIANCE ARCHIVE - STATUS LIST HANDLING                       │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  What happens:                                                  │
+│  1. Your status list is frozen at cancellation time             │
+│  2. All existing revocations are preserved                      │
+│  3. URL remains accessible: api.eurocomply.eu/v1/status/...     │
+│  4. Verifiers can check revocation status normally              │
+│                                                                  │
+│  Limitations:                                                   │
+│  • Cannot issue NEW revocations                                 │
+│  • Cannot un-revoke credentials                                 │
+│  • If you need to revoke a product (e.g., recall), you cannot   │
+│                                                                  │
+│  Cost: €99/year (0-10,000 SKUs)                                 │
+│        €299/year (10,001-50,000 SKUs)                           │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Option C: No Revocation Support
+
+If revocation checking isn't critical for your use case:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  SIGNATURE-ONLY VERIFICATION (No Revocation)                     │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  What works:                                                    │
+│  ✅ Cryptographic signature verification                        │
+│  ✅ Data integrity (tamper detection)                           │
+│  ✅ Issuer identity (did:key)                                   │
+│  ✅ All DPP data is readable                                    │
+│                                                                  │
+│  What doesn't work:                                             │
+│  ❌ Revocation status check (returns "status unavailable")      │
+│  ❌ Verifier cannot confirm credential hasn't been revoked      │
+│                                                                  │
+│  When this is acceptable:                                       │
+│  • Products no longer in active market                          │
+│  • Archival purposes                                            │
+│  • Internal documentation                                       │
+│  • When signature proof is sufficient                           │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## QR Code Migration Guide
+
+QR codes printed on physical products contain URLs. Planning for URL migration is critical.
+
+### The QR Code Problem
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  QR CODE URL LOCK-IN                                             │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  PRINTED ON PRODUCT:                                            │
+│  ┌─────────────┐                                                │
+│  │ ▄▄▄▄▄ ▄▄▄▄ │  Contains: https://eurocomply.eu/dpp/prod_123  │
+│  │ █   █ █  █ │                    ▲                            │
+│  │ ▀▀▀▀▀ ▀▀▀▀ │                    │                            │
+│  └─────────────┘      This URL is PERMANENT once printed        │
+│                                                                  │
+│  PROBLEM: If eurocomply.eu/dpp/prod_123 stops working,         │
+│           every printed QR code becomes a dead link             │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Migration Strategies
+
+**Strategy 1: GS1 Digital Link (Best for long-term flexibility)**
+
+```
+QR code contains GS1 resolver URL (not EuroComply URL):
+  https://id.gs1.org/01/05901234567890
+
+GS1 resolver redirects to current host:
+  → eurocomply.eu/dpp/... (while subscribed)
+  → yourcompany.com/dpp/... (after migration)
+  → newprovider.com/dpp/... (if you switch providers)
+
+Requirements:
+  • GS1 membership
+  • GTIN for your products
+  • Configure resolver via GS1 Cloud portal
+
+Cost: GS1 membership varies by country (~€150-500/year for SMEs)
+```
+
+**Strategy 2: Own Domain with Redirects**
+
+```
+QR code contains YOUR domain (not EuroComply):
+  https://products.yourcompany.com/dpp/prod_123
+
+Your server redirects to current host:
+  → 302 redirect to eurocomply.eu/dpp/prod_123 (while subscribed)
+  → Serve directly from your server (after export)
+  → 302 redirect to newprovider.com/dpp/... (if you switch)
+
+Requirements:
+  • Own domain with SSL
+  • Web server or CDN (Cloudflare, etc.)
+  • Maintain redirects
+
+Recommended for: Organizations with IT capability
+```
+
+**Strategy 3: EuroComply URLs with Compliance Archive**
+
+```
+QR code contains EuroComply URL:
+  https://eurocomply.eu/dpp/prod_123
+
+If you cancel, choose Compliance Archive:
+  → URLs continue working (read-only)
+  → €99/year for URL preservation
+
+If you cancel without Compliance Archive:
+  → URLs return 410 Gone after grace period
+  → Printed QR codes become dead links
+
+Recommended for: Organizations without IT resources
+```
+
+**Strategy 4: Accept QR Code Breakage (Limited Use Cases)**
+
+```
+When QR code breakage is acceptable:
+  • Products with short shelf life (< 1 year)
+  • Products being discontinued
+  • Internal/B2B products where you control all scanners
+  • Test/prototype products
+
+Not acceptable for:
+  • Consumer products with 10+ year lifespan
+  • Products already in market
+  • Anything requiring ESPR compliance
+```
+
+### QR Code Best Practices
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  RECOMMENDATIONS FOR NEW PRODUCTS                                │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  TIER 1 (Maximum flexibility):                                  │
+│  Use GS1 Digital Link: https://id.gs1.org/01/{gtin}             │
+│  • Redirect anywhere, anytime                                   │
+│  • Industry standard                                            │
+│  • Future-proof                                                 │
+│                                                                  │
+│  TIER 2 (Good flexibility):                                     │
+│  Use own domain: https://products.yourcompany.com/dpp/{id}      │
+│  • You control redirects                                        │
+│  • Requires maintaining DNS/server                              │
+│                                                                  │
+│  TIER 3 (Vendor-dependent):                                     │
+│  Use vendor URL: https://eurocomply.eu/dpp/{id}                 │
+│  • Simplest setup                                               │
+│  • Requires Compliance Archive or migration if you leave        │
+│                                                                  │
+│  ⚠️  NEVER print QR codes without a URL migration plan          │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ---

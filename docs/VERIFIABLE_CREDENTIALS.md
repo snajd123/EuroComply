@@ -1272,6 +1272,8 @@ The status list itself is a signed VC:
 
 ### Portability vs. Revocation: Architectural Tradeoff
 
+> 📖 **Detailed Migration Guide**: For step-by-step instructions on status list migration and self-hosting, see [ARCHITECTURE_PORTABILITY.md - Status List Migration Guide](./ARCHITECTURE_PORTABILITY.md#status-list-migration-guide) and [Portability Limitations](./ARCHITECTURE_PORTABILITY.md#portability-limitations-honest-assessment).
+
 **The Tension:**
 
 did:key provides offline signature verification, but Status List 2021 requires network access for revocation checks. This creates a dependency that limits true portability:
@@ -1308,10 +1310,12 @@ did:key provides offline signature verification, but Status List 2021 requires n
 
 | Option | Revocation Control | Complexity | Cost |
 |--------|-------------------|------------|------|
-| **Dormant Hosting** | Frozen (no new revocations) | None | €19/month |
+| **Compliance Archive** | Frozen (no new revocations) | None | €99/year |
 | **Self-Hosted Status List** | Full control | Medium | Your hosting costs |
-| **GS1 Resolver Redirect** | Full control + domain portability | Medium | GS1 registration |
+| **GS1 Resolver Redirect** | Full control + domain portability | Medium | GS1 membership |
 | **No Revocation** | N/A (signature-only verification) | None | Free |
+
+> 📥 **Export API**: Use `POST /api/v1/organization/export/status-list` to export your status list credential for self-hosting. See [DATA_SOVEREIGNTY.md](./DATA_SOVEREIGNTY.md#api-schemas) for full API documentation.
 
 ### Self-Hosted Status List Setup
 
