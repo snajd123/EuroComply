@@ -69,7 +69,7 @@ storage mode: URL mode requires CDN access, Base64 mode is fully offline.
 | **Tamper Evidence** | None - data can be silently changed | Cryptographic - any change breaks signature |
 | **Trust Model** | Trust the database operator | Trust math (cryptographic verification) |
 | **Issuer Proof** | "Trust me, I'm the manufacturer" | did:key signature proves issuer identity |
-| **Verification** | Requires server connection | Signature verification offline |
+| **Verification** | Requires server connection | Signature offline, revocation online |
 | **Portability** | Locked to platform | Supplier owns, can move anywhere |
 | **Platform Dependency** | Dies with platform | Works forever |
 | **Interoperability** | Proprietary formats | W3C standard, works with EUDI wallets |
@@ -1466,11 +1466,23 @@ async function verifyCredentialWithStatus(vc: VerifiableCredential): Promise<Ver
 
 ### Offline vs Online Verification
 
+> ⚠️ **Important**: "Offline verification" in this documentation means *signature* verification only. Full verification requires network access.
+
 | Check | Offline? | Notes |
 |-------|----------|-------|
 | Signature verification | ✅ Yes | did:key is self-contained |
 | Expiration check | ✅ Yes | Date comparison is local |
-| **Revocation check** | ❌ No | Requires fetching status list |
+| Data integrity | ✅ Yes | Hash verification is local |
+| **Revocation check** | ❌ No | Requires fetching Status List 2021 |
+| **Attestation status** | ❌ No | Requires fetching contributor's status list |
+| **Certificate validity** | ❌ No | May require OCSP/CRL check for X.509 certs |
+
+**Verification Levels:**
+| Level | What's Checked | Network Required? |
+|-------|----------------|-------------------|
+| **Basic** | Signature + expiration | No |
+| **Standard** | Basic + revocation status | Yes |
+| **Full** | Standard + attestation statuses | Yes |
 
 **Graceful degradation:** If status list is unreachable:
 - Display: "Signature valid, revocation status unavailable"

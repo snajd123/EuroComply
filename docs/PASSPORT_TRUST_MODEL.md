@@ -261,7 +261,7 @@ Anyone can verify a passport at `/v1/passports/:id/verify`:
       }
     ]
   },
-  "note": "Verification works offline - did:key is self-contained"
+  "note": "Signature verification offline (did:key), revocation check requires network"
 }
 ```
 

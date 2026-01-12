@@ -42,13 +42,21 @@ The VC contains ALL the DPP data (not references to it). The cryptographic signa
 
 **Important Clarification: What "Offline" Means**
 
+> ⚠️ **Key Distinction**: "Offline verification" means *signature* verification only. Full verification (including revocation status) requires network access.
+
 | Capability | Offline? | Notes |
 |------------|----------|-------|
 | **Signature Verification** | ✅ Yes | did:key is self-contained, no server needed |
 | **Data Integrity Check** | ✅ Yes | Hash verification is local computation |
 | **Text Data Display** | ✅ Yes | All text/JSON embedded in VC |
+| **Revocation Status Check** | ❌ No | Requires fetching Status List 2021 from server |
+| **Attestation Status Check** | ❌ No | Requires fetching contributor's status list |
 | **Image Rendering (URL mode)** | ❌ No | URLs require CDN access |
 | **Image Rendering (Base64 mode)** | ✅ Yes | Images embedded in VC (larger file size) |
+
+**What "Signature Valid" vs "Fully Verified" means:**
+- **Signature Valid**: Cryptographic proof that data hasn't been tampered with and was signed by the claimed issuer. Works offline.
+- **Fully Verified**: Signature valid + credential not revoked + attestations not revoked. Requires network access.
 
 **Image Options at DPP Issuance:**
 - **URL Mode (default)**: Images stored as CDN URLs. Smaller VC file (~5KB), but requires network for full rendering.
@@ -873,14 +881,19 @@ All customers receive full platform access. Tier differentiation is based solely
 
 ### FAQ: "What happens if EuroComply disappears?"
 
-> Your Digital Product Passports continue to work. Here's why:
+> Your Digital Product Passports' **signatures** continue to verify. Here's the full picture:
 >
+> **What keeps working:**
 > 1. **Your VCs are self-contained** - All data is inside the credential, not stored on our servers
-> 2. **Cryptographic signatures verify offline** - No server check needed
+> 2. **Signature verification works offline** - Proves data integrity and issuer identity
 > 3. **Export anytime** - Download everything with one click
 > 4. **Open standards** - Any W3C VC-compatible viewer works
 >
-> We recommend downloading your export periodically as a backup. But even if you don't, the VCs you've shared (via QR codes, etc.) will continue to verify forever.
+> **What stops working (unless you migrate):**
+> 1. **Revocation checking** - Status List 2021 requires the status list URL to be accessible
+> 2. **New revocations** - Cannot revoke credentials without status list server
+>
+> **Recommendation:** Export your status list and either self-host it or use Compliance Archive (€99/year) to maintain full verification capability. See [ARCHITECTURE_PORTABILITY.md](./ARCHITECTURE_PORTABILITY.md#status-list-migration-guide) for migration guide.
 
 ### Trust Badges
 

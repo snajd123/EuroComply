@@ -221,7 +221,7 @@ Phase 3 (2027): + Electronics, Batteries
 | Trust/verification | W3C Verifiable Credentials (did:key) |
 | Cost sensitivity | €129/month starting tier |
 | 10-year data retention | Managed hosting + data portability |
-| Lock-in concerns | Full export (VCs + keys), works offline |
+| Lock-in concerns | Full export (VCs + keys + status list), signature verification offline |
 
 ---
 

@@ -66,10 +66,11 @@ Our architecture is deliberately simple. We target SMEs (99% of EU businesses) w
 │     • One-click export includes VC + images + offline viewer    │
 │     • ⚠️ Status List URLs in issued VCs create dependencies     │
 │                                                                  │
-│  4. VERIFICATION WITHOUT EUROCOMPLY                             │
+│  4. SIGNATURE VERIFICATION WITHOUT EUROCOMPLY                   │
 │     • did:key is self-contained (public key IS the identifier)  │
-│     • VCs can be verified by anyone, anywhere, offline          │
-│     • Works forever, even if EuroComply shuts down              │
+│     • Signature verification works offline, forever             │
+│     • Revocation checking requires Status List access (online)  │
+│     • See Portability Limitations section for full details      │
 │                                                                  │
 │  5. ESPR COMPLIANCE                                             │
 │     • DPPs must be accessible for product lifetime              │
@@ -1044,10 +1045,11 @@ ESPR requires DPP data to remain accessible for the product's lifetime.
 │  → Use another provider that supports W3C VCs                   │
 │                                                                  │
 │  WHAT STILL WORKS AFTER LEAVING                                 │
-│  → All issued VCs remain valid                                  │
-│  → Verification (did:key is self-contained)                     │
+│  → All issued VCs remain valid (signatures)                     │
+│  → Signature verification (did:key is self-contained)           │
 │  → Your identity (did:key never expires)                        │
-│  → ESPR compliance (data remains accessible)                    │
+│  → Revocation checking (only if status list hosted/migrated)    │
+│  → ESPR compliance (if DPP URLs remain accessible)              │
 │                                                                  │
 │  OUR VALUE PROPOSITION                                          │
 │  → Compliance-First PIM (workspace-based data model)            │
