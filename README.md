@@ -54,6 +54,43 @@ Each workspace manages its own data in **The Hub** - the central database. Produ
 
 At the center of EuroComply is **The Hub** - the central database. Each product has an **identity record** (SKU, GTIN) that links to **workspace-specific data**.
 
+#### What is "The Hub"?
+
+**The Hub is not a database model or schema** - it's a conceptual name for the central PostgreSQL database that stores all workspace data.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    "THE HUB" = PostgreSQL Database                           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  The Hub is NOT:                                                            │
+│  ✗ A Prisma model called "Hub"                                              │
+│  ✗ A separate database schema or namespace                                  │
+│  ✗ A unified "golden record" containing all data in one row                 │
+│                                                                              │
+│  The Hub IS:                                                                │
+│  ✓ A conceptual name for the PostgreSQL database                            │
+│  ✓ Contains workspace-separated tables (Product, DesignVersion, etc.)       │
+│  ✓ All workspaces read/write to these tables via Prisma                     │
+│                                                                              │
+│  PHYSICAL STRUCTURE                                                         │
+│  ──────────────────                                                         │
+│  PostgreSQL Database ("The Hub")                                            │
+│  ├── Product table (identity records)                                       │
+│  ├── DesignVersion table (Design workspace data)                            │
+│  ├── MarketingVersion table (Marketing workspace data)                      │
+│  ├── BatchRecord table (Operations workspace data)                          │
+│  ├── DPPSnapshot table (Compliance workspace data)                          │
+│  └── ... other tables                                                       │
+│                                                                              │
+│  When documentation says "write to The Hub" or "read from The Hub,"         │
+│  it means standard Prisma operations on these PostgreSQL tables.            │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+See [USER_MANAGEMENT.md](./docs/USER_MANAGEMENT.md) for the complete Prisma schema.
+
 #### Product = Identity + Links
 
 A Product in EuroComply is NOT a monolithic record. It contains only identity information and links to workspace data:
