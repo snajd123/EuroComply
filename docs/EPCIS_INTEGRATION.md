@@ -379,6 +379,56 @@ export const epcisEventGenerator = new EpcisEventGenerator();
 4. **Unified Timeline** - Auto-generated events merge seamlessly with external EPCIS
 5. **Built-in Carbon Tracking** - Transport events include distance/mode for carbon calculation
 
+### Hybrid Mode: Enterprise EPCIS + Operations Workspace
+
+When a customer has their own enterprise EPCIS system AND uses the Operations workspace, event duplication is possible. EuroComply provides configuration options to prevent this:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                 HYBRID MODE CONFIGURATION                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  SCENARIO 1: Enterprise EPCIS is Source of Truth                            │
+│  ───────────────────────────────────────────────                            │
+│  • Disable auto-generation in Operations workspace                          │
+│  • Operations UI is display-only (reads from enterprise EPCIS)              │
+│  • Config: { epcisMode: 'read-only', autoGenerate: false }                  │
+│                                                                              │
+│  SCENARIO 2: EuroComply is Source of Truth                                  │
+│  ─────────────────────────────────────────────                              │
+│  • Enable auto-generation (default)                                         │
+│  • Enterprise EPCIS subscribes to EuroComply webhook                        │
+│  • Config: { epcisMode: 'write', autoGenerate: true }                       │
+│                                                                              │
+│  SCENARIO 3: Both Systems (Advanced)                                        │
+│  ────────────────────────────────────                                       │
+│  • Enterprise handles: manufacturing, transformation                        │
+│  • EuroComply handles: receiving, shipping (distributor ops)                │
+│  • Deduplication by eventId (hash of event type + EPC + timestamp)          │
+│  • Config: { epcisMode: 'hybrid', autoGenerate: ['receiving', 'shipping'] } │
+│                                                                              │
+│  DEDUPLICATION STRATEGY                                                     │
+│  ─────────────────────                                                      │
+│  When querying from multiple sources, Story Builder deduplicates:           │
+│  • eventId = SHA256(eventType + epcList.sort() + eventTime + bizStep)       │
+│  • Same eventId from multiple sources → keep first, discard duplicates      │
+│  • Conflicts logged to audit trail for manual review                        │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Organization Settings:**
+
+```typescript
+interface EpcisSettings {
+  epcisMode: 'read-only' | 'write' | 'hybrid';
+  autoGenerate: boolean | string[];  // true, false, or specific event types
+  externalEpcisUrl?: string;         // Enterprise EPCIS endpoint
+  deduplicationEnabled: boolean;     // Default: true
+  conflictResolution: 'first-wins' | 'manual-review';
+}
+```
+
 ---
 
 ## EPCIS 2.0 Overview
@@ -2237,6 +2287,71 @@ model BatchRecord {
 - Organization-scoped queries (our default)
 - Single-source manufacturing (you own the GTIN)
 - Internal inventory management
+
+#### LGTIN Collision: Enforcement Limitations
+
+**Why Database Constraint Isn't Practical:**
+
+LGTIN uniqueness is a **global EPCIS concept**, not just a EuroComply database constraint. The collision occurs when events are queried across organizations in federated EPCIS queries - our database cannot enforce uniqueness across external systems.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                 LGTIN ENFORCEMENT LAYERS                                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  LAYER 1: Database (what we CAN enforce)                                    │
+│  ✓ Batch number unique within organization                                  │
+│  ✓ @@unique([organizationId, batchNumber])                                  │
+│                                                                              │
+│  LAYER 2: Application (what we DO enforce)                                  │
+│  ✓ Auto-prefix distributor lots with GLN suffix                             │
+│  ✓ Validation rejects lots without prefix for distributed products          │
+│  ✓ UI guidance showing collision risk                                       │
+│                                                                              │
+│  LAYER 3: Global EPCIS (what we CANNOT enforce)                             │
+│  ✗ Cannot prevent other organizations from using same lot number            │
+│  ✗ Cannot enforce uniqueness in federated queries                           │
+│  ✗ Cannot modify external EPCIS repositories                                │
+│                                                                              │
+│  MITIGATION: Strong application-layer enforcement + education               │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Strengthened Enforcement:**
+
+```typescript
+// Batch creation validation (application layer)
+function validateBatchNumber(batch: BatchInput, org: Organization): ValidationResult {
+  if (batch.isDistributedProduct) {
+    const glnSuffix = org.gln?.slice(-4);
+
+    if (!glnSuffix) {
+      return { valid: false, error: 'GLN required for distributed products' };
+    }
+
+    if (!batch.batchNumber.startsWith(glnSuffix + '-')) {
+      return {
+        valid: false,
+        error: `Batch number must start with "${glnSuffix}-" to prevent LGTIN collision`,
+        suggestion: `${glnSuffix}-${batch.batchNumber}`
+      };
+    }
+  }
+
+  return { valid: true };
+}
+```
+
+**Why Not a Database Constraint?**
+
+| Approach | Problem |
+|----------|---------|
+| Unique on `batchNumber` globally | Would prevent legitimate same-named lots at different orgs |
+| Unique on `lgtin` column | LGTIN is derived from GTIN (not ours) + lot number - can't prevent manufacturer collisions |
+| Check constraint on prefix | Batch numbers vary by use case - manufacturers don't need prefix |
+
+The application-layer enforcement with strong validation is the appropriate solution for this inherently cross-organizational problem.
 
 ```typescript
 // SSCC (Serial Shipping Container Code) - logistics units
