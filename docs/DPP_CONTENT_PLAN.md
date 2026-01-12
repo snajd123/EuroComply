@@ -483,6 +483,10 @@ Track where data comes from for transparency.
 /dashboard/operations/serials           - Serial number tracking
 
 # MARKETING WORKSPACE (PIM)
+# Note: /marketing/pim uses "pim" as the module name because "pim" (Product Information
+# Management) is the industry-standard term for commercial product content management.
+# Other workspaces use generic terms (registry, materials) because they don't have
+# established industry terminology. This is intentional for SEO and user familiarity.
 /dashboard/marketing                    - Marketing workspace home
 /dashboard/marketing/pim                - PIM (descriptions, SEO, multi-language)
 /dashboard/marketing/pim/:id            - Edit product commercial content

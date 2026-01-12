@@ -806,6 +806,114 @@ Product TSH-001:
 - Checkout lock only affects users **in the same workspace**
 - Checkout remains active until user explicitly checks in (releases the lock)
 - Admin can force-release a checkout if needed (e.g., user unavailable)
+- **Automatic timeout** releases orphaned checkouts (see below)
+
+#### Checkout Lock Automatic Timeout
+
+To prevent indefinite blocking when a user abandons a checkout (e.g., browser crash, vacation, user unavailable), checkout locks have an automatic timeout:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    CHECKOUT LOCK TIMEOUT                                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  DEFAULT BEHAVIOR                                                           │
+│  ────────────────                                                           │
+│  • Checkout locks expire after 72 hours (configurable per organization)     │
+│  • Warning notification sent at 48 hours to lock holder                     │
+│  • Lock released automatically at expiry                                    │
+│  • User's unsaved draft preserved (not deleted)                             │
+│                                                                              │
+│  TIMELINE                                                                   │
+│  ────────                                                                   │
+│  T+0h:   User checks out product for editing                                │
+│  T+48h:  Warning email: "Your checkout expires in 24 hours"                 │
+│  T+72h:  Lock auto-released, draft preserved                                │
+│          Other users can now check out and edit                             │
+│                                                                              │
+│  RECOVERY                                                                   │
+│  ────────                                                                   │
+│  If original user returns after timeout:                                    │
+│  • Their draft is still available                                           │
+│  • They can check out again (if available)                                  │
+│  • Merge conflict resolution if another user modified                       │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Configuration:**
+
+```typescript
+// Organization settings (in Organization.settings JSON)
+interface CheckoutSettings {
+  checkoutTimeoutHours: number;     // Default: 72, min: 24, max: 168 (7 days)
+  warningBeforeTimeoutHours: number; // Default: 24
+  preserveDraftOnTimeout: boolean;   // Default: true
+  notifyAdminOnTimeout: boolean;     // Default: false (noisy for large teams)
+}
+```
+
+**Background Job:**
+
+```typescript
+// Runs every 15 minutes
+async function releaseExpiredCheckouts(): Promise<void> {
+  const now = new Date();
+
+  // Find expired checkouts with org-specific timeouts
+  const expired = await prisma.$queryRaw<CheckoutRecord[]>`
+    SELECT p.id, p."designCheckedOutById", p."designCheckedOutAt",
+           p."marketingCheckedOutById", p."marketingCheckedOutAt"
+    FROM "Product" p
+    JOIN "Organization" o ON p."organizationId" = o.id
+    WHERE (
+      p."designCheckedOutAt" < ${now} - INTERVAL '1 hour' * COALESCE(
+        (o.settings->>'checkoutTimeoutHours')::int, 72
+      )
+      OR
+      p."marketingCheckedOutAt" < ${now} - INTERVAL '1 hour' * COALESCE(
+        (o.settings->>'checkoutTimeoutHours')::int, 72
+      )
+    )
+  `;
+
+  for (const checkout of expired) {
+    // Release lock but preserve draft
+    await prisma.product.update({
+      where: { id: checkout.id },
+      data: {
+        designCheckedOutById: null,
+        designCheckedOutAt: null,
+        // Note: draftDesignVersionId NOT cleared - draft preserved
+      }
+    });
+
+    // Notify original user
+    await notifyUser(checkout.designCheckedOutById, {
+      type: 'CHECKOUT_EXPIRED',
+      productId: checkout.id,
+      message: 'Your checkout has expired. Your draft is still available.',
+    });
+
+    // Audit log
+    await auditLog.record({
+      action: 'CHECKOUT_AUTO_RELEASED',
+      productId: checkout.id,
+      previousHolder: checkout.designCheckedOutById,
+      reason: 'timeout',
+    });
+  }
+}
+```
+
+**Why 72 Hours Default:**
+
+| Duration | Rationale |
+|----------|-----------|
+| 24h | Too short - doesn't survive weekends |
+| 48h | Marginal - Friday checkout expires Sunday |
+| **72h** | **Survives weekends (Friday→Monday)** |
+| 168h (7 days) | Too long - blocks others unnecessarily |
 
 ---
 
@@ -2292,6 +2400,130 @@ async function releaseClaimExpired(): Promise<void> {
 // At 5,000 organizations:
 //   OLD: 5,000 queries, memory for 5,000 org objects, potential timeouts
 //   NEW: 2 queries total, constant memory, sub-second execution
+```
+
+#### Raw SQL and Audit Logging
+
+**Important:** Operations using `$executeRaw` or `$queryRaw` bypass Prisma middleware, including the audit logging middleware. This is an intentional trade-off for scalability, but requires manual audit logging.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    RAW SQL AUDIT LOGGING                                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  WHY RAW SQL?                                                               │
+│  ────────────                                                               │
+│  Prisma middleware runs per-record. Bulk operations (releasing 10,000       │
+│  expired claims) would trigger 10,000 middleware calls = unacceptable.      │
+│  Raw SQL executes in a single database round-trip.                          │
+│                                                                              │
+│  THE TRADE-OFF                                                              │
+│  ─────────────                                                              │
+│  ❌ Prisma middleware skipped (no automatic audit logging)                  │
+│  ✅ O(1) performance regardless of record count                             │
+│  ✅ Database-native JOIN operations                                         │
+│                                                                              │
+│  MITIGATION: MANUAL AUDIT LOGGING                                           │
+│  ─────────────────────────────────                                          │
+│  All raw SQL operations MUST include manual audit log entries.              │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Operations Using Raw SQL:**
+
+| Operation | Raw SQL Function | Audit Entry |
+|-----------|------------------|-------------|
+| Release expired claims | `releaseClaimExpired()` | `CLAIM_AUTO_RELEASED` |
+| Release expired checkouts | `releaseExpiredCheckouts()` | `CHECKOUT_AUTO_RELEASED` |
+| Bulk status transitions | `transitionActiveToReleased()` | `VERSION_STATE_CHANGED` |
+| Archive superseded versions | `archiveSupersededVersions()` | `VERSION_ARCHIVED` |
+
+**Manual Audit Logging Pattern:**
+
+```typescript
+async function releaseClaimExpired(): Promise<void> {
+  // Step 1: Query for affected records BEFORE the update
+  const toRelease = await prisma.$queryRaw<AffectedRecord[]>`
+    SELECT dv.id, dv."claimedById", dv."productId", o.id as "organizationId"
+    FROM "DesignVersion" dv
+    JOIN "Product" p ON dv."productId" = p.id
+    JOIN "Organization" o ON p."organizationId" = o.id
+    WHERE dv.status = 'IN_REVIEW'
+      AND dv."claimedAt" < NOW() - INTERVAL '1 hour' * COALESCE(
+        (o.settings->>'claimExpiryHours')::int, 24
+      )
+  `;
+
+  if (toRelease.length === 0) return;
+
+  // Step 2: Execute the bulk update
+  await prisma.$executeRaw`
+    UPDATE "DesignVersion" dv
+    SET status = 'PENDING_REVIEW',
+        "claimedById" = NULL,
+        "claimedAt" = NULL
+    -- ... (same query)
+  `;
+
+  // Step 3: MANUAL audit logging (REQUIRED)
+  for (const record of toRelease) {
+    await prisma.auditLog.create({
+      data: {
+        action: 'CLAIM_AUTO_RELEASED',
+        resourceType: 'DesignVersion',
+        resourceId: record.id,
+        organizationId: record.organizationId,
+        metadata: {
+          previousClaimant: record.claimedById,
+          reason: 'claim_expiry',
+          source: 'background_job',
+        },
+        timestamp: new Date(),
+        // Note: No userId - system action
+        systemAction: true,
+      }
+    });
+  }
+
+  // Step 4: Batch insert for scale (alternative)
+  // If >1000 records, use batch insert instead of loop
+  if (toRelease.length > 1000) {
+    await prisma.auditLog.createMany({
+      data: toRelease.map(r => ({
+        action: 'CLAIM_AUTO_RELEASED',
+        resourceType: 'DesignVersion',
+        resourceId: r.id,
+        organizationId: r.organizationId,
+        metadata: { previousClaimant: r.claimedById, reason: 'claim_expiry' },
+        timestamp: new Date(),
+        systemAction: true,
+      }))
+    });
+  }
+}
+```
+
+**Audit Log Verification:**
+
+To ensure raw SQL operations are properly logged, run periodic verification:
+
+```sql
+-- Find raw SQL operations that may have missed audit logging
+-- Compare count of state changes vs audit entries
+SELECT
+  DATE(updated_at) as date,
+  COUNT(*) as state_changes,
+  (SELECT COUNT(*) FROM "AuditLog"
+   WHERE action = 'CLAIM_AUTO_RELEASED'
+   AND DATE(timestamp) = DATE(dv.updated_at)) as audit_entries
+FROM "DesignVersion" dv
+WHERE status = 'PENDING_REVIEW'
+  AND "claimedById" IS NULL
+GROUP BY DATE(updated_at)
+HAVING COUNT(*) != (SELECT COUNT(*) FROM "AuditLog"
+                    WHERE action = 'CLAIM_AUTO_RELEASED'
+                    AND DATE(timestamp) = DATE(dv.updated_at));
 ```
 
 ### Approval Inbox

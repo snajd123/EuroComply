@@ -78,6 +78,37 @@ We use the following sub-processors:
 
 Customers are notified of sub-processor changes via email 30 days in advance.
 
+#### What Triggers a Sub-Processor Change Notification
+
+**Notifications ARE sent (30 days advance):**
+
+| Change Type | Example | Notification Required |
+|-------------|---------|----------------------|
+| New sub-processor | Adding Twilio for SMS | ✅ Yes |
+| Sub-processor removal | Discontinuing a service | ✅ Yes |
+| Purpose change | AWS used for new function (AI processing) | ✅ Yes |
+| Jurisdiction change | Data center moved from EU to US | ✅ Yes |
+| Acquisition | Sub-processor acquired by different company | ✅ Yes |
+| Data type expansion | Sub-processor now processes PII it didn't before | ✅ Yes |
+
+**Notifications are NOT sent (routine operational):**
+
+| Change Type | Example | Notification Required |
+|-------------|---------|----------------------|
+| Version upgrade | AWS SDK v2 → v3 | ❌ No |
+| Same-region migration | Frankfurt DC1 → Frankfurt DC2 | ❌ No |
+| Capacity scaling | Additional servers within same provider | ❌ No |
+| Security patch | Cloudflare security update | ❌ No |
+| Pricing change | Sub-processor changes their pricing | ❌ No |
+| API endpoint change | `api.stripe.com/v1` → `api.stripe.com/v2` | ❌ No |
+
+**Customer Objection Rights:**
+
+If a customer objects to a sub-processor change within the 30-day notice period:
+1. We discuss concerns and potential mitigations
+2. If no resolution, customer may terminate without penalty
+3. Data export provided free of charge
+
 ---
 
 ## 3. Legal Basis for Processing
@@ -373,6 +404,147 @@ When a data subject requests erasure of their name from a DPP:
 | Name is sealed in VC but not ESPR-mandated | Explain technical limitation, offer pseudonymization of display name in UI, document inability to modify VC |
 | Name is sealed in VC and ESPR-mandated | Refuse citing Art. 17(3)(b), document legal basis |
 | Name is in our operational data (not VC) | Delete immediately |
+
+#### Decision Tree: Erasure Requests for PII in Sealed VCs
+
+Use this decision tree when processing an erasure request for personal data that may be embedded in a sealed Verifiable Credential:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    ERASURE REQUEST DECISION TREE                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Step 1: IDENTIFY DATA LOCATION                                             │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━                                             │
+│                                                                              │
+│  Where is the personal data stored?                                         │
+│  │                                                                           │
+│  ├─► Operational data only (user accounts, logs, etc.)                      │
+│  │   └── DELETE IMMEDIATELY ✓                                               │
+│  │       No VC involvement, standard GDPR deletion applies                  │
+│  │                                                                           │
+│  ├─► Off-chain reference (URL in VC points to mutable endpoint)             │
+│  │   └── REDACT ENDPOINT DATA ✓                                             │
+│  │       VC remains valid, resolved data shows "Redacted"                   │
+│  │                                                                           │
+│  └─► Embedded in sealed VC (name/email directly in credential)              │
+│      └── Continue to Step 2                                                 │
+│                                                                              │
+│  Step 2: CLASSIFY THE DATA                                                  │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━                                                 │
+│                                                                              │
+│  Is the embedded PII required by ESPR?                                      │
+│  │                                                                           │
+│  ├─► YES: ESPR-mandated (e.g., economic operator identification)            │
+│  │   │                                                                       │
+│  │   └── REFUSE ERASURE with legal basis                                    │
+│  │       • Cite GDPR Art. 17(3)(b) - legal obligation exception             │
+│  │       • Cite ESPR Art. 12(2) - 10-year retention requirement             │
+│  │       • Document refusal in GDPR request log                             │
+│  │       • Inform data subject of complaint rights                          │
+│  │                                                                           │
+│  └─► NO: Voluntarily included (designer name, inspector name, etc.)         │
+│      └── Continue to Step 3                                                 │
+│                                                                              │
+│  Step 3: APPLY DISPLAY REDACTION                                            │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━                                              │
+│                                                                              │
+│  Since the VC cannot be modified without invalidating the signature:        │
+│  │                                                                           │
+│  ├── 1. Add data subject to DISPLAY_REDACTION_LIST                          │
+│  │      • Store: { subjectId, vcIds[], redactedFields[], requestDate }      │
+│  │                                                                           │
+│  ├── 2. Update UI rendering logic                                           │
+│  │      • When displaying VC, check redaction list                          │
+│  │      • Replace matching fields with "[Redacted per GDPR request]"        │
+│  │      • VC signature remains valid (underlying data unchanged)            │
+│  │                                                                           │
+│  ├── 3. Update API responses                                                │
+│  │      • GET /api/dpp/:id returns redacted version for display             │
+│  │      • Audit/legal endpoints can access unredacted (with logging)        │
+│  │                                                                           │
+│  └── 4. Document the limitation                                             │
+│         • Explain technical constraint to data subject                      │
+│         • Note that underlying VC data cannot be modified                   │
+│         • Flag VC for full deletion when retention period ends              │
+│                                                                              │
+│  Step 4: SCHEDULE FUTURE DELETION                                           │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━                                             │
+│                                                                              │
+│  Add to deletion queue:                                                     │
+│  │                                                                           │
+│  └── { vcId, deletionDate: vc.issuedAt + 10 years, reason: "GDPR request" } │
+│                                                                              │
+│      When retention period expires, VC is fully deleted including           │
+│      all embedded personal data.                                            │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Display Redaction Implementation:**
+
+```typescript
+// Display redaction for sealed VCs
+interface RedactionRecord {
+  id: string;
+  dataSubjectEmail: string;  // Hashed for lookup
+  vcIds: string[];           // VCs containing their data
+  redactedFields: string[];  // ["designerName", "inspectorName"]
+  requestedAt: Date;
+  processedAt: Date;
+  scheduledDeletionDate: Date;  // 10 years from VC issuance
+}
+
+// When rendering DPP for public display
+async function renderDPPWithRedactions(dppId: string): Promise<DPPDisplay> {
+  const dpp = await getDPP(dppId);
+  const redactions = await getRedactionsForVC(dpp.credentialId);
+
+  if (redactions.length === 0) {
+    return dpp;  // No redactions needed
+  }
+
+  // Apply redactions to display copy (not original)
+  const displayCopy = structuredClone(dpp);
+  for (const field of redactions[0].redactedFields) {
+    setNestedField(displayCopy, field, "[Redacted per GDPR request]");
+  }
+
+  return displayCopy;
+}
+
+// For audit/legal access (with logging)
+async function getDPPUnredacted(
+  dppId: string,
+  requesterId: string,
+  legalBasis: string
+): Promise<DPP> {
+  await auditLog.record({
+    action: 'ACCESS_REDACTED_PII',
+    resourceId: dppId,
+    requesterId,
+    legalBasis,  // e.g., "legal_dispute", "regulatory_audit"
+  });
+
+  return await getDPP(dppId);  // Return unredacted
+}
+```
+
+**What "Display Redaction" Means Technically:**
+
+| Layer | Behavior |
+|-------|----------|
+| **Sealed VC (immutable)** | Original data preserved, signature valid |
+| **API Display Endpoint** | Returns redacted version by default |
+| **Public DPP Page** | Shows "[Redacted per GDPR request]" |
+| **Audit/Legal Access** | Unredacted access with logging and justification |
+| **After Retention Expiry** | Full deletion of VC and all data |
+
+This approach balances:
+- **VC Integrity**: Signature remains valid for verification
+- **GDPR Compliance**: Personal data effectively hidden from normal access
+- **Legal Requirements**: Audit trail preserved for legitimate purposes
+- **Eventual Deletion**: Full erasure when retention obligation ends
 
 **Response Template:**
 
@@ -754,6 +926,43 @@ Email: dpo@eurocomply.eu
 Supervisory Authority (lead):
 Berliner Beauftragte für Datenschutz und Informationsfreiheit
 ```
+
+---
+
+## 12.1 Data Protection Impact Assessment (DPIA)
+
+EuroComply has conducted a DPIA for its core processing activities as required by GDPR Article 35.
+
+**DPIA Summary:**
+
+| Processing Activity | Risk Level | Mitigation |
+|---------------------|------------|------------|
+| User account management | Low | Standard security controls, encryption at rest |
+| Product data storage | Low | Tenant isolation, access control |
+| DPP issuance (with PII) | Medium | Role-based identifiers recommended, off-chain pattern for names |
+| AI-powered import (OpenAI) | Medium | SCCs, DPA, no training on data, 30-day deletion |
+| EPCIS event storage | Low | Organization-scoped, no PII in events |
+| Magic link authentication | Low | Hashed tokens, short expiry, single-use |
+
+**DPIA Document Location:**
+
+The full DPIA document is maintained internally and available upon request:
+
+- **Customers**: Request via support@eurocomply.eu or through your account manager
+- **Regulators**: Request via dpo@eurocomply.eu
+- **Enterprise tier**: DPIA summary included in security documentation package
+
+**DPIA Review Schedule:**
+
+| Trigger | Action |
+|---------|--------|
+| Annually (Q1) | Review and update for any processing changes |
+| New feature launch | Assess if DPIA update required |
+| New sub-processor | Assess impact on existing DPIA |
+| Significant incident | Review affected processing activities |
+| Regulatory guidance change | Update methodology if needed |
+
+**When DPIA Was Last Updated:** 2026-01-01
 
 ---
 

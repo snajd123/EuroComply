@@ -62,11 +62,17 @@ For programmatic access (Shopify integration, custom integrations):
 │                                                                  │
 │  KEY FORMAT                                                     │
 │  ──────────                                                     │
-│  ec_live_a1b2c3d4e5f6...  (40 chars, prefixed)                 │
-│   └─┴────┴───────────────                                      │
-│    │   │        └── Random bytes (32)                          │
+│  ec_live_a1b2c3d4e5f6g7h8i9j0k1l2  (40 chars total)            │
+│   └─┴────┴─────────────────────────                            │
+│    │   │        └── 16 random bytes (32 hex chars)             │
 │    │   └─────────── Environment (live/test)                    │
-│    └─────────────── Prefix (eurocomply)                        │
+│    └─────────────── Prefix "ec_" (3 chars)                     │
+│                                                                  │
+│  Breakdown: 3 (ec_) + 5 (live_) + 32 (random) = 40 chars       │
+│                                                                  │
+│  Note: API keys use 16 bytes (128-bit entropy) for practical   │
+│  key length. Magic link tokens use 32 bytes (256-bit) for      │
+│  higher security as they're transmitted via email.             │
 │                                                                  │
 │  STORAGE                                                        │
 │  ───────                                                        │
@@ -76,13 +82,15 @@ For programmatic access (Shopify integration, custom integrations):
 │                                                                  │
 │  SCOPES                                                         │
 │  ──────                                                         │
-│  API keys have explicit scopes:                                │
+│  API keys have explicit scopes (resource-based, not workspace): │
 │  • products:read                                               │
 │  • products:write                                              │
 │  • passports:read                                              │
 │  • passports:write                                             │
 │  • attestations:read                                           │
 │  • attestations:write                                          │
+│                                                                  │
+│  Note: Scopes are INTENTIONALLY cross-workspace (see below)    │
 │                                                                  │
 │  ROTATION                                                       │
 │  ────────                                                       │
@@ -91,6 +99,50 @@ For programmatic access (Shopify integration, custom integrations):
 │  • Audit log: all key creation/revocation logged               │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
+```
+
+#### API Key Scopes: Why Resource-Based (Not Workspace-Based)
+
+API scopes are **intentionally resource-based** (`products:read`, `passports:write`) rather than workspace-based (`design:read`, `operations:write`). This is a deliberate design decision:
+
+**Rationale:**
+
+| Concern | Resource-Based Scopes | Workspace-Based Scopes |
+|---------|----------------------|------------------------|
+| **API simplicity** | `GET /products` → needs `products:read` | Would need to check multiple workspace permissions |
+| **Integration use case** | Shopify needs products + passports, not "workspaces" | Integrations don't understand internal workspace model |
+| **Cross-workspace data** | Products exist in Hub, accessed by all workspaces | Restricting to one workspace doesn't match data model |
+| **Future flexibility** | Easy to add `inventory:read`, `orders:write` | Workspace changes would require API scope changes |
+
+**How It Works:**
+
+```typescript
+// API key scopes define WHAT resources can be accessed
+const apiKeyScopes = ['products:read', 'products:write', 'passports:read'];
+
+// Organization membership defines WHICH tenant
+// All API operations are scoped to the organization that owns the key
+
+// Example: Shopify integration key
+// - Scopes: products:read, products:write, passports:read
+// - Can: Read products, update product data, fetch DPP info
+// - Cannot: Issue DPPs, manage attestations
+// - Always: Scoped to the organization that created the key
+```
+
+**If Workspace-Scoped Keys Are Needed:**
+
+For organizations requiring stricter API access control:
+
+1. **Create separate API keys** for different integration purposes
+2. **Use minimal scopes** per key (principle of least privilege)
+3. **Enterprise tier**: Custom scope definitions available on request
+
+```typescript
+// Example: Minimal keys for different purposes
+const shopifyKey = { scopes: ['products:read', 'products:write'] };
+const analyticsKey = { scopes: ['passports:read'] };
+const cicdKey = { scopes: ['products:read'] };  // Read-only for testing
 ```
 
 ### 2.3 Session Management

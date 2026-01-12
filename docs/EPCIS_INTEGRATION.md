@@ -1913,6 +1913,114 @@ The default carbon emission factors are based on industry-standard sources:
 - Values represent averages; actual emissions vary by vehicle type, load, route, etc.
 - Factors are per-product (i.e., divided by typical cargo capacity)
 
+#### Vehicle Type Differentiation
+
+For more accurate carbon calculations, organizations can specify vehicle types. The system provides pre-configured factors for common vehicle categories:
+
+**Road Transport:**
+
+| Vehicle Type | Factor (kg CO2e/km) | Notes |
+|--------------|---------------------|-------|
+| `road` (default) | 0.0001 | Average HGV (DEFRA 2023) |
+| `road_lcv` | 0.00015 | Light Commercial Vehicle (<3.5t) |
+| `road_hgv_rigid` | 0.00009 | Rigid HGV (7.5-17t) |
+| `road_hgv_artic` | 0.00007 | Articulated HGV (>33t) - more efficient per tonne-km |
+| `road_electric` | 0.00003 | Electric truck (EU grid average) |
+| `road_lng` | 0.00008 | LNG-powered HGV |
+
+**Rail Transport:**
+
+| Vehicle Type | Factor (kg CO2e/km) | Notes |
+|--------------|---------------------|-------|
+| `rail` (default) | 0.00003 | Average freight rail (DEFRA 2023) |
+| `rail_electric` | 0.00001 | Electric rail (EU grid average) |
+| `rail_diesel` | 0.00004 | Diesel locomotive |
+
+**Sea Transport:**
+
+| Vehicle Type | Factor (kg CO2e/km) | Notes |
+|--------------|---------------------|-------|
+| `sea` (default) | 0.00001 | Average container ship (IMO 2023) |
+| `sea_feeder` | 0.000015 | Feeder vessel (<1,000 TEU) |
+| `sea_panamax` | 0.000008 | Panamax (3,000-5,000 TEU) |
+| `sea_ultra_large` | 0.000005 | ULCV (>14,000 TEU) - most efficient |
+| `sea_bulk` | 0.000007 | Bulk carrier (dry goods) |
+| `sea_tanker` | 0.000006 | Product tanker |
+| `sea_lng` | 0.000008 | LNG-powered container ship |
+
+**Air Transport:**
+
+| Vehicle Type | Factor (kg CO2e/km) | Notes |
+|--------------|---------------------|-------|
+| `air` (default) | 0.0005 | Average air freight (DEFRA 2023) |
+| `air_bellyhold` | 0.0003 | Passenger aircraft bellyhold cargo |
+| `air_freighter` | 0.0006 | Dedicated freight aircraft |
+| `air_express` | 0.0008 | Express/courier service |
+
+**Using Vehicle Types in Events:**
+
+```json
+{
+  "type": "ObjectEvent",
+  "bizStep": "urn:epcglobal:cbv:bizstep:shipping",
+  "espr": {
+    "transport": {
+      "mode": "road",
+      "vehicleType": "road_electric",  // Optional: specific vehicle type
+      "distance": 450,
+      "carrier": "DHL"
+    }
+  }
+}
+```
+
+**Implementation:**
+
+```typescript
+function getCarbonFactor(
+  mode: string,
+  vehicleType?: string,
+  orgFactors?: OrganizationCarbonFactors
+): number {
+  // Priority 1: Organization's custom factors
+  if (orgFactors) {
+    const customFactor = orgFactors[`${mode}Factor`];
+    if (customFactor !== null) return customFactor;
+  }
+
+  // Priority 2: Specific vehicle type
+  if (vehicleType && VEHICLE_TYPE_FACTORS[vehicleType]) {
+    return VEHICLE_TYPE_FACTORS[vehicleType];
+  }
+
+  // Priority 3: Default mode factor
+  return DEFAULT_FACTORS[mode] || 0.0001;
+}
+
+const VEHICLE_TYPE_FACTORS: Record<string, number> = {
+  // Road
+  'road_lcv': 0.00015,
+  'road_hgv_rigid': 0.00009,
+  'road_hgv_artic': 0.00007,
+  'road_electric': 0.00003,
+  'road_lng': 0.00008,
+  // Rail
+  'rail_electric': 0.00001,
+  'rail_diesel': 0.00004,
+  // Sea
+  'sea_feeder': 0.000015,
+  'sea_panamax': 0.000008,
+  'sea_ultra_large': 0.000005,
+  'sea_bulk': 0.000007,
+  'sea_tanker': 0.000006,
+  'sea_lng': 0.000008,
+  // Air
+  'air_bellyhold': 0.0003,
+  'air_freighter': 0.0006,
+  'air_express': 0.0008,
+};
+```
+
 **Organization-Specific Configuration:**
 
 Organizations can override defaults with their own emission factors:
@@ -1982,7 +2090,130 @@ const sgtin = 'urn:epc:id:sgtin:0614141.107346.2017';
 // LGTIN (Lot/Batch GTIN) - batch tracking
 // urn:epc:id:lgtin:<company>.<item>.<lot>
 const lgtin = 'urn:epc:id:lgtin:0614141.107346.LOT001';
+```
 
+#### LGTIN Collision Risk for Distributors
+
+**The Problem:**
+
+LGTIN is constructed from `GTIN + lot number`. While our database ensures unique batch numbers within an organization (`@@unique([organizationId, batchNumber])`), LGTIN uniqueness is **global** in the EPCIS world.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  LGTIN COLLISION SCENARIO                                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Manufacturer: BrandCo (owns GTIN 4012345012345)                            │
+│  └── Creates batches with their lot numbers: LOT-A001, LOT-A002, etc.       │
+│                                                                              │
+│  Distributor A: DistroAlpha (resells BrandCo products)                      │
+│  └── Receives goods, creates receiving batch: LOT-2026-001                  │
+│  └── LGTIN: urn:epc:id:lgtin:4012345.012345.LOT-2026-001                    │
+│                                                                              │
+│  Distributor B: DistroBeta (also resells BrandCo products)                  │
+│  └── Receives goods, creates receiving batch: LOT-2026-001  ← SAME!        │
+│  └── LGTIN: urn:epc:id:lgtin:4012345.012345.LOT-2026-001  ← COLLISION!     │
+│                                                                              │
+│  In cross-organization EPCIS queries, these are indistinguishable:          │
+│  • Consumer scans product → queries LGTIN → gets mixed results              │
+│  • Auditor queries supply chain → sees duplicate events from different orgs │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Impact:**
+- Cross-org EPCIS queries may return conflated data
+- Supply chain visualization may show events from wrong distributor
+- Auditors cannot reliably distinguish parallel distribution paths
+
+**Mitigation Strategies:**
+
+| Strategy | Implementation | Recommended For |
+|----------|---------------|-----------------|
+| **Org-Prefixed Lots** | `[OrgShortCode]-LOT-2026-001` | All distributors (recommended) |
+| **GLN-Prefixed Lots** | `[GLN]-LOT-2026-001` | Large distributors with GLN |
+| **Manufacturer's Lot** | Use original manufacturer lot number | When tracing back to source |
+| **Unique Lot Generator** | Auto-generate: `[timestamp]-[random]` | Automated systems |
+
+**Recommended Implementation:**
+
+```typescript
+// When creating batch for resold products (distributor scenario)
+function generateDistributorLotNumber(
+  orgGln: string,         // Distributor's GLN
+  originalLot: string,    // Manufacturer's lot (if known)
+  timestamp: Date
+): string {
+  const glnSuffix = orgGln.slice(-4);  // Last 4 digits of GLN
+  const dateStr = timestamp.toISOString().slice(0, 10).replace(/-/g, '');
+
+  if (originalLot) {
+    // Preserve traceability to original lot
+    return `${glnSuffix}-${originalLot}`;
+  }
+
+  // Generate unique lot for distributor
+  return `${glnSuffix}-${dateStr}-${nanoid(6)}`;
+}
+
+// Example outputs:
+// - Original lot known: "7890-LOT-A001" (links to manufacturer)
+// - No original lot:    "7890-20260112-Xa3bK9" (unique per distributor)
+```
+
+**UI Guidance:**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  CREATE RECEIVING BATCH (Distributor Mode)                                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Product: BrandCo Organic T-Shirt (GTIN: 4012345012345)                     │
+│  ℹ️ You are creating a batch for a product you distribute, not manufacture. │
+│                                                                              │
+│  Manufacturer's Lot Number (from delivery note):                            │
+│  ┌─────────────────────────────────────────┐                                │
+│  │ LOT-A001                                │ ← If provided, we'll link to it │
+│  └─────────────────────────────────────────┘                                │
+│                                                                              │
+│  Your Internal Lot Number:                                                  │
+│  ┌─────────────────────────────────────────┐                                │
+│  │ 7890-LOT-A001                           │ ← Auto-prefixed with your GLN  │
+│  └─────────────────────────────────────────┘                                │
+│  ⚠️ Prefixed with your GLN (7890) to prevent collision with other          │
+│     distributors selling the same product.                                  │
+│                                                                              │
+│                                              [Create Batch]                 │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Database Enforcement:**
+
+```prisma
+model BatchRecord {
+  // ... existing fields ...
+
+  // For distributors: track if this is resold product
+  isDistributedProduct    Boolean   @default(false)
+  manufacturerLotNumber   String?   // Original lot from manufacturer
+  organizationGlnPrefix   String?   // Our GLN prefix added to lot
+
+  // Validation: distributed products MUST have GLN prefix
+  // Enforced at application layer, not database constraint
+}
+```
+
+**When This Matters:**
+- Multi-tenant EPCIS queries (e.g., GS1 Global EPCIS network)
+- Cross-organization supply chain audits
+- Consumer-facing provenance tracking (scanning QR code)
+
+**When This Doesn't Matter:**
+- Organization-scoped queries (our default)
+- Single-source manufacturing (you own the GTIN)
+- Internal inventory management
+
+```typescript
 // SSCC (Serial Shipping Container Code) - logistics units
 // urn:epc:id:sscc:<company>.<serial>
 const sscc = 'urn:epc:id:sscc:0614141.1234567890';
