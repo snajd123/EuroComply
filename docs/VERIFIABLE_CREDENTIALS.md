@@ -1270,6 +1270,166 @@ The status list itself is a signed VC:
 - **Dormant Hosting**: Status list remains frozen (no new revocations possible, existing revocations preserved)
 - **Self-Managed/GS1**: Customer exports status list and hosts it themselves
 
+### Portability vs. Revocation: Architectural Tradeoff
+
+**The Tension:**
+
+did:key provides offline signature verification, but Status List 2021 requires network access for revocation checks. This creates a dependency that limits true portability:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│            PORTABILITY vs. REVOCATION TRADEOFF                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  WHAT did:key PROVIDES (fully portable):                                    │
+│  ✓ Signature verification - works offline, forever                          │
+│  ✓ Issuer identity - embedded in the key itself                             │
+│  ✓ Tamper detection - cryptographic proof                                   │
+│                                                                              │
+│  WHAT Status List 2021 REQUIRES (creates dependency):                       │
+│  ✗ Network access to fetch status list                                      │
+│  ✗ Status list URL hardcoded in issued VCs                                  │
+│  ✗ Cannot change URL without re-issuing all VCs                             │
+│                                                                              │
+│  ISSUED VC CONTAINS:                                                        │
+│  "statusListCredential": "https://api.eurocomply.eu/v1/status/org_abc123"   │
+│                          ─────────────────────────────────────────────────  │
+│                          This URL is IMMUTABLE after issuance               │
+│                                                                              │
+│  AFTER EXPORT, ORGANIZATIONS CANNOT:                                        │
+│  • Revoke credentials (unless they maintain the hosted URL)                 │
+│  • Change where the status list is hosted                                   │
+│  • Update already-issued VCs to point elsewhere                             │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Options for True Independence
+
+| Option | Revocation Control | Complexity | Cost |
+|--------|-------------------|------------|------|
+| **Dormant Hosting** | Frozen (no new revocations) | None | €19/month |
+| **Self-Hosted Status List** | Full control | Medium | Your hosting costs |
+| **GS1 Resolver Redirect** | Full control + domain portability | Medium | GS1 registration |
+| **No Revocation** | N/A (signature-only verification) | None | Free |
+
+### Self-Hosted Status List Setup
+
+For organizations that want full independence **before** issuing VCs:
+
+```typescript
+// 1. Configure your status list URL at setup time
+const orgSettings = {
+  statusListBaseUrl: 'https://your-domain.com/credentials/status',
+  // NOT https://api.eurocomply.eu/v1/status/{orgId}
+};
+
+// 2. VCs will be issued with YOUR URL
+// {
+//   "credentialStatus": {
+//     "statusListCredential": "https://your-domain.com/credentials/status/list-1"
+//   }
+// }
+
+// 3. Export includes status list for self-hosting
+const exportPackage = await exportOrganizationData({
+  includeStatusList: true,  // Exports current status list credential
+  includeStatusListKey: true, // Key to sign updated status lists
+});
+```
+
+**For already-issued VCs pointing to EuroComply:**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  OPTIONS FOR EXISTING VCs                                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  1. DORMANT HOSTING (recommended for most)                                  │
+│     • EuroComply continues hosting status list                              │
+│     • Existing revocations preserved                                        │
+│     • No new revocations possible                                           │
+│     • €19/month                                                              │
+│                                                                              │
+│  2. RE-ISSUE WITH NEW URL                                                   │
+│     • Issue new VCs with your status list URL                               │
+│     • Revoke old VCs                                                        │
+│     • Update QR codes on products                                           │
+│     • Complex but provides full independence                                │
+│                                                                              │
+│  3. ACCEPT SIGNATURE-ONLY VERIFICATION                                      │
+│     • Let EuroComply URL expire after subscription ends                     │
+│     • Verifiers see: "Signature valid, revocation status unavailable"       │
+│     • Appropriate for low-risk products                                     │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Export Package Contents
+
+The standard export package includes:
+
+| Included | Not Included (requires separate export) |
+|----------|----------------------------------------|
+| All issued VCs (JSON + JWT) | Status list credential |
+| Organization DID + private key | Status list signing key |
+| Viewer HTML | Status list hosting code |
+| Images (base64 mode) | |
+
+**To export status list for self-hosting:**
+
+```typescript
+// Request full export with status list
+const fullExport = await eurocomply.export({
+  format: 'full-independence',
+  include: {
+    credentials: true,
+    statusList: true,
+    statusListSigningKey: true,
+    hostingInstructions: true, // README with setup guide
+  }
+});
+
+// fullExport contains:
+// - credentials/*.json (all issued VCs)
+// - status-list/current.json (current status list credential)
+// - status-list/signing-key.jwk (to sign updated lists)
+// - HOSTING.md (setup instructions for self-hosting)
+```
+
+### Self-Hosting Requirements
+
+To host your own status list:
+
+1. **Static file hosting** - Status list is a signed JSON file
+2. **CORS headers** - Allow cross-origin requests from verifiers
+3. **HTTPS** - Required for security
+4. **Signing capability** - To update status list when revoking
+
+```typescript
+// Minimal self-hosted status list server
+import express from 'express';
+import { signStatusList } from '@eurocomply/identity';
+
+const app = express();
+
+// Serve current status list
+app.get('/credentials/status/list-1', (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.json(currentStatusListCredential);
+});
+
+// Revoke a credential (internal API)
+app.post('/internal/revoke', async (req, res) => {
+  const { vcId, index } = req.body;
+  statusBitstring[index] = 1;
+  currentStatusListCredential = await signStatusList(statusBitstring, orgPrivateKey);
+  res.json({ success: true });
+});
+```
+
+**Key Point:** Self-hosting status lists is straightforward but must be configured **before** issuing VCs. Already-issued VCs cannot be migrated to a new status list URL.
+
 ### Verification Flow with Status Check
 
 ```typescript
