@@ -143,6 +143,40 @@ Each workspace owns and versions its own data independently:
 
 **Compliance Write Behavior:** While Compliance has read-only access to Design, Marketing, and Operations data, the "ISSUE" operation writes to Compliance-owned tables: `Passport` (the issued VC) and `DPPSnapshot` (the immutable data capture). This maintains separation of concerns - Compliance cannot modify source data, only create signed snapshots of it.
 
+#### Compliance Workspace Data Flow
+
+The "READ + ISSUE" access pattern means Compliance has a **split data flow**:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                 COMPLIANCE WORKSPACE DATA FLOW                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  READS FROM (cannot modify):              WRITES TO (owns):                 │
+│  ─────────────────────────────            ─────────────────                 │
+│  ┌─────────────────────────┐              ┌─────────────────────────┐       │
+│  │ DesignVersion           │──────┐       │ Passport                │       │
+│  │ (BOM, materials, specs) │      │       │ (issued VC, QR code)    │       │
+│  └─────────────────────────┘      │       └─────────────────────────┘       │
+│  ┌─────────────────────────┐      │              ▲                          │
+│  │ MarketingVersion        │──────┼──► ISSUE ────┤                          │
+│  │ (descriptions, media)   │      │   OPERATION  │                          │
+│  └─────────────────────────┘      │              ▼                          │
+│  ┌─────────────────────────┐      │       ┌─────────────────────────┐       │
+│  │ BatchRecord             │──────┘       │ DPPSnapshot             │       │
+│  │ (production records)    │              │ (immutable data capture)│       │
+│  └─────────────────────────┘              └─────────────────────────┘       │
+│  ┌─────────────────────────┐                                                │
+│  │ Attestation             │──────────────────────────────────────────►     │
+│  │ (third-party claims)    │  (Attestations are linked by reference,        │
+│  └─────────────────────────┘   not copied into DPPSnapshot)                 │
+│                                                                              │
+│  KEY PRINCIPLE: Compliance cannot modify upstream data.                     │
+│  It creates signed snapshots that reference specific versions.              │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
 #### Versioned Data vs. DPP Snapshot
 
 | Workspace Data | DPP Snapshot |
