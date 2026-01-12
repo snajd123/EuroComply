@@ -1134,6 +1134,315 @@ See [EPCIS_INTEGRATION.md](./EPCIS_INTEGRATION.md) for full EPCIS event flows an
 
 ---
 
+## Error Handling & Resilience
+
+### API Error Response Standard
+
+All API endpoints return consistent error responses:
+
+```typescript
+// Standard Error Response
+interface ApiErrorResponse {
+  success: false;
+  error: {
+    code: string;           // Machine-readable: "VALIDATION_ERROR", "RATE_LIMIT_EXCEEDED"
+    message: string;        // Human-readable: "Invalid GTIN format"
+    details?: {
+      field?: string;       // Which field failed
+      reason?: string;      // Why it failed
+      retryAfter?: number;  // Seconds until retry allowed
+      retryable: boolean;   // Can client retry this request?
+    };
+  };
+  meta: {
+    requestId: string;      // For support/debugging
+    timestamp: string;      // ISO 8601
+  };
+}
+```
+
+**Error Code Taxonomy:**
+
+| Code | HTTP | Retryable | Description |
+|------|------|-----------|-------------|
+| `VALIDATION_ERROR` | 400 | No | Invalid input data |
+| `AUTHENTICATION_REQUIRED` | 401 | No | Missing or invalid API key |
+| `INSUFFICIENT_PERMISSIONS` | 403 | No | API key lacks required scope |
+| `RESOURCE_NOT_FOUND` | 404 | No | Passport, credential, etc. not found |
+| `RESOURCE_CONFLICT` | 409 | No | Duplicate GTIN, state conflict |
+| `RATE_LIMIT_EXCEEDED` | 429 | Yes | Too many requests |
+| `DEPENDENCY_UNAVAILABLE` | 503 | Yes | External service down |
+| `INTERNAL_ERROR` | 500 | Yes | Unexpected server error |
+
+### Retry Policies
+
+Different operations have different retry strategies:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  RETRY POLICY MATRIX                                            │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Operation              │ Retries │ Backoff    │ Max Wait       │
+│  ───────────────────────┼─────────┼────────────┼────────────────│
+│  API Requests (client)  │ 3       │ Exp 1s     │ 30s            │
+│  Stripe Webhooks        │ 5       │ Exp 30s    │ 24h (Stripe)   │
+│  EPCIS Event Push       │ 5       │ Exp 5s     │ 5 minutes      │
+│  GS1 Resolver Lookup    │ 3       │ Exp 2s     │ 30s            │
+│  File Generation (R2)   │ 3       │ Exp 1s     │ 10s            │
+│  Email Delivery         │ 5       │ Exp 60s    │ 1 hour         │
+│  Credential Issuance    │ 2       │ Fixed 2s   │ 10s            │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+
+Backoff Formula: delay = min(base * 2^attempt, maxWait)
+```
+
+**BullMQ Job Retry Configuration:**
+
+```typescript
+// Queue-specific retry policies
+const retryPolicies = {
+  'file-generation': {
+    attempts: 3,
+    backoff: { type: 'exponential', delay: 1000 },
+  },
+  'epcis-push': {
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 5000 },
+  },
+  'email-delivery': {
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 60000 },
+  },
+  'credential-issuance': {
+    attempts: 2,
+    backoff: { type: 'fixed', delay: 2000 },
+  },
+};
+```
+
+### Circuit Breaker Patterns
+
+External dependencies use circuit breakers to prevent cascade failures:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  CIRCUIT BREAKER STATE MACHINE                                  │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│    ┌────────┐     5 failures     ┌────────┐                     │
+│    │ CLOSED │ ─────────────────► │  OPEN  │                     │
+│    │(normal)│                    │(reject)│                     │
+│    └────────┘                    └────────┘                     │
+│         ▲                             │                          │
+│         │                             │ 30s timeout              │
+│         │ success                     ▼                          │
+│         │                       ┌──────────┐                     │
+│         └────────────────────── │HALF-OPEN │                     │
+│                                 │ (probe)  │                     │
+│                                 └──────────┘                     │
+│                                       │                          │
+│                              failure  │                          │
+│                                       ▼                          │
+│                                 Back to OPEN                     │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Circuit Breaker Configuration per Dependency:**
+
+| Dependency | Failure Threshold | Timeout | Half-Open Probes |
+|------------|-------------------|---------|------------------|
+| Stripe API | 5 failures/60s | 30s | 1 request |
+| EPCIS Repository | 5 failures/60s | 30s | 1 request |
+| GS1 Resolver | 3 failures/30s | 15s | 1 request |
+| Email Service | 5 failures/120s | 60s | 1 request |
+| R2 Storage | 3 failures/30s | 15s | 1 request |
+
+**Implementation Pattern:**
+
+```typescript
+// Circuit breaker wrapper (conceptual)
+interface CircuitBreakerConfig {
+  failureThreshold: number;  // Failures before opening
+  successThreshold: number;  // Successes in half-open to close
+  timeout: number;           // Time in open state before half-open
+}
+
+// When circuit is OPEN, requests fail immediately with:
+{
+  success: false,
+  error: {
+    code: "DEPENDENCY_UNAVAILABLE",
+    message: "Stripe service temporarily unavailable",
+    details: {
+      retryable: true,
+      retryAfter: 30,
+      dependency: "stripe"
+    }
+  }
+}
+```
+
+### Graceful Degradation Matrix
+
+When dependencies fail, the system degrades gracefully rather than failing completely:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  GRACEFUL DEGRADATION MATRIX                                    │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Dependency Down      │ Impact              │ Mitigation         │
+│  ─────────────────────┼─────────────────────┼────────────────────│
+│  Stripe               │ No new signups      │ Queue signups,     │
+│                       │ No billing updates  │ process when back  │
+│  ─────────────────────┼─────────────────────┼────────────────────│
+│  EPCIS Repository     │ Events not pushed   │ Queue events,      │
+│                       │                     │ retry with backoff │
+│  ─────────────────────┼─────────────────────┼────────────────────│
+│  GS1 Resolver         │ No GTIN lookup      │ Cache lookups,     │
+│                       │                     │ allow manual entry │
+│  ─────────────────────┼─────────────────────┼────────────────────│
+│  R2 Storage           │ No file serving     │ Cloudflare cache   │
+│                       │                     │ continues serving  │
+│  ─────────────────────┼─────────────────────┼────────────────────│
+│  PostgreSQL           │ Full outage         │ Read replicas for  │
+│                       │                     │ read-only mode     │
+│  ─────────────────────┼─────────────────────┼────────────────────│
+│  Redis                │ No caching/queuing  │ Fallback to        │
+│                       │                     │ PostgreSQL queues  │
+│  ─────────────────────┼─────────────────────┼────────────────────│
+│  Email Service        │ No notifications    │ Queue emails,      │
+│                       │                     │ retry when back    │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Degradation Levels:**
+
+| Level | State | User Experience |
+|-------|-------|-----------------|
+| **Full** | All systems operational | Normal operation |
+| **Degraded** | Non-critical dependency down | Core features work, some delayed |
+| **Maintenance** | Planned downtime | Read-only mode, banner displayed |
+| **Emergency** | Critical failure | Static error page, status page link |
+
+### Timeout Configuration
+
+Every external call has explicit timeouts:
+
+```typescript
+// Timeout configuration per service
+const timeouts = {
+  // External APIs
+  stripe: {
+    connect: 5000,    // 5s connection timeout
+    read: 30000,      // 30s read timeout (webhooks can be slow)
+  },
+  epcis: {
+    connect: 5000,
+    read: 10000,      // 10s for event operations
+  },
+  gs1Resolver: {
+    connect: 3000,
+    read: 5000,       // 5s for GTIN lookups
+  },
+
+  // Internal services
+  database: {
+    query: 5000,      // 5s default query timeout
+    transaction: 30000, // 30s for complex transactions
+  },
+  redis: {
+    connect: 1000,
+    command: 500,     // Sub-second for cache ops
+  },
+  r2Storage: {
+    upload: 60000,    // 60s for large file uploads
+    download: 30000,  // 30s for downloads
+  },
+};
+```
+
+### Health Check Endpoints
+
+```
+GET /health          → Basic liveness (always returns 200 if process alive)
+GET /health/ready    → Readiness (checks all dependencies)
+GET /health/detailed → Full dependency status (requires auth)
+```
+
+**Readiness Check Response:**
+
+```json
+{
+  "status": "healthy",
+  "timestamp": "2026-01-12T10:00:00Z",
+  "checks": {
+    "database": { "status": "healthy", "latency": 5 },
+    "redis": { "status": "healthy", "latency": 1 },
+    "r2": { "status": "healthy", "latency": 15 },
+    "stripe": { "status": "degraded", "circuit": "open" },
+    "epcis": { "status": "healthy", "latency": 45 }
+  },
+  "degradedDependencies": ["stripe"]
+}
+```
+
+### Error Logging Standards
+
+All errors are logged with consistent structure:
+
+```typescript
+// Error log structure
+interface ErrorLog {
+  level: 'error' | 'warn';
+  message: string;
+  error: {
+    name: string;
+    message: string;
+    stack?: string;
+  };
+  context: {
+    requestId: string;
+    userId?: string;
+    organizationId?: string;
+    operation: string;
+    dependency?: string;
+  };
+  metadata: {
+    timestamp: string;
+    environment: string;
+    version: string;
+  };
+}
+
+// Example log output
+{
+  "level": "error",
+  "message": "EPCIS event push failed",
+  "error": {
+    "name": "TimeoutError",
+    "message": "Request timed out after 10000ms"
+  },
+  "context": {
+    "requestId": "req_abc123",
+    "organizationId": "org_xyz789",
+    "operation": "epcis.pushEvent",
+    "dependency": "epcis"
+  },
+  "metadata": {
+    "timestamp": "2026-01-12T10:00:00Z",
+    "environment": "production",
+    "version": "1.2.3"
+  }
+}
+```
+
+---
+
 ## Monitoring and Analytics
 
 ### Cloudflare Analytics (Free)
