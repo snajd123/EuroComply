@@ -200,6 +200,41 @@ Origin serves: /var/www/dpp/gtin/05901234567890/index.html (browser)
            or: /var/www/dpp/gtin/05901234567890/dpp.json (Accept: application/json)
 ```
 
+### Static vs Dynamic DPP Content
+
+DPP pages use a **hybrid approach**:
+
+| Content Type | Serving Method | Source |
+|--------------|----------------|--------|
+| Core DPP (materials, certifications, attestations) | **Static files** (CDN) | Pre-rendered at issuance |
+| Product lifecycle (EPCIS events) | **API call** (client-side) | Queried on page load |
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  PUBLIC DPP PAGE - HYBRID CONTENT                                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  STATIC (CDN - cached)                    DYNAMIC (API - live)              │
+│  ─────────────────────                    ────────────────────              │
+│  • Product identity                       • Lifecycle timeline (EPCIS)      │
+│  • Materials & composition                • Current location                │
+│  • Certifications                         • Latest events                   │
+│  • Attestations (at issuance)             • Carbon footprint updates        │
+│  • QR code                                                                  │
+│                                                                              │
+│  Browser loads:                                                             │
+│  1. Static index.html from CDN (instant)                                    │
+│  2. JavaScript fetches lifecycle from API (async, non-blocking)             │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Why hybrid?**
+- Core DPP data is immutable after issuance - perfect for static files
+- Lifecycle data changes continuously - must be dynamic
+- Static core means 99%+ cache hit rate (CDN efficiency)
+- Dynamic lifecycle adds <100ms latency (API call)
+
 ---
 
 ## DPP Issuance Flow (Write Path)

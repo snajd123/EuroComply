@@ -293,7 +293,11 @@ model Organization {
   qrLifecycleOption     QRLifecycleOption  @default(DORMANT_HOSTING)
 
   // Enabled modules (backend capabilities)
-  enabledModules        String[]  // ["core", "compliance", "pim", "dam", "import", "syndication", "epcis", "attestation"]
+  enabledModules        String[]  @default(["core", "compliance", "pim", "dam", "import", "syndication", "epcis", "attestation"])
+  // Note: All modules enabled by default for all plans. This field exists for:
+  // - Enterprise customers who may want to disable specific modules
+  // - Future use if module-based pricing is introduced
+  // - Internal testing/development environments
 
   // Default workspace (based on org type during onboarding)
   defaultWorkspace      Workspace @default(MARKETING)

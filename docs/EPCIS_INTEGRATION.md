@@ -152,7 +152,6 @@ When users perform actions in the **Operations workspace**, EuroComply **automat
 
 | Operations UI Action | EPCIS Event Type | Business Step | Disposition |
 |---------------------|------------------|---------------|-------------|
-| **Create product in Registry** | ObjectEvent (ADD) | commissioning | active |
 | **Create batch/lot** | ObjectEvent (ADD) | commissioning | active |
 | **Assign serial number** | ObjectEvent (ADD) | commissioning | active |
 | **Record goods receipt** | ObjectEvent (OBSERVE) | receiving | sellable_accessible |
@@ -755,6 +754,26 @@ const coldChainEvent: ObjectEvent = {
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+### Database Placement
+
+The hosted OpenEPCIS uses **the same AWS RDS PostgreSQL cluster** as the main EuroComply application, with tenant isolation via `organization_id`:
+
+| Component | Database | Schema |
+|-----------|----------|--------|
+| Main EuroComply (Hub) | RDS PostgreSQL | `public` schema |
+| Hosted OpenEPCIS | RDS PostgreSQL | `epcis` schema |
+
+**Why same cluster?**
+- Simplified operations (single backup, single failover)
+- Transaction support for cross-schema queries
+- Cost efficiency for Year 1-2 scale
+- Easy migration to separate cluster later if needed
+
+**Isolation:**
+- All EPCIS tables include `organization_id` column
+- Row-level security policies enforce tenant isolation
+- API keys are scoped to organization
 
 ### Capacity & Fair Use Policy
 
