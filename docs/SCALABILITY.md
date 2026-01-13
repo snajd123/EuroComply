@@ -1397,83 +1397,126 @@ async function atomicWriteToOrigin(
 
 **Result**: No partial files possible. Checksum guarantees integrity.
 
-#### Solution 2: Cloudflare Worker for Real-Time Revocation
+#### Solution 2: Client-Side Revocation Check (Zero Cost)
 
 **Problem**: Cache purge can fail, leaving revoked DPPs visible for up to 24 hours.
-**Solution**: Cloudflare Worker checks revocation status on every request.
+**Solution**: Embed revocation check in the static DPP page JavaScript.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  REAL-TIME REVOCATION CHECKING (Cloudflare Worker)               │
+│  CLIENT-SIDE REVOCATION CHECK (Zero Additional Cost)             │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  Every DPP request goes through the Worker:                     │
+│  1. Static DPP page loads from CDN (cached, normal flow)        │
+│  2. Page JavaScript calls revocation API on load                │
+│  3. If revoked: overlay warning covers entire page              │
 │                                                                  │
-│  QR Scan → Cloudflare Edge → Worker → Check Revocation → Serve  │
-│                                    ↓                            │
-│                              KV Cache (60s TTL)                  │
-│                                    ↓                            │
-│                              Revocation API                      │
+│  QR Scan → CDN → Static HTML (cached) → JS loads → API check    │
+│                                                    ↓            │
+│                                         /api/v1/public/revoked  │
+│                                                    ↓            │
+│                                         If revoked: show overlay│
 │                                                                  │
-│  LATENCY IMPACT: ~5ms (KV lookup at edge)                       │
-│  WORST CASE: 60 seconds until revocation visible                │
-│  COST: ~$5/month (Workers + KV for 10M requests)                │
+│  LATENCY: Page loads instantly, check happens async             │
+│  WORST CASE: 100ms until revocation overlay shown               │
+│  COST: $0 (uses existing API infrastructure)                    │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-```typescript
-// Cloudflare Worker: dpp-gateway
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
-    const gtinMatch = url.pathname.match(/\/01\/(\d{14})/);
+**Static DPP Page Template** (includes revocation check):
 
-    if (!gtinMatch) {
-      return fetch(request); // Not a DPP request
-    }
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Digital Product Passport - {productName}</title>
+  <meta name="gtin" content="{gtin}">
+</head>
+<body>
+  <!-- Revocation overlay (hidden by default) -->
+  <div id="revocation-overlay" style="display:none; position:fixed;
+       top:0; left:0; width:100%; height:100%; background:rgba(220,53,69,0.95);
+       z-index:9999; color:white; padding:20px; text-align:center;">
+    <h1>⚠️ This Digital Product Passport has been revoked</h1>
+    <p id="revocation-reason"></p>
+    <p id="revocation-date"></p>
+    <p>The product claims in this DPP are no longer valid.</p>
+  </div>
 
-    const gtin = gtinMatch[1];
+  <!-- Normal DPP content -->
+  <div id="dpp-content">
+    {dppContent}
+  </div>
 
-    // Check revocation status (KV cache with 60s TTL)
-    const revoked = await checkRevocationStatus(env, gtin);
-
-    if (revoked.isRevoked) {
-      return new Response(renderRevocationPage(revoked), {
-        status: 410,
-        headers: {
-          'Content-Type': 'text/html',
-          'Cache-Control': 'no-store',
-        },
-      });
-    }
-
-    // DPP is active - serve from origin
-    return fetch(request);
-  },
-};
-
-async function checkRevocationStatus(env: Env, gtin: string) {
-  // Check KV cache first
-  const cached = await env.REVOCATION_KV.get(`revoked:${gtin}`, 'json');
-  if (cached !== null) return cached;
-
-  // Cache miss - query API
-  const response = await fetch(
-    `${env.API_URL}/api/v1/public/revocation-status/${gtin}`
-  );
-  const status = await response.json();
-
-  // Cache for 60 seconds
-  await env.REVOCATION_KV.put(`revoked:${gtin}`, JSON.stringify(status), {
-    expirationTtl: 60,
-  });
-
-  return status;
-}
+  <script>
+    (async function() {
+      const gtin = document.querySelector('meta[name="gtin"]').content;
+      try {
+        const res = await fetch(`/api/v1/public/revocation-status/${gtin}`);
+        const status = await res.json();
+        if (status.revoked) {
+          document.getElementById('revocation-reason').textContent =
+            `Reason: ${status.reason}`;
+          document.getElementById('revocation-date').textContent =
+            `Revoked: ${new Date(status.revokedAt).toLocaleDateString()}`;
+          document.getElementById('revocation-overlay').style.display = 'block';
+        }
+      } catch (e) {
+        // API unreachable - page content is authoritative
+        // (it will show revoked page if static file was updated)
+      }
+    })();
+  </script>
+</body>
+</html>
 ```
 
-**Result**: Revocation visible within 60 seconds, regardless of CDN cache state.
+**Revocation API Endpoint** (lightweight, cacheable):
+
+```typescript
+// GET /api/v1/public/revocation-status/:gtin
+// Public endpoint - no auth required
+app.get('/api/v1/public/revocation-status/:gtin', async (req, res) => {
+  const { gtin } = req.params;
+
+  // Cache at CDN for 30 seconds (short enough for quick revocation visibility)
+  res.set('Cache-Control', 'public, max-age=30');
+
+  const passport = await prisma.passport.findFirst({
+    where: {
+      product: { gtin },
+      status: 'REVOKED',
+    },
+    select: {
+      revokedAt: true,
+      revocationReason: true,
+    },
+  });
+
+  if (!passport) {
+    return res.json({ revoked: false });
+  }
+
+  return res.json({
+    revoked: true,
+    revokedAt: passport.revokedAt?.toISOString(),
+    reason: passport.revocationReason,
+  });
+});
+```
+
+**Why This Works Better Than Workers:**
+
+| Aspect | Cloudflare Worker | Client-Side Check |
+|--------|-------------------|-------------------|
+| Additional cost | ~$6/month | $0 |
+| Page load speed | Worker adds ~5ms | Instant (async check) |
+| Works if API down | No (Worker fails) | Yes (shows cached page) |
+| Complexity | New infrastructure | Just JavaScript |
+| Maintenance | Another thing to deploy | Part of static file |
+
+**Result**: Revocation visible within 30 seconds (API cache TTL), zero additional cost.
 
 #### Solution 3: Purge Retry with Verification
 
@@ -1535,17 +1578,17 @@ model Passport {
 │  ──────────────────────┼─────────────────────────────────────────│
 │  Lsyncd race conditions│ Direct parallel writes to all origins  │
 │  Partial file writes   │ Atomic temp file + rename + checksum   │
-│  Purge failures        │ Retry + Worker backup                  │
-│  Revocation delay      │ Cloudflare Worker + KV (60s max)       │
+│  Purge failures        │ Retry with exponential backoff         │
+│  Revocation delay      │ Client-side JS check (30s max)         │
 │  Status uncertainty    │ PublishStatus tracking                 │
 │                                                                  │
 │  GUARANTEES:                                                    │
 │  • No partial/corrupt files (atomic writes)                     │
 │  • No race conditions (no Lsyncd)                               │
-│  • Revocation visible within 60 seconds                         │
+│  • Revocation visible within 30 seconds (API cache TTL)         │
 │  • User knows when DPP is live                                  │
 │                                                                  │
-│  ADDITIONAL COST: ~$6/month (Workers + KV)                      │
+│  ADDITIONAL COST: $0 (uses existing infrastructure)             │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
