@@ -1310,6 +1310,187 @@ fileDistributionWorker.on('failed', async (job, err) => {
 | User experience | Blocked on network | Non-blocking |
 | Monitoring | None | Job status, metrics, alerts |
 
+### Dual-Path Synchronization: Honest Limitations
+
+> ⚠️ **Eventual Consistency Problem**: The dual-path architecture (AWS write path → Hetzner read path) creates synchronization challenges that documentation previously glossed over.
+
+#### The Fundamental Problem
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  WRITE PATH → READ PATH: EVENTUAL CONSISTENCY                    │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  DPP Issued                                                     │
+│  ─────────────                                                  │
+│  1. PostgreSQL: Passport created (instant)           t=0        │
+│  2. Queue: File push job enqueued                    t=100ms    │
+│  3. Worker: Job picked up                            t=500ms    │
+│  4. Origin 1: Files written via SCP                  t=2-5s     │
+│  5. Lsyncd: Propagates to Origin 2, 3                t=3-7s     │
+│  6. Cloudflare: Cache miss, serves new file          t=varies   │
+│                                                                  │
+│  WORST CASE: 10-30 seconds from issuance to globally available │
+│  TYPICAL: 3-7 seconds                                           │
+│  BEST CASE: 2-3 seconds (if Cloudflare cache miss immediate)   │
+│                                                                  │
+│  DURING THIS WINDOW:                                            │
+│  • Database says "DPP is ACTIVE"                                │
+│  • Read path may serve 404 or stale content                     │
+│  • User sees inconsistent state                                 │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### Failure Scenarios Not Fully Addressed
+
+**1. rsync/SCP Failure Mid-Sync**
+
+| Scenario | What Happens | Impact |
+|----------|--------------|--------|
+| Network timeout during file transfer | Partial file on origin | Corrupt DPP page (HTML/JSON truncated) |
+| Origin disk full | Write fails silently | Missing files, 404 errors |
+| SSH connection dropped | Retry from start | Extended propagation delay |
+| File permission issues | Write fails | Permanent 403 until manual fix |
+
+**Current mitigation**: Queue-based retry (3 attempts, exponential backoff)
+**Gap**: No checksum verification after transfer. Partial file corruption possible.
+
+**2. Lsyncd Race Conditions**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  LSYNCD RACE CONDITION SCENARIO                                  │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  SETUP: Primary origin (Origin 1) runs Lsyncd to replicas       │
+│                                                                  │
+│  PROBLEM SCENARIO:                                              │
+│  t=0    Worker A writes DPP v1 files to Origin 1                │
+│  t=1s   Lsyncd detects changes, starts sync to Origin 2, 3      │
+│  t=1.5s Worker B writes DPP v2 files to Origin 1 (update)       │
+│  t=2s   Lsyncd completes v1 sync to Origin 2                    │
+│  t=2.5s Lsyncd detects v2, starts new sync                      │
+│  t=3s   Origin 3 has v1, Origin 2 has partial v2                │
+│                                                                  │
+│  RESULT: Inconsistent state across origins for ~2-5 seconds     │
+│                                                                  │
+│  WHY LSYNCD CAN'T PREVENT THIS:                                 │
+│  • Lsyncd uses inotify (file change events)                     │
+│  • No distributed locking between origins                       │
+│  • No transaction guarantees across servers                     │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Current mitigation**: None. We rely on low update frequency.
+**Gap**: Rapid successive updates can cause inconsistent origin states.
+
+**3. Cloudflare Cache Invalidation Gaps**
+
+| Issue | Description | Impact |
+|-------|-------------|--------|
+| Purge API failure | Cloudflare API times out or returns error | Stale content served until TTL expires (24h) |
+| Edge propagation delay | Purge request takes 1-30s to reach all 300+ edges | Some users see old content briefly |
+| Purge rate limits | Cloudflare limits purge requests per zone | Bulk revocations may queue up |
+| Cached at browser | Browser honors Cache-Control header | User may see old content despite CDN purge |
+
+**Current mitigation**: Purge on revocation, but no retry on API failure
+**Gap**: No verification that purge completed successfully across all edges
+
+**4. Propagation Delay During Revocation**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  REVOCATION: WHEN IS IT ACTUALLY VISIBLE?                        │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  TIMELINE:                                                      │
+│  t=0     Admin clicks "Revoke DPP" in UI                        │
+│  t=100ms Database: Passport status = REVOKED                    │
+│  t=200ms Queue: File push job for revocation page enqueued      │
+│  t=1-3s  Origins: Revoked page written (with retry)             │
+│  t=2-5s  Cloudflare API: Cache purge requested                  │
+│  t=5-30s Cloudflare edges: Purge propagates                     │
+│                                                                  │
+│  DURING THIS WINDOW (up to 30 seconds):                         │
+│  • API says DPP is REVOKED                                      │
+│  • Read path may still serve ACTIVE content                     │
+│  • QR scan shows valid-looking DPP                              │
+│                                                                  │
+│  WORST CASE (purge fails):                                      │
+│  • Stale content served until TTL (24 hours)                    │
+│  • Manual intervention required                                 │
+│                                                                  │
+│  LEGAL/COMPLIANCE RISK:                                         │
+│  • Revoked product claims visible for minutes to hours          │
+│  • Consumer/regulator sees outdated information                 │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### What We're Not Doing (Trade-offs)
+
+| Alternative | Why Not |
+|-------------|---------|
+| Real-time database replication | Cost prohibitive at scale, adds latency to write path |
+| Write-through CDN (Cloudflare Workers + KV) | Higher complexity, per-request costs |
+| Single origin (no Lsyncd) | Single point of failure, no geographic redundancy |
+| Synchronous file distribution | Blocks DPP issuance on network latency |
+| Shorter CDN TTL | More origin traffic, higher costs, reduced performance |
+
+#### Mitigation Roadmap
+
+| Improvement | Status | Priority |
+|-------------|--------|----------|
+| Checksum verification after SCP transfer | ❌ Not implemented | High |
+| Retry logic for Cloudflare purge failures | ❌ Not implemented | High |
+| Health check endpoint per origin | ⚠️ Basic only | Medium |
+| Distributed file locking (prevent Lsyncd races) | ❌ Not implemented | Medium |
+| Purge completion verification | ❌ Not implemented | Medium |
+| Browser cache-busting on revocation | ❌ Not implemented | Low |
+
+#### Recommended Monitoring (Not Yet Implemented)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  SYNCHRONIZATION MONITORING (PROPOSED)                           │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  METRICS TO TRACK:                                              │
+│  • Time from DPP issuance to origin file available              │
+│  • Origin file consistency (checksum across all 3)              │
+│  • Cloudflare purge success rate                                │
+│  • Purge propagation time to sample edges                       │
+│  • Database vs read path version mismatch count                 │
+│                                                                  │
+│  ALERTS:                                                        │
+│  • File push job failed after all retries                       │
+│  • Origin checksum mismatch (inconsistent state)                │
+│  • Cloudflare purge failed                                      │
+│  • Revocation not visible on read path after 60s                │
+│                                                                  │
+│  STATUS: 📋 Not implemented. Requires engineering investment.   │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### Honest Assessment
+
+**For typical DPP usage (new issuance, rare updates):**
+- Eventual consistency is acceptable (3-7 second delay)
+- Users rarely notice propagation delay
+
+**For revocation (time-sensitive):**
+- Current architecture has unacceptable gaps
+- Up to 24 hours of stale content possible if purge fails
+- Needs engineering investment to guarantee visibility
+
+**Recommendation for high-compliance scenarios:**
+- Don't rely solely on CDN cache purge for revocation visibility
+- Implement real-time verification via API (already supports this)
+- Consider Cloudflare Workers for dynamic revocation checking
+
 ---
 
 ## Revocation Handling
