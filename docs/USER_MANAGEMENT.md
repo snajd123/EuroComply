@@ -3206,7 +3206,456 @@ This creates an audit trail for compliance and enables peer review of admin acti
 
 ---
 
-## 13. Related Documentation
+## 14. Scaling Access Management
+
+### The Problem: Combinatorial Explosion
+
+The base model of 4 workspaces × 4 authority levels × N users creates management complexity:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  COMPLEXITY ANALYSIS                                                         │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  10 users  → 10 × 4 = 40 permission entries to manage                       │
+│  50 users  → 50 × 4 = 200 permission entries                                │
+│  200 users → 200 × 4 = 800 permission entries                               │
+│                                                                              │
+│  PROBLEMS:                                                                   │
+│  • No way to say "all product team members get X"                           │
+│  • Onboarding new hire requires 4+ manual permission grants                 │
+│  • Role change requires updating each workspace individually                │
+│  • No audit trail showing WHO changed WHAT permission WHEN                  │
+│  • No temporary access for contractors/auditors                             │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Solution 1: Team-Based Permissions
+
+**Users belong to Teams. Teams have workspace permissions. Users inherit permissions from their teams.**
+
+```typescript
+model Team {
+  id              String   @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id])
+
+  name            String   // "Product Team", "Compliance Team", etc.
+  description     String?
+
+  // Team-level workspace permissions
+  workspaceAccess TeamWorkspaceAccess[]
+
+  // Members
+  members         TeamMember[]
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([organizationId, name])
+}
+
+model TeamMember {
+  id        String   @id @default(cuid())
+  teamId    String
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([teamId, userId])
+}
+
+model TeamWorkspaceAccess {
+  id        String    @id @default(cuid())
+  teamId    String
+  team      Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  workspace Workspace
+  authority Authority
+
+  @@unique([teamId, workspace])
+}
+```
+
+**Permission Resolution (Highest Wins):**
+
+```typescript
+function getEffectiveAuthority(
+  userId: string,
+  workspace: Workspace
+): Authority | null {
+  // 1. Get user's direct permissions
+  const directAccess = await prisma.workspaceAccess.findUnique({
+    where: { userId_workspace: { userId, workspace } },
+  });
+
+  // 2. Get user's team permissions (highest wins)
+  const teamPermissions = await prisma.teamMember.findMany({
+    where: { userId },
+    include: {
+      team: {
+        include: {
+          workspaceAccess: { where: { workspace } },
+        },
+      },
+    },
+  });
+
+  const teamAuthorities = teamPermissions
+    .flatMap(tm => tm.team.workspaceAccess)
+    .map(wa => wa.authority);
+
+  // 3. Resolve: highest of (direct, all teams)
+  const allAuthorities = [
+    directAccess?.authority,
+    ...teamAuthorities,
+  ].filter(Boolean);
+
+  if (allAuthorities.length === 0) return null;
+
+  return maxAuthority(allAuthorities);
+}
+```
+
+**Team Examples:**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  TEAM CONFIGURATION                                                          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  PRODUCT TEAM (12 members)                                                   │
+│  ├── Design: EDITOR                                                          │
+│  ├── Operations: VIEWER                                                      │
+│  ├── Marketing: CONTRIBUTOR                                                  │
+│  └── Compliance: -                                                           │
+│                                                                              │
+│  SUPPLY CHAIN TEAM (8 members)                                               │
+│  ├── Design: VIEWER                                                          │
+│  ├── Operations: EDITOR                                                      │
+│  ├── Marketing: -                                                            │
+│  └── Compliance: VIEWER                                                      │
+│                                                                              │
+│  LEADERSHIP TEAM (4 members)                                                 │
+│  ├── Design: MANAGER                                                         │
+│  ├── Operations: MANAGER                                                     │
+│  ├── Marketing: MANAGER                                                      │
+│  └── Compliance: MANAGER                                                     │
+│                                                                              │
+│  EXTERNAL AUDITORS (2 members, temporary)                                    │
+│  ├── Design: VIEWER                                                          │
+│  ├── Operations: VIEWER                                                      │
+│  ├── Marketing: VIEWER                                                       │
+│  └── Compliance: VIEWER                                                      │
+│  └── Expires: 2026-02-15                                                     │
+│                                                                              │
+│  MANAGEMENT IMPACT:                                                          │
+│  • New hire: Add to "Product Team" → Done (1 action vs 4)                    │
+│  • Role change: Move between teams → Done                                    │
+│  • Temp access: Add to expiring team → Auto-cleanup                          │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Solution 2: Permission Inheritance
+
+**Organization defaults → Team grants → User overrides**
+
+```typescript
+model OrganizationDefaults {
+  id              String       @id @default(cuid())
+  organizationId  String       @unique
+  organization    Organization @relation(fields: [organizationId], references: [id])
+
+  // Default workspace access for new internal users
+  // Format: { "DESIGN": "VIEWER", "OPERATIONS": null, ... }
+  defaultWorkspaceAccess Json
+
+  updatedAt DateTime @updatedAt
+}
+
+// Permission inheritance chain
+function resolvePermissions(userId: string, workspace: Workspace): Authority | null {
+  // Priority: User direct > Team highest > Org default
+
+  // 1. User direct override (explicit grant)
+  const userDirect = getUserDirectAccess(userId, workspace);
+  if (userDirect) return userDirect;
+
+  // 2. Team permissions (highest wins if multiple teams)
+  const teamAuthority = getTeamAuthority(userId, workspace);
+  if (teamAuthority) return teamAuthority;
+
+  // 3. Organization defaults (fallback)
+  return getOrgDefaultAccess(userId, workspace);
+}
+```
+
+**Inheritance Visualization:**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  PERMISSION INHERITANCE CHAIN                                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ORGANIZATION DEFAULTS                                                       │
+│  └── Design: VIEWER, Operations: -, Marketing: -, Compliance: -             │
+│          │                                                                   │
+│          ▼ (inherited unless overridden)                                    │
+│  TEAM: "Product Team"                                                        │
+│  └── Design: EDITOR ⬆, Operations: VIEWER ⬆, Marketing: CONTRIBUTOR ⬆       │
+│          │                                                                   │
+│          ▼ (inherited unless overridden)                                    │
+│  USER: "Jane Smith"                                                          │
+│  └── Direct grant: Compliance: EDITOR ⬆                                     │
+│                                                                              │
+│  EFFECTIVE PERMISSIONS FOR JANE:                                             │
+│  ├── Design: EDITOR (from team)                                              │
+│  ├── Operations: VIEWER (from team)                                          │
+│  ├── Marketing: CONTRIBUTOR (from team)                                      │
+│  └── Compliance: EDITOR (direct grant)                                       │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Solution 3: Permission Change Audit Trail
+
+**Every permission change is logged with full context.**
+
+```typescript
+model PermissionAuditLog {
+  id              String   @id @default(cuid())
+  organizationId  String
+
+  // Who made the change
+  changedById     String
+  changedBy       User     @relation(fields: [changedById], references: [id])
+
+  // What changed
+  changeType      PermissionChangeType
+  targetType      PermissionTargetType  // USER, TEAM, ORG_DEFAULT
+  targetId        String                // userId, teamId, or orgId
+
+  // Change details
+  workspace       Workspace?
+  previousValue   String?   // e.g., "VIEWER" or null
+  newValue        String?   // e.g., "EDITOR" or null
+
+  // Context
+  reason          String?   // "Promoted to team lead"
+  expiresAt       DateTime? // If temporary access
+
+  // Metadata
+  ipAddress       String?
+  userAgent       String?
+  timestamp       DateTime  @default(now())
+
+  @@index([organizationId, timestamp])
+  @@index([targetId, targetType])
+}
+
+enum PermissionChangeType {
+  GRANT           // New permission added
+  REVOKE          // Permission removed
+  MODIFY          // Authority level changed
+  TEAM_ADD        // User added to team
+  TEAM_REMOVE     // User removed from team
+  TEAM_CREATE     // New team created
+  TEAM_DELETE     // Team deleted
+  TEAM_MODIFY     // Team permissions changed
+  ESCALATE        // Temporary elevation
+  ESCALATE_EXPIRE // Temporary elevation expired
+}
+```
+
+**Audit UI:**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  PERMISSION AUDIT LOG                                        Export CSV ⬇   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  Filters: [All Users ▼] [All Teams ▼] [All Workspaces ▼] [Last 30 days ▼]  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Jan 13, 2026 14:32                                                          │
+│  ⬆ ESCALATE   Anna Schmidt → MANAGER in Compliance (temporary)              │
+│  Changed by: Max Weber (Admin)                                               │
+│  Reason: "Audit preparation - needs DPP issuance access"                     │
+│  Expires: Jan 20, 2026 23:59                                                 │
+│                                                                              │
+│  Jan 13, 2026 11:15                                                          │
+│  👥 TEAM_ADD   Tom Mueller added to "Supply Chain Team"                      │
+│  Changed by: HR Integration (API)                                            │
+│  Inherited: Design:VIEWER, Operations:EDITOR, Compliance:VIEWER             │
+│                                                                              │
+│  Jan 12, 2026 16:45                                                          │
+│  ⬇ REVOKE    External Agency removed from Marketing                         │
+│  Changed by: Lisa Schmidt (Admin)                                            │
+│  Previous: CONTRIBUTOR                                                       │
+│  Reason: "Contract ended"                                                    │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Solution 4: Temporary Access Escalation
+
+**Time-limited permission elevation with automatic expiry.**
+
+```typescript
+model TemporaryAccess {
+  id              String    @id @default(cuid())
+  organizationId  String
+
+  // Who gets elevated access
+  userId          String
+  user            User      @relation(fields: [userId], references: [id])
+
+  // What access
+  workspace       Workspace
+  authority       Authority
+
+  // When
+  startsAt        DateTime  @default(now())
+  expiresAt       DateTime
+
+  // Why
+  reason          String
+  approvedById    String
+  approvedBy      User      @relation("TempAccessApprover", fields: [approvedById], references: [id])
+
+  // Status
+  status          TempAccessStatus @default(ACTIVE)
+  revokedAt       DateTime?
+  revokedReason   String?
+
+  createdAt       DateTime  @default(now())
+
+  @@index([userId, status])
+  @@index([expiresAt, status])
+}
+
+enum TempAccessStatus {
+  ACTIVE
+  EXPIRED
+  REVOKED
+}
+
+// Background job: expire temporary access (runs every minute)
+async function expireTemporaryAccess() {
+  const expired = await prisma.temporaryAccess.updateMany({
+    where: {
+      status: 'ACTIVE',
+      expiresAt: { lte: new Date() },
+    },
+    data: { status: 'EXPIRED' },
+  });
+
+  // Log each expiry to audit trail
+  // Notify affected users
+}
+```
+
+**Escalation Request Flow:**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  TEMPORARY ACCESS ESCALATION                                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  1. User requests elevated access                                            │
+│     ┌────────────────────────────────────────────────────────┐              │
+│     │ Request Temporary Access                                │              │
+│     │                                                         │              │
+│     │ Workspace: [Compliance ▼]                               │              │
+│     │ Level needed: [MANAGER ▼]                               │              │
+│     │ Duration: [7 days ▼]                                    │              │
+│     │ Reason: [Quarterly audit - need DPP issuance access]   │              │
+│     │                                                         │              │
+│     │ [Cancel]                    [Submit Request]            │              │
+│     └────────────────────────────────────────────────────────┘              │
+│                                                                              │
+│  2. Admins receive notification                                              │
+│     "Anna requests MANAGER access to Compliance for 7 days"                  │
+│     [Approve] [Deny] [Modify Duration]                                       │
+│                                                                              │
+│  3. If approved: access granted with countdown                               │
+│     • User notified, logged in audit trail                                  │
+│     • Dashboard shows: "Temporary access expires in 5 days"                  │
+│                                                                              │
+│  4. On expiry: auto-revoked, user notified, logged                           │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Permission Resolution with Temporary Access:**
+
+```typescript
+function getEffectiveAuthority(userId: string, workspace: Workspace): Authority | null {
+  // 1. Check temporary access first (highest priority)
+  const tempAccess = await prisma.temporaryAccess.findFirst({
+    where: {
+      userId,
+      workspace,
+      status: 'ACTIVE',
+      startsAt: { lte: new Date() },
+      expiresAt: { gt: new Date() },
+    },
+  });
+
+  if (tempAccess) return tempAccess.authority;
+
+  // 2. Normal resolution: user direct > team > org default
+  return resolvePermissions(userId, workspace);
+}
+```
+
+### Summary: Scaling from 10 to 200+ Users
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  ENTERPRISE ACCESS MANAGEMENT                                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  PROBLEM                    │ SOLUTION                                       │
+│  ──────────────────────────────────────────────────────────────────────────│
+│  Individual user config     │ Team-based permissions                        │
+│  (N × 4 entries)           │ (T teams × 4, users inherit)                  │
+│                             │                                               │
+│  Repetitive setup for       │ Organization defaults +                       │
+│  new users                 │ inheritance chain                              │
+│                             │                                               │
+│  No history of changes      │ Full audit trail:                            │
+│                             │ who/what/when/why                             │
+│                             │                                               │
+│  Permanent access for       │ Temporary access with                        │
+│  temporary needs           │ auto-expiry                                   │
+│                             │                                               │
+│  SCALING EXAMPLE (200 users, 6 teams):                                       │
+│  ─────────────────────────────────────                                       │
+│  OLD: 200 × 4 = 800 permission entries to manage                            │
+│  NEW: 6 × 4 = 24 team entries + occasional overrides                        │
+│                                                                              │
+│  New hire: Add to team → Done (1 action vs 4)                                │
+│  Contractor: Temporary team → Auto-expires                                   │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Implementation Status
+
+| Feature | Complexity | Status |
+|---------|------------|--------|
+| Team-based permissions | Medium | 📋 Planned |
+| Permission inheritance | Low | 📋 Planned |
+| Permission audit trail | Low | 📋 Planned |
+| Temporary access escalation | Medium | 📋 Planned |
+| HR system integration | High | 📋 Planned |
+
+---
+
+## 15. Related Documentation
 
 | Document | Description |
 |----------|-------------|
@@ -3219,4 +3668,4 @@ This creates an audit trail for compliance and enables peer review of admin acti
 
 ---
 
-*Last Updated: January 12, 2026*
+*Last Updated: January 13, 2026*
