@@ -16,24 +16,46 @@ EuroComply uses a **dual-path architecture** that separates:
 | **Location** | eu-central-1 (Frankfurt) | Germany + Finland / Global |
 | **Provider** | AWS | Cloudflare CDN + Hetzner (or R2 at scale) |
 | **Scaling** | Auto-scaling containers | Static files, CDN |
-| **Cost Model** | Usage-based | Fixed up to 50B scans/day |
-| **Current Capacity** | ~1,000 concurrent users | Up to 50B scans/day (Hetzner) |
-| **Scalable To** | 10,000+ users (with DB upgrade) | 1T+ scans/day (with R2 migration) |
+| **Cost Model** | Usage-based | Fixed (within bandwidth limits) |
+| **Current Capacity** | ~1,000 concurrent users | ~10-25B scans/day (see caveats) |
+| **Scalable To** | 10,000+ users (with DB upgrade) | 100B+ scans/day (with R2 migration) |
 
 ### Capacity Reality Check
 
+> ⚠️ **Important**: Headline scan numbers depend heavily on cache hit rate assumptions. Real capacity varies with traffic patterns, DPP freshness, and geographic distribution.
+
 **Current Infrastructure (as deployed):**
 - **Read path**: 3× Hetzner AX41 servers (~€150/month) behind Cloudflare CDN
-- **Write path**: 2-10 ECS Fargate tasks + db.t3.medium RDS (~$300/month)
-- **Realistic capacity**: Up to 50 billion scans/day (read), ~1,000 concurrent users (write)
+- **Write path**: 2-10 ECS Fargate tasks + db.t3.medium RDS (~$600-1,000/month realistic)
+- **Bandwidth limit**: 60TB/month across Hetzner servers
 
-**How it scales:**
-- **Cloudflare CDN handles 99%+ of read traffic** - our origin servers only see cache misses
-- At 99% cache hit rate, 50B scans/day = 500M origin hits = well within Hetzner's 60TB/month limit
-- Beyond 50B scans/day: migrate to Cloudflare R2 (documented in SCALABILITY.md, ~$2,500-11,000/month)
-- Beyond 1,000 concurrent users: upgrade RDS to db.r6g.large or larger
+**Realistic Capacity by Cache Hit Rate:**
 
-**Key insight**: The impressive scale numbers come from Cloudflare's global CDN (300+ edge locations, unlimited bandwidth), not our origin servers. Our architecture leverages CDN caching for static DPP files.
+| Cache Hit Rate | Origin Traffic | Max Scans/Day | Scenario |
+|----------------|----------------|---------------|----------|
+| 99.5% | 0.5% of scans | ~80B/day | Theoretical best case |
+| 99.0% | 1.0% of scans | ~40B/day | Optimistic |
+| 98.0% | 2.0% of scans | ~20B/day | Good deployment |
+| 95.0% | 5.0% of scans | ~8B/day | Conservative/early stage |
+
+*Math: 60TB ÷ 5KB per DPP ÷ 30 days ÷ miss_rate = max scans/day*
+
+**Why 99%+ cache hit rate is hard to achieve:**
+- **New DPPs**: First access always misses (cold cache)
+- **Geographic spread**: 300+ edge locations = fragmented cache
+- **Cache TTL expiry**: 24h default causes periodic misses
+- **Long-tail products**: Rarely-scanned DPPs miss frequently
+- **Item-level API calls**: EPCIS lifecycle data bypasses CDN entirely
+
+**Recommended claims:**
+- **Conservative**: ~10B scans/day (assumes 95% cache hit)
+- **Realistic**: ~20B scans/day (assumes 98% cache hit, mature deployment)
+- **Optimistic**: ~40B scans/day (requires 99%+ cache hit, best case)
+
+**Additional overhead not in CDN path:**
+- Item-level DPPs require API call for EPCIS events (~100ms)
+- API calls hit AWS write path, not Hetzner CDN
+- High item-level adoption increases write path load significantly
 
 ### Item-Level DPP Architecture
 
@@ -221,24 +243,26 @@ The read path handles all DPP serving (QR code scans) with fixed-cost infrastruc
 
 ### Why Not AWS for Reads?
 
+> ⚠️ **Note**: Hetzner capacity depends on cache hit rate. See "Capacity Reality Check" above. Assumes 98% cache hit rate for Hetzner column.
+
 | Metric | AWS CloudFront | Cloudflare + Hetzner (Current) | Cloudflare + R2 (Future) |
 |--------|----------------|--------------------------------|--------------------------|
-| 1B scans/day | ~$38,000/month | ~$200/month ✅ | ~$130/month |
-| 10B scans/day | ~$250,000/month | ~$200/month ✅ | ~$400/month |
-| 50B scans/day | ~$1,250,000/month | ~$200/month ✅ (limit) | ~$1,500/month |
+| 1B scans/day | ~$38,000/month | ~$185/month ✅ | ~$130/month |
+| 10B scans/day | ~$250,000/month | ~$185/month ✅ | ~$400/month |
+| 20B scans/day | ~$500,000/month | ~$185/month ⚠️ (limit at 98% cache) | ~$800/month |
+| 40B scans/day | ~$1,000,000/month | ❌ Requires 99%+ cache or R2 | ~$1,500/month |
 | 100B scans/day | ~$2,500,000/month | ❌ Requires R2 migration | ~$2,500/month |
-| 1T scans/day | ~$38,000,000/month | ❌ Requires R2 migration | ~$11,000/month |
 | Bandwidth cost | $0.085/GB | Unlimited (Cloudflare) | Unlimited (Cloudflare) |
-| Current limit | N/A | ~50B scans/day | Unlimited |
+| Realistic limit | N/A | ~20B scans/day (98% cache hit) | Unlimited |
 
-**Note**: The "Cloudflare + Hetzner" column represents our currently deployed infrastructure. R2 migration is planned but not yet deployed. See [SCALABILITY.md](docs/SCALABILITY.md) for migration triggers.
+**Note**: R2 pricing is per-operation ($0.36/million Class B reads), not bandwidth-based. At extreme scale (100B+ scans/day), R2 costs become significant. These projections assume continued Cloudflare pricing; verify current rates.
 
 **ESPR requires free DPP access.** We can't pass infrastructure costs to users. Self-hosting the read path solves this.
 
 **Scaling Strategy:**
-- Start with Hetzner (~$200/month fixed) up to 50B scans/day
-- Migrate to R2 when origin bandwidth exceeds 40TB/month
-- At trillion scale, R2 costs ~$11,000/month vs $38M/month on AWS
+- Start with Hetzner (~$185/month fixed) for realistic capacity up to ~20B scans/day
+- Monitor origin bandwidth; migrate to R2 when consistently exceeding 40TB/month
+- R2 removes bandwidth limits but adds per-operation costs
 
 ### Hetzner Origin Servers
 

@@ -547,17 +547,17 @@ EuroComply uses a **dual-path architecture** for cost-effective high-volume DPP 
 | **Read** | Origins | Hetzner (EU) | Static DPP files |
 | **Both** | Frontend | Vercel | Next.js hosting |
 
-**Why hybrid?** ESPR requires free DPP access. AWS bandwidth costs would be ~$38k/month at 1B scans/day. Cloudflare + Hetzner read path is fixed at ~$200/month for up to 50B scans/day (Cloudflare CDN handles 99%+ of traffic).
+**Why hybrid?** ESPR requires free DPP access. AWS bandwidth costs would be ~$38k/month at 1B scans/day. Cloudflare + Hetzner read path is fixed at ~$185/month for realistic capacity of ~10-20B scans/day (depends on cache hit rate).
 
 **Infrastructure Cost Breakdown:**
 
 | Path | Component | Development | Production (10K users) |
 |------|-----------|-------------|------------------------|
-| **Read** (DPP serving) | Cloudflare + Hetzner | ~$20/month | ~$200/month (fixed) |
-| **Write** (API, database) | AWS ECS/RDS/ElastiCache | ~$60/month | ~$300/month |
-| **Total** | | **~$80/month** | **~$500/month** |
+| **Read** (DPP serving) | Cloudflare + Hetzner | ~$20/month | ~$185/month (fixed) |
+| **Write** (API, database) | AWS (full stack) | ~$70/month | ~$600-1,000/month |
+| **Total** | | **~$90/month** | **~$800-1,200/month** |
 
-*Read path costs are fixed regardless of scan volume. Write path scales with active users. See [INFRASTRUCTURE.md](INFRASTRUCTURE.md) for detailed breakdown.*
+*Read path costs fixed within bandwidth limits (~60TB/month). Write path includes often-overlooked items (NAT Gateway, CloudWatch, etc.). See [INFRASTRUCTURE.md](INFRASTRUCTURE.md) for detailed breakdown and capacity caveats.*
 
 ---
 
