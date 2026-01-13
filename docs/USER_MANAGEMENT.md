@@ -1118,16 +1118,42 @@ model RoleTemplate {
 
 Version control is per-workspace. Design and Marketing have formal versions, Operations has immutable records, and Compliance has DPP snapshots.
 
+#### Status Terminology Reference
+
+> ⚠️ **Terminology Clarification**: The term "ACTIVE" appears in multiple status enums with different meanings. This section clarifies each usage.
+
+| Status Enum | "ACTIVE" Meaning | Other States |
+|-------------|------------------|--------------|
+| **VersionStatus** | Has live references (batches, DPPs in use) - cannot modify | DRAFT, PENDING_REVIEW, IN_REVIEW, RELEASED, ARCHIVED, REJECTED |
+| **DPPStatus** | Currently valid credential, not superseded or revoked | SUPERSEDED, REVOKED |
+| **PassportStatus** | Published DPP, publicly accessible | DRAFT, REVOKED |
+| **ItemInstance.status** | Physical item in active lifecycle (not yet sold/recycled) | IN_TRANSIT, SOLD, RECYCLED, RECALLED |
+| **KeyStatus** | Current signing key for organization | ROTATED, COMPROMISED |
+| **SubscriptionStatus** | Paid subscription, access granted | PAST_DUE, CANCELED, TRIALING |
+
+**Why "ACTIVE" is overloaded:**
+- Each domain has a natural concept of "currently in use" vs "historical/inactive"
+- Renaming would break API compatibility and developer expectations
+- Context (which model/enum) always disambiguates
+
+**Recommended reading pattern:**
+- `VersionStatus.ACTIVE` → "version is referenced by live operations"
+- `DPPStatus.ACTIVE` → "credential is valid"
+- `ItemInstance.status = ACTIVE` → "item is in active use"
+
 ```prisma
 // Shared version status for Design and Marketing
+// NOTE: ACTIVE here means "referenced by live operations" (batches, DPPs)
+// This is different from DPPStatus.ACTIVE which means "credential is valid"
+// See "Status Terminology Reference" table above
 enum VersionStatus {
-  DRAFT           // Being edited
+  DRAFT           // Being edited, not yet submitted
   PENDING_REVIEW  // Awaiting approval (CONTRIBUTOR workflow) - not yet claimed
   IN_REVIEW       // Claimed by a specific approver - prevents duplicate reviews
-  RELEASED        // Current version, ready for use
-  ACTIVE          // Has live references (batches, DPPs) - cannot modify
-  ARCHIVED        // No active references, historical only
-  REJECTED        // Reviewer rejected, author can revise
+  RELEASED        // Approved version, ready for use in Operations/Compliance
+  ACTIVE          // Has live references (batches in production, active DPPs) - LOCKED
+  ARCHIVED        // Superseded by newer version, no active references
+  REJECTED        // Reviewer rejected, author can revise and resubmit
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1472,10 +1498,13 @@ async function createBatch_WRONG(...) {
 // COMPLIANCE WORKSPACE - Immutable DPP Snapshots
 // ═══════════════════════════════════════════════════════════════════════════
 
+// NOTE: DPPStatus.ACTIVE means "credential is currently valid"
+// This is different from VersionStatus.ACTIVE which means "has live references"
+// See "Status Terminology Reference" section above for clarification
 enum DPPStatus {
-  ACTIVE
-  SUPERSEDED
-  REVOKED
+  ACTIVE      // Credential is valid, not superseded or revoked
+  SUPERSEDED  // Replaced by newer version (old version still verifiable)
+  REVOKED     // Invalidated, should not be trusted
 }
 
 model DPPSnapshot {
