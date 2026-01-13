@@ -921,876 +921,262 @@ All vendors assessed for:
 
 ## 13. Multi-Tenancy Security
 
-EuroComply uses a **shared database, row-level security** model for multi-tenancy. All organizations share the same PostgreSQL cluster, with strict isolation enforced at multiple layers.
+EuroComply uses a **schema-per-tenant** model with seven layers of defense. Security is not a premium feature—every pricing tier receives genuine data isolation.
 
-### 13.1 Tenant Isolation Architecture
+### 13.1 Design Principle
+
+| Tier | Isolation Model | Max Breach Impact |
+|------|-----------------|-------------------|
+| Growth (€129) | Schema + Cell | 1 tenant |
+| Scale (€399) | Schema + Cell + Credentials | 1 tenant |
+| Enterprise (€999) | Dedicated Instance | 1 tenant |
+| Mega (€4,999) | Dedicated Cluster | 1 tenant |
+
+### 13.2 Seven Layers of Security
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                    MULTI-TENANCY ISOLATION LAYERS                │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  LAYER 1: APPLICATION MIDDLEWARE                                │
-│  ───────────────────────────────                                │
-│  • Every request extracts organizationId from auth context      │
-│  • OrganizationId injected into Prisma client                   │
-│  • Queries automatically scoped before reaching database        │
-│                                                                  │
-│  LAYER 2: PRISMA CLIENT EXTENSION                               │
-│  ────────────────────────────────                               │
-│  • All queries automatically filtered by organizationId         │
-│  • Prevents accidental cross-tenant queries                     │
-│  • Audit logging for all data access                            │
-│                                                                  │
-│  LAYER 3: POSTGRESQL ROW-LEVEL SECURITY (RLS)                   │
-│  ────────────────────────────────────────────                   │
-│  • Database-level enforcement (defense in depth)                │
-│  • Policies on all tenant-scoped tables                         │
-│  • Blocks queries even if application layer bypassed            │
-│                                                                  │
-│  LAYER 4: API RESPONSE FILTERING                                │
-│  ───────────────────────────────                                │
-│  • Double-check organizationId before returning data            │
-│  • Strip sensitive cross-tenant references                      │
-│  • Log any anomalies                                            │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Layer 1: Edge Protection (Cloudflare)                                        │
+│ • DDoS mitigation, WAF rules, Bot protection, TLS termination               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ Layer 2: Authentication (JWT + API Keys)                                     │
+│ • Short-lived access tokens, Refresh token rotation, API key scoping        │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ Layer 3: Application Isolation                                               │
+│ • Organization ID on every request, Middleware validates access             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ Layer 4: Schema Isolation                                                    │
+│ • Dedicated PostgreSQL schema per tenant, SET search_path limits visibility │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ Layer 5: Row-Level Security                                                  │
+│ • PostgreSQL RLS policies, Defense against SQL injection                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ Layer 6: Cell Isolation                                                      │
+│ • Tenants grouped into separate RDS instances, ~200 tenants per cell max    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ Layer 7: Encryption                                                          │
+│ • TLS in transit, AES-256 at rest, Per-tenant DEKs for sensitive fields     │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 13.2 Row-Level Security (RLS) Implementation
+### 13.3 Schema Isolation Model
 
-PostgreSQL RLS policies enforce tenant isolation at the database level:
+Each tenant receives a dedicated PostgreSQL schema within a shared database cell:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            GROWTH CELL 1                                     │
+│                         db.t4g.small Multi-AZ                                │
+│                                                                              │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐             │
+│  │ schema_tenant_  │  │ schema_tenant_  │  │ schema_tenant_  │             │
+│  │ abc123          │  │ def456          │  │ ghi789          │   • • •     │
+│  │                 │  │                 │  │                 │             │
+│  │ ┌─────────────┐ │  │ ┌─────────────┐ │  │ ┌─────────────┐ │             │
+│  │ │ products    │ │  │ │ products    │ │  │ │ products    │ │             │
+│  │ │ passports   │ │  │ │ passports   │ │  │ │ passports   │ │             │
+│  │ │ versions    │ │  │ │ versions    │ │  │ │ versions    │ │             │
+│  │ │ attestations│ │  │ │ attestations│ │  │ │ attestations│ │             │
+│  │ └─────────────┘ │  │ └─────────────┘ │  │ └─────────────┘ │             │
+│  └─────────────────┘  └─────────────────┘  └─────────────────┘             │
+│                                                                              │
+│  Cell Credentials: growth_cell_1_user                                       │
+│  Tenants per Cell: ~200                                                     │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 13.4 Tenant Router Implementation
+
+```typescript
+class TenantRouter {
+  private cellPools: Map<string, Pool> = new Map();
+
+  async getConnection(organizationId: string): Promise<TenantConnection> {
+    const config = await this.getTenantConfig(organizationId);
+    const pool = await this.getCellPool(config.cellId);
+    const client = await pool.connect();
+
+    // Set schema context - PRIMARY SECURITY CONTROL
+    await client.query(`SET search_path = ${config.schemaName}, public`);
+
+    // Set RLS context - DEFENSE IN DEPTH
+    await client.query('SET app.current_org = $1', [organizationId]);
+
+    return {
+      client,
+      release: async () => {
+        await client.query('RESET ALL');
+        await client.query('DISCARD ALL');
+        client.release();
+      },
+    };
+  }
+}
+```
+
+### 13.5 Connection Flow
+
+```
+┌──────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
+│  Request │────▶│    Tenant    │────▶│  Get Cell    │────▶│   Set Schema │
+│  + JWT   │     │    Router    │     │   Pool       │     │   Context    │
+└──────────┘     └──────────────┘     └──────────────┘     └──────────────┘
+                        │                                          │
+                        ▼                                          ▼
+                 ┌──────────────┐                          ┌──────────────┐
+                 │ Config DB    │                          │ SET search_  │
+                 │ org → cell   │                          │ path = schema│
+                 │ org → schema │                          │ + RLS context│
+                 └──────────────┘                          └──────────────┘
+```
+
+### 13.6 Tenant Provisioning
+
+On signup, the system automatically:
+
+1. Assigns tenant to a cell with capacity
+2. Creates dedicated schema
+3. Generates per-tenant encryption key (DEK)
+4. Runs schema migrations
+5. Registers configuration in routing database
 
 ```sql
--- ============================================================
--- ROW-LEVEL SECURITY POLICIES
--- ============================================================
+-- Executed during tenant provisioning
+CREATE SCHEMA schema_tenant_abc123;
+SET search_path = schema_tenant_abc123;
 
--- Enable RLS on all tenant-scoped tables
-ALTER TABLE "Product" ENABLE ROW LEVEL SECURITY;
-ALTER TABLE "Passport" ENABLE ROW LEVEL SECURITY;
-ALTER TABLE "Attestation" ENABLE ROW LEVEL SECURITY;
-ALTER TABLE "ApiKey" ENABLE ROW LEVEL SECURITY;
-ALTER TABLE "User" ENABLE ROW LEVEL SECURITY;
-ALTER TABLE "OrganizationWallet" ENABLE ROW LEVEL SECURITY;
-ALTER TABLE "EPCISEvent" ENABLE ROW LEVEL SECURITY;
-ALTER TABLE "Batch" ENABLE ROW LEVEL SECURITY;
-ALTER TABLE "Order" ENABLE ROW LEVEL SECURITY;
+CREATE TABLE products (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL,
+    name TEXT NOT NULL,
+    gtin TEXT,
+    sku TEXT,
+    status TEXT DEFAULT 'draft',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT org_check CHECK (organization_id = 'abc123-...'::uuid)
+);
 
--- ============================================================
--- POLICY: Products - organization can only see their own products
--- ============================================================
-CREATE POLICY "products_tenant_isolation" ON "Product"
-  FOR ALL
-  USING (
-    "organizationId" = current_setting('app.current_organization_id', true)::text
-  )
-  WITH CHECK (
-    "organizationId" = current_setting('app.current_organization_id', true)::text
-  );
-
--- ============================================================
--- POLICY: Passports - organization can only see their own DPPs
--- ============================================================
-CREATE POLICY "passports_tenant_isolation" ON "Passport"
-  FOR ALL
-  USING (
-    EXISTS (
-      SELECT 1 FROM "Product" p
-      WHERE p."id" = "Passport"."productId"
-      AND p."organizationId" = current_setting('app.current_organization_id', true)::text
-    )
-  );
-
--- ============================================================
--- POLICY: EPCIS Events - organization can only see their own events
--- ============================================================
-CREATE POLICY "epcis_events_tenant_isolation" ON "EPCISEvent"
-  FOR ALL
-  USING (
-    "organizationId" = current_setting('app.current_organization_id', true)::text
-  )
-  WITH CHECK (
-    "organizationId" = current_setting('app.current_organization_id', true)::text
-  );
-
--- ============================================================
--- POLICY: Attestations - special handling for cross-org attestations
--- ============================================================
--- Attestations can be viewed by:
--- 1. The organization that owns the product (attestation target)
--- 2. The organization that issued the attestation (contributor)
-CREATE POLICY "attestations_tenant_isolation" ON "Attestation"
-  FOR SELECT
-  USING (
-    -- Product owner can see attestations on their products
-    EXISTS (
-      SELECT 1 FROM "Product" p
-      WHERE p."id" = "Attestation"."productId"
-      AND p."organizationId" = current_setting('app.current_organization_id', true)::text
-    )
-    OR
-    -- Contributor can see their own attestations
-    "contributorOrganizationId" = current_setting('app.current_organization_id', true)::text
-  );
-
--- Contributors can only INSERT/UPDATE their own attestations
-CREATE POLICY "attestations_contributor_write" ON "Attestation"
-  FOR INSERT
-  WITH CHECK (
-    "contributorOrganizationId" = current_setting('app.current_organization_id', true)::text
-  );
-
-CREATE POLICY "attestations_contributor_update" ON "Attestation"
-  FOR UPDATE
-  USING (
-    "contributorOrganizationId" = current_setting('app.current_organization_id', true)::text
-  );
+-- RLS as defense-in-depth
+ALTER TABLE products ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON products
+    USING (organization_id = current_setting('app.current_org')::uuid);
 ```
 
-### 13.3 Application-Level Tenant Scoping
-
-The application layer enforces tenant isolation before queries reach the database:
-
-```typescript
-// ============================================================
-// PRISMA CLIENT EXTENSION FOR TENANT SCOPING
-// ============================================================
-
-import { PrismaClient } from '@prisma/client';
-
-// Create a tenant-scoped Prisma client
-function createTenantScopedClient(organizationId: string): PrismaClient {
-  const prisma = new PrismaClient().$extends({
-    query: {
-      // Automatically filter all queries by organizationId
-      $allModels: {
-        async findMany({ model, operation, args, query }) {
-          // Add organizationId filter for tenant-scoped models
-          if (TENANT_SCOPED_MODELS.includes(model)) {
-            args.where = {
-              ...args.where,
-              organizationId: organizationId,
-            };
-          }
-          return query(args);
-        },
-
-        async findUnique({ model, operation, args, query }) {
-          const result = await query(args);
-          // Verify result belongs to tenant
-          if (result && TENANT_SCOPED_MODELS.includes(model)) {
-            if (result.organizationId !== organizationId) {
-              throw new ForbiddenError('Resource not accessible');
-            }
-          }
-          return result;
-        },
-
-        async create({ model, operation, args, query }) {
-          // Ensure organizationId is set correctly on create
-          if (TENANT_SCOPED_MODELS.includes(model)) {
-            args.data.organizationId = organizationId;
-          }
-          return query(args);
-        },
-
-        async update({ model, operation, args, query }) {
-          // Verify ownership before update
-          if (TENANT_SCOPED_MODELS.includes(model)) {
-            args.where = {
-              ...args.where,
-              organizationId: organizationId,
-            };
-          }
-          return query(args);
-        },
-
-        async delete({ model, operation, args, query }) {
-          // Verify ownership before delete
-          if (TENANT_SCOPED_MODELS.includes(model)) {
-            args.where = {
-              ...args.where,
-              organizationId: organizationId,
-            };
-          }
-          return query(args);
-        },
-      },
-    },
-  });
-
-  return prisma;
-}
-
-const TENANT_SCOPED_MODELS = [
-  'Product',
-  'Passport',
-  'Attestation',
-  'ApiKey',
-  'User',
-  'OrganizationWallet',
-  'EPCISEvent',
-  'Batch',
-  'Order',
-];
-```
-
-**Request Middleware:**
-
-```typescript
-// ============================================================
-// TENANT CONTEXT MIDDLEWARE
-// ============================================================
-
-import { AsyncLocalStorage } from 'async_hooks';
-
-// Tenant context stored per-request
-const tenantContext = new AsyncLocalStorage<{ organizationId: string }>();
-
-// Middleware to set tenant context from authenticated user
-export function tenantMiddleware(req: Request, res: Response, next: NextFunction) {
-  const user = req.user; // From auth middleware
-
-  if (!user?.organizationId) {
-    return res.status(401).json({
-      success: false,
-      error: { code: 'UNAUTHORIZED', message: 'Organization context required' },
-    });
-  }
-
-  // Run request within tenant context
-  tenantContext.run({ organizationId: user.organizationId }, () => {
-    // Also set PostgreSQL session variable for RLS
-    req.prisma.$executeRaw`SELECT set_config('app.current_organization_id', ${user.organizationId}, true)`;
-    next();
-  });
-}
-
-// Get current tenant context
-export function getCurrentOrganizationId(): string {
-  const context = tenantContext.getStore();
-  if (!context?.organizationId) {
-    throw new Error('Tenant context not set');
-  }
-  return context.organizationId;
-}
-```
-
-### 13.4 EPCIS Event Tenant Isolation
-
-EPCIS events require special handling because they may reference products across organizations in supply chain scenarios:
+### 13.7 Per-Tenant Encryption (DEKs)
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                    EPCIS TENANT ISOLATION                        │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  HOSTED OPENEPCIS (Multi-tenant)                                │
-│  ───────────────────────────────                                │
-│  • All events have organization_id column                       │
-│  • RLS policy enforces tenant isolation                         │
-│  • Events cannot reference products from other orgs             │
-│                                                                  │
-│  CROSS-ORGANIZATION SUPPLY CHAIN:                               │
-│  ─────────────────────────────────                              │
-│  Each organization captures their OWN events:                   │
-│                                                                  │
-│  Supplier (Org A):                                              │
-│  • ObjectEvent: "shipped batch to Manufacturer"                 │
-│  • Stored in Org A's EPCIS partition                            │
-│                                                                  │
-│  Manufacturer (Org B):                                          │
-│  • ObjectEvent: "received batch from Supplier"                  │
-│  • Stored in Org B's EPCIS partition                            │
-│                                                                  │
-│  DPP aggregates from BOTH sources:                              │
-│  • Query Org A's events (via API with permission)               │
-│  • Query Org B's events (own events)                            │
-│  • Or query external EPCIS (SAP, IBM) via credentials           │
-│                                                                  │
-│  DATA NEVER CROSSES TENANT BOUNDARIES IN OUR DB                 │
-│  Supply chain visibility via:                                   │
-│  • Explicit API permissions (contributor access)                │
-│  • External EPCIS repository credentials                        │
-│  • GS1 EPCIS network queries                                    │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         ENCRYPTION HIERARCHY                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│                        ┌─────────────────────┐                              │
+│                        │   AWS KMS           │                              │
+│                        │   Master Key (CMK)  │                              │
+│                        └──────────┬──────────┘                              │
+│                                   │                                          │
+│              ┌────────────────────┼────────────────────┐                    │
+│              ▼                    ▼                    ▼                    │
+│   ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐           │
+│   │ Tenant DEK      │  │ Tenant DEK      │  │ Tenant DEK      │           │
+│   │ (tenant_001)    │  │ (tenant_002)    │  │ (tenant_003)    │           │
+│   └────────┬────────┘  └────────┬────────┘  └────────┬────────┘           │
+│            │                    │                    │                      │
+│            ▼                    ▼                    ▼                      │
+│   ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐           │
+│   │ Encrypted:      │  │ Encrypted:      │  │ Encrypted:      │           │
+│   │ • BOM data      │  │ • BOM data      │  │ • BOM data      │           │
+│   │ • Cost prices   │  │ • Cost prices   │  │ • Cost prices   │           │
+│   │ • Supplier info │  │ • Supplier info │  │ • Supplier info │           │
+│   └─────────────────┘  └─────────────────┘  └─────────────────┘           │
+│                                                                              │
+│   On tenant deletion: DEK is revoked → data becomes permanently unreadable │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**EPCIS Event Schema with Tenant Isolation:**
+### 13.8 Attack Scenarios
 
-```prisma
-model EPCISEvent {
-  id              String   @id @default(cuid())
-  organizationId  String   // REQUIRED - tenant isolation
-  organization    Organization @relation(fields: [organizationId], references: [id])
+| Attack Vector | Mitigation | Impact if Successful |
+|---------------|------------|----------------------|
+| SQL Injection | Parameterized queries + schema isolation + RLS | 1 tenant max |
+| Stolen JWT | Short expiry + refresh rotation | 1 user session |
+| Cell credential leak | Schema isolation | Must know schema name |
+| Application bug | Schema isolation + RLS | 1 tenant max |
+| Database snapshot theft | Per-tenant encryption (DEKs) | Data unreadable |
+| Complete cell compromise | Cell isolation | ~200 tenants max |
 
-  // EPCIS 2.0 fields
-  eventType       EPCISEventType
-  eventTime       DateTime
-  eventTimeZoneOffset String
-  bizStep         String?
-  disposition     String?
-  readPoint       String?  // GLN
-  bizLocation     String?  // GLN
+### 13.9 Row-Level Security (Defense in Depth)
 
-  // Product reference (within same org only)
-  productId       String?
-  product         Product? @relation(fields: [productId], references: [id])
+RLS provides an additional layer of protection within each schema:
 
-  // Event data (JSON-LD)
-  eventData       Json
+```sql
+-- RLS policies on tenant tables (defense-in-depth)
+ALTER TABLE products ENABLE ROW LEVEL SECURITY;
+ALTER TABLE passports ENABLE ROW LEVEL SECURITY;
+ALTER TABLE attestations ENABLE ROW LEVEL SECURITY;
 
-  createdAt       DateTime @default(now())
-
-  // Indexes for efficient tenant-scoped queries
-  @@index([organizationId])
-  @@index([organizationId, eventTime])
-  @@index([organizationId, productId])
-}
+-- Policy uses app.current_org set by tenant router
+CREATE POLICY tenant_isolation ON products
+    FOR ALL
+    USING (organization_id = current_setting('app.current_org')::uuid)
+    WITH CHECK (organization_id = current_setting('app.current_org')::uuid);
 ```
 
-**EPCIS Query Scoping:**
-
-```typescript
-// EPCIS queries are ALWAYS scoped to organization
-async function queryEPCISEvents(
-  organizationId: string,
-  filters: EPCISQueryFilters
-): Promise<EPCISEvent[]> {
-  return prisma.ePCISEvent.findMany({
-    where: {
-      organizationId: organizationId, // MANDATORY - never omit
-      eventTime: {
-        gte: filters.eventTimeGte,
-        lte: filters.eventTimeLte,
-      },
-      eventType: filters.eventType,
-      bizStep: filters.bizStep,
-    },
-    orderBy: { eventTime: 'desc' },
-    take: filters.limit ?? 100,
-  });
-}
-
-// Cross-organization EPCIS access requires explicit permission
-async function querySupplierEPCIS(
-  myOrganizationId: string,
-  supplierOrganizationId: string,
-  productId: string
-): Promise<EPCISEvent[]> {
-  // 1. Verify supplier has granted access
-  const permission = await prisma.supplierPermission.findFirst({
-    where: {
-      grantedByOrganizationId: supplierOrganizationId,
-      grantedToOrganizationId: myOrganizationId,
-      productId: productId,
-      scope: 'epcis:read',
-      status: 'ACTIVE',
-    },
-  });
-
-  if (!permission) {
-    throw new ForbiddenError('No EPCIS access granted by supplier');
-  }
-
-  // 2. Query supplier's events (with their permission token)
-  return queryEPCISWithPermission(supplierOrganizationId, productId, permission);
-}
-```
-
-### 13.5 Data Leakage Prevention
-
-Multiple safeguards prevent accidental data exposure across tenants:
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    DATA LEAKAGE PREVENTION                       │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  1. QUERY SAFEGUARDS                                            │
-│  ───────────────────                                            │
-│  • Never use raw SQL without organizationId filter              │
-│  • Prisma extension adds filter automatically                   │
-│  • Static analysis (ESLint rule) flags missing filters          │
-│                                                                  │
-│  2. API RESPONSE FILTERING                                      │
-│  ─────────────────────────                                      │
-│  • Response serializer checks organizationId                    │
-│  • Strip internal IDs that could leak tenant info               │
-│  • Normalize external references                                │
-│                                                                  │
-│  3. ERROR MESSAGES                                              │
-│  ────────────────                                               │
-│  • Generic "Resource not found" for cross-tenant access         │
-│  • Don't reveal whether resource exists in another tenant       │
-│  • Log details for audit, not in response                       │
-│                                                                  │
-│  4. PAGINATION SAFETY                                           │
-│  ────────────────────                                           │
-│  • Cursor-based pagination includes organizationId              │
-│  • Prevent cursor manipulation to access other tenants          │
-│  • Total counts scoped to tenant                                │
-│                                                                  │
-│  5. SEARCH & FILTERING                                          │
-│  ─────────────────────                                          │
-│  • Full-text search indexes partitioned by organization         │
-│  • Filter suggestions scoped to tenant data only                │
-│  • No cross-tenant search results                               │
-│                                                                  │
-│  6. FILE STORAGE                                                │
-│  ────────────────                                               │
-│  • S3 paths include organizationId: /org_{id}/products/...     │
-│  • Pre-signed URLs scoped to organization prefix                │
-│  • CloudFront signed cookies validate organization              │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-**Query Safety Checks:**
-
-```typescript
-// ============================================================
-// QUERY SAFETY UTILITIES
-// ============================================================
-
-// Validate that a query result belongs to the expected tenant
-function assertTenantOwnership<T extends { organizationId: string }>(
-  result: T | null,
-  expectedOrganizationId: string,
-  resourceType: string
-): asserts result is T {
-  if (!result) {
-    throw new NotFoundError(`${resourceType} not found`);
-  }
-
-  if (result.organizationId !== expectedOrganizationId) {
-    // Log security event - potential enumeration attempt
-    securityLog.warn('Cross-tenant access attempt', {
-      expectedOrganizationId,
-      actualOrganizationId: result.organizationId,
-      resourceType,
-    });
-
-    // Return same error as "not found" to prevent enumeration
-    throw new NotFoundError(`${resourceType} not found`);
-  }
-}
-
-// Safe ID lookup that prevents tenant enumeration
-async function safeGetProduct(
-  productId: string,
-  organizationId: string
-): Promise<Product> {
-  const product = await prisma.product.findFirst({
-    where: {
-      id: productId,
-      organizationId: organizationId, // Always include tenant filter
-    },
-  });
-
-  if (!product) {
-    // Don't reveal if product exists in another tenant
-    throw new NotFoundError('Product not found');
-  }
-
-  return product;
-}
-```
-
-### 13.6 Cross-Tenant Access Patterns
-
-Some features require controlled cross-tenant access. These are explicitly designed:
-
-| Pattern | Use Case | Security Control |
-|---------|----------|------------------|
-| **Contributor Access** | Supplier adds attestation to brand's product | Invitation token, scoped to specific product |
-| **Retailer View** | Retailer views DPP for products they carry | Retailer organization linked, read-only access |
-| **EPCIS Read** | Query supplier's supply chain events | Explicit permission grant, audit logged |
-| **Public DPP** | Consumer scans QR code | Public endpoint, no auth, no tenant context |
-
-**Contributor Access Implementation:**
-
-```typescript
-// Contributor (external org) adding attestation to another org's product
-async function addContributorAttestation(
-  contributorOrgId: string,  // The attestation issuer
-  inviteToken: string,       // Proves permission to access product
-  attestationData: AttestationInput
-): Promise<Attestation> {
-  // 1. Validate invitation token
-  const invitation = await prisma.contributorInvitation.findUnique({
-    where: { token: inviteToken },
-  });
-
-  if (!invitation || invitation.status !== 'PENDING') {
-    throw new ForbiddenError('Invalid or expired invitation');
-  }
-
-  // 2. Verify contributor organization matches
-  if (invitation.invitedOrganizationId !== contributorOrgId) {
-    throw new ForbiddenError('Invitation not for this organization');
-  }
-
-  // 3. Create attestation with cross-org reference
-  const attestation = await prisma.attestation.create({
-    data: {
-      productId: invitation.productId,
-      contributorOrganizationId: contributorOrgId,  // Their org
-      // productId belongs to different org - allowed via invitation
-      ...attestationData,
-    },
-  });
-
-  // 4. Log cross-tenant access
-  await auditLog.record({
-    action: 'attestation.create.cross_tenant',
-    contributorOrgId,
-    targetProductId: invitation.productId,
-    invitationId: invitation.id,
-  });
-
-  return attestation;
-}
-```
-
-### 13.7 Tenant Isolation Testing
-
-Automated tests verify tenant isolation:
-
-```typescript
-// ============================================================
-// TENANT ISOLATION TEST SUITE
-// ============================================================
-
-describe('Tenant Isolation', () => {
-  let orgA: Organization;
-  let orgB: Organization;
-  let productA: Product;
-  let productB: Product;
-
-  beforeAll(async () => {
-    orgA = await createTestOrganization('Org A');
-    orgB = await createTestOrganization('Org B');
-    productA = await createTestProduct(orgA.id, { name: 'Product A' });
-    productB = await createTestProduct(orgB.id, { name: 'Product B' });
-  });
-
-  describe('Product Access', () => {
-    it('should not allow Org A to read Org B products', async () => {
-      const client = createTenantScopedClient(orgA.id);
-
-      // Direct query should return null (not error - to prevent enumeration)
-      const product = await client.product.findUnique({
-        where: { id: productB.id },
-      });
-      expect(product).toBeNull();
-    });
-
-    it('should not allow Org A to update Org B products', async () => {
-      const client = createTenantScopedClient(orgA.id);
-
-      await expect(
-        client.product.update({
-          where: { id: productB.id },
-          data: { name: 'Hacked' },
-        })
-      ).rejects.toThrow(); // Should fail silently (no matching records)
-    });
-
-    it('should not leak product existence across tenants', async () => {
-      // API should return same 404 whether product exists in another tenant or doesn't exist at all
-      const responseExistsOtherTenant = await api
-        .get(`/api/v1/products/${productB.id}`)
-        .auth(orgA.token);
-
-      const responseNotExists = await api
-        .get(`/api/v1/products/nonexistent_id`)
-        .auth(orgA.token);
-
-      expect(responseExistsOtherTenant.status).toBe(404);
-      expect(responseNotExists.status).toBe(404);
-      expect(responseExistsOtherTenant.body).toEqual(responseNotExists.body);
-    });
-  });
-
-  describe('EPCIS Event Isolation', () => {
-    it('should not allow cross-tenant EPCIS queries', async () => {
-      // Create event in Org A
-      await createEPCISEvent(orgA.id, { bizStep: 'shipping' });
-
-      // Query from Org B should return empty
-      const events = await queryEPCISEvents(orgB.id, {});
-      expect(events).toHaveLength(0);
-    });
-  });
-
-  describe('Attestation Cross-Tenant Access', () => {
-    it('should allow attestation via invitation only', async () => {
-      // Org B cannot attest to Org A product without invitation
-      await expect(
-        createAttestation(orgB.id, productA.id, { type: 'certification' })
-      ).rejects.toThrow('Product not accessible');
-
-      // Create invitation
-      const invitation = await createContributorInvitation(
-        orgA.id,
-        productA.id,
-        orgB.id
-      );
-
-      // Now Org B can attest
-      const attestation = await addContributorAttestation(
-        orgB.id,
-        invitation.token,
-        { type: 'certification', data: {} }
-      );
-
-      expect(attestation.contributorOrganizationId).toBe(orgB.id);
-    });
-  });
-
-  describe('RLS Enforcement', () => {
-    it('should enforce RLS even with raw queries', async () => {
-      // Simulate bypassing Prisma extension with raw query
-      // RLS should still protect data
-      const results = await prisma.$queryRaw`
-        SELECT * FROM "Product" WHERE id = ${productB.id}
-      `;
-
-      // With RLS enabled and context set to Org A, should return empty
-      expect(results).toHaveLength(0);
-    });
-  });
-});
-```
-
-### 13.8 Monitoring for Tenant Violations
-
-Security monitoring detects potential tenant isolation breaches:
-
-```typescript
-// Security alerts for tenant isolation violations
-const tenantSecurityAlerts = [
-  {
-    name: 'Cross-Tenant Access Attempt',
-    condition: 'log.message contains "Cross-tenant access attempt"',
-    action: 'Alert security team immediately',
-    severity: 'high',
-  },
-  {
-    name: 'RLS Policy Violation',
-    condition: 'pg_stat_user_tables.rls_policy_violation > 0',
-    action: 'Investigate query pattern, potential attack',
-    severity: 'critical',
-  },
-  {
-    name: 'Unusual Cross-Org Queries',
-    condition: 'attestation.cross_tenant_count > 100 in 1h',
-    action: 'Review contributor invitation patterns',
-    severity: 'medium',
-  },
-  {
-    name: 'Missing organizationId in Query',
-    condition: 'log.query not contains "organizationId"',
-    action: 'Code review, potential isolation bypass',
-    severity: 'high',
-  },
-];
-```
+**Why RLS in addition to schema isolation?**
+- Protects against bugs where wrong schema is selected
+- Blocks raw SQL queries that bypass Prisma
+- Defense-in-depth principle
 
 ---
 
-## 14. Multi-Tenant Security: Honest Limitations
+## 14. Implementation Status
 
-While Section 13 describes the target architecture, this section documents **known limitations and risks** that must be understood.
+All security features described in this document are **planned**. This section tracks implementation progress.
 
-### 14.1 Target Implementation Status
+### 14.1 Implementation Status
 
 | Layer | Status | Notes |
 |-------|--------|-------|
-| Application Middleware | 📋 Planned | organizationId extracted from auth context |
-| Prisma Client Extension | 📋 Planned | Auto-filters most queries |
-| PostgreSQL RLS | 📋 Planned | To be enabled on core tables |
-| API Response Filtering | 📋 Planned | Double-checks ownership |
+| Edge Protection (Cloudflare) | 📋 Planned | WAF, DDoS, TLS |
+| Authentication (JWT + API Keys) | 📋 Planned | Magic links, refresh tokens |
+| Application Isolation | 📋 Planned | Middleware, org context |
+| Schema Isolation | 📋 Planned | Per-tenant schemas |
+| Row-Level Security | 📋 Planned | Defense-in-depth |
+| Cell Isolation | 📋 Planned | RDS instances per ~200 tenants |
+| Per-Tenant Encryption | 📋 Planned | KMS DEKs |
 
-### 14.2 Raw SQL Bypass Risk
+### 14.2 Cell Deployment Plan
 
-**The Problem:** Prisma client extensions only intercept Prisma query methods. Raw SQL queries bypass tenant scoping entirely.
+| Milestone | Trigger | Action |
+|-----------|---------|--------|
+| Launch | Day 1 | Deploy Growth Cell 1 |
+| 200 Growth customers | Cell 1 at capacity | Deploy Growth Cell 2 |
+| First Scale customer | €399 signup | Deploy Scale Cell |
+| First Enterprise customer | €999 signup | Deploy dedicated RDS |
+| First Mega customer | €4,999 signup | Deploy dedicated cluster |
 
-```typescript
-// ❌ DANGEROUS: Raw SQL bypasses Prisma extension tenant filtering
-const results = await prisma.$queryRaw`
-  SELECT * FROM "Product" WHERE name LIKE '%widget%'
-`;
-// This returns ALL products across ALL tenants if RLS is not enabled
+### 14.3 What This Architecture Provides
 
-// ❌ ALSO DANGEROUS: $executeRaw, $queryRawUnsafe
-await prisma.$executeRaw`UPDATE "Product" SET price = 0`;
-```
+**Compared to RLS-only approach (previous design):**
 
-**Current Mitigations:**
-1. **Code review policy**: All raw SQL must include `organizationId` filter
-2. **ESLint rule (planned)**: Flag raw queries without tenant filter
-3. **RLS as backup**: Where enabled, blocks cross-tenant access even for raw queries
+| Aspect | RLS-Only | Schema-per-Tenant |
+|--------|----------|-------------------|
+| Query isolation | Policy-based | Namespace-based |
+| Breach impact | All tenants (if RLS bypassed) | 1 tenant |
+| Raw SQL safety | Vulnerable | Schema limits visibility |
+| Performance | RLS overhead per query | No RLS overhead (schema does isolation) |
+| Encryption | Shared keys | Per-tenant DEKs |
+| Noisy neighbor | Shared everything | Cell-based grouping |
 
-**Remaining Risk:**
-- Tables without RLS enabled are vulnerable to raw SQL bypass
-- Developers may add raw queries without understanding the risk
-- ESLint rule is planned but not yet implemented
+### 14.4 Security Guarantees by Tier
 
-**What We're NOT Doing (and why it matters):**
-- Not banning raw SQL entirely (needed for complex queries, migrations)
-- Not using separate database schemas per tenant (adds operational complexity)
-- Not using separate databases per tenant (would require Enterprise tier pricing)
-
-### 14.3 RLS Implementation Gaps
-
-**Target RLS Status:**
-
-| Table | RLS Enabled | RLS Policies | Notes |
-|-------|-------------|--------------|-------|
-| Product | 📋 Planned | 📋 Planned | Full isolation |
-| Passport | 📋 Planned | 📋 Planned | Via product relationship |
-| Attestation | 📋 Planned | 📋 Planned | Cross-org via contributor |
-| EPCISEvent | 📋 Planned | 📋 Planned | Direct org filter |
-| ApiKey | 📋 Planned | 📋 Planned | Direct org filter |
-| User | 📋 Planned | 📋 Planned | Users can span orgs (multi-org membership) |
-| Batch | 📋 Planned | 📋 Planned | Requires org filter |
-| Order | 📋 Planned | 📋 Planned | Requires org filter |
-| AuditLog | ❌ N/A | ❌ N/A | Intentionally cross-tenant for platform ops |
-| Subscription | ❌ N/A | ❌ N/A | Platform-level, not tenant-scoped |
-
-**Why Not 100% RLS Coverage:**
-- Some tables are platform-level (Subscription, AuditLog)
-- User table has intentional multi-org membership
-- RLS adds query overhead (~5-10% per query)
-- Complex RLS policies can cause subtle bugs
-
-### 14.4 Noisy Neighbor Risks
-
-**The Problem:** All tenants share the same PostgreSQL cluster. One tenant's heavy queries affect all others.
-
-**Current Architecture:**
-```
-┌──────────────────────────────────────────────────────────────┐
-│  Single RDS Instance (db.r6g.large)                          │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │  Shared PostgreSQL                                      │ │
-│  │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐      │ │
-│  │  │ Org A   │ │ Org B   │ │ Org C   │ │ Org D   │ ...  │ │
-│  │  │ tables  │ │ tables  │ │ tables  │ │ tables  │      │ │
-│  │  └─────────┘ └─────────┘ └─────────┘ └─────────┘      │ │
-│  │                                                         │ │
-│  │  Shared: connection pool, CPU, memory, I/O              │ │
-│  └────────────────────────────────────────────────────────┘ │
-└──────────────────────────────────────────────────────────────┘
-```
-
-**Noisy Neighbor Scenarios:**
-
-| Scenario | Impact | Current Mitigation |
-|----------|--------|-------------------|
-| Large export query | Blocks other queries, connection exhaustion | Query timeout (30s), pagination limits |
-| Bulk import | I/O saturation, replication lag | Rate limiting, background queue |
-| Runaway query | CPU spike, other tenants slow | Statement timeout, connection limits per org |
-| Large tenant growth | Index bloat, vacuum delays | Monitoring, proactive maintenance |
-
-**What We Cannot Prevent:**
-- CPU contention during peak load (same instance)
-- I/O bandwidth sharing (same EBS volume)
-- Connection pool exhaustion (shared pool)
-- Memory pressure from large queries
-
-**Enterprise Tier Isolation:**
-For customers with strict isolation requirements, Enterprise tier offers:
-- Dedicated RDS instance (additional cost)
-- Dedicated connection pool
-- Separate backup schedule
-- Option for separate AWS account
-
-### 14.5 Encryption Key Separation
-
-**Current Architecture (Shared Keys):**
-
-```
-┌──────────────────────────────────────────────────────────────┐
-│  AWS KMS                                                      │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │  Single Customer Master Key (CMK)                       │ │
-│  │  └── Encrypts ALL tenant data                          │ │
-│  └────────────────────────────────────────────────────────┘ │
-│                                                               │
-│  Data Encryption Keys (DEKs)                                 │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │  Single DEK for database field encryption               │ │
-│  │  Single DEK for S3 bucket encryption                    │ │
-│  │  (AWS manages these, not per-tenant)                    │ │
-│  └────────────────────────────────────────────────────────┘ │
-│                                                               │
-│  Signing Keys (per-tenant) ✅                                │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │  Org A: Ed25519 keypair → did:key:z6Mk...              │ │
-│  │  Org B: Ed25519 keypair → did:key:z6Mk...              │ │
-│  │  (Managed by walt.id Custodian)                        │ │
-│  └────────────────────────────────────────────────────────┘ │
-└──────────────────────────────────────────────────────────────┘
-```
-
-**What This Means:**
-- **Database encryption**: Same key encrypts all tenants' data at rest
-- **S3 encryption**: Same key for all tenants' files
-- **Signing keys**: ✅ Per-tenant (each org has own did:key)
-- **API keys**: Hashed with shared SHA-256, not per-tenant key
-
-**Implications:**
-1. A compromised master key exposes ALL tenants' data
-2. AWS KMS audit logs show key usage but not per-tenant
-3. Cannot provide tenant-specific key rotation
-4. Cannot provide tenant-controlled keys (BYOK)
-
-**Why Not Per-Tenant Encryption Keys:**
-- Significant engineering complexity
-- Performance overhead (key lookup per query)
-- Cost (KMS per-key charges)
-- Operational burden (key rotation per tenant)
-
-**Enterprise Tier Options:**
-- Customer-managed KMS keys (BYOK)
-- Dedicated KMS key per organization
-- Client-side encryption option
-
-### 14.6 Security Recommendations
-
-Given these limitations, we recommend:
-
-**For Startup/Growth Tier Customers:**
-1. Understand shared infrastructure is cost-effective but not isolated
-2. Don't store highly sensitive data beyond what's required for DPP
-3. Review your data classification before onboarding
-
-**For Scale Tier Customers:**
-1. Consider upgrade to Enterprise if you have strict compliance requirements
-2. Request dedicated connection pool allocation
-3. Review query patterns for noisy neighbor potential
-
-**For Enterprise Tier Customers:**
-1. Deploy dedicated RDS instance
-2. Request BYOK encryption setup
-3. Consider dedicated infrastructure option
-4. Request security architecture review
-
-### 14.7 Roadmap: Security Improvements
-
-| Improvement | Priority | Target |
-|-------------|----------|--------|
-| ESLint rule for raw SQL tenant filter | High | Q1 2026 |
-| RLS on Batch table | Medium | Q1 2026 |
-| RLS on Order table | Medium | Q1 2026 |
-| Per-org connection pool limits | Medium | Q2 2026 |
-| Per-tenant DEKs (Enterprise) | Low | Q3 2026 |
-| BYOK option (Enterprise) | Low | Q3 2026 |
+| Tier | Isolation | Encryption | Noisy Neighbor Protection |
+|------|-----------|------------|---------------------------|
+| Growth | Schema + RLS | Per-tenant DEK | ~200 tenants per cell |
+| Scale | Schema + RLS + credentials | Per-tenant DEK | ~50 tenants per cell |
+| Enterprise | Dedicated RDS | Per-tenant DEK + BYOK option | None (dedicated) |
+| Mega | Dedicated cluster | Per-tenant DEK + BYOK | None (dedicated) |
 
 ---
 
