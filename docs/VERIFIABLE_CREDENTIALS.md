@@ -56,10 +56,13 @@ Benefits:
 • Signature verification offline (did:key is self-contained)
 • Issuer accountability (did:key proves who made the claim)
 • Portable (supplier owns it, can host anywhere)
-• Platform-independent (works even if EuroComply shuts down)
+• Signature works forever (even if EuroComply shuts down)
 
-Note: Signature verification is fully offline. Image rendering depends on
-storage mode: URL mode requires CDN access, Base64 mode is fully offline.
+⚠️ IMPORTANT CAVEAT: Revocation checking still requires network access
+to a status list server. See Section 14 for details on this tradeoff.
+
+Note: Signature verification is fully offline. Revocation checking requires
+network access to status list. Image rendering depends on storage mode.
 ```
 
 ### What Makes This Different
@@ -71,8 +74,10 @@ storage mode: URL mode requires CDN access, Base64 mode is fully offline.
 | **Issuer Proof** | "Trust me, I'm the manufacturer" | did:key signature proves issuer identity |
 | **Verification** | Requires server connection | Signature offline, revocation online |
 | **Portability** | Locked to platform | Supplier owns, can move anywhere |
-| **Platform Dependency** | Dies with platform | Works forever |
+| **Platform Dependency** | Dies with platform | Signature works forever; revocation check needs status list* |
 | **Interoperability** | Proprietary formats | W3C standard, works with EUDI wallets |
+
+*See Section 14 for revocation status list hosting options and tradeoffs.
 
 ---
 
@@ -93,8 +98,9 @@ did:web:eurocomply.eu:org:acme-corp
 did:key:z6MkhaXgBZDvvvRhta4LjXRJzL...
        └── The public key IS the identifier
        └── No resolution needed
-       └── Works forever, anywhere
+       └── Signature verification works forever, anywhere
        └── Supplier truly owns their identity
+       └── NOTE: Revocation still needs status list (see Section 14)
 ```
 
 ### How did:key Works
@@ -127,11 +133,13 @@ did:key:z6MkhaXgBZDvvvRhta4LjXRJzL...
 | Aspect | did:web | did:key |
 |--------|---------|---------|
 | **Resolution** | HTTP call to domain | Parse the string |
-| **Hosting Required** | Yes (DID document) | No |
-| **Platform Dependency** | Yes | No |
-| **Works Offline** | No | Yes |
-| **Portability** | Limited | Full |
+| **Hosting Required** | Yes (DID document) | No (for signature verification) |
+| **Platform Dependency** | Yes (DID resolution) | No (signature), Yes (revocation)* |
+| **Works Offline** | No | Signature: Yes, Revocation: No |
+| **Portability** | Limited | Full (signature), Partial (revocation)* |
 | **Human Readable** | Nice branding | Less pretty |
+
+*Revocation requires Status List 2021 server. See Section 14 for hosting options.
 
 **We chose did:key because suppliers own their identity, not EuroComply.**
 
@@ -561,7 +569,7 @@ Response:
 | **Ownership** | You own your DPPs and identity, not EuroComply |
 | **Portability** | Take your data anywhere, anytime |
 | **No lock-in** | Cancel subscription, keep your VCs |
-| **Future-proof** | VCs work forever, no platform dependency |
+| **Future-proof** | Signatures work forever; revocation needs hosting (see Section 14) |
 | **Legal protection** | Cryptographic proof of what you claimed, when |
 
 ### For Retailers
@@ -578,10 +586,10 @@ Response:
 
 | Benefit | Description |
 |---------|-------------|
-| **Enforcement** | Can verify claims without trusting any company |
+| **Enforcement** | Can verify signatures without trusting any company |
 | **Audit trail** | Immutable record of sustainability declarations |
 | **Standards** | W3C/eIDAS standards, not proprietary formats |
-| **Resilience** | VCs survive platform shutdowns |
+| **Resilience** | Signatures survive platform shutdowns; revocation status depends on hosting |
 
 ### For Consumers
 
@@ -1523,14 +1531,14 @@ To minimize network calls, status lists are cached:
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
 │  IDENTITY                                                       │
-│  → did:key (self-contained, portable)                           │
-│  → No platform dependency                                       │
+│  → did:key (self-contained, portable for signatures)            │
+│  → No platform dependency for signature verification            │
 │  → Organization owns their identity                             │
 │                                                                  │
 │  CREDENTIALS                                                    │
 │  → W3C Verifiable Credentials                                   │
 │  → Tamper-evident signatures                                    │
-│  → Work offline, forever                                        │
+│  → Signatures work offline, forever                             │
 │                                                                  │
 │  PORTABILITY                                                    │
 │  → Export VCs and keys anytime                                  │
@@ -1538,9 +1546,9 @@ To minimize network calls, status lists are cached:
 │  → No lock-in to EuroComply                                    │
 │                                                                  │
 │  VERIFICATION                                                   │
-│  → Anyone can verify without EuroComply                        │
-│  → No server needed (did:key is self-contained)                │
-│  → Works even if EuroComply shuts down                         │
+│  → Signatures verifiable without EuroComply                    │
+│  → Revocation check needs status list host (see Section 14)    │
+│  → Options: self-host, dormant hosting, or signature-only      │
 │                                                                  │
 │  THE VALUE WE PROVIDE                                           │
 │  → Easy product management (workspace-based data model)        │
@@ -1548,6 +1556,11 @@ To minimize network calls, status lists are cached:
 │  → Managed hosting (while subscribed)                          │
 │  → Free retailer access layer                                  │
 │  → NOT lock-in                                                  │
+│                                                                  │
+│  ⚠️ HONEST TRADEOFF                                             │
+│  → Signature: fully portable, works forever                    │
+│  → Revocation: requires status list host (see Section 14)      │
+│  → If host unreachable: "valid signature, unknown revocation"  │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -1566,4 +1579,4 @@ To minimize network calls, status lists are cached:
 
 ---
 
-*Last Updated: 2026-01-11*
+*Last Updated: 2026-01-13*
