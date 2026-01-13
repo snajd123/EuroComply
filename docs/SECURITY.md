@@ -1602,6 +1602,198 @@ const tenantSecurityAlerts = [
 
 ---
 
+## 14. Multi-Tenant Security: Honest Limitations
+
+While Section 13 describes the target architecture, this section documents **known limitations and risks** that must be understood.
+
+### 14.1 Current Implementation Status
+
+| Layer | Status | Notes |
+|-------|--------|-------|
+| Application Middleware | ✅ Implemented | organizationId extracted from auth context |
+| Prisma Client Extension | ✅ Implemented | Auto-filters most queries |
+| PostgreSQL RLS | ⚠️ Partial | Enabled on core tables, not all tables |
+| API Response Filtering | ✅ Implemented | Double-checks ownership |
+
+### 14.2 Raw SQL Bypass Risk
+
+**The Problem:** Prisma client extensions only intercept Prisma query methods. Raw SQL queries bypass tenant scoping entirely.
+
+```typescript
+// ❌ DANGEROUS: Raw SQL bypasses Prisma extension tenant filtering
+const results = await prisma.$queryRaw`
+  SELECT * FROM "Product" WHERE name LIKE '%widget%'
+`;
+// This returns ALL products across ALL tenants if RLS is not enabled
+
+// ❌ ALSO DANGEROUS: $executeRaw, $queryRawUnsafe
+await prisma.$executeRaw`UPDATE "Product" SET price = 0`;
+```
+
+**Current Mitigations:**
+1. **Code review policy**: All raw SQL must include `organizationId` filter
+2. **ESLint rule (planned)**: Flag raw queries without tenant filter
+3. **RLS as backup**: Where enabled, blocks cross-tenant access even for raw queries
+
+**Remaining Risk:**
+- Tables without RLS enabled are vulnerable to raw SQL bypass
+- Developers may add raw queries without understanding the risk
+- ESLint rule is planned but not yet implemented
+
+**What We're NOT Doing (and why it matters):**
+- Not banning raw SQL entirely (needed for complex queries, migrations)
+- Not using separate database schemas per tenant (adds operational complexity)
+- Not using separate databases per tenant (would require Enterprise tier pricing)
+
+### 14.3 RLS Implementation Gaps
+
+**Current RLS Status:**
+
+| Table | RLS Enabled | RLS Policies | Notes |
+|-------|-------------|--------------|-------|
+| Product | ✅ Yes | ✅ Complete | Full isolation |
+| Passport | ✅ Yes | ✅ Complete | Via product relationship |
+| Attestation | ✅ Yes | ✅ Complete | Cross-org via contributor |
+| EPCISEvent | ✅ Yes | ✅ Complete | Direct org filter |
+| ApiKey | ✅ Yes | ✅ Complete | Direct org filter |
+| User | ⚠️ Partial | ⚠️ Basic | Users can span orgs (multi-org membership) |
+| Batch | ⚠️ Planned | ❌ Not yet | Relies on app-level filtering |
+| Order | ⚠️ Planned | ❌ Not yet | Relies on app-level filtering |
+| AuditLog | ❌ No | ❌ No | Intentionally cross-tenant for platform ops |
+| Subscription | ❌ No | ❌ No | Platform-level, not tenant-scoped |
+
+**Why Not 100% RLS Coverage:**
+- Some tables are platform-level (Subscription, AuditLog)
+- User table has intentional multi-org membership
+- RLS adds query overhead (~5-10% per query)
+- Complex RLS policies can cause subtle bugs
+
+### 14.4 Noisy Neighbor Risks
+
+**The Problem:** All tenants share the same PostgreSQL cluster. One tenant's heavy queries affect all others.
+
+**Current Architecture:**
+```
+┌──────────────────────────────────────────────────────────────┐
+│  Single RDS Instance (db.r6g.large)                          │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │  Shared PostgreSQL                                      │ │
+│  │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐      │ │
+│  │  │ Org A   │ │ Org B   │ │ Org C   │ │ Org D   │ ...  │ │
+│  │  │ tables  │ │ tables  │ │ tables  │ │ tables  │      │ │
+│  │  └─────────┘ └─────────┘ └─────────┘ └─────────┘      │ │
+│  │                                                         │ │
+│  │  Shared: connection pool, CPU, memory, I/O              │ │
+│  └────────────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**Noisy Neighbor Scenarios:**
+
+| Scenario | Impact | Current Mitigation |
+|----------|--------|-------------------|
+| Large export query | Blocks other queries, connection exhaustion | Query timeout (30s), pagination limits |
+| Bulk import | I/O saturation, replication lag | Rate limiting, background queue |
+| Runaway query | CPU spike, other tenants slow | Statement timeout, connection limits per org |
+| Large tenant growth | Index bloat, vacuum delays | Monitoring, proactive maintenance |
+
+**What We Cannot Prevent:**
+- CPU contention during peak load (same instance)
+- I/O bandwidth sharing (same EBS volume)
+- Connection pool exhaustion (shared pool)
+- Memory pressure from large queries
+
+**Enterprise Tier Isolation:**
+For customers with strict isolation requirements, Enterprise tier offers:
+- Dedicated RDS instance (additional cost)
+- Dedicated connection pool
+- Separate backup schedule
+- Option for separate AWS account
+
+### 14.5 Encryption Key Separation
+
+**Current Architecture (Shared Keys):**
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  AWS KMS                                                      │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │  Single Customer Master Key (CMK)                       │ │
+│  │  └── Encrypts ALL tenant data                          │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                               │
+│  Data Encryption Keys (DEKs)                                 │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │  Single DEK for database field encryption               │ │
+│  │  Single DEK for S3 bucket encryption                    │ │
+│  │  (AWS manages these, not per-tenant)                    │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                               │
+│  Signing Keys (per-tenant) ✅                                │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │  Org A: Ed25519 keypair → did:key:z6Mk...              │ │
+│  │  Org B: Ed25519 keypair → did:key:z6Mk...              │ │
+│  │  (Managed by walt.id Custodian)                        │ │
+│  └────────────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**What This Means:**
+- **Database encryption**: Same key encrypts all tenants' data at rest
+- **S3 encryption**: Same key for all tenants' files
+- **Signing keys**: ✅ Per-tenant (each org has own did:key)
+- **API keys**: Hashed with shared SHA-256, not per-tenant key
+
+**Implications:**
+1. A compromised master key exposes ALL tenants' data
+2. AWS KMS audit logs show key usage but not per-tenant
+3. Cannot provide tenant-specific key rotation
+4. Cannot provide tenant-controlled keys (BYOK)
+
+**Why Not Per-Tenant Encryption Keys:**
+- Significant engineering complexity
+- Performance overhead (key lookup per query)
+- Cost (KMS per-key charges)
+- Operational burden (key rotation per tenant)
+
+**Enterprise Tier Options:**
+- Customer-managed KMS keys (BYOK)
+- Dedicated KMS key per organization
+- Client-side encryption option
+
+### 14.6 Security Recommendations
+
+Given these limitations, we recommend:
+
+**For Startup/Growth Tier Customers:**
+1. Understand shared infrastructure is cost-effective but not isolated
+2. Don't store highly sensitive data beyond what's required for DPP
+3. Review your data classification before onboarding
+
+**For Scale Tier Customers:**
+1. Consider upgrade to Enterprise if you have strict compliance requirements
+2. Request dedicated connection pool allocation
+3. Review query patterns for noisy neighbor potential
+
+**For Enterprise Tier Customers:**
+1. Deploy dedicated RDS instance
+2. Request BYOK encryption setup
+3. Consider dedicated infrastructure option
+4. Request security architecture review
+
+### 14.7 Roadmap: Security Improvements
+
+| Improvement | Priority | Target |
+|-------------|----------|--------|
+| ESLint rule for raw SQL tenant filter | High | Q1 2026 |
+| RLS on Batch table | Medium | Q1 2026 |
+| RLS on Order table | Medium | Q1 2026 |
+| Per-org connection pool limits | Medium | Q2 2026 |
+| Per-tenant DEKs (Enterprise) | Low | Q3 2026 |
+| BYOK option (Enterprise) | Low | Q3 2026 |
+
+---
+
 ## Related Documentation
 
 - [GDPR_COMPLIANCE.md](./GDPR_COMPLIANCE.md) - Data protection and privacy
@@ -1611,4 +1803,4 @@ const tenantSecurityAlerts = [
 
 ---
 
-*Last Updated: 2026-01-12*
+*Last Updated: 2026-01-13*
