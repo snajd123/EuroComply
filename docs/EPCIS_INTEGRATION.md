@@ -1382,9 +1382,10 @@ This is solved through **business processes**, not infrastructure:
 │  TIER 1: Large Suppliers (Already have EPCIS)                   │
 │  ─────────────────────────────────────────────                  │
 │  • They already run SAP, IBM, or TraceLink EPCIS                │
-│  • Just need to grant EuroComply read access                    │
-│  • Setup: OAuth 2.0 client credentials                          │
-│  • Effort: 1 hour configuration                                 │
+│  • Need to grant EuroComply read access                         │
+│  • Setup: OAuth 2.0 client credentials + network access         │
+│  • Effort: 2-6 weeks (enterprise approval + IT configuration)   │
+│  • See "Integration Complexity" section below for details       │
 │                                                                  │
 │  TIER 2: Medium Suppliers (Have ERP, no EPCIS)                  │
 │  ─────────────────────────────────────────────                  │
@@ -1393,7 +1394,7 @@ This is solved through **business processes**, not infrastructure:
 │    a) Deploy lightweight OpenEPCIS (open source, free)          │
 │    b) Use cloud EPCIS service (GS1 Cloud, etc.)                │
 │    c) Send events to customer's EPCIS via webhook               │
-│  • Effort: 1-2 weeks integration                                │
+│  • Effort: 4-8 weeks (ERP integration + testing)                │
 │                                                                  │
 │  TIER 3: Small Suppliers (Manual)                               │
 │  ────────────────────────────────                               │
@@ -1407,12 +1408,115 @@ This is solved through **business processes**, not infrastructure:
 │  SUCCESS FACTORS                                                │
 │  ───────────────                                                │
 │  • Make it a procurement requirement                            │
-│  • Start with Tier 1 suppliers (quick wins)                     │
+│  • Start with suppliers using our pre-built connectors          │
 │  • Provide templates and integration guides                     │
 │  • ESPR deadline creates urgency                                │
+│  • Budget for professional services for complex integrations    │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+### Integration Complexity: Honest Assessment
+
+> ⚠️ **Reality Check**: Enterprise EPCIS integration is complex. This section documents the real challenges.
+
+#### Why Enterprise Integration Takes Weeks, Not Hours
+
+**Tier 1 (Enterprise EPCIS) Reality:**
+
+| Vendor | OAuth Implementation | Typical Timeline | Key Challenges |
+|--------|---------------------|------------------|----------------|
+| **SAP EPCIS** | SAP-specific OAuth + SAP Passport | 4-8 weeks | SAP security team approval, firewall rules, credential rotation policies |
+| **IBM Sterling** | IBM Cloud IAM or custom OAuth | 3-6 weeks | IBM Cloud configuration, network ACLs, certificate management |
+| **TraceLink** | TraceLink-specific OAuth | 2-4 weeks | Partner onboarding process, compliance verification |
+| **GS1 Cloud** | Standard OAuth 2.0 | 1-2 weeks | Simplest integration, closest to standard |
+
+**What "1 hour configuration" actually requires:**
+1. Enterprise IT security approval (1-3 weeks)
+2. Firewall rule changes for outbound API access (1-2 weeks)
+3. OAuth client registration in enterprise identity provider (1 week)
+4. Network connectivity testing from EuroComply to enterprise EPCIS (days)
+5. Data access agreement / DPA signing (1-2 weeks, can parallel)
+6. UAT testing with real data (1 week)
+
+**Total realistic timeline: 2-6 weeks** depending on enterprise IT responsiveness.
+
+#### Operational Burden at Scale
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  OPERATIONAL CHALLENGES                                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  CREDENTIAL MANAGEMENT                                          │
+│  ─────────────────────                                          │
+│  • Each customer = separate OAuth credentials                   │
+│  • Credentials expire (typically 90-365 days)                   │
+│  • Rotation requires coordination with enterprise IT            │
+│  • Secret storage: HashiCorp Vault or AWS Secrets Manager       │
+│  • Alert on expiring credentials (30 days advance)              │
+│                                                                  │
+│  HETEROGENEOUS OAUTH IMPLEMENTATIONS                            │
+│  ───────────────────────────────────                            │
+│  • SAP: client_credentials + SAP-specific token exchange        │
+│  • IBM: IAM tokens with refresh flow                            │
+│  • TraceLink: Custom OAuth with partner context                 │
+│  • Generic: Standard OAuth 2.0 client_credentials               │
+│  → Must maintain adapter per vendor                             │
+│                                                                  │
+│  QUERY FEDERATION COMPLEXITY                                    │
+│  ──────────────────────────                                     │
+│  • Different EPCIS versions (1.2 vs 2.0)                        │
+│  • Inconsistent event field population                          │
+│  • Timezone handling varies                                     │
+│  • Pagination implementations differ                            │
+│  • Rate limits vary by vendor                                   │
+│  → Query client needs vendor-specific handling                  │
+│                                                                  │
+│  STORY BUILDER DATA NORMALIZATION                               │
+│  ───────────────────────────────                                │
+│  • Location formats: GLN vs free text vs coordinates            │
+│  • Timestamps: ISO 8601 variants, timezone issues               │
+│  • Business steps: CBV standard vs custom vocabularies          │
+│  • Product identifiers: GTIN-14, SGTIN, custom                  │
+│  → Normalization layer required before visualization            │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### Pre-Built Connector Strategy
+
+To reduce integration effort, we're building certified connectors:
+
+| Connector | Status | Integration Time (with connector) |
+|-----------|--------|-----------------------------------|
+| **SAP EPCIS** | 📋 Planned | 1-2 weeks (vs 4-8 weeks manual) |
+| **IBM Sterling** | 📋 Planned | 1-2 weeks (vs 3-6 weeks manual) |
+| **TraceLink** | 📋 Planned | 1 week (vs 2-4 weeks manual) |
+| **GS1 Cloud** | 📋 Planned | 3 days (vs 1-2 weeks manual) |
+| **OpenEPCIS** | ✅ Native | Same day (self-hosted or ours) |
+
+**Connector benefits:**
+- Pre-configured OAuth flows for each vendor
+- Vendor-specific query parameter handling
+- Built-in retry and rate limit handling
+- Normalized event output for Story Builder
+- Health checks and credential expiry alerts
+
+#### Professional Services Recommendation
+
+For enterprise customers with complex EPCIS landscapes:
+
+| Service | Scope | Typical Duration |
+|---------|-------|------------------|
+| **Discovery** | Map existing EPCIS infrastructure | 1 week |
+| **Integration Planning** | Design connector configuration | 1 week |
+| **Implementation** | Configure and test connections | 2-4 weeks |
+| **Go-Live Support** | Monitor initial production traffic | 1 week |
+
+**Total: 5-7 weeks** for full enterprise integration.
+
+---
 
 ### Manual Event Capture (Hosted OpenEPCIS)
 
@@ -1890,10 +1994,15 @@ interface LocationRequest {
 | Task | Priority | Complexity | Status |
 |------|----------|------------|--------|
 | Build unified query client (internal + external) | High | Medium | 📋 Planned |
-| Support OAuth 2.0 and API key auth | High | Low | 📋 Planned |
+| Support OAuth 2.0 and API key auth | High | **High** | 📋 Planned |
+| Vendor-specific OAuth adapters (SAP, IBM, TraceLink) | High | **High** | 📋 Planned |
 | Repository connection management | High | Medium | 📋 Planned |
+| Credential rotation and expiry monitoring | High | Medium | 📋 Planned |
 | Merge events from multiple sources | High | Medium | 📋 Planned |
-| Handle query pagination | Medium | Low | 📋 Planned |
+| Data normalization layer (for Story Builder) | High | **High** | 📋 Planned |
+| Handle query pagination (vendor-specific) | Medium | Medium | 📋 Planned |
+
+**Note:** OAuth complexity is HIGH due to vendor-specific implementations (see "Integration Complexity" section above).
 
 ### Phase 3: Story Builder
 
@@ -1933,6 +2042,25 @@ interface LocationRequest {
 | Webhook notifications for new events | Low | Medium | 📋 Planned |
 | Event export (EPCIS JSON, CSV) | Medium | Low | 📋 Planned |
 | Cold tier migration (when >500GB) | Low | High | 📋 Planned |
+
+### Phase 7: Pre-Built Vendor Connectors
+
+> Reduce enterprise integration time from weeks to days with certified connectors.
+
+| Connector | Priority | Complexity | Status | Expected Integration Time |
+|-----------|----------|------------|--------|---------------------------|
+| SAP EPCIS Connector | High | High | 📋 Planned | 1-2 weeks (vs 4-8 manual) |
+| IBM Sterling Connector | High | High | 📋 Planned | 1-2 weeks (vs 3-6 manual) |
+| TraceLink Connector | Medium | Medium | 📋 Planned | 1 week (vs 2-4 manual) |
+| GS1 Cloud Connector | Medium | Low | 📋 Planned | 3 days (vs 1-2 weeks manual) |
+
+**Connector features (each):**
+- Pre-configured vendor-specific OAuth flow
+- Automatic token refresh and credential management
+- Vendor-specific query parameter handling
+- Rate limit awareness and retry logic
+- Health check and monitoring endpoints
+- Normalized event output compatible with Story Builder
 
 ---
 
