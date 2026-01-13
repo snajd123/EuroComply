@@ -535,7 +535,7 @@ Lookup is supported by GTIN/EAN, brand and SKU combination, or item-level serial
 
 ### Infrastructure (Hybrid Architecture)
 
-EuroComply uses a **dual-path architecture** for cost-effective billion-scale DPP serving:
+EuroComply uses a **dual-path architecture** for cost-effective high-volume DPP serving:
 
 | Path | Component | Technology | Purpose |
 |------|-----------|------------|---------|
@@ -547,7 +547,7 @@ EuroComply uses a **dual-path architecture** for cost-effective billion-scale DP
 | **Read** | Origins | Hetzner (EU) | Static DPP files |
 | **Both** | Frontend | Vercel | Next.js hosting |
 
-**Why hybrid?** ESPR requires free DPP access. AWS bandwidth costs would be ~$38k/month at 1B scans/day. Cloudflare + Hetzner read path is fixed at ~$200/month regardless of scan volume.
+**Why hybrid?** ESPR requires free DPP access. AWS bandwidth costs would be ~$38k/month at 1B scans/day. Cloudflare + Hetzner read path is fixed at ~$200/month for up to 50B scans/day (Cloudflare CDN handles 99%+ of traffic).
 
 **Infrastructure Cost Breakdown:**
 
@@ -796,7 +796,7 @@ Organizations own their data. Full portability guaranteed:
 | [USER_MANAGEMENT.md](./docs/USER_MANAGEMENT.md) | User roles, permissions, and workspace data ownership |
 | [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) | Technical implementation roadmap |
 | [BUSINESS_MODEL.md](./docs/BUSINESS_MODEL.md) | Pricing and business model |
-| [SCALABILITY.md](./docs/SCALABILITY.md) | Billion-scale DPP serving architecture |
+| [SCALABILITY.md](./docs/SCALABILITY.md) | CDN-backed DPP serving architecture (scalable to billions) |
 | [EPCIS_INTEGRATION.md](./docs/EPCIS_INTEGRATION.md) | Supply chain lifecycle tracking |
 | [EU_INTEGRATION.md](./docs/EU_INTEGRATION.md) | EBSI and EU DPP Registry integration |
 | [ARCHITECTURE_PORTABILITY.md](./docs/ARCHITECTURE_PORTABILITY.md) | Data portability architecture |

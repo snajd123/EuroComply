@@ -115,7 +115,7 @@ Four **Workspaces** provide persona-specific views of Hub data:
 | **Read Path (DPP Serving)** | | |
 | CDN | Cloudflare (Pro) | Unlimited bandwidth, free |
 | Origins (Tier 1) | Hetzner bare metal | EU-based, ~$200/month fixed |
-| Origins (Tier 2) | Cloudflare R2 | Trillion-scale, no egress fees |
+| Origins (Tier 2) | Cloudflare R2 | For 100B+ scans/day, no egress fees |
 
 ---
 
@@ -315,7 +315,7 @@ Passport (DPP)
 ├── lastPublishedAt? (when static files uploaded)
 ├── cdnInvalidatedAt? (when CDN cache cleared)
 ├── revokedAt?, revocationReason?
-└── See SCALABILITY.md for billion-scale serving
+└── See SCALABILITY.md for CDN-backed serving architecture
 
 Subscription
 ├── organizationId
@@ -864,7 +864,7 @@ This approach supports industries beyond ESPR compliance - any business needing 
 | Product lifecycle timeline component | Planned |
 | Carbon footprint visualization | Planned |
 | Operations workspace navigation (Lifecycle, Repositories) | Planned |
-| **Static DPP Serving (Billion-Scale, Fixed Cost)** | |
+| **Static DPP Serving (CDN-Backed, Fixed Cost)** | |
 | Provision 3x Hetzner origin servers (Germany/Finland) | Planned |
 | Configure Nginx for static file serving | Planned |
 | Set up Lsyncd for real-time file replication | Planned |
@@ -875,7 +875,7 @@ This approach supports industries beyond ESPR compliance - any business needing 
 | Implement Cloudflare cache purge on update/revoke | Planned |
 | Revocation page rendering | Planned |
 | Content negotiation (HTML for browsers, JSON for APIs) | Planned |
-| **Trillion-Scale Preparation (Future)** | |
+| **R2 Migration Preparation (When Needed)** | |
 | Monitor origin bandwidth usage | Planned |
 | Prepare Cloudflare R2 bucket for extreme scale | Planned |
 | Build R2 publishing function (S3-compatible) | Planned |
@@ -893,7 +893,7 @@ This approach supports industries beyond ESPR compliance - any business needing 
 
 **Key Decisions:**
 - DPP VC schema includes `attestations[]` array from day one, even if empty. This enables Phase 5 integration without schema changes.
-- DPPs are pre-rendered to static files (JSON + HTML) and served via Cloudflare CDN with Hetzner bare-metal origins. This enables billions of QR scans/day at fixed cost (ESPR requires free access, so we can't use usage-based pricing).
+- DPPs are pre-rendered to static files (JSON + HTML) and served via Cloudflare CDN with Hetzner bare-metal origins. This enables up to 50B QR scans/day at fixed cost (~$200/month). Cloudflare CDN handles 99%+ of traffic; ESPR requires free access, so we can't use usage-based pricing.
 - Read path is completely separate from write path. QR scans never touch AWS or the database.
 - **Tiered scaling:** Start with Hetzner (up to ~50B scans/day at $200/month), migrate to Cloudflare R2 for extreme scale (100B+ scans/day at ~$2,500-11,000/month). See [SCALABILITY.md](docs/SCALABILITY.md) for details.
 
@@ -1412,7 +1412,7 @@ model EpcisLocation {
 |----------|-------------|
 | [README.md](./README.md) | Platform overview and setup |
 | [BUSINESS_MODEL.md](./docs/BUSINESS_MODEL.md) | Pricing and market positioning |
-| [SCALABILITY.md](./docs/SCALABILITY.md) | Trillion-scale DPP serving architecture |
+| [SCALABILITY.md](./docs/SCALABILITY.md) | CDN-backed DPP serving architecture |
 | [EU_INTEGRATION.md](./docs/EU_INTEGRATION.md) | EBSI and EU DPP Registry integration |
 | [EPCIS_INTEGRATION.md](./docs/EPCIS_INTEGRATION.md) | EPCIS 2.0 supply chain event tracking |
 | [USER_MANAGEMENT.md](./docs/USER_MANAGEMENT.md) | User roles, permissions, and version control workflow |

@@ -244,8 +244,9 @@ EuroComply uses a **hybrid infrastructure** that separates write operations (AWS
 │                                                                  │
 │  THE SOLUTION:                                                  │
 │  • Write Path (AWS): Reliable, managed, usage-based             │
-│  • Read Path (Cloudflare + Hetzner): Fixed cost, unlimited      │
-│  • Cost: ~$200/month for unlimited DPP scans                    │
+│  • Read Path (Cloudflare + Hetzner): Fixed cost, high volume    │
+│  • Cost: ~$200/month for up to 50B scans/day                    │
+│  • Cloudflare CDN handles 99%+ of traffic (unlimited bandwidth) │
 │                                                                  │
 │  RESULT: Infrastructure cost is predictable and bounded.        │
 │                                                                  │
@@ -273,18 +274,19 @@ See [SCALABILITY.md](./SCALABILITY.md) for technical details.
 |---------|---------|------|
 | Cloudflare Pro | Global CDN, unlimited bandwidth | $20/month |
 | Hetzner AX41 × 3 | Origin servers (Germany, Finland) | €150/month |
-| **Total Read Path** | **Unlimited DPP scans** | **~$200/month** |
+| **Total Read Path** | **Up to 50B scans/day** | **~$200/month** |
 
 ### Cost Comparison: AWS-Only vs Hybrid
 
-| DPP Scans/Day | AWS-Only | Hybrid | Savings |
-|---------------|----------|--------|---------|
+| DPP Scans/Day | AWS-Only | Hybrid (Current) | Savings |
+|---------------|----------|------------------|---------|
 | 1 million | ~$1,200/month | ~$200/month | 83% |
 | 100 million | ~$12,000/month | ~$200/month | 98% |
 | 1 billion | ~$38,000/month | ~$200/month | 99.5% |
 | 10 billion | ~$250,000/month | ~$200/month | 99.9% |
+| 50 billion | ~$1,250,000/month | ~$200/month (limit) | 99.98% |
 
-**Cost is truly fixed** - Cloudflare doesn't charge for bandwidth, and Hetzner includes 60TB/month (we use <20TB even at 10B scans/day due to 99%+ cache hit rate).
+**Cost is fixed up to 50B scans/day** - Cloudflare CDN handles 99%+ of traffic (unlimited bandwidth). Hetzner origins handle cache misses only (60TB/month limit). Beyond 50B scans/day, migrate to Cloudflare R2 (~$2,500-11,000/month). See [SCALABILITY.md](./SCALABILITY.md) for migration triggers.
 
 ### Compute: ECS Fargate
 

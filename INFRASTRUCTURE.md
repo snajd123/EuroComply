@@ -1,6 +1,6 @@
 # EuroComply Infrastructure
 
-Hybrid infrastructure for EU/GDPR-compliant Digital Product Passport platform with trillion-scale read capacity.
+Hybrid infrastructure for EU/GDPR-compliant Digital Product Passport platform with CDN-backed scalable architecture.
 
 ---
 
@@ -8,7 +8,7 @@ Hybrid infrastructure for EU/GDPR-compliant Digital Product Passport platform wi
 
 EuroComply uses a **dual-path architecture** that separates:
 - **Write Path (AWS)**: PIM operations, user management, DPP issuance
-- **Read Path (Cloudflare + Hetzner)**: Billion-scale QR code scans at fixed cost
+- **Read Path (Cloudflare + Hetzner)**: High-volume QR code scans at fixed cost
 
 | Aspect | Write Path (AWS) | Read Path (Hetzner/R2) |
 |--------|------------------|------------------------|
@@ -17,7 +17,23 @@ EuroComply uses a **dual-path architecture** that separates:
 | **Provider** | AWS | Cloudflare CDN + Hetzner (or R2 at scale) |
 | **Scaling** | Auto-scaling containers | Static files, CDN |
 | **Cost Model** | Usage-based | Fixed up to 50B scans/day |
-| **Capacity** | 10,000+ concurrent users | Trillions of scans/day |
+| **Current Capacity** | ~1,000 concurrent users | Up to 50B scans/day (Hetzner) |
+| **Scalable To** | 10,000+ users (with DB upgrade) | 1T+ scans/day (with R2 migration) |
+
+### Capacity Reality Check
+
+**Current Infrastructure (as deployed):**
+- **Read path**: 3× Hetzner AX41 servers (~€150/month) behind Cloudflare CDN
+- **Write path**: 2-10 ECS Fargate tasks + db.t3.medium RDS (~$300/month)
+- **Realistic capacity**: Up to 50 billion scans/day (read), ~1,000 concurrent users (write)
+
+**How it scales:**
+- **Cloudflare CDN handles 99%+ of read traffic** - our origin servers only see cache misses
+- At 99% cache hit rate, 50B scans/day = 500M origin hits = well within Hetzner's 60TB/month limit
+- Beyond 50B scans/day: migrate to Cloudflare R2 (documented in SCALABILITY.md, ~$2,500-11,000/month)
+- Beyond 1,000 concurrent users: upgrade RDS to db.r6g.large or larger
+
+**Key insight**: The impressive scale numbers come from Cloudflare's global CDN (300+ edge locations, unlimited bandwidth), not our origin servers. Our architecture leverages CDN caching for static DPP files.
 
 **Note:** EuroComply operates a **Hybrid EPCIS Model**: reading from enterprise EPCIS repositories (SAP, IBM) + hosting OpenEPCIS for SMB customers. See [EPCIS_INTEGRATION.md](docs/EPCIS_INTEGRATION.md) for details.
 
@@ -179,14 +195,17 @@ The read path handles all DPP serving (QR code scans) with fixed-cost infrastruc
 
 ### Why Not AWS for Reads?
 
-| Metric | AWS CloudFront | Cloudflare + Hetzner | Cloudflare + R2 |
-|--------|----------------|----------------------|-----------------|
-| 1B scans/day | ~$38,000/month | ~$200/month | ~$130/month |
-| 10B scans/day | ~$250,000/month | ~$200/month | ~$400/month |
-| 100B scans/day | ~$2,500,000/month | ❌ Exceeds limit | ~$2,500/month |
-| 1T scans/day | ~$38,000,000/month | ❌ Exceeds limit | ~$11,000/month |
-| Bandwidth cost | $0.085/GB | Unlimited (free) | Unlimited (free) |
-| Scalability | Unlimited | Up to ~50B scans/day | Unlimited |
+| Metric | AWS CloudFront | Cloudflare + Hetzner (Current) | Cloudflare + R2 (Future) |
+|--------|----------------|--------------------------------|--------------------------|
+| 1B scans/day | ~$38,000/month | ~$200/month ✅ | ~$130/month |
+| 10B scans/day | ~$250,000/month | ~$200/month ✅ | ~$400/month |
+| 50B scans/day | ~$1,250,000/month | ~$200/month ✅ (limit) | ~$1,500/month |
+| 100B scans/day | ~$2,500,000/month | ❌ Requires R2 migration | ~$2,500/month |
+| 1T scans/day | ~$38,000,000/month | ❌ Requires R2 migration | ~$11,000/month |
+| Bandwidth cost | $0.085/GB | Unlimited (Cloudflare) | Unlimited (Cloudflare) |
+| Current limit | N/A | ~50B scans/day | Unlimited |
+
+**Note**: The "Cloudflare + Hetzner" column represents our currently deployed infrastructure. R2 migration is planned but not yet deployed. See [SCALABILITY.md](docs/SCALABILITY.md) for migration triggers.
 
 **ESPR requires free DPP access.** We can't pass infrastructure costs to users. Self-hosting the read path solves this.
 

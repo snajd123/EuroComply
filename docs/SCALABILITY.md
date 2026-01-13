@@ -2,20 +2,66 @@
 
 ## Overview
 
-EuroComply is designed to handle billions of QR code scans per day while maintaining low latency and predictable costs. This is achieved through a **dual-path architecture** that separates high-volume reads (QR scans) from low-volume writes (workspace operations that build workspace data in The Hub).
+EuroComply is designed to handle high-volume QR code scans while maintaining low latency and predictable costs. This is achieved through a **dual-path architecture** that separates high-volume reads (QR scans) from low-volume writes (workspace operations that build workspace data in The Hub).
 
 **Key Insight:** DPP access must be free for all users (ESPR Article 31). This means infrastructure costs scale with adoption but revenue doesn't. We solve this by self-hosting the read path with Cloudflare (unlimited free bandwidth) + Hetzner (cheap EU bare metal), reducing costs by 99% compared to AWS CloudFront.
 
 ---
 
-## Scale Requirements
+## Current Capacity vs Scalable Architecture
 
-| Metric | Target | Extreme Scale |
-|--------|--------|---------------|
-| QR scans per day | 1-10 billion | 1+ trillion |
-| Peak scans per second | 1+ million | 10+ million |
+> **Important**: This section distinguishes between what our *currently deployed* infrastructure can handle vs what the architecture *can scale to* with planned upgrades.
+
+### Currently Deployed Infrastructure
+
+| Component | Specification | Realistic Capacity |
+|-----------|---------------|-------------------|
+| **Read Path** | | |
+| Cloudflare CDN | Pro plan ($20/month) | Unlimited (CDN handles 99%+ of traffic) |
+| Hetzner Origins | 3× AX41 servers (~€150/month) | 60TB/month bandwidth → ~50B scans/day |
+| **Write Path** | | |
+| ECS Fargate | 2-10 tasks (auto-scaling) | ~1,000 concurrent API users |
+| RDS PostgreSQL | db.t3.medium (2 vCPU, 4GB RAM) | ~500 connections, ~10K transactions/sec |
+| ElastiCache Redis | cache.t3.micro | Session caching, rate limiting |
+
+### How CDN Caching Makes This Work
+
+The impressive scan numbers are possible because **Cloudflare's global CDN handles 99%+ of read traffic**:
+
+```
+50 billion scans/day × 1% cache miss rate = 500 million origin hits/day
+500M hits × 5KB per DPP = 2.5TB/day = 75TB/month
+
+With 99.5% cache hit rate: 37TB/month (within Hetzner's 60TB limit)
+With 99.9% cache hit rate: 7.5TB/month (comfortable margin)
+```
+
+Our origin servers (Hetzner) only handle cache misses. Cloudflare's 300+ edge locations serve the rest.
+
+### Scalable To (With Planned Upgrades)
+
+| Metric | Current Capacity | With R2 Migration | With Full Upgrades |
+|--------|------------------|-------------------|-------------------|
+| QR scans/day | Up to 50B | 100B+ | 1T+ |
+| Concurrent users | ~1,000 | ~1,000 | 10,000+ |
+| Products total | 10M+ | 10M+ | 100M+ |
+| Monthly cost | ~$500 | ~$2,500-11,000 | ~$12,000+ |
+
+**Migration Triggers:**
+- **R2 Migration**: When origin bandwidth consistently exceeds 40TB/month (67% of Hetzner limit)
+- **RDS Upgrade**: When connection count exceeds 400 or CPU > 80% sustained
+- **Enterprise Tier**: When concurrent users exceed 5,000
+
+---
+
+## Scale Targets
+
+| Metric | Current Capacity | Scalable To |
+|--------|------------------|-------------|
+| QR scans per day | Up to 50 billion | 1+ trillion (with R2) |
+| Peak scans per second | ~600K (CDN) | 10+ million (CDN) |
 | Scan latency (p99) | <100ms | <100ms |
-| Concurrent PIM users | 10,000+ | 10,000+ |
+| Concurrent PIM users | ~1,000 | 10,000+ (with RDS upgrade) |
 | Products per organization | 100,000+ | 100,000+ |
 | Total products | 10+ million | 100+ million |
 
@@ -116,7 +162,7 @@ EuroComply is designed to handle billions of QR code scans per day while maintai
 
 ---
 
-## DPP Serving Architecture (Billion-Scale)
+## DPP Serving Architecture (CDN-Backed)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -1637,38 +1683,39 @@ enum PassportStatus {
 │                                                                  │
 │  QR SCANS (READ PATH) - Cloudflare + Hetzner/R2                 │
 │  ──────────────────────────────────────────────                 │
-│  Capacity: Trillions per day                                    │
+│  Current capacity: Up to 50B scans/day (Hetzner)               │
+│  Scalable to: 1T+ scans/day (with R2 migration)                │
 │  Latency: <100ms globally                                       │
 │  Architecture: Cloudflare CDN → Hetzner/R2 static files        │
 │  Database involvement: Zero                                     │
+│  Key: Cloudflare CDN handles 99%+ of traffic                   │
 │                                                                  │
 │  Cost by scale:                                                 │
-│  • Up to 50B scans/day: ~$200/month (Hetzner)                  │
-│  • 100B+ scans/day: ~$2,500/month (R2)                         │
-│  • 1T scans/day: ~$11,000/month (R2)                           │
+│  • Up to 50B scans/day: ~$200/month (Hetzner) ← CURRENT        │
+│  • 100B+ scans/day: ~$2,500/month (R2) ← REQUIRES MIGRATION    │
+│  • 1T scans/day: ~$11,000/month (R2) ← REQUIRES MIGRATION      │
 │                                                                  │
 │  WORKSPACE WRITES (WRITE PATH) - AWS → THE HUB                 │
 │  ─────────────────────────────────────────────                  │
-│  Capacity: Thousands per day                                    │
+│  Current capacity: ~1,000 concurrent users                      │
+│  Scalable to: 10,000+ users (with RDS upgrade)                 │
 │  Architecture: ECS → PostgreSQL (The Hub) → Redis               │
-│  All workspaces write to Hub, building workspace data          │
 │  Cost: ~$300/month                                              │
-│  Scalable to: 10,000+ concurrent users                         │
 │                                                                  │
-│  TOTAL INFRASTRUCTURE (at scale)                                │
-│  ───────────────────────────────                                │
-│  Startup (10B scans): ~$500/month                              │
-│  Enterprise (100B scans): ~$2,800/month                        │
-│  Planetary (1T scans): ~$11,300/month                          │
+│  TOTAL INFRASTRUCTURE                                           │
+│  ────────────────────                                           │
+│  Current (up to 50B scans): ~$500/month                        │
+│  With R2 (100B scans): ~$2,800/month                           │
+│  Full scale (1T scans): ~$11,300/month                         │
 │  Savings vs AWS-only: 99.7%                                     │
 │                                                                  │
 │  KEY INSIGHTS                                                   │
 │  ────────────                                                   │
 │  1. Separate read and write paths completely                    │
 │  2. DPPs are immutable → perfect for CDN caching               │
-│  3. Cloudflare offers unlimited bandwidth (free)               │
+│  3. Cloudflare CDN does the heavy lifting (99%+ cache rate)    │
 │  4. Hetzner for startup, R2 for extreme scale                  │
-│  5. Tiered scaling: costs only increase at 100B+ scans        │
+│  5. Current infra handles 50B scans/day - upgrade when needed  │
 │  6. EU Registry will absorb read traffic long-term             │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
