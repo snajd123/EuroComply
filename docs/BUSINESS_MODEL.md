@@ -110,35 +110,94 @@ Retailers who only resell products from other brands are served through the free
 
 ## Pricing Model
 
-### Volume-Based Pricing
+### Volume-Based Pricing with Item-Level Support
 
-EuroComply uses a volume-based pricing model where all customers receive full platform access. Tier differentiation is based solely on catalog capacity, not feature availability.
+EuroComply uses a volume-based pricing model where all customers receive full platform access. Tier differentiation is based on catalog capacity and item-level serialization needs.
+
+**Key Pricing Innovation:** We differentiate between **product-level DPPs** (one per GTIN, included in base price) and **item-level DPPs** (one per physical unit, usage-based pricing). This allows SMEs to get full compliance at low cost while enabling enterprise customers to scale to billions of items.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                         EUROCOMPLY PRICING TIERS                             │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐       │
-│  │     GROWTH      │     │      SCALE      │     │   ENTERPRISE    │       │
-│  │    €129/mo      │ ──► │    €399/mo      │ ──► │     Custom      │       │
-│  │  2,000 products │     │ 20,000 products │     │   Unlimited     │       │
-│  │                 │     │                 │     │                 │       │
-│  │  Full Platform  │     │  Full Platform  │     │  Full Platform  │       │
-│  │  100 AI/month   │     │  1,000 AI/month │     │  + SLA & SSO    │       │
-│  │  Unlimited users│     │  Unlimited users│     │  Unlimited users│       │
-│  └─────────────────┘     └─────────────────┘     └─────────────────┘       │
+│  GROWTH              SCALE               ENTERPRISE          MEGA            │
+│  €129/mo             €399/mo             €999/mo             €4,999/mo       │
+│  ──────              ─────               ──────────          ─────           │
+│  2,000 products      20,000 products     Unlimited           Unlimited       │
+│  Product-level       Product-level       Product + Item      Product + Item  │
+│  DPPs only           + Item-level        level               level           │
+│                                                                              │
+│  Items included:     Items included:     Items included:     Items included: │
+│  N/A                 100K/month          10M/month           100M/month      │
+│                                                                              │
+│  Item overage:       Item overage:       Item overage:       Item overage:   │
+│  N/A                 €0.001/item         €0.0005/item        €0.0002/item    │
+│                      (€1 per 1K)         (€0.50 per 1K)      (€0.20 per 1K)  │
+│                                                                              │
+│  Full Platform       Full Platform       Full Platform       Full Platform   │
+│  100 AI/month        1,000 AI/month      Custom AI           Custom AI       │
+│  Unlimited users     Unlimited users     + SLA & SSO         + Dedicated     │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
+### Product-Level vs Item-Level DPPs
+
+| DPP Type | Description | Use Case | Pricing |
+|----------|-------------|----------|---------|
+| **Product-level** | One DPP per GTIN (product model) | Fashion brands, furniture | Included in base price |
+| **Item-level** | One DPP per physical unit (serial number) | Electronics, batteries, high-value goods | Usage-based (see tiers) |
+
+**Why item-level costs more:** Each item requires database storage, lifecycle event tracking, and 10-year retention. See [SCALABILITY.md](./SCALABILITY.md) for technical architecture.
+
 ### Pricing Table
 
-| Plan | Monthly | Annual (2 months free) | Products | AI Imports | API | Support |
-|------|---------|------------------------|----------|------------|-----|---------|
-| **Growth** | €129 | €1,290/yr (€107/mo) | 2,000 | 100/mo | Rate Limited | Email |
-| **Scale** | €399 | €3,990/yr (€332/mo) | 20,000 | 1,000/mo | High Limits | Priority |
-| **Enterprise** | Custom | Custom | Unlimited | Custom | Custom | Dedicated + SLA |
+| Plan | Monthly | Annual | Products | Items Included | Item Overage | AI Imports | Support |
+|------|---------|--------|----------|----------------|--------------|------------|---------|
+| **Growth** | €129 | €1,290/yr | 2,000 | N/A | N/A | 100/mo | Email |
+| **Scale** | €399 | €3,990/yr | 20,000 | 100K/mo | €0.001/item | 1,000/mo | Priority |
+| **Enterprise** | €999 | €9,990/yr | Unlimited | 10M/mo | €0.0005/item | Custom | Dedicated |
+| **Mega** | €4,999 | €49,990/yr | Unlimited | 100M/mo | €0.0002/item | Custom | Dedicated + SLA |
+
+### Item-Level Pricing Details
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  ITEM-LEVEL COST BREAKDOWN                                                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  WHAT'S INCLUDED PER ITEM:                                                  │
+│  • Unique serial number tracking                                            │
+│  • 10-year data retention (ESPR compliant)                                  │
+│  • EPCIS lifecycle events (manufacturing, shipping, sale, recycling)       │
+│  • Item-level QR code and DPP page                                          │
+│  • Unlimited scans (CDN-backed)                                             │
+│                                                                              │
+│  OUR COST PER ITEM (10-year lifecycle):                                     │
+│  • Item record storage: €0.000004                                           │
+│  • Event storage (hot/warm/cold): €0.000006                                │
+│  • API calls (~20 scans): €0.000012                                        │
+│  • Migration/overhead: €0.000002                                           │
+│  • TOTAL COST: ~€0.00005/item/month (~€0.0006/item/year)                   │
+│                                                                              │
+│  PRICING BY TIER:                                                           │
+│  ─────────────────                                                          │
+│  Scale:      €0.001/item/mo    (96% margin)                                │
+│  Enterprise: €0.0005/item/mo   (92% margin)                                │
+│  Mega:       €0.0002/item/mo   (80% margin)                                │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Mega Tier: Dedicated Resources
+
+Customers with >100M items/year receive:
+- Dedicated database partition (isolation from other customers)
+- Dedicated read replica (guaranteed query performance)
+- Priority API rate limits (10,000 req/s)
+- 4-hour support SLA
+- Custom integration support
 
 ### What's Included in ALL Plans
 
@@ -220,6 +279,177 @@ Customers exceeding their included product limits are billed incrementally rathe
 - **Total monthly cost: €169**
 
 This approach enables gradual scaling without forcing premature tier transitions.
+
+---
+
+## Revenue Projections
+
+### Market Opportunity
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  EU DPP MARKET SIZE                                                          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  COMPANIES AFFECTED BY ESPR:                                                │
+│  • Textiles: ~180,000 EU companies                                          │
+│  • Electronics: ~85,000 EU companies                                        │
+│  • Batteries: ~15,000 EU companies                                          │
+│  • Furniture: ~130,000 EU companies                                         │
+│  • Construction products: ~300,000 EU companies                             │
+│  • Other categories: ~200,000 EU companies                                  │
+│  ────────────────────────────────────────                                   │
+│  TOTAL: ~900,000 EU companies need DPP compliance                          │
+│                                                                              │
+│  PLUS: Non-EU companies selling into EU                                     │
+│  • US, UK, China, etc. exporters to EU: ~500,000 companies                 │
+│  ────────────────────────────────────────                                   │
+│  TOTAL ADDRESSABLE MARKET: ~1.4 million companies                          │
+│                                                                              │
+│  SERVICEABLE MARKET (SME focus, English-speaking initially):               │
+│  • ~200,000 companies                                                       │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 5-Year Customer Projections
+
+| Year | Growth | Scale | Enterprise | Mega | Total Customers |
+|------|--------|-------|------------|------|-----------------|
+| 2025 | 200 | 50 | 5 | 0 | 255 |
+| 2026 | 800 | 200 | 20 | 1 | 1,021 |
+| 2027 | 2,500 | 600 | 60 | 3 | 3,163 |
+| 2028 | 5,000 | 1,200 | 120 | 8 | 6,328 |
+| 2029 | 8,000 | 2,000 | 200 | 15 | 10,215 |
+
+### Average Revenue Per User (ARPU)
+
+| Tier | Base Price | Avg. Item Overage | Monthly ARPU |
+|------|------------|-------------------|--------------|
+| Growth | €129 | €0 (no item-level) | €129 |
+| Scale | €399 | €200 (200K items overage) | €599 |
+| Enterprise | €999 | €10,000 (20M items overage) | €10,999 |
+| Mega | €4,999 | €80,000 (400M items overage) | €84,999 |
+
+### 5-Year Revenue Projection
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  5-YEAR REVENUE PROJECTION                                                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  YEAR 1 (2025): Early Adopters                                              │
+│  ─────────────────────────────────                                          │
+│  Growth:     200 × €129 × 12    = €309,600                                 │
+│  Scale:      50 × €599 × 12     = €359,400                                 │
+│  Enterprise: 5 × €10,999 × 12   = €659,940                                 │
+│  Mega:       0 × €84,999 × 12   = €0                                       │
+│  ──────────────────────────────────────────                                │
+│  TOTAL YEAR 1: €1.3M ARR                                                   │
+│                                                                              │
+│  YEAR 2 (2026): Growing Awareness                                           │
+│  ─────────────────────────────────                                          │
+│  Growth:     800 × €129 × 12    = €1,238,400                               │
+│  Scale:      200 × €599 × 12    = €1,437,600                               │
+│  Enterprise: 20 × €10,999 × 12  = €2,639,760                               │
+│  Mega:       1 × €84,999 × 12   = €1,019,988                               │
+│  ──────────────────────────────────────────                                │
+│  TOTAL YEAR 2: €6.3M ARR                                                   │
+│                                                                              │
+│  YEAR 3 (2027): ESPR Enforcement Begins                                     │
+│  ───────────────────────────────────────                                    │
+│  Growth:     2,500 × €129 × 12  = €3,870,000                               │
+│  Scale:      600 × €599 × 12    = €4,312,800                               │
+│  Enterprise: 60 × €10,999 × 12  = €7,919,280                               │
+│  Mega:       3 × €84,999 × 12   = €3,059,964                               │
+│  ──────────────────────────────────────────                                │
+│  TOTAL YEAR 3: €19.2M ARR                                                  │
+│                                                                              │
+│  YEAR 4 (2028): Mass Adoption                                               │
+│  ─────────────────────────────                                              │
+│  Growth:     5,000 × €129 × 12  = €7,740,000                               │
+│  Scale:      1,200 × €599 × 12  = €8,625,600                               │
+│  Enterprise: 120 × €10,999 × 12 = €15,838,560                              │
+│  Mega:       8 × €84,999 × 12   = €8,159,904                               │
+│  ──────────────────────────────────────────                                │
+│  TOTAL YEAR 4: €40.4M ARR                                                  │
+│                                                                              │
+│  YEAR 5 (2029): Market Maturity                                             │
+│  ───────────────────────────────                                            │
+│  Growth:     8,000 × €129 × 12  = €12,384,000                              │
+│  Scale:      2,000 × €599 × 12  = €14,376,000                              │
+│  Enterprise: 200 × €10,999 × 12 = €26,397,600                              │
+│  Mega:       15 × €84,999 × 12  = €15,299,820                              │
+│  ──────────────────────────────────────────                                │
+│  TOTAL YEAR 5: €68.5M ARR                                                  │
+│                                                                              │
+│  ═══════════════════════════════════════════════════════════════════════   │
+│  5-YEAR CUMULATIVE REVENUE: ~€136M                                         │
+│  ═══════════════════════════════════════════════════════════════════════   │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Revenue by Source (Year 5)
+
+| Revenue Type | Amount | Percentage |
+|--------------|--------|------------|
+| Platform subscriptions (base fees) | €38.2M | 56% |
+| Item-level overage | €30.3M | 44% |
+| **Total** | **€68.5M** | **100%** |
+
+**Key Insight:** Item-level pricing becomes 44% of revenue by Year 5, validating the importance of the template + item data architecture.
+
+### Profitability Analysis (Year 5)
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  YEAR 5 PROFITABILITY (€68.5M Revenue)                                       │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  REVENUE:                       €68,500,000                                 │
+│                                                                              │
+│  COST OF GOODS SOLD (COGS):                                                │
+│  ─────────────────────────────                                              │
+│  Infrastructure:                                                            │
+│  • AWS (write path):            €300,000                                   │
+│  • Hetzner/R2 (read path):      €150,000                                   │
+│  • Item storage (tiered):       €1,500,000                                 │
+│  • Cloudflare:                  €50,000                                    │
+│  Third-party services:                                                      │
+│  • AI (Claude API):             €500,000                                   │
+│  • Payment processing (3%):     €2,055,000                                 │
+│  • Email/notifications:         €100,000                                   │
+│  ─────────────────────────────────────────                                 │
+│  TOTAL COGS:                    €4,655,000                                 │
+│  GROSS PROFIT:                  €63,845,000 (93.2% margin)                 │
+│                                                                              │
+│  OPERATING EXPENSES:                                                        │
+│  ─────────────────────                                                      │
+│  Engineering (30 people):       €4,500,000                                 │
+│  Sales & Marketing:             €10,000,000                                │
+│  Customer Success (20 people):  €2,000,000                                 │
+│  G&A (Legal, Finance, HR):      €2,000,000                                 │
+│  Office & Equipment:            €500,000                                   │
+│  ─────────────────────────────────────────                                 │
+│  TOTAL OPEX:                    €19,000,000                                │
+│                                                                              │
+│  OPERATING INCOME (EBITDA):     €44,845,000 (65.5% margin)                 │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 5-Year Financial Summary
+
+| Year | Customers | ARR | Gross Margin | EBITDA |
+|------|-----------|-----|--------------|--------|
+| 2025 | 255 | €1.3M | 90% | -€2M (investing) |
+| 2026 | 1,021 | €6.3M | 91% | €1M |
+| 2027 | 3,163 | €19.2M | 92% | €8M |
+| 2028 | 6,328 | €40.4M | 93% | €22M |
+| 2029 | 10,215 | €68.5M | 93% | €45M |
+
+**Year 5 Valuation (10x ARR): ~€685M**
 
 ---
 
