@@ -1516,6 +1516,192 @@ For enterprise customers with complex EPCIS landscapes:
 
 **Total: 5-7 weeks** for full enterprise integration.
 
+#### External EPCIS: Operational Challenges
+
+> ⚠️ **Unaddressed Problems**: The hybrid model has operational challenges that documentation previously glossed over.
+
+**1. Authentication/Authorization Model Gaps**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  EXTERNAL EPCIS ACCESS CONTROL: HONEST ASSESSMENT               │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  WHAT WE HAVE                                                   │
+│  ────────────                                                   │
+│  • OAuth 2.0 client credentials stored per repository           │
+│  • Credentials encrypted in database                            │
+│  • Basic health checks (can we connect?)                        │
+│                                                                  │
+│  WHAT WE DON'T HAVE                                             │
+│  ─────────────────                                              │
+│  • Fine-grained authorization (which products can we query?)    │
+│  • Audit trail on external side (we don't control their logs)   │
+│  • Credential scope enforcement (we trust their OAuth scope)    │
+│  • Cross-organization query authorization model                 │
+│  • Token refresh failure recovery strategy                      │
+│                                                                  │
+│  SECURITY IMPLICATIONS                                          │
+│  ─────────────────────                                          │
+│  • If OAuth token is compromised, attacker can query their EPCIS│
+│  • We store credentials = we're a high-value target             │
+│  • No way to enforce least-privilege on external queries        │
+│  • External EPCIS admin could grant us excessive access         │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**2. Network Latency for Cross-System Queries**
+
+| Query Type | Latency | Notes |
+|------------|---------|-------|
+| Hosted OpenEPCIS (same region) | 10-50ms | Fast, predictable |
+| Enterprise EPCIS (same continent) | 100-500ms | Variable based on their infra |
+| Enterprise EPCIS (cross-continent) | 300-1500ms | Significant impact on UX |
+| Federated query (multiple sources) | 500-3000ms | Slowest source dominates |
+
+**Impact on User Experience:**
+- Story Builder may take 3-5 seconds to load for federated queries
+- DPP rendering blocked on slowest EPCIS source
+- No way to "partial render" (either we have all data or we wait)
+
+**Current Mitigations (Limited):**
+- Query timeout: 30 seconds (too generous, should be lower)
+- No caching of external EPCIS results (stale data concerns)
+- No parallel query execution for federated sources
+
+**3. Data Format Translation Complexity**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  EPCIS IMPLEMENTATION VARIATIONS                                 │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  EPCIS VERSION DIFFERENCES                                      │
+│  ─────────────────────────                                      │
+│  EPCIS 1.2 (XML):        EPCIS 2.0 (JSON-LD):                  │
+│  <ObjectEvent>           { "type": "ObjectEvent",              │
+│    <eventTime>             "eventTime": "2026-01-08T10:00:00Z",│
+│    <bizStep>               "bizStep": "urn:epcglobal:cbv:...   │
+│  </ObjectEvent>          }                                      │
+│                                                                  │
+│  SAP EPCIS:              IBM Sterling:                          │
+│  - Custom extensions     - Different extension namespace        │
+│  - SAP-specific bizSteps - IBM event correlation IDs           │
+│  - German timezone       - UTC normalized                       │
+│    defaults                                                     │
+│                                                                  │
+│  LOCATION REPRESENTATIONS                                       │
+│  ─────────────────────────                                      │
+│  GLN:          "urn:epc:id:sgln:4012345.00001.0"               │
+│  Free text:    "Factory 3, Building B, Stuttgart"              │
+│  Coordinates:  { "lat": 48.7758, "lon": 9.1829 }               │
+│  GS1 Digital:  "https://id.gs1.org/414/4012345000010"          │
+│                                                                  │
+│  → We MUST normalize all of these before Story Builder          │
+│  → Translation errors = incorrect DPP data                      │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**What Can Go Wrong:**
+- Timezone misinterpretation (event appears on wrong day)
+- Location data loss (coordinates → GLN loses precision)
+- Custom business steps not mapped to CBV vocabulary
+- Quantity unit conversion errors (kg vs lb, m vs ft)
+
+**4. Failover Strategy: What Happens When Enterprise EPCIS is Down?**
+
+| Scenario | Current Behavior | What We Should Do (Not Implemented) |
+|----------|------------------|-------------------------------------|
+| Enterprise EPCIS timeout | DPP page shows error | Show cached data with "last updated" timestamp |
+| Enterprise EPCIS 5xx | Query fails, no retry | Retry with exponential backoff, then fallback |
+| Enterprise EPCIS auth failure | Credentials flagged invalid | Alert admin, continue with stale cache |
+| Network partition | Hangs until timeout | Circuit breaker pattern |
+| Partial response | Discard entire response | Accept partial, mark incomplete |
+
+**Current Reality:**
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  FAILOVER: CURRENT STATE (HONEST)                                │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  IF ENTERPRISE EPCIS IS DOWN:                                   │
+│  ────────────────────────────                                   │
+│  1. Query times out after 30 seconds                            │
+│  2. Story Builder shows "Unable to load supply chain data"      │
+│  3. DPP page renders without lifecycle timeline                 │
+│  4. No automatic retry, no cache fallback                       │
+│  5. Customer calls support                                      │
+│                                                                  │
+│  WHY NO CACHING:                                                │
+│  ──────────────                                                 │
+│  • EPCIS data changes frequently (new events added)             │
+│  • Cache invalidation is hard (when did their data change?)     │
+│  • Stale data could be worse than no data (incorrect claims)    │
+│  • Storage costs for caching all external EPCIS data           │
+│                                                                  │
+│  WHAT ENTERPRISE CUSTOMERS EXPECT:                              │
+│  ──────────────────────────────────                             │
+│  • 99.9% uptime for DPP display                                 │
+│  • Graceful degradation when their EPCIS is down                │
+│  • Proactive alerting, not customer reports                     │
+│                                                                  │
+│  GAP: We cannot guarantee DPP availability if we depend on      │
+│  external systems we don't control.                             │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Recommended (Not Yet Implemented) Strategy:**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  PROPOSED FAILOVER ARCHITECTURE                                  │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  1. CACHE LAYER (Redis/DynamoDB)                                │
+│     • Cache EPCIS query results for 1 hour                      │
+│     • Serve stale data with warning if source unavailable       │
+│     • Background refresh when cache expires                     │
+│                                                                  │
+│  2. CIRCUIT BREAKER                                             │
+│     • After 3 consecutive failures: open circuit               │
+│     • Skip queries to failed endpoint for 5 minutes             │
+│     • Probe with single request before closing circuit          │
+│                                                                  │
+│  3. GRACEFUL DEGRADATION                                        │
+│     • DPP renders with "Supply chain data temporarily           │
+│       unavailable" message                                      │
+│     • Show last-known-good data with timestamp                  │
+│     • Product claims (VC) still verifiable                      │
+│                                                                  │
+│  4. MONITORING & ALERTING                                       │
+│     • Alert on EPCIS connection failures                        │
+│     • Dashboard showing external dependency health              │
+│     • SLA tracking per external EPCIS endpoint                  │
+│                                                                  │
+│  STATUS: 📋 Not implemented. Requires significant engineering.  │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### External EPCIS: Risk Summary
+
+| Risk | Likelihood | Impact | Mitigation Status |
+|------|------------|--------|-------------------|
+| OAuth credential compromise | Medium | High | ⚠️ Partial (encrypted, but single point of failure) |
+| External EPCIS downtime | High | High | ❌ No failover strategy |
+| Query latency affecting UX | High | Medium | ❌ No caching or parallelization |
+| Data format translation errors | Medium | Medium | ⚠️ Basic normalization only |
+| Token refresh failures | Medium | Medium | ❌ No automatic recovery |
+
+**Honest Assessment:** The hybrid EPCIS model adds significant operational complexity. Organizations considering this architecture should:
+1. Budget for additional engineering to build resilience
+2. Set realistic SLA expectations (we can't guarantee external system uptime)
+3. Consider whether EPCIS data replication is needed for critical DPPs
+4. Plan for support burden when external integrations fail
+
 ---
 
 ### Manual Event Capture (Hosted OpenEPCIS)
