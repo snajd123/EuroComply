@@ -18,7 +18,7 @@ EuroComply provides **four workspaces**. During onboarding, the founder selects 
 |-------------------|-----------------|---------------------|
 | **Marketing** | PIM, DAM-Media, Syndication | Import product catalog |
 | **Design** | Registry, Materials, DAM-Tech | Set up materials/BOMs |
-| **Operations** | Registry, EPCIS, Inventory | Set up suppliers, track inventory |
+| **Operations** | Registry, Item Tracking, Inventory | Set up suppliers, track inventory |
 | **Compliance** | DPP Issuance, Attestation | Review DPP readiness |
 
 **Note:** Organizations are often all three (brand + manufacturer + distributor). The starting workspace is just where you begin—all workspaces are available to the founder.
@@ -79,13 +79,13 @@ See [USER_MANAGEMENT.md](./USER_MANAGEMENT.md) for workspace access, role templa
 │                              ▼                                      │
 │  STEP 3: SELECT PLAN (2 min)                                       │
 │  ┌─────────────────────────────────────────────────────────────────┐│
-│  │ ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐    ││
-│  │ │     GROWTH      │ │      SCALE      │ │   ENTERPRISE    │    ││
-│  │ │    €129/mo      │ │    €399/mo      │ │     Custom      │    ││
-│  │ │  2,000 products │ │ 20,000 products │ │    Unlimited    │    ││
-│  │ │  ALL FEATURES   │ │  ALL FEATURES   │ │  ALL + SLA/SSO  │    ││
-│  │ │    [Select]     │ │    [Select]     │ │    [Contact]    │    ││
-│  │ └─────────────────┘ └─────────────────┘ └─────────────────┘    ││
+│  │ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐││
+│  │ │   GROWTH    │ │    SCALE    │ │ ENTERPRISE  │ │    MEGA     │││
+│  │ │  €129/mo    │ │   €399/mo   │ │   €999/mo   │ │  €4,999/mo  │││
+│  │ │500 products │ │5K products  │ │  Unlimited  │ │  Unlimited  │││
+│  │ │ 10K items   │ │  1M items   │ │ 100M items  │ │  Unlimited  │││
+│  │ │  [Select]   │ │  [Select]   │ │  [Select]   │ │  [Contact]  │││
+│  │ └─────────────┘ └─────────────┘ └─────────────┘ └─────────────┘││
 │  │                                                                  ││
 │  │ → Stripe Checkout redirect                                      ││
 │  └─────────────────────────────────────────────────────────────────┘│
@@ -112,7 +112,7 @@ See [USER_MANAGEMENT.md](./USER_MANAGEMENT.md) for workspace access, role templa
 │  │ │  materials  │ │  & suppliers│ │  content    │ │             │││
 │  │ └─────────────┘ └─────────────┘ └─────────────┘ └─────────────┘││
 │  │ Registry,      │ Registry,     │ PIM,          │ Compliance,   ││
-│  │ Materials      │ EPCIS         │ DAM-Media     │ Attestation   ││
+│  │ Materials      │ Item Tracking │ DAM-Media     │ Attestation   ││
 │  │                                                                  ││
 │  │ → Guides user to appropriate workspace                          ││
 │  │ → All workspaces remain accessible via workspace switcher       ││
@@ -157,9 +157,10 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 // Pricing tiers (all plans include unlimited users, ALL features)
 const PLANS = {
-  growth: { priceId: 'price_growth_monthly', productLimit: 2000, price: 129 },
-  scale: { priceId: 'price_scale_monthly', productLimit: 20000, price: 399 },
-  // Enterprise: Custom pricing, contact sales
+  growth: { priceId: 'price_growth_monthly', productLimit: 500, itemLimit: 10000, price: 129 },
+  scale: { priceId: 'price_scale_monthly', productLimit: 5000, itemLimit: 1000000, price: 399 },
+  enterprise: { priceId: 'price_enterprise_monthly', productLimit: -1, itemLimit: 100000000, price: 999 },
+  mega: { priceId: 'price_mega_monthly', productLimit: -1, itemLimit: -1, price: 4999 },
 };
 
 // Create checkout session
@@ -293,7 +294,7 @@ model Organization {
   qrLifecycleOption     QRLifecycleOption  @default(DORMANT_HOSTING)
 
   // Enabled modules (backend capabilities)
-  enabledModules        String[]  @default(["core", "compliance", "pim", "dam", "import", "syndication", "epcis", "attestation"])
+  enabledModules        String[]  @default(["core", "compliance", "pim", "dam", "import", "syndication", "item_tracking", "attestation"])
   // Note: All modules enabled by default for all plans. This field exists for:
   // - Enterprise customers who may want to disable specific modules
   // - Future use if module-based pricing is introduced
@@ -348,9 +349,10 @@ enum OrganizationType {
 }
 
 enum SubscriptionPlan {
-  GROWTH            // €129/mo, 2,000 products, ALL features, unlimited users
-  SCALE             // €399/mo, 20,000 products, ALL features, unlimited users
-  ENTERPRISE        // Custom, unlimited products, ALL features + SLA/SSO
+  GROWTH            // €129/mo, 500 products, 10K items, ALL features, unlimited users
+  SCALE             // €399/mo, 5,000 products, 1M items, ALL features, unlimited users
+  ENTERPRISE        // €999/mo, unlimited products, 100M items, ALL features + SLA/SSO
+  MEGA              // €4,999/mo, unlimited, dedicated cluster
 }
 
 enum SubscriptionStatus {
@@ -499,8 +501,8 @@ function OnboardingProgress({ currentStep }: { currentStep: number }) {
 - [User Management](./USER_MANAGEMENT.md) - Workspace-based access control and data ownership
 - [Market Analysis](./MARKET_ANALYSIS.md) - Why self-service matters
 - [Business Model](./BUSINESS_MODEL.md) - Pricing tiers
-- [Implementation Plan](../IMPLEMENTATION_PLAN.md) - Technical architecture
+- [Architecture Document](../EuroComply_Architecture_Document_v1.3.md) - Technical architecture
 
 ---
 
-*Last Updated: 2026-01-11*
+*Last Updated: 2026-01-13*

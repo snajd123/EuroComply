@@ -149,35 +149,35 @@ All data is stored in the EU, using GDPR-compliant infrastructure:
 │  EU DATA RESIDENCY                                               │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  WRITE PATH (PIM, User Data)                                    │
-│  ─────────────────────────────                                  │
+│  WRITE PATH (API, Products, Attestations)                       │
+│  ─────────────────────────────────────────                      │
 │  Provider: AWS (Amazon Web Services)                            │
 │  Region: eu-central-1 (Frankfurt, Germany)                      │
-│  Services: RDS PostgreSQL, ECS, ElastiCache, S3                 │
+│  Services:                                                      │
+│    • RDS PostgreSQL (schema-per-tenant isolation)               │
+│    • DynamoDB (item-level data, billions of records)            │
+│    • ECS Fargate, ElastiCache Redis, S3                         │
 │  Compliance: GDPR, SOC 2, ISO 27001                             │
 │                                                                  │
 │  READ PATH (DPP Public Access)                                  │
 │  ─────────────────────────────                                  │
 │  CDN: Cloudflare (global edge, EU origin)                       │
-│  Origins: Hetzner (German company)                              │
-│    • Falkenstein, Germany                                       │
-│    • Helsinki, Finland                                          │
-│    • Nuremberg, Germany                                         │
-│  Compliance: GDPR, German data protection law                   │
+│  Storage: Cloudflare R2 (S3-compatible, zero egress)            │
+│  Workers: DPP serving + lazy generation                         │
+│  Compliance: GDPR, EU data residency                            │
 │                                                                  │
 │  KEY POINTS                                                     │
 │  ──────────                                                     │
 │  • All data stored in EU                                        │
-│  • Hetzner is German company (subject to German law)            │
-│  • Cloudflare configured for EU-only origin (data never         │
-│    stored in US/other regions)                                  │
+│  • Cloudflare R2 EU jurisdiction selected                       │
+│  • Zero egress fees for unlimited DPP scans                     │
 │  • AWS EU data processing addendum (DPA) in place               │
 │  • No data transfer outside EU without customer consent         │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-See [INFRASTRUCTURE.md](../INFRASTRUCTURE.md) for technical details.
+See [EuroComply_Architecture_Document_v1.3.md](../EuroComply_Architecture_Document_v1.3.md) for technical details.
 
 ---
 
@@ -837,32 +837,36 @@ interface FullExportResponse {
 ## Pricing
 
 ```
-┌────────────────────────────┬─────────┬─────────────────────────────┐
-│ Tier                       │ Price   │ Features                    │
-├────────────────────────────┼─────────┼─────────────────────────────┤
-│ Growth (2,000 products)    │ €129/mo │ ✅ Full platform access     │
-│                            │         │ ✅ Self-contained VCs       │
-│                            │         │ ✅ One-click export         │
-│                            │         │ ✅ Offline verification     │
-│                            │         │ ✅ Full PIM + Attestation   │
-│                            │         │ ✅ Shopify sync + API       │
-│                            │         │ ✅ 100 AI imports/month     │
-├────────────────────────────┼─────────┼─────────────────────────────┤
-│ Scale (20,000 products)    │ €399/mo │ ✅ Full platform access     │
-│                            │         │ ✅ 1,000 AI imports/month   │
-│                            │         │ ✅ Higher API limits        │
-│                            │         │ ✅ Priority support         │
-├────────────────────────────┼─────────┼─────────────────────────────┤
-│ Enterprise (Unlimited)     │ Custom  │ ✅ Full platform access     │
-│                            │         │ ✅ Custom AI limits         │
-│                            │         │ ✅ SSO, 99.9% SLA           │
-│                            │         │ ✅ Dedicated support        │
-└────────────────────────────┴─────────┴─────────────────────────────┘
+┌──────────────────────────────┬───────────┬─────────────────────────────┐
+│ Tier                         │ Price     │ Features                    │
+├──────────────────────────────┼───────────┼─────────────────────────────┤
+│ Growth (500 products, 10K    │ €129/mo   │ ✅ Full platform access     │
+│ items)                       │           │ ✅ Self-contained VCs       │
+│                              │           │ ✅ One-click export         │
+│                              │           │ ✅ Offline verification     │
+│                              │           │ ✅ Full PIM + Attestation   │
+│                              │           │ ✅ Shopify sync + API       │
+│                              │           │ ✅ 100 AI imports/month     │
+├──────────────────────────────┼───────────┼─────────────────────────────┤
+│ Scale (5,000 products, 1M    │ €399/mo   │ ✅ Full platform access     │
+│ items)                       │           │ ✅ 1,000 AI imports/month   │
+│                              │           │ ✅ Higher API limits        │
+│                              │           │ ✅ Priority support         │
+├──────────────────────────────┼───────────┼─────────────────────────────┤
+│ Enterprise (Unlimited,       │ €999/mo   │ ✅ Full platform access     │
+│ 100M items)                  │           │ ✅ Custom AI limits         │
+│                              │           │ ✅ SSO, 99.9% SLA           │
+│                              │           │ ✅ Dedicated support        │
+├──────────────────────────────┼───────────┼─────────────────────────────┤
+│ Mega (Unlimited, dedicated)  │ €4,999/mo │ ✅ Dedicated cluster        │
+│                              │           │ ✅ Unlimited items          │
+│                              │           │ ✅ Custom SLA               │
+└──────────────────────────────┴───────────┴─────────────────────────────┘
 
 **All tiers include unlimited users and full data sovereignty guarantees.**
 ```
 
-All customers receive full platform access. Tier differentiation is based solely on catalog capacity.
+All customers receive full platform access. Tier differentiation is based on catalog capacity and item volume.
 
 ---
 
@@ -983,8 +987,8 @@ function resolveDidKey(did: string): PublicKey {
 
 - [Self-Service Onboarding](./SELF_SERVICE_ONBOARDING.md) - How organizations sign up
 - [Business Model](./BUSINESS_MODEL.md) - Pricing tiers
-- [Implementation Plan](../IMPLEMENTATION_PLAN.md) - Development phases
+- [Architecture Document](../EuroComply_Architecture_Document_v1.3.md) - Technical architecture
 
 ---
 
-*Last Updated: 2026-01-12*
+*Last Updated: 2026-01-13*
