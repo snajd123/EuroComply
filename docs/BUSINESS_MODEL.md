@@ -41,31 +41,44 @@ EuroComply is a unified platform for product lifecycle management and EU regulat
 │                                                                  │
 │  GROWTH SEGMENT (€129/month)                                    │
 │  ───────────────────────────                                    │
-│  Small to medium brands and manufacturers with catalogs         │
-│  up to 2,000 products. Typically first-time PIM users or        │
-│  organizations migrating from spreadsheets.                     │
+│  Small brands and manufacturers with catalogs up to 500         │
+│  products. Typically first-time PIM users or organizations      │
+│  migrating from spreadsheets.                                   │
 │                                                                  │
 │  • Annual revenue: €1M-€20M                                     │
-│  • Products: 100-2,000 SKUs                                     │
+│  • Products: 50-500 SKUs                                        │
+│  • Items: Up to 10,000 serialized items                         │
 │  • Team size: 1-5 users managing product data                   │
 │                                                                  │
 │  SCALE SEGMENT (€399/month)                                     │
 │  ──────────────────────────                                     │
-│  Mid-market distributors and larger brands with extensive       │
-│  catalogs requiring high-volume data management.                │
+│  Mid-market manufacturers and larger brands with extensive      │
+│  catalogs and item-level serialization needs.                   │
 │                                                                  │
 │  • Annual revenue: €20M-€200M                                   │
-│  • Products: 2,000-20,000 SKUs                                  │
+│  • Products: 500-5,000 SKUs                                     │
+│  • Items: Up to 1,000,000 serialized items                      │
 │  • Team size: 5-20 users across departments                     │
 │                                                                  │
-│  ENTERPRISE SEGMENT (Custom)                                    │
-│  ───────────────────────────                                    │
-│  Large organizations requiring custom integrations,             │
-│  dedicated support, and SLA guarantees.                         │
+│  ENTERPRISE SEGMENT (€999/month)                                │
+│  ───────────────────────────────                                │
+│  Large organizations requiring dedicated infrastructure,        │
+│  custom integrations, and SLA guarantees.                       │
 │                                                                  │
 │  • Annual revenue: €200M+                                       │
-│  • Products: 20,000+ SKUs                                       │
+│  • Products: Unlimited                                          │
+│  • Items: Up to 100,000,000 serialized items                    │
 │  • Requirements: SSO, SLA, dedicated account management         │
+│                                                                  │
+│  MEGA SEGMENT (€4,999/month)                                    │
+│  ────────────────────────────                                   │
+│  Fortune 500 and high-volume manufacturers requiring            │
+│  dedicated clusters and unlimited capacity.                     │
+│                                                                  │
+│  • Annual revenue: €500M+                                       │
+│  • Products: Unlimited                                          │
+│  • Items: Unlimited                                             │
+│  • Requirements: Dedicated cluster, custom SLA                  │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -124,20 +137,19 @@ EuroComply uses a volume-based pricing model where all customers receive full pl
 │  GROWTH              SCALE               ENTERPRISE          MEGA            │
 │  €129/mo             €399/mo             €999/mo             €4,999/mo       │
 │  ──────              ─────               ──────────          ─────           │
-│  2,000 products      20,000 products     Unlimited           Unlimited       │
-│  Product-level       Product-level       Product + Item      Product + Item  │
-│  DPPs only           + Item-level        level               level           │
-│                                                                              │
-│  Items included:     Items included:     Items included:     Items included: │
-│  N/A                 100K/month          10M/month           100M/month      │
+│  500 products        5,000 products      Unlimited           Unlimited       │
+│  10K items           1M items            100M items          Unlimited       │
+│  10K batch size      100K batch size     1M batch size       10M batch size  │
 │                                                                              │
 │  Item overage:       Item overage:       Item overage:       Item overage:   │
-│  N/A                 €0.001/item         €0.0005/item        €0.0002/item    │
-│                      (€1 per 1K)         (€0.50 per 1K)      (€0.20 per 1K)  │
+│  Not available       €0.01/1K items      €0.005/1K items     Included        │
 │                                                                              │
 │  Full Platform       Full Platform       Full Platform       Full Platform   │
 │  100 AI/month        1,000 AI/month      Custom AI           Custom AI       │
 │  Unlimited users     Unlimited users     + SLA & SSO         + Dedicated     │
+│                                                                              │
+│  Infra cost: <€5     Infra cost: €10-15  Infra cost: ~€100   Infra cost:     │
+│  Gross margin: 96%   Gross margin: 96%   Gross margin: 90%   €300-500        │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -149,16 +161,16 @@ EuroComply uses a volume-based pricing model where all customers receive full pl
 | **Product-level** | One DPP per GTIN (product model) | Fashion brands, furniture | Included in base price |
 | **Item-level** | One DPP per physical unit (serial number) | Electronics, batteries, high-value goods | Usage-based (see tiers) |
 
-**Why item-level costs more:** Each item requires database storage, lifecycle event tracking, and 10-year retention. See [SCALABILITY.md](./SCALABILITY.md) for technical architecture.
+**Why item-level costs more:** Each item requires DynamoDB storage, Cloudflare R2 static DPP files, and 10-year retention. See [EuroComply_Architecture_Document_v1.3.md](../EuroComply_Architecture_Document_v1.3.md) for technical architecture.
 
 ### Pricing Table
 
-| Plan | Monthly | Annual | Products | Items Included | Item Overage | AI Imports | Support |
-|------|---------|--------|----------|----------------|--------------|------------|---------|
-| **Growth** | €129 | €1,290/yr | 2,000 | N/A | N/A | 100/mo | Email |
-| **Scale** | €399 | €3,990/yr | 20,000 | 100K/mo | €0.001/item | 1,000/mo | Priority |
-| **Enterprise** | €999 | €9,990/yr | Unlimited | 10M/mo | €0.0005/item | Custom | Dedicated |
-| **Mega** | €4,999 | €49,990/yr | Unlimited | 100M/mo | €0.0002/item | Custom | Dedicated + SLA |
+| Plan | Monthly | Annual | Products | Items Included | Max Batch | Item Overage | AI Imports | Support |
+|------|---------|--------|----------|----------------|-----------|--------------|------------|---------|
+| **Growth** | €129 | €1,290/yr | 500 | 10K | 10K | Not available | 100/mo | Email |
+| **Scale** | €399 | €3,990/yr | 5,000 | 1M | 100K | €0.01/1K items | 1,000/mo | Priority |
+| **Enterprise** | €999 | €9,990/yr | Unlimited | 100M | 1M | €0.005/1K items | Custom | Dedicated |
+| **Mega** | €4,999 | €49,990/yr | Unlimited | Unlimited | 10M | Included | Custom | Dedicated + SLA |
 
 ### Item-Level Pricing Details
 
@@ -168,88 +180,93 @@ EuroComply uses a volume-based pricing model where all customers receive full pl
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │  WHAT'S INCLUDED PER ITEM:                                                  │
-│  • Unique serial number tracking                                            │
+│  • Unique serial number tracking (DynamoDB)                                 │
 │  • 10-year data retention (ESPR compliant)                                  │
-│  • EPCIS lifecycle events (manufacturing, shipping, sale, recycling)       │
-│  • Item-level QR code and DPP page                                          │
-│  • Unlimited scans (CDN-backed)                                             │
+│  • Static DPP page (Cloudflare R2 + CDN)                                    │
+│  • Item-level QR code                                                       │
+│  • Unlimited scans (zero egress from R2)                                    │
 │                                                                              │
-│  OUR COST PER ITEM (10-year lifecycle):                                     │
-│  • Item record storage: €0.000004                                           │
-│  • Event storage (hot/warm/cold): €0.000006                                │
-│  • API calls (~20 scans): €0.000012                                        │
-│  • Migration/overhead: €0.000002                                           │
-│  • TOTAL COST: ~€0.00005/item/month (~€0.0006/item/year)                   │
+│  OUR COST PER ITEM (from Architecture Doc v1.3):                            │
+│  ─────────────────────────────────────────────                              │
+│  • DynamoDB Write:  $0.00125/item                                          │
+│  • DynamoDB Storage: $0.00025/item/month                                   │
+│  • R2 Write (if pre-gen): $0.0045/item                                     │
+│  • TOTAL FIRST YEAR: ~$0.006/item (~€0.0055/item)                          │
 │                                                                              │
-│  PRICING BY TIER:                                                           │
-│  ─────────────────                                                          │
-│  Scale:      €0.001/item/mo    (96% margin)                                │
-│  Enterprise: €0.0005/item/mo   (92% margin)                                │
-│  Mega:       €0.0002/item/mo   (80% margin)                                │
+│  OVERAGE PRICING (per 1,000 items):                                         │
+│  ─────────────────────────────────                                          │
+│  Scale:      €0.01/1K items    (our cost: ~€0.0055 → 82% margin)           │
+│  Enterprise: €0.005/1K items   (our cost: ~€0.0055 → 9% margin, volume)    │
+│  Mega:       Included          (absorbed in €4,999/mo fee)                 │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Mega Tier: Dedicated Resources
 
-Customers with >100M items/year receive:
-- Dedicated database partition (isolation from other customers)
-- Dedicated read replica (guaranteed query performance)
+Mega tier customers (€4,999/month) receive:
+- Dedicated PostgreSQL cluster (complete isolation)
+- Unlimited item generation (DynamoDB + R2)
+- 10M items per batch (fan-out workers)
 - Priority API rate limits (10,000 req/s)
 - 4-hour support SLA
 - Custom integration support
+- Onboarding fee: €2,500 one-time (covers initial ingestion spike)
 
 ### What's Included in ALL Plans
 
 Every paying customer gets the complete platform - **all four workspaces, all features**:
 
-| Feature Category | Growth | Scale | Enterprise |
-|------------------|:------:|:-----:|:----------:|
-| **Capacity** | **2,000 SKUs** | **20,000 SKUs** | **Unlimited** |
-| **Users** | Unlimited | Unlimited | Unlimited |
-| | | | |
-| **DESIGN WORKSPACE (PLM)** | | | |
-| Product Registry (structure, BOMs, versions) | ✅ Included | ✅ Included | ✅ Included |
-| Materials Library (sustainability data) | ✅ Included | ✅ Included | ✅ Included |
-| DAM-Tech (specs, CAD files, test reports) | ✅ Included | ✅ Included | ✅ Included |
-| Version Control & Approval Workflow | ✅ Included | ✅ Included | ✅ Included |
-| | | | |
-| **OPERATIONS WORKSPACE (ERP-lite)** | | | |
-| EPCIS Integration (read enterprise systems) | ✅ Included | ✅ Included | ✅ Included |
-| Hosted OpenEPCIS (for SMB suppliers) | ✅ Included | ✅ Included | ✅ Included |
-| Lifecycle Event Visualization | ✅ Included | ✅ Included | ✅ Included |
-| Supplier Attestation Requests | ✅ Included | ✅ Included | ✅ Included |
-| Inventory & Orders (Planned) | ✅ Included | ✅ Included | ✅ Included |
-| | | | |
-| **MARKETING WORKSPACE (PIM)** | | | |
-| Product Families (attribute schemas) | ✅ Included | ✅ Included | ✅ Included |
-| Variants (parent-child inheritance) | ✅ Included | ✅ Included | ✅ Included |
-| Completeness Scoring (per-channel) | ✅ Included | ✅ Included | ✅ Included |
-| DAM-Media (images, videos, CDN) | ✅ Included | ✅ Included | ✅ Included |
-| Syndication (Shopify sync) | ✅ Included | ✅ Included | ✅ Included |
-| Bulk Operations & Export | ✅ Included | ✅ Included | ✅ Included |
-| | | | |
-| **COMPLIANCE WORKSPACE (DPP)** | | | |
-| DPP Generation & Issuance | ✅ Included | ✅ Included | ✅ Included |
-| W3C Verifiable Credentials | ✅ Included | ✅ Included | ✅ Included |
-| did:key Portable Identity | ✅ Included | ✅ Included | ✅ Included |
-| QR Codes (GS1 Digital Link) | ✅ Included | ✅ Included | ✅ Included |
-| Multi-Party Attestation | ✅ Included | ✅ Included | ✅ Included |
-| Public Verification | ✅ Included | ✅ Included | ✅ Included |
-| Permanent DPP Hosting (10+ years) | ✅ Included | ✅ Included | ✅ Included |
+| Feature Category | Growth | Scale | Enterprise | Mega |
+|------------------|:------:|:-----:|:----------:|:----:|
+| **Products** | **500** | **5,000** | **Unlimited** | **Unlimited** |
+| **Items** | **10K** | **1M** | **100M** | **Unlimited** |
+| **Max Batch Size** | 10K | 100K | 1M | 10M |
+| **Users** | Unlimited | Unlimited | Unlimited | Unlimited |
+| | | | | |
+| **DESIGN WORKSPACE (PLM)** | | | | |
+| Product Registry (structure, BOMs, versions) | ✅ | ✅ | ✅ | ✅ |
+| Materials Library (sustainability data) | ✅ | ✅ | ✅ | ✅ |
+| DAM-Tech (specs, CAD files, test reports) | ✅ | ✅ | ✅ | ✅ |
+| Version Control & Approval Workflow | ✅ | ✅ | ✅ | ✅ |
+| | | | | |
+| **OPERATIONS WORKSPACE (ERP-lite)** | | | | |
+| Item Tracking (DynamoDB) | ✅ | ✅ | ✅ | ✅ |
+| Lifecycle Event Visualization | ✅ | ✅ | ✅ | ✅ |
+| Supplier Attestation Requests | ✅ | ✅ | ✅ | ✅ |
+| Inventory & Orders (Planned) | ✅ | ✅ | ✅ | ✅ |
+| | | | | |
+| **MARKETING WORKSPACE (PIM)** | | | | |
+| Product Families (attribute schemas) | ✅ | ✅ | ✅ | ✅ |
+| Variants (parent-child inheritance) | ✅ | ✅ | ✅ | ✅ |
+| Completeness Scoring (per-channel) | ✅ | ✅ | ✅ | ✅ |
+| DAM-Media (images, videos, CDN) | ✅ | ✅ | ✅ | ✅ |
+| Syndication (Shopify sync) | ✅ | ✅ | ✅ | ✅ |
+| Bulk Operations & Export | ✅ | ✅ | ✅ | ✅ |
+| | | | | |
+| **COMPLIANCE WORKSPACE (DPP)** | | | | |
+| DPP Generation & Issuance | ✅ | ✅ | ✅ | ✅ |
+| W3C Verifiable Credentials | ✅ | ✅ | ✅ | ✅ |
+| did:key Portable Identity | ✅ | ✅ | ✅ | ✅ |
+| QR Codes (GS1 Digital Link) | ✅ | ✅ | ✅ | ✅ |
+| Multi-Party Attestation | ✅ | ✅ | ✅ | ✅ |
+| Public Verification | ✅ | ✅ | ✅ | ✅ |
+| Permanent DPP Hosting (10+ years) | ✅ | ✅ | ✅ | ✅ |
 
 **Workspace Access:** All customers receive all workspaces. Access within an organization is **role-based** - users see workspaces relevant to their role (e.g., a designer sees Design, a brand manager sees Marketing, a compliance officer sees Compliance). Workspace access is not tier-restricted.
-| | | | |
-| **Automation & AI** | | | |
-| AI Import (Claude) | 100/month | 1,000/month | Custom |
-| CSV/Excel Import | ✅ Included | ✅ Included | ✅ Included |
-| Shopify Sync | ✅ Included | ✅ Included | ✅ Included |
-| API Access | Rate Limited | High Limits | Custom Limits |
-| Webhooks | ✅ Included | ✅ Included | ✅ Included |
-| | | | |
-| **Support** | Email | Priority Email | Dedicated Manager |
-| **SLA** | - | - | 99.9% |
-| **SSO** | - | - | ✅ Included |
+
+| | | | | |
+| **Automation & AI** | | | | |
+| AI Import (Claude) | 100/mo | 1,000/mo | Custom | Custom |
+| CSV/Excel Import | ✅ | ✅ | ✅ | ✅ |
+| Shopify Sync | ✅ | ✅ | ✅ | ✅ |
+| API Access | Rate Limited | High | Custom | Priority |
+| Webhooks | ✅ | ✅ | ✅ | ✅ |
+| | | | | |
+| **Support** | Email | Priority | Dedicated | Dedicated |
+| **SLA** | - | - | 99.9% | Custom |
+| **SSO** | - | - | ✅ | ✅ |
+| **Dedicated Infra** | - | - | Instance | Cluster |
 
 ### Pricing Rationale
 
@@ -264,21 +281,23 @@ The volume-based pricing model offers several strategic advantages:
 
 ### Volume Overages
 
-Customers exceeding their included product limits are billed incrementally rather than requiring tier upgrades:
+Product and item overages are tier-dependent:
 
-| Plan | Included Products | Overage Rate |
-|------|-------------------|--------------|
-| Growth | 2,000 | €10 per 100 additional SKUs |
-| Scale | 20,000 | €10 per 100 additional SKUs |
-| Enterprise | Custom | Volume-based pricing |
+| Plan | Included Products | Product Overage | Included Items | Item Overage |
+|------|-------------------|-----------------|----------------|--------------|
+| Growth | 500 | Upgrade to Scale | 10K | Not available |
+| Scale | 5,000 | €10 per 100 SKUs | 1M | €0.01/1K items |
+| Enterprise | Unlimited | N/A | 100M | €0.005/1K items |
+| Mega | Unlimited | N/A | Unlimited | Included |
 
-**Example Calculation:**
-- Growth plan base: €129/month (includes 2,000 products)
-- Customer has 2,350 products
-- Overage: 350 products = 4 units × €10 = €40/month
-- **Total monthly cost: €169**
+**Example Calculation (Scale tier):**
+- Scale plan base: €399/month (includes 5,000 products, 1M items)
+- Customer has 5,400 products and 1.2M items
+- Product overage: 400 products = 4 units × €10 = €40/month
+- Item overage: 200K items × €0.01/1K = €2/month
+- **Total monthly cost: €441**
 
-This approach enables gradual scaling without forcing premature tier transitions.
+Growth customers who exceed 500 products should upgrade to Scale (better value).
 
 ---
 
@@ -455,575 +474,147 @@ This approach enables gradual scaling without forcing premature tier transitions
 
 ## Infrastructure Cost Analysis
 
-### Dual-Path Architecture
+### Architecture Overview
 
-EuroComply uses a **hybrid infrastructure** that separates write operations (AWS) from read operations (Cloudflare + Hetzner). This is critical because ESPR requires free DPP access - we can't pass infrastructure costs to users scanning QR codes.
+EuroComply uses a **polyglot persistence** architecture optimized for both cost and scale:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  WHY HYBRID INFRASTRUCTURE?                                      │
+│  INFRASTRUCTURE ARCHITECTURE (from Architecture Doc v1.3)        │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  THE PROBLEM:                                                   │
-│  • ESPR Article 31 requires free DPP access for everyone        │
-│  • QR scan volume could be billions/day (supply chains)         │
-│  • AWS charges ~$0.085/GB for bandwidth                         │
-│  • 1B scans/day on AWS = ~$38,000/month                        │
-│  • Revenue from 1,000 brands = ~€200,000/month                  │
-│  • A few viral products could consume all margin                │
+│  WRITE PATH (AWS)                                               │
+│  • ECS Fargate: API + Workers (always-on services)              │
+│  • RDS PostgreSQL: Products, passports, attestations            │
+│  • ElastiCache Redis: Sessions, caching, job queues             │
+│  • DynamoDB: Item-level data (billions of records)              │
+│  • SQS FIFO: Event processing + bulk generation                 │
 │                                                                  │
-│  THE SOLUTION:                                                  │
-│  • Write Path (AWS): Reliable, managed, usage-based             │
-│  • Read Path (Cloudflare + Hetzner): Fixed cost, high volume    │
-│  • Read path cost: ~$185/month for up to 50B scans/day          │
-│  • Cloudflare CDN handles 99%+ of traffic (unlimited bandwidth) │
+│  READ PATH (Cloudflare)                                         │
+│  • R2: Static DPP files (zero egress cost)                      │
+│  • Workers: DPP serving + lazy generation                       │
+│  • CDN: Edge caching (<50ms global latency)                     │
 │                                                                  │
-│  IMPORTANT: Read path is only PART of total infrastructure.     │
-│  Total cost (read + write path): ~$800-2,000/month at scale.    │
-│  See cost summary table below for full breakdown.               │
+│  WHY THIS ARCHITECTURE?                                         │
+│  • ESPR requires free DPP access for everyone                   │
+│  • R2 has zero egress fees (vs AWS $0.085/GB)                   │
+│  • Schema-per-tenant provides strong isolation                  │
+│  • DynamoDB handles billions of items without RDS limits        │
 │                                                                  │
-│  RESULT: Infrastructure cost is predictable and bounded.        │
+│  BASE COST: €158/month (see breakdown below)                    │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-See [SCALABILITY.md](./SCALABILITY.md) for technical details.
+See [EuroComply_Architecture_Document_v1.3.md](../EuroComply_Architecture_Document_v1.3.md) for technical details.
 
-### Write Path: AWS Services
+### Monthly Cost Breakdown (from Architecture Doc v1.3)
 
-| Service | Purpose |
-|---------|---------|
-| ECS Fargate | API servers, background workers, identity service |
-| RDS PostgreSQL | Primary database |
-| ElastiCache Redis | Session cache, rate limiting, job queue |
-| S3 | Digital Asset Management (images, documents) |
-| ALB | Load balancing |
-| Route 53 | DNS for api.eurocomply.eu |
-| CloudWatch | Monitoring and logging |
-| Secrets Manager | API keys, credentials |
+| Component | Specification | Cost (EUR) |
+|-----------|---------------|------------|
+| **Compute (Always On)** | | |
+| Fargate - API | 2 × (0.25 vCPU, 512 MB) | €17 |
+| Fargate - Worker | 1 × (0.25 vCPU, 512 MB) | €8 |
+| Fargate - Outbox | 1 × (0.25 vCPU, 512 MB) | €8 |
+| **Compute (Auto-scaling)** | | |
+| Fargate - Bulk Workers | 0-20 × (0.5 vCPU, 1 GB) | €0-140 |
+| **Database** | | |
+| RDS PostgreSQL | db.t4g.small Multi-AZ, 50 GB | €53 |
+| ElastiCache Redis | cache.t4g.micro | €11 |
+| **Networking** | | |
+| NAT Instance | t4g.nano | €3 |
+| Application Load Balancer | Hourly + LCU | €17 |
+| **Security** | | |
+| KMS | 1 CMK + API requests | €4 |
+| Secrets Manager | 5 secrets | €2 |
+| **Storage & Queues** | | |
+| DynamoDB | On-demand | €1-45 |
+| SQS (Events + Bulk) | FIFO queues | €1 |
+| S3 | Assets bucket | €1 |
+| ECR | Container images | €1 |
+| **Monitoring** | | |
+| CloudWatch | Logs, metrics, alarms | €9 |
+| **External (Cloudflare)** | | |
+| Cloudflare Pro | DNS, CDN, WAF, DDoS | €19 |
+| Cloudflare Workers | DPP serving + lazy gen | €5 |
+| Cloudflare R2 | DPP file storage | €1-18 |
+| | | |
+| **Base Total** | | **€158** |
+| **With Bulk Processing** | | **€158-320** |
 
-### Read Path: Cloudflare + Hetzner
+### Read Path: Cloudflare R2
 
-| Service | Purpose | Cost |
-|---------|---------|------|
-| Cloudflare Pro | Global CDN, unlimited bandwidth | $20/month |
-| Hetzner AX41 × 3 | Origin servers (Germany, Finland) | €150/month |
-| **Total Read Path** | **Up to 50B scans/day** | **~$200/month** |
+| Feature | Specification |
+|---------|---------------|
+| Storage | $0.015/GB/month |
+| Class A (writes) | $4.50/million |
+| Class B (reads) | $0.36/million |
+| **Egress** | **FREE** |
 
-### Cost Comparison: AWS-Only vs Hybrid (READ PATH ONLY)
+This is the key cost advantage - unlimited bandwidth for DPP scans.
 
-> ⚠️ **Note**: This table shows READ PATH costs only. Total infrastructure (read + write) is ~$800-2,000/month. See full cost table below.
+### Cost at Scale
 
-| DPP Scans/Day | AWS CloudFront | Hetzner + Cloudflare | Savings |
-|---------------|----------------|----------------------|---------|
-| 1 million | ~$1,200/month | ~$185/month | 85% |
-| 100 million | ~$12,000/month | ~$185/month | 98% |
-| 1 billion | ~$38,000/month | ~$185/month | 99.5% |
-| 10 billion | ~$250,000/month | ~$185/month | 99.9% |
-| 50 billion | ~$1,250,000/month | ~$185/month (limit) | 99.98% |
+| Customers | Mix | Infrastructure | Revenue | Margin |
+|-----------|-----|----------------|---------|--------|
+| 10 | 10 Growth | €158/mo | €1,290/mo | 88% |
+| 50 | 50 Growth | €158/mo | €6,450/mo | 98% |
+| 100 | 90 Growth, 8 Scale, 2 Ent | €360/mo | €16,800/mo | 98% |
+| 200 | 170 Growth, 25 Scale, 5 Ent | €520/mo | €36,920/mo | 99% |
+| 500 | 400 Growth, 80 Scale, 18 Ent, 2 Mega | €1,200/mo | €104,700/mo | 99% |
 
-**Read path cost is fixed at ~$185/month up to 50B scans/day** - Cloudflare CDN handles 99%+ of traffic (unlimited bandwidth). Hetzner origins handle cache misses only (60TB/month limit). Beyond 50B scans/day, migrate to Cloudflare R2 (~$2,500-11,000/month). See [SCALABILITY.md](./SCALABILITY.md) for migration triggers.
+### Gross Margin by Tier
 
-**Total infrastructure cost** (read + write paths combined): See "Infrastructure Cost Summary" table below for realistic full-stack costs at each scale tier.
+From the Architecture Document v1.3:
 
-### Compute: ECS Fargate
+| Tier | Price | Infra Cost | Gross Margin |
+|------|-------|------------|--------------|
+| Growth (€129) | €129/mo | <€5 | **96%** |
+| Scale (€399) | €399/mo | €10-15 | **96%** |
+| Enterprise (€999) | €999/mo | ~€100 | **90%** |
+| Mega (€4,999) | €4,999/mo | €300-500 | **90-94%** |
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  ECS FARGATE PRICING (eu-west-1)                                 │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  Per vCPU per hour:      $0.04048                               │
-│  Per GB memory per hour: $0.004445                              │
-│                                                                  │
-│  API Server Task (always running):                              │
-│  • 0.5 vCPU, 1GB RAM                                            │
-│  • Monthly: 730 hours × ($0.04048 × 0.5 + $0.004445 × 1)        │
-│  • = 730 × $0.024685 = $18.02/month per task                    │
-│                                                                  │
-│  Minimum setup (2 tasks for redundancy):                        │
-│  • 2 × $18.02 = $36.04/month                                    │
-│                                                                  │
-│  Background workers (BullMQ - 1 task):                          │
-│  • 0.25 vCPU, 0.5GB RAM = $9.01/month                          │
-│                                                                  │
-│  Identity service (walt.id - 1 task):                           │
-│  • 0.25 vCPU, 0.5GB RAM = $9.01/month                          │
-│                                                                  │
-│  BASELINE COMPUTE: ~$72/month (~€67/month)                      │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Database: RDS PostgreSQL
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  RDS POSTGRESQL PRICING (eu-west-1)                              │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  INSTANCE PRICING                                               │
-│  ─────────────────                                              │
-│  db.t3.micro:  $0.018/hour × 730 = $13.14/month                │
-│  db.t3.small:  $0.036/hour × 730 = $26.28/month                │
-│  db.t3.medium: $0.072/hour × 730 = $52.56/month                │
-│  db.r6g.large: $0.252/hour × 730 = $183.96/month               │
-│                                                                  │
-│  STORAGE (gp3): $0.114/GB/month                                 │
-│                                                                  │
-│  STORAGE PER PRODUCT                                            │
-│  ─────────────────                                              │
-│  • Product record: ~2KB (relational) + ~3KB (JSONB) = 5KB       │
-│  • DPP/VC: ~8KB (JWT) + ~2KB (metadata) = 10KB                  │
-│  • Total per product with DPP: ~15KB                            │
-│                                                                  │
-│  SCALE ESTIMATES                                                │
-│  ─────────────────                                              │
-│  • 1,000 products = 15MB                                        │
-│  • 10,000 products = 150MB                                      │
-│  • 100,000 products = 1.5GB                                     │
-│  • 1,000,000 products = 15GB                                    │
-│                                                                  │
-│  SETUP BY SCALE                                                 │
-│  ─────────────────                                              │
-│  Starter:    db.t3.micro, 20GB   = ~$15/month                  │
-│  Growth:     db.t3.small, 100GB  = ~$38/month                  │
-│  Scale:      db.t3.medium Multi-AZ, 500GB = ~$219/month        │
-│  Enterprise: db.r6g.large Multi-AZ, 2TB   = ~$824/month        │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Cache: ElastiCache Redis
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  ELASTICACHE REDIS PRICING (eu-west-1)                           │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  cache.t3.micro (0.5GB):   $0.017/hour × 730 = $12.41/month    │
-│  cache.t3.small (1.37GB):  $0.034/hour × 730 = $24.82/month    │
-│  cache.t3.medium (3.09GB): $0.068/hour × 730 = $49.64/month    │
-│                                                                  │
-│  Usage: Session cache, rate limiting, BullMQ job queue          │
-│  For <1000 customers: t3.micro sufficient                       │
-│                                                                  │
-│  BASELINE: ~$12/month (~€11/month)                              │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Storage: S3
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  S3 PRICING (eu-west-1)                                          │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  S3 Standard Storage: $0.023/GB/month                           │
-│                                                                  │
-│  STORAGE PER PRODUCT (DAM)                                      │
-│  ─────────────────────────                                      │
-│  • Average 5 images per product                                 │
-│  • Original: ~2MB each = 10MB                                   │
-│  • Thumbnails (3 sizes): ~0.6MB                                 │
-│  • Total per product: ~10.6MB                                   │
-│                                                                  │
-│  STORAGE COSTS                                                  │
-│  ─────────────────────────                                      │
-│  • 100 products = 1GB → $0.023/month                           │
-│  • 1,000 products = 10GB → $0.23/month                         │
-│  • 10,000 products = 100GB → $2.30/month                       │
-│  • 100,000 products = 1TB → $23/month                          │
-│  • 1,000,000 products = 10TB → $230/month                      │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### CDN: CloudFront
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  CLOUDFRONT PRICING                                              │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  Data Transfer Out (Europe):                                    │
-│  • First 10TB: $0.085/GB                                        │
-│  • Next 40TB: $0.080/GB                                         │
-│                                                                  │
-│  BANDWIDTH ESTIMATES                                            │
-│  ─────────────────────────                                      │
-│  • DPP verification page view: ~500KB (images + data)          │
-│  • Product page (retailer widget): ~200KB                       │
-│                                                                  │
-│  SCALE ESTIMATES                                                │
-│  ─────────────────────────                                      │
-│  • 100 products, low traffic: ~$0.50/month                     │
-│  • 1,000 products, moderate: ~$5/month                         │
-│  • 10,000 products, moderate: ~$50/month                       │
-│  • 100,000 products, high: ~$500/month                         │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Claude API (AI Import)
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  CLAUDE API PRICING (Haiku for extraction)                       │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  Claude 3 Haiku:                                                │
-│  • Input: $0.25/million tokens                                  │
-│  • Output: $1.25/million tokens                                 │
-│                                                                  │
-│  PER IMPORT OPERATION                                           │
-│  ─────────────────────────                                      │
-│  CSV/Excel mapping (1000 rows): ~$0.004 per import             │
-│  PDF extraction (2 pages): ~$0.002 per document                │
-│  Image extraction: ~$0.001 per image                           │
-│                                                                  │
-│  MONTHLY ESTIMATES                                              │
-│  ─────────────────────────                                      │
-│  • Light user (20 imports): ~$0.08/month                       │
-│  • Medium user (100 imports): ~$0.40/month                     │
-│  • Heavy user (500 imports): ~$2.00/month                      │
-│                                                                  │
-│  AI costs are negligible relative to subscription price         │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Other AWS Services
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  OTHER AWS COSTS                                                 │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  Route 53 (DNS): $0.50/month                                    │
-│  ACM (SSL Certificates): Free                                   │
-│  CloudWatch (Logs 10GB + Alarms): ~$6/month                    │
-│  Secrets Manager (5 secrets): $2/month                         │
-│  ALB (Load Balancer): ~$21/month                               │
-│                                                                  │
-│  MISC TOTAL: ~$30/month                                         │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Total Infrastructure Cost by Scale
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│  INFRASTRUCTURE COST SUMMARY (Monthly, in USD) - REALISTIC ASSESSMENT        │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  ⚠️ Previous estimates understated costs. This table includes ALL items.    │
-│                                                                              │
-│                        │ STARTUP    │ GROWTH     │ SCALE      │ ENTERPRISE │
-│                        │ <100 cust  │ 100-1K     │ 1K-10K     │ 10K+       │
-│  ──────────────────────┼────────────┼────────────┼────────────┼────────────│
-│  ECS Fargate           │ $40        │ $80        │ $150       │ $350       │
-│  RDS PostgreSQL        │ $40        │ $100       │ $300       │ $600       │
-│  ElastiCache Redis     │ $25        │ $50        │ $100       │ $250       │
-│  NAT Gateway*          │ $70        │ $80        │ $120       │ $200       │
-│  ALB                   │ $25        │ $35        │ $50        │ $100       │
-│  S3 + CloudFront       │ $10        │ $30        │ $80        │ $300       │
-│  CloudWatch (logs)     │ $20        │ $40        │ $80        │ $200       │
-│  Secrets, Route 53     │ $10        │ $15        │ $25        │ $50        │
-│  WAF                   │ $10        │ $20        │ $50        │ $100       │
-│  Data Transfer (var)   │ $30        │ $80        │ $200       │ $500       │
-│  Hetzner + Cloudflare  │ $185       │ $185       │ $185       │ $300       │
-│  ──────────────────────┼────────────┼────────────┼────────────┼────────────│
-│  SUBTOTAL              │ $465       │ $715       │ $1,340     │ $2,950     │
-│  Buffer (+20%)         │ $93        │ $143       │ $268       │ $590       │
-│  ──────────────────────┼────────────┼────────────┼────────────┼────────────│
-│  TOTAL (realistic)     │ ~$560      │ ~$860      │ ~$1,600    │ ~$3,550    │
-│  (~EUR)                │ ~€520      │ ~€800      │ ~€1,490    │ ~€3,300    │
-│                                                                              │
-│  *NAT Gateway often forgotten but required for private subnet outbound      │
-│                                                                              │
-│  ──────────────────────────────────────────────────────────────────────────│
-│                                                                              │
-│  COST PER CUSTOMER                                                          │
-│  ──────────────────────┼────────────┼────────────┼────────────┼────────────│
-│  Customers             │ 50         │ 500        │ 5,000      │ 20,000     │
-│  Infra per customer    │ €10.40     │ €1.60      │ €0.30      │ €0.17      │
-│                                                                              │
-│  Note: Per-customer infra cost drops dramatically with scale               │
-│  Real costs are headcount (support, development) not infrastructure        │
-│                                                                              │
-│  OPTIONAL BUT RECOMMENDED (NOT INCLUDED ABOVE):                             │
-│  • AWS Business Support: $100/mo + 10% of spend (~$150-500/mo)             │
-│  • AWS Enterprise Support: $15,000+/mo (for mission-critical)              │
-│  • Third-party monitoring (Datadog, etc.): $100-500/mo                     │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+Infrastructure costs scale linearly with revenue, ensuring healthy margins at all tiers.
 
 ### DPP Hosting Economics (10-Year Lifetime)
 
-ESPR requires DPP data to be accessible for the product's lifetime (typically 10+ years). Here's the true cost of hosting a DPP forever:
+ESPR requires DPP data to be accessible for 10+ years. With Cloudflare R2:
+
+| Component | Size | 10-Year Cost |
+|-----------|------|--------------|
+| Static DPP (R2) | 10KB | ~$0.0018 |
+| Product images (R2) | 2MB | ~$0.36 |
+| **Total per DPP** | ~2MB | **~$0.36** |
+| **Scans** | Unlimited | **FREE** (R2 egress) |
+
+Key advantage: R2 has zero egress fees, so unlimited scans cost nothing.
+
+### QR Code Scan Economics
+
+DPP pages are **static content** served from Cloudflare edge:
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│  DPP HOSTING COST BREAKDOWN (Per DPP, 10-Year Lifetime)                      │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  STORAGE (What we keep for ALL published DPPs, all tiers)                   │
-│  ──────────────────────────────────────────                                 │
-│  Component              │ Size    │ Tier              │ 10-Year Cost        │
-│  ───────────────────────┼─────────┼───────────────────┼─────────────────────│
-│  JSON-LD/VC (public)    │ 5KB     │ S3 + CloudFront   │ $0.001              │
-│  Original images        │ 2MB     │ S3 IA + CloudFront│ $0.005              │
-│  Database record        │ 15KB    │ RDS PostgreSQL    │ $0.001              │
-│  ───────────────────────┼─────────┼───────────────────┼─────────────────────│
-│  TOTAL STORAGE          │ ~2MB    │                   │ ~$0.007             │
-│                                                                              │
-│  SIMPLE POLICY: All images kept at original quality for all tiers.          │
-│  Cost difference vs deleting originals: ~$0.002/DPP (negligible)            │
-│  Consumer experience: Full quality images forever                           │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
+Consumer scans QR → Cloudflare Edge (cached) → Response (<50ms)
+                          │
+                     Cache MISS (rare)
+                          ↓
+                    R2 Origin (lazy generation if needed)
 ```
 
-### QR Code Scan Economics (CDN-First Architecture)
+**Viral Product Scenario:** 10 million scans = **$0** (R2 egress is free)
 
-DPP pages are **static content** - they don't change after issuance. This enables aggressive CDN caching:
+This is the key cost advantage vs AWS CloudFront where 10M scans would cost ~$230.
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│  CDN CACHING ARCHITECTURE                                                    │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  Consumer scans QR → CloudFront Edge (cached) → Response                    │
-│                            │                                                 │
-│                       Cache MISS (rare, ~0.1%)                              │
-│                            │                                                 │
-│                            ▼                                                 │
-│                       S3 Origin                                              │
-│                                                                              │
-│  CACHE BEHAVIOR                                                             │
-│  ─────────────────                                                          │
-│  • Cache-Control: max-age=86400 (24 hours)                                  │
-│  • Cache hit rate: 99.9%+ (static content)                                  │
-│  • Edge locations: 400+ globally                                            │
-│                                                                              │
-│  COST PER SCAN                                                              │
-│  ─────────────────                                                          │
-│  • Cache HIT: $0.0000001 (request cost only)                                │
-│  • Cache MISS: $0.000004 (request + origin fetch)                           │
-│  • Effective average: ~$0.0000004 per scan                                  │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+### Key Infrastructure Insights
 
-### Viral Product Scenario
+From the Architecture Document v1.3:
 
-What happens if a product goes viral with millions of scans?
+1. **Infrastructure is NOT the cost driver** - At scale, infra is <1% of revenue
+2. **Real costs are headcount** - Support, development, and customer success dominate OpEx
+3. **R2 eliminates bandwidth costs** - Zero egress fees mean viral products don't hurt margins
+4. **Schema-per-tenant provides security** - All tiers get strong isolation, not just Enterprise
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│  VIRAL PRODUCT COST ANALYSIS                                                 │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  Scenario: Product goes viral, 10 million QR scans in one month             │
-│                                                                              │
-│  BREAKDOWN                                                                  │
-│  ─────────────────────────────────────────────────────────────              │
-│  Total scans:           10,000,000                                          │
-│  Cache hit rate:        99.9%                                               │
-│  Cache hits:            9,990,000  →  Served from edge, minimal cost        │
-│  Cache misses:          10,000     →  Origin fetches                        │
-│                                                                              │
-│  Data per scan:         25KB (JSON + thumbnail)                             │
-│  Total CDN transfer:    ~250GB                                              │
-│                                                                              │
-│  COST BREAKDOWN                                                             │
-│  ─────────────────────────────────────────────────────────────              │
-│  CDN data transfer:     250GB × $0.085/GB    = $21.25                       │
-│  Request costs:         10M × $0.0000001     = $1.00                        │
-│  Origin fetches:        10K × $0.0001        = $1.00                        │
-│  ─────────────────────────────────────────────────────────────              │
-│  TOTAL FOR 10M SCANS:                          ~$23                         │
-│                                                                              │
-│  Cost per scan: $0.0000023 (less than a thousandth of a cent)               │
-│                                                                              │
-│  EVEN MORE EXTREME: 100 million scans = ~$230                               │
-│  Still negligible compared to subscription revenue                          │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-### Platform-Wide Scale Economics
-
-At scale with millions of DPPs across thousands of customers:
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│  PLATFORM SCALE: 10 MILLION DPPs (10,000 customers × 1,000 avg)             │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  STORAGE COSTS (keeping ALL original images)                                │
-│  ─────────────────────────────────────────────────────────────              │
-│  Component              │ Total Size  │ Tier           │ Monthly Cost       │
-│  ───────────────────────┼─────────────┼────────────────┼────────────────────│
-│  Public JSON-LD files   │ 50GB        │ S3 Standard    │ $1.15              │
-│  Original images        │ 20TB        │ S3 Infreq. Acc │ $250.00            │
-│  Database               │ 150GB       │ RDS            │ Incl. in instance  │
-│  ───────────────────────┼─────────────┼────────────────┼────────────────────│
-│  TOTAL STORAGE          │ ~20TB       │                │ ~$251/month        │
-│                                                                              │
-│  BANDWIDTH (100M scans/month, 10 per DPP average)                           │
-│  ─────────────────────────────────────────────────────────────              │
-│  CDN transfer (2.5TB)   │             │ CloudFront     │ ~$215/month        │
-│                                                                              │
-│  TOTAL INFRASTRUCTURE FOR 10M DPPs                                          │
-│  ─────────────────────────────────────────────────────────────              │
-│  Storage + Bandwidth (above):                     ~$466/month               │
-│  Full AWS infra (see cost table):                 ~$1,400/month             │
-│  Hetzner + Cloudflare:                            ~$185/month               │
-│  Total realistic:                                 ~$2,050/month             │
-│                                                                              │
-│  UNIT ECONOMICS                                                             │
-│  ─────────────────────────────────────────────────────────────              │
-│  Cost per DPP/month:         $0.0002                                        │
-│  Cost per DPP/year:          $0.0024                                        │
-│  Cost per DPP/10 years:      $0.024  (two cents!)                           │
-│                                                                              │
-│  REVENUE AT THIS SCALE                                                      │
-│  ─────────────────────────────────────────────────────────────              │
-│  10,000 customers × €150 avg/month = €1,500,000/month                       │
-│  Infrastructure cost: ~€1,900/month                                         │
-│  Infrastructure as % of revenue: 0.13%                                      │
-│                                                                              │
-│  Note: Still excellent margins - infrastructure is NOT the cost driver.     │
-│  Headcount (support, development) dominates operational expenses.           │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-### Storage Tier Strategy
-
-Different data types use different storage tiers for cost optimization:
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│  STORAGE TIER STRATEGY                                                       │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  AWS STORAGE TIERS                                                          │
-│  ─────────────────────────────────────────────────────────────              │
-│  Tier                    │ Cost/GB/mo │ Retrieval    │ Use Case             │
-│  ────────────────────────┼────────────┼──────────────┼──────────────────────│
-│  S3 Standard             │ $0.023     │ Instant      │ Active data          │
-│  S3 Infrequent Access    │ $0.0125    │ Instant      │ Monthly access       │
-│  S3 Glacier Instant      │ $0.004     │ Instant      │ Archive, rare        │
-│  S3 Glacier Flexible     │ $0.0036    │ 1-12 hours   │ Backup               │
-│  S3 Glacier Deep Archive │ $0.00099   │ 12-48 hours  │ Cold storage         │
-│                                                                              │
-│  EUROCOMPLY DATA TIERING                                                    │
-│  ─────────────────────────────────────────────────────────────              │
-│  Data Type               │ Access Pattern     │ Tier           │ Notes      │
-│  ────────────────────────┼────────────────────┼────────────────┼────────────│
-│  Public DPP JSON-LD      │ On every scan      │ S3 + CloudFront│ Must be    │
-│  Product images          │ On every scan      │ S3 IA + CDN    │ instant    │
-│  Database records        │ Active queries     │ RDS            │            │
-│  ────────────────────────┼────────────────────┼────────────────┼────────────│
-│  Backup/audit logs       │ Rarely             │ Glacier        │ Compliance │
-│                                                                              │
-│  SIMPLE POLICY: All product images kept at original quality, all tiers.     │
-│  Using S3 Infrequent Access for images (rarely re-downloaded after cache).  │
-│  CloudFront caches images at edge - most requests never hit S3 origin.      │
-│                                                                              │
-│  KEY INSIGHT: Public-facing DPP data CANNOT use Glacier                     │
-│  (12+ hour retrieval is unacceptable for QR scans)                          │
-│  Only backups and audit logs use Glacier for cold storage.                  │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-### Margin Analysis by Tier
-
-At 500 customer scale (€220/month infrastructure amortized):
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│  MARGIN ANALYSIS BY TIER                                                     │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  GROWTH (€129/month, 2,000 products)                                        │
-│  ─────────────────────────────────────                                      │
-│  Infrastructure share:     €0.44                                            │
-│  S3 storage (20GB):        €0.46                                            │
-│  Bandwidth:                €2.00                                            │
-│  AI imports (100):         €0.40                                            │
-│  ────────────────────────────────                                           │
-│  Total cost:               €3.30                                            │
-│  Revenue:                  €129.00                                          │
-│  Gross margin:             €125.70 (97%)                                    │
-│                                                                              │
-│  SCALE (€399/month, 20,000 products)                                        │
-│  ─────────────────────────────────────                                      │
-│  Infrastructure share:     €0.88                                            │
-│  S3 storage (200GB):       €4.60                                            │
-│  Bandwidth:                €20.00                                           │
-│  AI imports (1,000):       €4.00                                            │
-│  ────────────────────────────────                                           │
-│  Total cost:               €29.48                                           │
-│  Revenue:                  €399.00                                          │
-│  Gross margin:             €369.52 (93%)                                    │
-│                                                                              │
-│  VOLUME MODEL ECONOMICS                                                     │
-│  ─────────────────────────────────────                                      │
-│  Full platform access increases customer lifetime value without             │
-│  proportional cost increases. Feature delivery costs remain constant        │
-│  regardless of which features customers utilize.                            │
-│                                                                              │
-│  Marginal cost of additional features (Shopify sync, attestation):         │
-│  Negligible - shared infrastructure, identical code paths.                  │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-### Enterprise Cost Model (High Volume)
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  ENTERPRISE COST MODEL (1,000,000 products)                      │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  INFRASTRUCTURE COSTS                                           │
-│  ─────────────────────                                          │
-│  Database (RDS db.r6g.large Multi-AZ):                          │
-│  • 1M products × 15KB = 15GB data                              │
-│  • Instance + storage: ~€800/mo                                │
-│                                                                  │
-│  S3 Storage:                                                    │
-│  • 1M products × 10MB = 10TB                                   │
-│  • S3 Standard: ~€220/mo                                        │
-│                                                                  │
-│  Bandwidth:                                                     │
-│  • Assume 10% products accessed/mo = 100k views                │
-│  • CloudFront: ~€85/mo                                          │
-│                                                                  │
-│  Compute:                                                       │
-│  • Dedicated ECS tasks: ~€200/mo                               │
-│                                                                  │
-│  ─────────────────────                                          │
-│  Total Infrastructure: ~€1,300/mo                               │
-│                                                                  │
-│  SUGGESTED PRICING                                              │
-│  ─────────────────────                                          │
-│  Enterprise base: €2,000/mo + €0.02/product/mo                 │
-│  1M products: €2,000 + €20,000 = €22,000/mo                    │
-│  Margin: €22,000 - €1,300 = €20,700 (94%)                      │
-│                                                                  │
-│  Note: Real cost is support/success headcount, not infra       │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
+For detailed infrastructure specifications, see [EuroComply_Architecture_Document_v1.3.md](../EuroComply_Architecture_Document_v1.3.md).
 
 ---
 
@@ -1089,9 +680,8 @@ Brands and manufacturers pay for DPP creation. Retailers access DPPs for free be
 │                                                                  │
 │  OPERATIONS WORKSPACE (ERP-lite)                                │
 │  ┌─────────────────────────────────────────────────────────────┐│
-│  │  EPCIS INTEGRATION                                          ││
-│  │  ├── Read from enterprise EPCIS systems                     ││
-│  │  ├── Hosted OpenEPCIS for SMB suppliers                     ││
+│  │  ITEM TRACKING (DynamoDB)                                   ││
+│  │  ├── Billions of serialized items                          ││
 │  │  ├── Lifecycle event visualization (manufactured → sold)    ││
 │  │  └── Supply chain traceability                              ││
 │  │                                                              ││
@@ -1312,7 +902,7 @@ Awareness → Trial → Conversion → Expansion
 | Enterprise ERP | SAP, Oracle | €200k+/year | Not competing |
 | Mid-Market PLM | Arena, Propel | €30k+/year | Adjacent |
 | Mid-Market PIM | Plytix, Sales Layer | €10k+/year | Adjacent |
-| **SME Unified (PLM + ERP + PIM + DPP)** | EuroComply | €1,548-4,788/year | **Leader** |
+| **SME Unified (PLM + ERP + PIM + DPP)** | EuroComply | €1,548-59,988/year | **Leader** |
 | DPP-Only Tools | Various | €500-2k/year | Partial overlap |
 
 ### Differentiation
@@ -1320,7 +910,7 @@ Awareness → Trial → Conversion → Expansion
 | Capability | Enterprise Suites | Mid-Market Tools | DPP-Only Tools | EuroComply |
 |------------|-------------------|------------------|----------------|------------|
 | **Design (PLM)** | Full CAD integration | BOMs, materials | None | Registry, Materials, BOMs |
-| **Operations (ERP)** | Full ERP | Basic inventory | None | EPCIS, Inventory-lite |
+| **Operations (ERP)** | Full ERP | Basic inventory | None | Item tracking, Inventory-lite |
 | **Marketing (PIM)** | Full PIM | Full PIM | None | Families, Variants, DAM |
 | **Compliance (DPP)** | Addon (€10k+) | Addon | Basic | Native, integrated |
 | Verifiable credentials | None | None | None | W3C VCs, did:key |
@@ -1337,7 +927,7 @@ Awareness → Trial → Conversion → Expansion
 | Traditional Approach | EuroComply Equivalent |
 |---------------------|----------------------|
 | Entry-level PLM (€500-2k/mo) | Design Workspace (Registry, Materials) |
-| Basic ERP/Inventory (€200-1k/mo) | Operations Workspace (EPCIS, Inventory) |
+| Basic ERP/Inventory (€200-1k/mo) | Operations Workspace (Item Tracking, Inventory) |
 | Entry-level PIM (€300-1.5k/mo) | Marketing Workspace (PIM, DAM, Syndication) |
 | Compliance consultants (€5-20k one-time) | Compliance Workspace (DPP, Attestation) |
 | **Total: €1,000-4,500+/mo** | **EuroComply: €129-399/mo** |
@@ -1493,14 +1083,14 @@ Simplified tier structure accelerates sales cycles and improves conversion rates
 │                                                                  │
 │  PRICING STRUCTURE                                              │
 │  Volume-based tiers with full platform access:                  │
-│  • Growth: €129/month (2,000 products)                         │
-│  • Scale: €399/month (20,000 products)                         │
-│  • Enterprise: Custom pricing (unlimited, SLA, SSO)            │
-│  • Volume overages: €10 per 100 additional SKUs                │
+│  • Growth: €129/month (500 products, 10K items)                │
+│  • Scale: €399/month (5,000 products, 1M items)                │
+│  • Enterprise: €999/month (unlimited, 100M items, SLA)         │
+│  • Mega: €4,999/month (unlimited, dedicated cluster)           │
 │                                                                  │
 │  FOUR WORKSPACES (ALL INCLUDED)                                │
 │  • Design (PLM): Registry, Materials, DAM-Tech, BOMs           │
-│  • Operations (ERP-lite): EPCIS, Inventory, Suppliers          │
+│  • Operations (ERP-lite): Item Tracking, Inventory, Suppliers  │
 │  • Marketing (PIM): Product content, DAM-Media, Syndication    │
 │  • Compliance (DPP): DPP issuance, Attestation, VCs            │
 │                                                                  │
@@ -1518,9 +1108,9 @@ Simplified tier structure accelerates sales cycles and improves conversion rates
 │  • SME-accessible price point (98% cheaper than alternatives)  │
 │  • Same-day setup (no implementation project)                  │
 │                                                                  │
-│  UNIT ECONOMICS                                                 │
-│  • Gross margin: 93-97%                                        │
-│  • Infrastructure costs: <5% of revenue                        │
+│  UNIT ECONOMICS (from Architecture Doc v1.3)                    │
+│  • Gross margin: 90-96% depending on tier                      │
+│  • Infrastructure base cost: €158/month                        │
 │  • Primary cost driver: personnel (support, development)       │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
@@ -1528,4 +1118,4 @@ Simplified tier structure accelerates sales cycles and improves conversion rates
 
 ---
 
-*Last Updated: January 11, 2026*
+*Last Updated: January 13, 2026*
