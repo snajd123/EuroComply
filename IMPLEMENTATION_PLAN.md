@@ -12,9 +12,9 @@ EuroComply is a unified platform for product lifecycle management and EU regulat
 
 ### Core Concept: The Hub + Workspaces
 
-At the center is **The Hub** (Golden Record) - a unified product model containing all data across workspaces: design specs, operations data, marketing content, and compliance information.
+**The Hub** is the central PostgreSQL database containing all workspace data. It is NOT a single "golden record" table - it's a collection of workspace-separated tables linked by product identity (SKU/GTIN). See [README.md](README.md#what-is-the-hub) for detailed explanation.
 
-Four **Workspaces** provide persona-specific views of Hub data:
+Four **Workspaces** provide persona-specific interfaces to Hub data:
 
 | Workspace | Persona | Focus |
 |-----------|---------|-------|
@@ -33,8 +33,8 @@ Four **Workspaces** provide persona-specific views of Hub data:
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                    THE HUB (Central Data Model)                          │
-│   Products • Variants • Materials • Suppliers • Certifications • BOMs   │
+│                    THE HUB (PostgreSQL Database)                         │
+│   Product • DesignVersion • MarketingVersion • BatchRecord • DPPSnapshot │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
