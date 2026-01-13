@@ -157,10 +157,19 @@ Contributor
 | OTHER | Any other third party | Any product data |
 
 **VerificationLevel:**
-| Level | Description |
-|-------|-------------|
-| SELF_ATTESTED | Contributor signed up and claims identity |
-| DOMAIN_VERIFIED | Email domain matches claimed organization |
+| Level | Description | Trust Level |
+|-------|-------------|-------------|
+| SELF_ATTESTED | Contributor signed up and claims identity | ⚠️ Very Weak |
+| EMAIL_VERIFIED | Email confirmed at claimed domain | ⚠️ Weak |
+| DNS_VERIFIED | Controls domain via DNS TXT record | 🔵 Moderate |
+| VAT_VERIFIED | VAT number validated via EU VIES | 🟢 Good |
+| LEI_VERIFIED | LEI validated via GLEIF | 🟢 Good |
+| REGISTRY_VERIFIED | In EuroComply trusted issuer registry | ✅ High |
+| EUDI_VERIFIED | EU Digital Identity Wallet (future) | 🇪🇺 Highest |
+
+⚠️ **IMPORTANT**: SELF_ATTESTED and EMAIL_VERIFIED do NOT prove real-world identity.
+Anyone can claim to be any organization. For certification attestations, only
+REGISTRY_VERIFIED issuers should be trusted. See [VERIFIABLE_CREDENTIALS.md Section 17](./VERIFIABLE_CREDENTIALS.md#17-identity-verification-solving-the-trust-gap).
 
 ### DataRequest
 
@@ -782,44 +791,110 @@ IMMEDIATE ACTION REQUIRED:
 
 ## Trust Model
 
-### Verification Levels
+### The Identity Verification Problem
 
-| Level | How Achieved | Display | Trust Implication |
-|-------|--------------|---------|-------------------|
-| SELF_ATTESTED | Signup only | "Self-attested" | "They claim to be X" |
-| DOMAIN_VERIFIED | Email domain matches | "Domain verified" | "Email from X.com" |
+⚠️ **CRITICAL**: did:key provides cryptographic proof (data integrity), NOT identity verification.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  WHAT did:key PROVES vs. WHAT IT DOESN'T                         │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ✓ CRYPTOGRAPHIC PROOF (did:key provides):                      │
+│    • Data hasn't been tampered with since signing               │
+│    • Same keypair signed this data                              │
+│                                                                  │
+│  ✗ IDENTITY (did:key does NOT prove):                           │
+│    • The entity is actually "Control Union"                     │
+│    • The organization legally exists                            │
+│    • The person has authority to sign                           │
+│                                                                  │
+│  ATTACK SCENARIO:                                                │
+│  1. Attacker creates controlunion.io (lookalike domain)         │
+│  2. Gets EMAIL_VERIFIED status (email works!)                   │
+│  3. Issues fraudulent GOTS attestations                         │
+│  4. Signature is cryptographically valid ✓                      │
+│  5. But identity is fraudulent ✗                                │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Verification Level Hierarchy
+
+| Level | How Achieved | Trust Level | What It Proves |
+|-------|--------------|-------------|----------------|
+| SELF_ATTESTED | Signup only | ⚠️ Very Weak | Nothing |
+| EMAIL_VERIFIED | Email confirmed | ⚠️ Weak | Has email at domain |
+| DNS_VERIFIED | DNS TXT record | 🔵 Moderate | Controls domain |
+| VAT_VERIFIED | VIES API check | 🟢 Good | Business legally exists (EU) |
+| LEI_VERIFIED | GLEIF API check | 🟢 Good | Global business ID verified |
+| REGISTRY_VERIFIED | Manual verification | ✅ High | Verified certification body |
+| EUDI_VERIFIED | EU wallet | 🇪🇺 Highest | EU government vouches |
 
 ### Trust Display in UI
 
+**Trusted Certification Body (REGISTRY_VERIFIED):**
 ```
 ┌────────────────────────────────────────────────────────────────┐
-│  ✓ DOMAIN_VERIFIED                                             │
+│  ✅ REGISTRY_VERIFIED                                           │
 │  Control Union Certifications                                  │
-│  Email: certifier@controlunion.com                            │
-│  Domain controlunion.com verified                             │
-└────────────────────────────────────────────────────────────────┘
-
-┌────────────────────────────────────────────────────────────────┐
-│  ○ SELF_ATTESTED                                               │
-│  EcoTextiles GmbH                                              │
-│  Email: info@ecotextiles.example                              │
-│  Identity not independently verified                          │
+│  ✓ In EuroComply Trust Registry since 2026-01-01              │
+│  ✓ Accredited for: GOTS, OCS, GRS, RCS                        │
+│  ✓ Verified via IOAS accreditation registry                   │
 └────────────────────────────────────────────────────────────────┘
 ```
+
+**Verified Business (VAT_VERIFIED):**
+```
+┌────────────────────────────────────────────────────────────────┐
+│  🟢 VAT_VERIFIED                                                │
+│  EcoTextiles GmbH                                              │
+│  VAT: DE123456789 - Verified via EU VIES                      │
+│  Business legally registered in Germany                        │
+└────────────────────────────────────────────────────────────────┘
+```
+
+**Unverified (EMAIL_VERIFIED only - WARNING):**
+```
+┌────────────────────────────────────────────────────────────────┐
+│  ⚠️ EMAIL_VERIFIED ONLY                                         │
+│  "Control Union" (controlunion.io)                             │
+│  ⚠️ NOT in Trust Registry - Identity NOT verified              │
+│  ⚠️ controlunion.io is NOT the official domain                 │
+│  ⚠️ Do not trust certification claims without verification    │
+└────────────────────────────────────────────────────────────────┘
+```
+
+### Certification Attestation Rules
+
+**Only REGISTRY_VERIFIED issuers can provide trusted certification attestations.**
+
+| Contributor Level | Can Attest Certifications? | Display |
+|-------------------|---------------------------|---------|
+| REGISTRY_VERIFIED | ✅ Yes (trusted) | Green checkmark |
+| VAT/LEI_VERIFIED | ⚠️ Warning displayed | "Certifier not in registry" |
+| EMAIL_VERIFIED | ⚠️ Strong warning | "Unverified certifier" |
+| SELF_ATTESTED | ⚠️ Strong warning | "Unverified certifier" |
 
 ### Customer Responsibility
 
-EuroComply does NOT validate:
-- Contributor identity (beyond email/domain)
-- Attestation accuracy
-- Certification validity
-- Data truthfulness
+EuroComply validates:
+- ✅ Signature cryptographic validity
+- ✅ REGISTRY_VERIFIED status for certification bodies
+- ✅ VAT/LEI against official registries
+- ✅ DNS TXT records for domain ownership
 
-Customers are 100% responsible for:
-- Trusting their contributors
-- Verifying contributor credentials out-of-band
-- Validating attestation accuracy
-- Ensuring compliance with regulations
+EuroComply does NOT validate:
+- ❌ Attestation content accuracy (we verify WHO signed, not WHETHER claims are true)
+- ❌ Certification validity with the actual certification body
+- ❌ Real-world identity for EMAIL_VERIFIED or SELF_ATTESTED contributors
+
+Customers are responsible for:
+- Verifying attestation accuracy
+- Checking certification validity with issuing body
+- Not trusting EMAIL_VERIFIED contributors for certifications
+
+**See [VERIFIABLE_CREDENTIALS.md Section 17](./VERIFIABLE_CREDENTIALS.md#17-identity-verification-solving-the-trust-gap) for full identity verification architecture.**
 
 ---
 

@@ -54,9 +54,12 @@ EuroComply DPP Flow:
 Benefits:
 • Cryptographic tamper evidence (signature breaks if data changes)
 • Signature verification offline (did:key is self-contained)
-• Issuer accountability (did:key proves who made the claim)
+• Issuer traceability (did:key identifies which keypair signed)*
 • Portable (supplier owns it, can host anywhere)
 • Signature works forever (even if EuroComply shuts down)
+
+*IMPORTANT: did:key proves WHICH KEYPAIR signed, not WHO owns that keypair.
+Real-world identity verification requires additional checks. See Section 17.
 
 ⚠️ IMPORTANT CAVEAT: Revocation checking still requires network access
 to a status list server. See Section 14 for details on this tradeoff.
@@ -71,13 +74,14 @@ network access to status list. Image rendering depends on storage mode.
 |--------|-----------------|-------------------|
 | **Tamper Evidence** | None - data can be silently changed | Cryptographic - any change breaks signature |
 | **Trust Model** | Trust the database operator | Trust math (cryptographic verification) |
-| **Issuer Proof** | "Trust me, I'm the manufacturer" | did:key signature proves issuer identity |
+| **Issuer Traceability** | "Trust me, I'm the manufacturer" | Signature tied to specific did:key* |
 | **Verification** | Requires server connection | Signature offline, revocation online |
 | **Portability** | Locked to platform | Supplier owns, can move anywhere |
-| **Platform Dependency** | Dies with platform | Signature works forever; revocation check needs status list* |
+| **Platform Dependency** | Dies with platform | Signature works forever; revocation check needs status list** |
 | **Interoperability** | Proprietary formats | W3C standard, works with EUDI wallets |
 
-*See Section 14 for revocation status list hosting options and tradeoffs.
+*did:key proves cryptographic origin, not real-world identity. See Section 17 for identity verification.
+**See Section 14 for revocation status list hosting options and tradeoffs.
 
 ---
 
@@ -1567,7 +1571,512 @@ To minimize network calls, status lists are cached:
 
 ---
 
-## 16. References
+## 17. Identity Verification: Solving the Trust Gap
+
+### The Problem
+
+did:key provides **cryptographic proof** (data integrity), NOT **identity verification** (real-world identity):
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  WHAT did:key PROVES vs. WHAT IT DOESN'T                         │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ✓ CRYPTOGRAPHIC PROOF (did:key provides):                      │
+│    • This data hasn't been tampered with since signing          │
+│    • The same keypair that created this did:key signed this     │
+│    • The signature is mathematically valid                      │
+│                                                                  │
+│  ✗ IDENTITY VERIFICATION (did:key does NOT provide):            │
+│    • The entity is actually "ACME Corp"                         │
+│    • The "certifier" is actually Control Union                  │
+│    • The organization exists in the real world                  │
+│    • The person has authority to sign for the organization      │
+│                                                                  │
+│  ATTACK SCENARIO:                                                │
+│  1. Attacker creates controlunion.io (lookalike domain)         │
+│  2. Registers as CERTIFIER, gets DOMAIN_VERIFIED status         │
+│  3. Issues fraudulent GOTS certification attestations           │
+│  4. Signature is cryptographically valid ✓                      │
+│  5. But identity is fraudulent ✗                                │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**The old verification levels were insufficient:**
+
+| Level | What It Checked | Why It's Weak |
+|-------|-----------------|---------------|
+| SELF_ATTESTED | User signed up | Anyone can claim any identity |
+| DOMAIN_VERIFIED | Email domain matches | Lookalike domains (controlunion.io vs controlunion.com) |
+
+### Solution 1: Certification Body Trust Registry
+
+**Problem**: Anyone can claim to be a certification body.
+**Solution**: Pre-register known certification bodies with verified did:keys.
+
+```typescript
+// Trusted Issuer Registry - maintained by EuroComply
+interface TrustedIssuer {
+  did: string;                    // Their actual did:key
+  name: string;                   // Official name
+  type: 'CERTIFICATION_BODY' | 'ACCREDITATION_BODY' | 'GOVERNMENT';
+  accreditations: string[];       // What they can certify (GOTS, OEKO-TEX, etc.)
+  verifiedAt: Date;
+  verificationMethod: string;     // How we verified them
+  officialWebsite: string;
+  registryUrl?: string;           // Link to official accreditation registry
+}
+
+// Example: Control Union is pre-registered
+const trustedIssuers: TrustedIssuer[] = [
+  {
+    did: 'did:key:z6MkControlUnionVerified...',
+    name: 'Control Union Certifications',
+    type: 'CERTIFICATION_BODY',
+    accreditations: ['GOTS', 'OCS', 'GRS', 'RCS'],
+    verifiedAt: new Date('2026-01-01'),
+    verificationMethod: 'Manual verification via official contact + IOAS registry',
+    officialWebsite: 'https://controlunion.com',
+    registryUrl: 'https://ioas.org/accredited-bodies/',
+  },
+  {
+    did: 'did:key:z6MkOekoTexVerified...',
+    name: 'OEKO-TEX Association',
+    type: 'CERTIFICATION_BODY',
+    accreditations: ['STANDARD 100', 'MADE IN GREEN', 'STeP'],
+    verifiedAt: new Date('2026-01-01'),
+    verificationMethod: 'Manual verification via official contact',
+    officialWebsite: 'https://www.oeko-tex.com',
+  },
+];
+
+// Verification endpoint
+app.get('/api/v1/public/trusted-issuer/:did', async (req, res) => {
+  const issuer = trustedIssuers.find(i => i.did === req.params.did);
+
+  if (!issuer) {
+    return res.json({
+      trusted: false,
+      reason: 'DID not in trusted issuer registry',
+      warning: 'This issuer has not been verified by EuroComply',
+    });
+  }
+
+  return res.json({
+    trusted: true,
+    issuer,
+    verificationBadge: 'REGISTRY_VERIFIED',
+  });
+});
+```
+
+**Onboarding Process for Certification Bodies:**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  CERTIFICATION BODY ONBOARDING                                   │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  1. ACCREDITATION CHECK                                         │
+│     └── Verify against IOAS, IAF, or national accreditation DB  │
+│     └── Check they're authorized to issue claimed certifications│
+│                                                                  │
+│  2. OFFICIAL CONTACT                                            │
+│     └── Contact via official website (not email they provide)   │
+│     └── Request confirmation of DID registration                │
+│                                                                  │
+│  3. DOMAIN VERIFICATION (DNS TXT)                               │
+│     └── Add TXT record: eurocomply-did=did:key:z6Mk...          │
+│     └── Proves they control their official domain               │
+│                                                                  │
+│  4. REGISTRY ENTRY                                              │
+│     └── Add to trusted issuer registry                          │
+│     └── Publish to public transparency log                      │
+│                                                                  │
+│  TIME: 3-5 business days (manual process)                       │
+│  COST: Free for accredited certification bodies                 │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Result**: Attestations from REGISTRY_VERIFIED issuers can be trusted. Unknown issuers display warning.
+
+### Solution 2: DNS-Based Domain Verification
+
+**Problem**: Email domain matching is easily spoofed.
+**Solution**: Require DNS TXT record ownership proof.
+
+```typescript
+// DNS verification - proves domain ownership, not just email access
+async function verifyDomainOwnership(
+  domain: string,
+  expectedDid: string
+): Promise<VerificationResult> {
+  try {
+    // Look up TXT records for the domain
+    const records = await dns.resolveTxt(`_eurocomply.${domain}`);
+
+    // Expected format: eurocomply-did=did:key:z6Mk...
+    const didRecord = records
+      .flat()
+      .find(r => r.startsWith('eurocomply-did='));
+
+    if (!didRecord) {
+      return {
+        verified: false,
+        level: 'DOMAIN_UNVERIFIED',
+        reason: 'No eurocomply-did TXT record found',
+      };
+    }
+
+    const recordDid = didRecord.replace('eurocomply-did=', '');
+
+    if (recordDid !== expectedDid) {
+      return {
+        verified: false,
+        level: 'DOMAIN_UNVERIFIED',
+        reason: 'DID in TXT record does not match claimed DID',
+      };
+    }
+
+    return {
+      verified: true,
+      level: 'DNS_VERIFIED',
+      domain,
+      verifiedAt: new Date(),
+    };
+  } catch (error) {
+    return {
+      verified: false,
+      level: 'DOMAIN_UNVERIFIED',
+      reason: 'DNS lookup failed',
+    };
+  }
+}
+
+// Example DNS record
+// _eurocomply.acme-textiles.com TXT "eurocomply-did=did:key:z6MkAcmeTextiles..."
+```
+
+**Why DNS is stronger than email:**
+
+| Method | Attack Resistance |
+|--------|-------------------|
+| Email domain match | Attacker registers lookalike domain, gets email |
+| DNS TXT record | Attacker must control actual domain's DNS |
+
+### Solution 3: Business Registry Verification (LEI/VAT)
+
+**Problem**: No proof the organization legally exists.
+**Solution**: Verify against official business registries.
+
+```typescript
+// LEI (Legal Entity Identifier) verification via GLEIF API
+async function verifyLEI(lei: string, claimedName: string): Promise<VerificationResult> {
+  const response = await fetch(
+    `https://api.gleif.org/api/v1/lei-records/${lei}`
+  );
+
+  if (!response.ok) {
+    return { verified: false, reason: 'LEI not found in GLEIF database' };
+  }
+
+  const data = await response.json();
+  const legalName = data.data.attributes.entity.legalName.name;
+  const status = data.data.attributes.entity.status;
+
+  if (status !== 'ACTIVE') {
+    return { verified: false, reason: `LEI status is ${status}, not ACTIVE` };
+  }
+
+  // Fuzzy match on name (handles minor variations)
+  const nameMatch = fuzzyMatch(legalName, claimedName) > 0.85;
+
+  if (!nameMatch) {
+    return {
+      verified: false,
+      reason: `LEI registered to "${legalName}", not "${claimedName}"`,
+    };
+  }
+
+  return {
+    verified: true,
+    level: 'LEI_VERIFIED',
+    lei,
+    legalName,
+    jurisdiction: data.data.attributes.entity.jurisdiction,
+  };
+}
+
+// VAT verification via EU VIES API
+async function verifyVAT(vatNumber: string, claimedName: string): Promise<VerificationResult> {
+  const countryCode = vatNumber.slice(0, 2);
+  const number = vatNumber.slice(2);
+
+  const response = await fetch(
+    `https://ec.europa.eu/taxation_customs/vies/rest-api/ms/${countryCode}/vat/${number}`
+  );
+
+  if (!response.ok) {
+    return { verified: false, reason: 'VAT number not found in VIES' };
+  }
+
+  const data = await response.json();
+
+  if (!data.isValid) {
+    return { verified: false, reason: 'VAT number is not valid' };
+  }
+
+  return {
+    verified: true,
+    level: 'VAT_VERIFIED',
+    vatNumber,
+    registeredName: data.name,
+    registeredAddress: data.address,
+    countryCode,
+  };
+}
+```
+
+### Solution 4: New Verification Levels
+
+**Replace weak verification levels with meaningful ones:**
+
+```typescript
+enum VerificationLevel {
+  // Weak (display warnings)
+  SELF_ATTESTED = 'SELF_ATTESTED',       // Just signed up
+  EMAIL_VERIFIED = 'EMAIL_VERIFIED',      // Email confirmed (was DOMAIN_VERIFIED)
+
+  // Moderate (organization exists)
+  DNS_VERIFIED = 'DNS_VERIFIED',          // Controls domain via DNS TXT
+  VAT_VERIFIED = 'VAT_VERIFIED',          // VAT number validated via VIES
+  LEI_VERIFIED = 'LEI_VERIFIED',          // LEI validated via GLEIF
+
+  // Strong (for certification bodies)
+  REGISTRY_VERIFIED = 'REGISTRY_VERIFIED', // In EuroComply trusted issuer registry
+  EUDI_VERIFIED = 'EUDI_VERIFIED',         // EU Digital Identity Wallet (future)
+}
+
+// Trust display in UI
+const trustDisplay: Record<VerificationLevel, TrustDisplay> = {
+  SELF_ATTESTED: {
+    badge: '⚠️',
+    color: 'red',
+    label: 'Unverified Identity',
+    warning: 'This entity has not proven their identity. Treat claims with caution.',
+  },
+  EMAIL_VERIFIED: {
+    badge: '⚠️',
+    color: 'orange',
+    label: 'Email Only',
+    warning: 'Only email address verified. Does not prove organizational identity.',
+  },
+  DNS_VERIFIED: {
+    badge: '🔵',
+    color: 'blue',
+    label: 'Domain Verified',
+    description: 'Controls the claimed domain (DNS verification)',
+  },
+  VAT_VERIFIED: {
+    badge: '🟢',
+    color: 'green',
+    label: 'Business Verified',
+    description: 'VAT number verified against EU VIES registry',
+  },
+  LEI_VERIFIED: {
+    badge: '🟢',
+    color: 'green',
+    label: 'LEI Verified',
+    description: 'Legal Entity Identifier verified against GLEIF',
+  },
+  REGISTRY_VERIFIED: {
+    badge: '✅',
+    color: 'green',
+    label: 'Trusted Issuer',
+    description: 'Verified certification body in EuroComply trust registry',
+  },
+  EUDI_VERIFIED: {
+    badge: '🇪🇺',
+    color: 'blue',
+    label: 'EU Digital Identity',
+    description: 'Verified via EU Digital Identity Wallet',
+  },
+};
+```
+
+### Updated Trust Model
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  VERIFICATION LEVEL HIERARCHY                                    │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  LEVEL              │ WHAT IT PROVES           │ TRUST DISPLAY  │
+│  ──────────────────────────────────────────────────────────────│
+│  SELF_ATTESTED      │ Nothing                  │ ⚠️ Red warning  │
+│  EMAIL_VERIFIED     │ Has email at domain      │ ⚠️ Orange warn  │
+│  DNS_VERIFIED       │ Controls domain          │ 🔵 Moderate     │
+│  VAT_VERIFIED       │ Business legally exists  │ 🟢 Good         │
+│  LEI_VERIFIED       │ Global business ID       │ 🟢 Good         │
+│  REGISTRY_VERIFIED  │ Accredited cert body     │ ✅ High trust   │
+│  EUDI_VERIFIED      │ EU government vouches    │ 🇪🇺 Highest     │
+│                                                                  │
+│  CERTIFICATION ATTESTATIONS:                                    │
+│  • Only REGISTRY_VERIFIED issuers can attest certifications    │
+│  • Other levels display "unverified certifier" warning         │
+│                                                                  │
+│  MANUFACTURER/SUPPLIER ATTESTATIONS:                            │
+│  • VAT_VERIFIED or higher recommended                          │
+│  • SELF_ATTESTED displays prominent warning                    │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### UI Display: Before vs After
+
+**Before (insufficient):**
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ GOTS CERTIFICATION                                   ✓ ATTESTED │
+│ Certificate: CU-123456                                          │
+│                                                                 │
+│ Attested by: Control Union Certifications                       │
+│ Type: CERTIFIER • DOMAIN_VERIFIED                               │
+│ ✓ Signature Valid                                              │
+│                                                                 │
+│ [No indication this could be a fake "Control Union"]           │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**After (with trust verification):**
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ GOTS CERTIFICATION                                   ✅ TRUSTED │
+│ Certificate: CU-123456                                          │
+│                                                                 │
+│ Attested by: Control Union Certifications                       │
+│ ✅ REGISTRY_VERIFIED - Trusted Certification Body              │
+│ ✓ In EuroComply Trust Registry since 2026-01-01                │
+│ ✓ Accredited for: GOTS, OCS, GRS, RCS                          │
+│ ✓ Verified via IOAS accreditation registry                     │
+│ ✓ Signature Valid                                              │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
+│ GOTS CERTIFICATION                                   ⚠️ WARNING │
+│ Certificate: FAKE-123                                           │
+│                                                                 │
+│ Attested by: "Control Union" (controlunion.io)                  │
+│ ⚠️ EMAIL_VERIFIED ONLY - Not in Trust Registry                 │
+│ ⚠️ This certifier has NOT been verified by EuroComply          │
+│ ⚠️ controlunion.io is NOT the official Control Union domain    │
+│ ✓ Signature Valid (but identity not verified)                  │
+│                                                                 │
+│ [!] Do not rely on this certification without independent      │
+│     verification from the actual certification body.           │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Verification API
+
+```typescript
+// Public API: Check if an issuer is trusted
+// GET /api/v1/public/verify-issuer/:did
+app.get('/api/v1/public/verify-issuer/:did', async (req, res) => {
+  const { did } = req.params;
+
+  // Check trusted issuer registry
+  const trustedIssuer = await prisma.trustedIssuer.findUnique({
+    where: { did },
+  });
+
+  if (trustedIssuer) {
+    return res.json({
+      did,
+      trusted: true,
+      level: 'REGISTRY_VERIFIED',
+      issuer: {
+        name: trustedIssuer.name,
+        type: trustedIssuer.type,
+        accreditations: trustedIssuer.accreditations,
+        verifiedAt: trustedIssuer.verifiedAt,
+        officialWebsite: trustedIssuer.officialWebsite,
+      },
+    });
+  }
+
+  // Check contributor verification level
+  const contributor = await prisma.contributor.findUnique({
+    where: { did },
+    select: {
+      name: true,
+      verificationLevel: true,
+      domain: true,
+      vatNumber: true,
+      lei: true,
+    },
+  });
+
+  if (!contributor) {
+    return res.json({
+      did,
+      trusted: false,
+      level: 'UNKNOWN',
+      warning: 'This DID is not registered in our system',
+    });
+  }
+
+  return res.json({
+    did,
+    trusted: contributor.verificationLevel !== 'SELF_ATTESTED',
+    level: contributor.verificationLevel,
+    issuer: {
+      name: contributor.name,
+      domain: contributor.domain,
+      vatNumber: contributor.vatNumber ? 'Verified' : null,
+      lei: contributor.lei ? 'Verified' : null,
+    },
+    warning: contributor.verificationLevel === 'SELF_ATTESTED'
+      ? 'Identity not verified. Treat claims with caution.'
+      : null,
+  });
+});
+```
+
+### Implementation Roadmap
+
+| Solution | Complexity | Target | Status |
+|----------|------------|--------|--------|
+| Trusted Issuer Registry | Medium | Q1 2026 | 📋 Planned |
+| DNS TXT Verification | Low | Q1 2026 | 📋 Planned |
+| VAT/VIES Integration | Low | Q1 2026 | 📋 Planned |
+| LEI/GLEIF Integration | Low | Q1 2026 | 📋 Planned |
+| Updated Verification Levels | Medium | Q1 2026 | 📋 Planned |
+| UI Trust Indicators | Medium | Q1 2026 | 📋 Planned |
+| EUDI Wallet Integration | High | Q3 2026 | 📋 Planned |
+
+### What This Doesn't Solve
+
+**Honest limitations:**
+
+1. **Initial registry population** - We must manually verify each certification body
+2. **Non-EU businesses** - VAT/VIES only works for EU entities
+3. **Small suppliers** - May not have LEI (costs ~$100/year)
+4. **Attestation content** - We verify WHO signed, not WHETHER claims are true
+5. **Revoked accreditations** - Registry must be kept up-to-date
+
+**The verification hierarchy makes trust explicit:**
+- REGISTRY_VERIFIED = "We verified this is the real certification body"
+- VAT_VERIFIED = "This business legally exists"
+- DNS_VERIFIED = "They control this domain"
+- EMAIL_VERIFIED = "They have an email here" (weak)
+- SELF_ATTESTED = "They claim to be X" (very weak)
+
+---
+
+## 18. References
 
 - [W3C Verifiable Credentials Data Model](https://www.w3.org/TR/vc-data-model/)
 - [W3C Decentralized Identifiers (DIDs)](https://www.w3.org/TR/did-core/)
