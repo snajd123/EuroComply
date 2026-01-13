@@ -776,6 +776,64 @@ See `infrastructure/` directory for Terraform configurations.
 
 ---
 
+## Documentation Architecture: Authoritative Sources
+
+> ⚠️ **Single Source of Truth Policy**: Each architectural concept should have ONE authoritative documentation source. Other files should reference the authoritative source rather than duplicate content.
+
+### Authoritative Diagram Sources
+
+| Topic | Authoritative File | Other Files Should |
+|-------|-------------------|-------------------|
+| **System Architecture** (Read/Write paths) | `INFRASTRUCTURE.md` | Reference, not duplicate |
+| **Workspace Architecture** (4 workspaces) | `README.md` | Reference, not duplicate |
+| **DPP Serving Flow** (QR → CDN → Origin) | `docs/SCALABILITY.md` | Reference, not duplicate |
+| **Database Schema** | `docs/DATA_SYNCHRONIZATION.md` | Reference, not duplicate |
+| **Cost Breakdown** | `INFRASTRUCTURE.md` (infra) / `docs/BUSINESS_MODEL.md` (business) | Cross-reference |
+| **EPCIS Architecture** | `docs/EPCIS_INTEGRATION.md` | Reference, not duplicate |
+| **VC/DID Architecture** | `docs/VERIFIABLE_CREDENTIALS.md` | Reference, not duplicate |
+| **Item-Level DPP** | `docs/SCALABILITY.md` | Reference, not duplicate |
+| **Tiered Storage** | `docs/SCALABILITY.md` | Reference, not duplicate |
+
+### Current Duplication Issues (Known)
+
+The following diagrams are currently duplicated and should be consolidated:
+
+| Diagram | Currently In | Should Be In | Action Needed |
+|---------|-------------|--------------|---------------|
+| Read/Write path split | INFRASTRUCTURE.md, README.md, BUSINESS_MODEL.md, SCALABILITY.md | INFRASTRUCTURE.md | Add references |
+| Cost comparison tables | INFRASTRUCTURE.md, BUSINESS_MODEL.md, SCALABILITY.md | INFRASTRUCTURE.md (infra), BUSINESS_MODEL.md (business) | Consolidate |
+| Cloudflare + Hetzner flow | 6+ files | SCALABILITY.md | Add references |
+
+### How to Reference (Instead of Duplicate)
+
+```markdown
+<!-- GOOD: Reference authoritative source -->
+See [INFRASTRUCTURE.md](../INFRASTRUCTURE.md#system-architecture) for the complete
+read/write path architecture diagram.
+
+<!-- BAD: Duplicating the diagram -->
+```
+┌─────────────────┐
+│  [Same diagram  │
+│   copied here]  │
+└─────────────────┘
+```
+```
+
+### When Duplication is Acceptable
+
+1. **README.md**: May include simplified overview diagrams for onboarding
+2. **Different audiences**: Business docs may simplify technical diagrams
+3. **Self-contained exports**: PDFs or standalone docs for external sharing
+
+**Rule**: If you copy a diagram, add a comment noting the authoritative source:
+
+```markdown
+<!-- Source: INFRASTRUCTURE.md - Update there first -->
+```
+
+---
+
 ## Support
 
 - **AWS Support**: Enterprise support recommended for production
@@ -785,5 +843,5 @@ See `infrastructure/` directory for Terraform configurations.
 
 ---
 
-**Last Updated**: 2026-01-11
-**Version**: 1.2
+**Last Updated**: 2026-01-13
+**Version**: 1.3
