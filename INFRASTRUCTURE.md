@@ -467,41 +467,52 @@ Target Memory utilization: 80%
 
 ### Total Infrastructure Cost
 
+> ⚠️ **Cost Reality Check**: The simplified "$200 read path + $300 write path" summary is misleading. Real infrastructure costs include many items not captured in that simplification. See detailed breakdowns below.
+
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  MONTHLY INFRASTRUCTURE COST                                     │
+│  MONTHLY INFRASTRUCTURE COST (REALISTIC ASSESSMENT)              │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  READ PATH - TIERED SCALING                                     │
-│  ─────────────────────────────                                  │
+│  READ PATH - TIERED SCALING (fixed cost, scales with volume)    │
+│  ─────────────────────────────────────────────────────────────  │
 │                                                                  │
-│  TIER 1: Startup (up to 50B scans/day) - Hetzner               │
-│  ─────────────────────────────────────────────────              │
-│  Cloudflare Pro:                    $20/month                   │
-│  Hetzner AX41 × 3:                  €150/month (~$165)          │
-│  Subtotal:                          ~$185/month (FIXED)         │
+│  TIER 1: Up to 50B scans/day (Cloudflare + Hetzner)             │
+│  • Cloudflare Pro:                    $20/month                 │
+│  • Hetzner AX41 × 3:                  €150/month (~$165)        │
+│  • Subtotal:                          ~$185/month (FIXED)       │
 │                                                                  │
-│  TIER 2: Extreme (100B+ scans/day) - R2                        │
-│  ───────────────────────────────────────────                    │
-│  Cloudflare Pro:                    $20/month                   │
-│  R2 Storage (1.5TB):                ~$25/month                  │
-│  R2 Operations:                     ~$2,000-10,000/month        │
-│  Subtotal:                          ~$2,500-11,000/month        │
+│  TIER 2: 100B+ scans/day (Cloudflare + R2)                      │
+│  • Cloudflare Pro:                    $20/month                 │
+│  • R2 Storage + Operations:           ~$2,500-11,000/month      │
 │                                                                  │
 │  WRITE PATH (AWS) - SCALES WITH USERS                           │
-│  ─────────────────────────────────────                          │
-│  Development:                       ~$60/month                  │
-│  Production (10K users):            ~$300/month                 │
-│  Enterprise (100K users):           ~$800/month                 │
+│  ────────────────────────────────────────                       │
+│  (Includes: ECS, RDS, Redis, NAT Gateway, ALB, S3,              │
+│   CloudWatch, Secrets Manager, Route 53, WAF, etc.)             │
 │                                                                  │
-│  TOTAL BY SCALE:                                                │
-│  • Startup (10B scans):            ~$500/month                 │
-│  • Scale (50B scans):              ~$500/month (Hetzner)       │
-│  • Extreme (100B scans):           ~$3,000/month (R2)          │
-│  • Planetary (1T scans):           ~$12,000/month (R2)         │
+│  Development:                       ~$70/month                  │
+│  Production (10K users):            ~$600-1,000/month           │
+│  Enterprise (100K users):           ~$1,800-3,500/month         │
+│  Enterprise + AWS Support:          ~$17,000+/month             │
 │                                                                  │
-│  KEY INSIGHT: Start with Hetzner ($200/month fixed).            │
-│  Only migrate to R2 when you hit 50B+ scans/day.                │
+│  TOTAL BY SCALE (Read + Write):                                 │
+│  ───────────────────────────────                                │
+│  • Startup (<1K users):             ~$300-500/month             │
+│  • Growth (1K-10K users):           ~$800-1,200/month           │
+│  • Scale (10K-50K users):           ~$1,500-2,500/month         │
+│  • Enterprise (50K+ users):         ~$2,000-4,000/month         │
+│  • Enterprise + Support:            ~$17,000-20,000/month       │
+│                                                                  │
+│  COMMONLY OVERLOOKED COSTS:                                     │
+│  ─────────────────────────                                      │
+│  • NAT Gateway: ~$70-200/month (often forgotten!)               │
+│  • CloudWatch: ~$30-200/month (logs add up)                     │
+│  • Data transfer: Variable (can spike unexpectedly)             │
+│  • AWS Support: $100-15,000+/month (essential for production)   │
+│                                                                  │
+│  KEY INSIGHT: Budget $1,000-1,500/month minimum for production. │
+│  The "$500/month" figure only applies to very early stage.      │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -526,49 +537,74 @@ Target Memory utilization: 80%
 | Component | Service | Monthly Cost |
 |-----------|---------|--------------|
 | **Write Path (AWS)** | | |
-| ECS Fargate | 0.5 vCPU, 1 GB, 2-4 tasks | ~$60 |
-| RDS PostgreSQL | db.t3.medium, Multi-AZ | ~$80 |
-| ElastiCache | cache.t3.medium, 2 nodes | ~$50 |
-| ALB | Moderate traffic | ~$30 |
-| S3, SQS, Secrets | Moderate | ~$20 |
+| ECS Fargate | 0.5 vCPU, 1 GB, 2-4 tasks | ~$60-120 |
+| RDS PostgreSQL | db.t3.medium, Multi-AZ, 100GB | ~$100-150 |
+| ElastiCache Redis | cache.t3.medium, 2 nodes | ~$50-80 |
+| ALB | Moderate traffic | ~$30-50 |
+| NAT Gateway | 2 AZs × $32 + data processing | ~$70-100 |
+| S3 Storage | Assets, backups | ~$10-30 |
+| SQS, SNS | Messaging | ~$5-15 |
+| Secrets Manager | 10-20 secrets | ~$5-10 |
+| CloudWatch | Logs, metrics, alarms | ~$30-50 |
+| Route 53 | DNS + health checks | ~$5-10 |
+| WAF | Basic rules | ~$10-20 |
 | **Read Path (Hetzner + Cloudflare)** | | |
 | Hetzner AX41 × 3 | Dedicated servers | ~$165 |
 | Cloudflare Pro | Unlimited bandwidth | ~$20 |
-| **Total** | | **~$425/month** |
+| **Subtotal** | | **$560-820/month** |
+| **Variable costs** | Data transfer, request spikes | **$50-200/month** |
+| **Total (realistic range)** | | **~$600-1,000/month** |
 
 *Handles: 10K concurrent users + unlimited DPP scans*
+
+> ⚠️ **Note**: Costs vary based on usage patterns, data transfer, and regional pricing. Budget for the upper range initially.
 
 ### Enterprise (100K users, any scan volume)
 
 | Component | Service | Monthly Cost |
 |-----------|---------|--------------|
 | **Write Path (AWS)** | | |
-| ECS Fargate | 1 vCPU, 2 GB, 4-10 tasks | ~$200 |
-| RDS PostgreSQL | db.r6g.large, Multi-AZ | ~$400 |
-| ElastiCache | cache.r6g.large, 3 nodes | ~$200 |
-| ALB + WAF | High traffic | ~$100 |
-| S3, SQS, Secrets | High | ~$50 |
+| ECS Fargate | 1 vCPU, 2 GB, 4-10 tasks | ~$200-400 |
+| RDS PostgreSQL | db.r6g.large, Multi-AZ, 500GB | ~$400-600 |
+| ElastiCache Redis | cache.r6g.large, 3 nodes | ~$200-350 |
+| ALB | High traffic | ~$50-100 |
+| NAT Gateway | 3 AZs × $32 + data processing | ~$100-200 |
+| S3 Storage | Assets, backups, logs | ~$50-150 |
+| SQS, SNS | High volume messaging | ~$20-50 |
+| Secrets Manager | 30+ secrets | ~$15-25 |
+| CloudWatch | Full monitoring stack | ~$100-200 |
+| Route 53 | DNS + health checks | ~$10-20 |
+| WAF | Advanced rules + managed rules | ~$50-100 |
+| KMS | Encryption key management | ~$10-20 |
 | **Read Path (Hetzner + Cloudflare)** | | |
-| Hetzner AX51 × 3 | Larger dedicated servers | ~$250 |
-| Cloudflare Pro | Unlimited bandwidth | ~$20 |
-| **Total** | | **~$1,220/month** |
+| Hetzner AX51 × 3 | Larger dedicated servers | ~$250-300 |
+| Cloudflare Pro/Business | Unlimited bandwidth | ~$20-200 |
+| **Subtotal** | | **$1,475-2,715/month** |
+| **Variable costs** | Data transfer, request spikes | **$200-500/month** |
+| **AWS Support (recommended)** | Business or Enterprise | **$100-15,000/month** |
+| **Total (realistic range)** | | **~$1,800-3,500/month** |
+| **Total with Enterprise Support** | | **~$17,000+/month** |
 
 *Handles: 100K concurrent users + unlimited DPP scans*
 
+> ⚠️ **Note**: Enterprise customers should budget for AWS Business Support ($100/month + 10% of spend) minimum. Enterprise Support ($15K+/month) provides 24/7 technical support with 15-minute response time for critical issues.
+
 ### Cost Comparison: Old vs New Architecture
 
-| Scenario | AWS-Only | Hybrid (Hetzner) | Hybrid (R2) | Best Choice |
-|----------|----------|------------------|-------------|-------------|
-| 10K users, 1B scans/day | ~$38,500/month | ~$500/month | ~$430/month | Hetzner |
-| 10K users, 10B scans/day | ~$250,500/month | ~$500/month | ~$700/month | Hetzner |
-| 10K users, 100B scans/day | ~$2,500,500/month | ❌ Exceeds limit | ~$3,000/month | R2 |
-| Enterprise, 1T scans/day | ~$38,000,500/month | ❌ Exceeds limit | ~$11,500/month | R2 |
+| Scenario | AWS-Only (Read) | Hybrid (Hetzner) | Hybrid (R2) | Best Choice |
+|----------|-----------------|------------------|-------------|-------------|
+| 10K users, 1B scans/day | ~$38,000/month read | ~$800-1,200/month total | ~$700-1,100/month total | Hetzner |
+| 10K users, 10B scans/day | ~$250,000/month read | ~$800-1,200/month total | ~$900-1,300/month total | Hetzner |
+| 10K users, 100B scans/day | ~$2.5M/month read | ❌ Exceeds limit | ~$3,500-4,500/month total | R2 |
+| Enterprise, 1T scans/day | ~$38M/month read | ❌ Exceeds limit | ~$13,000-16,000/month total | R2 |
 
 **Notes:**
-- Hetzner costs fixed at ~$200/month for read path (60TB/month bandwidth limit)
+- "Total" includes both read path AND write path (AWS infra for API/DB)
+- Hetzner read path fixed at ~$185/month (60TB/month bandwidth limit)
 - R2 costs scale with operations but has zero egress fees
 - Switch to R2 when origin bandwidth exceeds 40TB/month consistently
-- At trillion scale: R2 saves 99.97% vs AWS CloudFront
+- At trillion scale: R2 saves 99.97% vs AWS CloudFront for reads
+- All scenarios assume write path costs of $600-1,000/month (production scale)
 
 ---
 

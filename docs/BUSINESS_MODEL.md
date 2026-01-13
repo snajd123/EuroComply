@@ -475,8 +475,12 @@ EuroComply uses a **hybrid infrastructure** that separates write operations (AWS
 │  THE SOLUTION:                                                  │
 │  • Write Path (AWS): Reliable, managed, usage-based             │
 │  • Read Path (Cloudflare + Hetzner): Fixed cost, high volume    │
-│  • Cost: ~$200/month for up to 50B scans/day                    │
+│  • Read path cost: ~$185/month for up to 50B scans/day          │
 │  • Cloudflare CDN handles 99%+ of traffic (unlimited bandwidth) │
+│                                                                  │
+│  IMPORTANT: Read path is only PART of total infrastructure.     │
+│  Total cost (read + write path): ~$800-2,000/month at scale.    │
+│  See cost summary table below for full breakdown.               │
 │                                                                  │
 │  RESULT: Infrastructure cost is predictable and bounded.        │
 │                                                                  │
@@ -506,17 +510,21 @@ See [SCALABILITY.md](./SCALABILITY.md) for technical details.
 | Hetzner AX41 × 3 | Origin servers (Germany, Finland) | €150/month |
 | **Total Read Path** | **Up to 50B scans/day** | **~$200/month** |
 
-### Cost Comparison: AWS-Only vs Hybrid
+### Cost Comparison: AWS-Only vs Hybrid (READ PATH ONLY)
 
-| DPP Scans/Day | AWS-Only | Hybrid (Current) | Savings |
-|---------------|----------|------------------|---------|
-| 1 million | ~$1,200/month | ~$200/month | 83% |
-| 100 million | ~$12,000/month | ~$200/month | 98% |
-| 1 billion | ~$38,000/month | ~$200/month | 99.5% |
-| 10 billion | ~$250,000/month | ~$200/month | 99.9% |
-| 50 billion | ~$1,250,000/month | ~$200/month (limit) | 99.98% |
+> ⚠️ **Note**: This table shows READ PATH costs only. Total infrastructure (read + write) is ~$800-2,000/month. See full cost table below.
 
-**Cost is fixed up to 50B scans/day** - Cloudflare CDN handles 99%+ of traffic (unlimited bandwidth). Hetzner origins handle cache misses only (60TB/month limit). Beyond 50B scans/day, migrate to Cloudflare R2 (~$2,500-11,000/month). See [SCALABILITY.md](./SCALABILITY.md) for migration triggers.
+| DPP Scans/Day | AWS CloudFront | Hetzner + Cloudflare | Savings |
+|---------------|----------------|----------------------|---------|
+| 1 million | ~$1,200/month | ~$185/month | 85% |
+| 100 million | ~$12,000/month | ~$185/month | 98% |
+| 1 billion | ~$38,000/month | ~$185/month | 99.5% |
+| 10 billion | ~$250,000/month | ~$185/month | 99.9% |
+| 50 billion | ~$1,250,000/month | ~$185/month (limit) | 99.98% |
+
+**Read path cost is fixed at ~$185/month up to 50B scans/day** - Cloudflare CDN handles 99%+ of traffic (unlimited bandwidth). Hetzner origins handle cache misses only (60TB/month limit). Beyond 50B scans/day, migrate to Cloudflare R2 (~$2,500-11,000/month). See [SCALABILITY.md](./SCALABILITY.md) for migration triggers.
+
+**Total infrastructure cost** (read + write paths combined): See "Infrastructure Cost Summary" table below for realistic full-stack costs at each scale tier.
 
 ### Compute: ECS Fargate
 
@@ -708,31 +716,48 @@ See [SCALABILITY.md](./SCALABILITY.md) for technical details.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  INFRASTRUCTURE COST SUMMARY (Monthly, in USD)                               │
+│  INFRASTRUCTURE COST SUMMARY (Monthly, in USD) - REALISTIC ASSESSMENT        │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
+│  ⚠️ Previous estimates understated costs. This table includes ALL items.    │
+│                                                                              │
 │                        │ STARTUP    │ GROWTH     │ SCALE      │ ENTERPRISE │
-│                        │ <100 cust  │ 100-500    │ 500-2000   │ 2000+      │
+│                        │ <100 cust  │ 100-1K     │ 1K-10K     │ 10K+       │
 │  ──────────────────────┼────────────┼────────────┼────────────┼────────────│
-│  ECS Fargate           │ $72        │ $108       │ $180       │ $360       │
-│  RDS PostgreSQL        │ $15        │ $38        │ $219       │ $824       │
-│  ElastiCache Redis     │ $12        │ $25        │ $50        │ $100       │
-│  S3 Storage            │ $1         │ $5         │ $25        │ $250       │
-│  CloudFront            │ $5         │ $25        │ $100       │ $500       │
-│  ALB + Misc            │ $30        │ $35        │ $50        │ $100       │
+│  ECS Fargate           │ $40        │ $80        │ $150       │ $350       │
+│  RDS PostgreSQL        │ $40        │ $100       │ $300       │ $600       │
+│  ElastiCache Redis     │ $25        │ $50        │ $100       │ $250       │
+│  NAT Gateway*          │ $70        │ $80        │ $120       │ $200       │
+│  ALB                   │ $25        │ $35        │ $50        │ $100       │
+│  S3 + CloudFront       │ $10        │ $30        │ $80        │ $300       │
+│  CloudWatch (logs)     │ $20        │ $40        │ $80        │ $200       │
+│  Secrets, Route 53     │ $10        │ $15        │ $25        │ $50        │
+│  WAF                   │ $10        │ $20        │ $50        │ $100       │
+│  Data Transfer (var)   │ $30        │ $80        │ $200       │ $500       │
+│  Hetzner + Cloudflare  │ $185       │ $185       │ $185       │ $300       │
 │  ──────────────────────┼────────────┼────────────┼────────────┼────────────│
-│  TOTAL                 │ $135       │ $236       │ $624       │ $2,134     │
-│  (~EUR)                │ €125       │ €220       │ €580       │ €1,980     │
+│  SUBTOTAL              │ $465       │ $715       │ $1,340     │ $2,950     │
+│  Buffer (+20%)         │ $93        │ $143       │ $268       │ $590       │
+│  ──────────────────────┼────────────┼────────────┼────────────┼────────────│
+│  TOTAL (realistic)     │ ~$560      │ ~$860      │ ~$1,600    │ ~$3,550    │
+│  (~EUR)                │ ~€520      │ ~€800      │ ~€1,490    │ ~€3,300    │
+│                                                                              │
+│  *NAT Gateway often forgotten but required for private subnet outbound      │
 │                                                                              │
 │  ──────────────────────────────────────────────────────────────────────────│
 │                                                                              │
 │  COST PER CUSTOMER                                                          │
 │  ──────────────────────┼────────────┼────────────┼────────────┼────────────│
-│  Customers             │ 50         │ 300        │ 1,000      │ 3,000      │
-│  Infra per customer    │ €2.50      │ €0.73      │ €0.58      │ €0.66      │
+│  Customers             │ 50         │ 500        │ 5,000      │ 20,000     │
+│  Infra per customer    │ €10.40     │ €1.60      │ €0.30      │ €0.17      │
 │                                                                              │
 │  Note: Per-customer infra cost drops dramatically with scale               │
 │  Real costs are headcount (support, development) not infrastructure        │
+│                                                                              │
+│  OPTIONAL BUT RECOMMENDED (NOT INCLUDED ABOVE):                             │
+│  • AWS Business Support: $100/mo + 10% of spend (~$150-500/mo)             │
+│  • AWS Enterprise Support: $15,000+/mo (for mission-critical)              │
+│  • Third-party monitoring (Datadog, etc.): $100-500/mo                     │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -856,19 +881,25 @@ At scale with millions of DPPs across thousands of customers:
 │                                                                              │
 │  TOTAL INFRASTRUCTURE FOR 10M DPPs                                          │
 │  ─────────────────────────────────────────────────────────────              │
-│  Storage + Bandwidth + Compute:                   ~$866/month               │
+│  Storage + Bandwidth (above):                     ~$466/month               │
+│  Full AWS infra (see cost table):                 ~$1,400/month             │
+│  Hetzner + Cloudflare:                            ~$185/month               │
+│  Total realistic:                                 ~$2,050/month             │
 │                                                                              │
 │  UNIT ECONOMICS                                                             │
 │  ─────────────────────────────────────────────────────────────              │
-│  Cost per DPP/month:         $0.00009                                       │
-│  Cost per DPP/year:          $0.001                                         │
-│  Cost per DPP/10 years:      $0.01   (one cent!)                            │
+│  Cost per DPP/month:         $0.0002                                        │
+│  Cost per DPP/year:          $0.0024                                        │
+│  Cost per DPP/10 years:      $0.024  (two cents!)                           │
 │                                                                              │
 │  REVENUE AT THIS SCALE                                                      │
 │  ─────────────────────────────────────────────────────────────              │
 │  10,000 customers × €150 avg/month = €1,500,000/month                       │
-│  Infrastructure cost: ~€800/month                                           │
-│  Infrastructure as % of revenue: 0.05%                                      │
+│  Infrastructure cost: ~€1,900/month                                         │
+│  Infrastructure as % of revenue: 0.13%                                      │
+│                                                                              │
+│  Note: Still excellent margins - infrastructure is NOT the cost driver.     │
+│  Headcount (support, development) dominates operational expenses.           │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
