@@ -1,19 +1,19 @@
 # Data Sovereignty Architecture
 
-> ✅ **Implementation Status**: Data sovereignty features are **COMPLETE**. See implementation details below.
+> 📋 **Implementation Status**: Data sovereignty features are **PLANNED**. This document describes the target architecture.
 
 ## Implementation Status
 
-| Feature | Status | Implementation |
+| Feature | Status | Target Implementation |
 |---------|--------|----------------|
-| DID Method | ✅ `did:key` | `packages/identity/src/services/did-key.service.ts` |
-| VC Content | ✅ All data embedded | `packages/identity/src/services/vc-export.service.ts` |
-| Verification | ✅ Works offline | `did-key.service.ts` - `verifySignatureOffline()` |
-| Export | ✅ Implemented | `vc-export.service.ts` - `exportPortablePackage()` |
-| Offline Viewer | ✅ Implemented | `vc-export.service.ts` - `generateOfflineViewer()` |
-| API Endpoints | ✅ Implemented | `apps/api/src/core/routes.ts` |
+| DID Method | 📋 Planned | `packages/identity/src/services/did-key.service.ts` |
+| VC Content | 📋 Planned | `packages/identity/src/services/vc-export.service.ts` |
+| Verification | 📋 Planned | `did-key.service.ts` - `verifySignatureOffline()` |
+| Export | 📋 Planned | `vc-export.service.ts` - `exportPortablePackage()` |
+| Offline Viewer | 📋 Planned | `vc-export.service.ts` - `generateOfflineViewer()` |
+| API Endpoints | 📋 Planned | `apps/api/src/core/routes.ts` |
 
-**Test Coverage:** 34 tests (16 did:key + 11 vc-export + 7 export service) - all passing
+**Test Coverage:** Tests to be written during implementation.
 
 ## Executive Summary
 
@@ -377,7 +377,7 @@ Customer downloads our software → Runs on their servers
 
 ## What We Built ✅
 
-### Self-Contained VC Export ✅ COMPLETE
+### Self-Contained VC Export (Planned)
 
 **Location:** `packages/identity/src/services/vc-export.service.ts`
 
@@ -402,7 +402,7 @@ const package = await vcExportService.exportPortablePackage({
 // Returns: { files: [...], manifest: {...} }
 ```
 
-### Offline HTML Viewer ✅ COMPLETE
+### Offline HTML Viewer (Planned)
 
 **Location:** `vc-export.service.ts` - `generateOfflineViewer()`
 
@@ -412,7 +412,7 @@ Single HTML file with:
 - ✅ QR code display
 - ✅ Works without internet
 
-### did:key Service ✅ COMPLETE
+### did:key Service (Planned)
 
 **Location:** `packages/identity/src/services/did-key.service.ts`
 
@@ -431,7 +431,7 @@ const privateKey = await didKeyService.exportPrivateKey(keyId);
 const newKeyId = await didKeyService.importPrivateKey(privateKey);
 ```
 
-### API Endpoints ✅ COMPLETE
+### API Endpoints (Planned)
 
 **Location:** `apps/api/src/modules/organization/routes.ts`
 

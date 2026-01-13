@@ -1606,14 +1606,14 @@ const tenantSecurityAlerts = [
 
 While Section 13 describes the target architecture, this section documents **known limitations and risks** that must be understood.
 
-### 14.1 Current Implementation Status
+### 14.1 Target Implementation Status
 
 | Layer | Status | Notes |
 |-------|--------|-------|
-| Application Middleware | ✅ Implemented | organizationId extracted from auth context |
-| Prisma Client Extension | ✅ Implemented | Auto-filters most queries |
-| PostgreSQL RLS | ⚠️ Partial | Enabled on core tables, not all tables |
-| API Response Filtering | ✅ Implemented | Double-checks ownership |
+| Application Middleware | 📋 Planned | organizationId extracted from auth context |
+| Prisma Client Extension | 📋 Planned | Auto-filters most queries |
+| PostgreSQL RLS | 📋 Planned | To be enabled on core tables |
+| API Response Filtering | 📋 Planned | Double-checks ownership |
 
 ### 14.2 Raw SQL Bypass Risk
 
@@ -1647,20 +1647,20 @@ await prisma.$executeRaw`UPDATE "Product" SET price = 0`;
 
 ### 14.3 RLS Implementation Gaps
 
-**Current RLS Status:**
+**Target RLS Status:**
 
 | Table | RLS Enabled | RLS Policies | Notes |
 |-------|-------------|--------------|-------|
-| Product | ✅ Yes | ✅ Complete | Full isolation |
-| Passport | ✅ Yes | ✅ Complete | Via product relationship |
-| Attestation | ✅ Yes | ✅ Complete | Cross-org via contributor |
-| EPCISEvent | ✅ Yes | ✅ Complete | Direct org filter |
-| ApiKey | ✅ Yes | ✅ Complete | Direct org filter |
-| User | ⚠️ Partial | ⚠️ Basic | Users can span orgs (multi-org membership) |
-| Batch | ⚠️ Planned | ❌ Not yet | Relies on app-level filtering |
-| Order | ⚠️ Planned | ❌ Not yet | Relies on app-level filtering |
-| AuditLog | ❌ No | ❌ No | Intentionally cross-tenant for platform ops |
-| Subscription | ❌ No | ❌ No | Platform-level, not tenant-scoped |
+| Product | 📋 Planned | 📋 Planned | Full isolation |
+| Passport | 📋 Planned | 📋 Planned | Via product relationship |
+| Attestation | 📋 Planned | 📋 Planned | Cross-org via contributor |
+| EPCISEvent | 📋 Planned | 📋 Planned | Direct org filter |
+| ApiKey | 📋 Planned | 📋 Planned | Direct org filter |
+| User | 📋 Planned | 📋 Planned | Users can span orgs (multi-org membership) |
+| Batch | 📋 Planned | 📋 Planned | Requires org filter |
+| Order | 📋 Planned | 📋 Planned | Requires org filter |
+| AuditLog | ❌ N/A | ❌ N/A | Intentionally cross-tenant for platform ops |
+| Subscription | ❌ N/A | ❌ N/A | Platform-level, not tenant-scoped |
 
 **Why Not 100% RLS Coverage:**
 - Some tables are platform-level (Subscription, AuditLog)
