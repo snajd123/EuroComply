@@ -336,10 +336,15 @@ Most DPP data is identical across all units of a product (materials, certificati
 │  Storage: ~20KB per GTIN                     Storage: ~300 bytes/item       │
 │  100K GTINs = 2GB                            1B items = 300GB (DB rows)     │
 │                                                                              │
-│  RESULT:                                                                    │
-│  • 10B items over 10 years = ~3TB (vs 200TB naive approach)                │
-│  • Item registration: DB insert only, no file generation                   │
-│  • Throughput: 100M+ items/day possible                                    │
+│  HONEST MATH (1 mega-customer, 10 years):                                   │
+│  ─────────────────────────────────────────                                  │
+│  ItemInstance rows:  10B × 300 bytes = 3 TB                                 │
+│  EPCIS events:       10B × 15 events × 500 bytes = 75 TB                   │
+│  Templates:          100K GTINs × 20KB = 2 GB (negligible)                  │
+│  TOTAL: ~80 TB (vs 200TB naive full-file approach)                         │
+│                                                                              │
+│  ACTUAL SAVINGS: ~60% storage reduction, NOT 99%                            │
+│  The 99% claim compared against a strawman nobody would implement.          │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -527,8 +532,150 @@ async function registerItemsBatch(
 | **Throughput (single task)** | 2-5 items/sec | 500-1,000 items/sec |
 | **Throughput (10 tasks)** | 20-50 items/sec | 5,000-10,000 items/sec |
 | **Daily capacity** | ~1-4M items | ~100-500M items |
-| **Storage (1B items)** | 20TB static files | ~300GB database |
-| **Storage (10B items, 10yr)** | 200TB | ~3TB |
+| **Storage (1B items, rows only)** | 20TB static files | ~300GB database |
+| **Storage (10B items + events, 10yr)** | 200TB | ~80TB (see honest math above) |
+
+### ⚠️ Critical: Item-Level API Load
+
+**Problem**: Unlike product-level DPPs where CDN serves 99%+ of traffic, item-level DPPs require an API call per scan. Each item is unique, so responses are NOT cacheable.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  ITEM-LEVEL DPP API LOAD ANALYSIS                                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  PRODUCT-LEVEL DPP (works great):                                           │
+│  ─────────────────────────────────                                          │
+│  Scan → CDN serves cached template → Done                                   │
+│  Cache hit rate: 99%+                                                        │
+│  API load: Negligible (only cache misses)                                   │
+│                                                                              │
+│  ITEM-LEVEL DPP (different problem):                                        │
+│  ─────────────────────────────────                                          │
+│  Scan → CDN serves template → JS calls API → API queries DB → Returns data │
+│  Cache hit rate for item data: 0% (each item is unique)                     │
+│  API load: 100% of item-level scans hit the API                             │
+│                                                                              │
+│  SCALE IMPLICATIONS:                                                        │
+│  ──────────────────                                                         │
+│  1 million item scans/day  → 1M API requests/day   → ~12 req/sec           │
+│  100 million scans/day     → 100M API requests/day → ~1,200 req/sec        │
+│  1 billion scans/day       → 1B API requests/day   → ~12,000 req/sec       │
+│                                                                              │
+│  CURRENT INFRASTRUCTURE LIMITS:                                             │
+│  ────────────────────────────────                                           │
+│  RDS db.t3.medium: ~500 connections, ~10K transactions/sec                  │
+│  ECS Fargate (2-10 tasks): ~1,000 concurrent users                          │
+│                                                                              │
+│  HONEST ASSESSMENT:                                                         │
+│  ─────────────────                                                          │
+│  • Up to 100M item scans/day: Current infra can handle (with caching)       │
+│  • 1B item scans/day: Requires infrastructure upgrade                       │
+│  • 10B+ item scans/day: Requires dedicated read replicas + edge caching    │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Solutions for Item-Level API Scale
+
+**Solution 1: Redis/ElastiCache for Hot Items**
+
+Most scans are for recently-created items (new products on shelves). Cache hot items in Redis.
+
+```typescript
+async function getItemData(gtin: string, serial: string): Promise<ItemData> {
+  const cacheKey = `item:${gtin}:${serial}`;
+
+  // 1. Check Redis cache (sub-millisecond)
+  const cached = await redis.get(cacheKey);
+  if (cached) return JSON.parse(cached);
+
+  // 2. Cache miss - query database
+  const item = await prisma.itemInstance.findUnique({
+    where: { gtin_serial: { gtin, serial } },
+    include: { recentEvents: { take: 10 } },
+  });
+
+  // 3. Cache for 5 minutes (item data rarely changes)
+  await redis.setex(cacheKey, 300, JSON.stringify(item));
+
+  return item;
+}
+```
+
+**Expected cache hit rate**: 60-80% (most scans are for recently-created items)
+
+**Solution 2: Read Replicas for Scale**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  SCALING PATH FOR ITEM-LEVEL DPPs                                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  PHASE 1 (Current - up to 100M scans/day):                                  │
+│  • RDS primary + Redis cache                                                 │
+│  • Expected: 70% cache hit, 30M DB queries/day                              │
+│  • Cost: Current infrastructure (~$500/month)                               │
+│                                                                              │
+│  PHASE 2 (100M - 1B scans/day):                                             │
+│  • Add RDS read replica for item lookups                                    │
+│  • Increase ElastiCache cluster size                                         │
+│  • Cost: +$400/month (read replica) + $200/month (larger cache)             │
+│                                                                              │
+│  PHASE 3 (1B+ scans/day):                                                   │
+│  • Multiple read replicas across regions                                     │
+│  • Edge caching via Cloudflare Workers KV for hot items                     │
+│  • Consider DynamoDB for item lookups (better scale characteristics)        │
+│  • Cost: $2,000-5,000/month (depends on traffic distribution)               │
+│                                                                              │
+│  PHASE 4 (10B+ scans/day):                                                  │
+│  • Dedicated infrastructure per mega-customer                               │
+│  • Geo-distributed item data                                                 │
+│  • Custom pricing (not in standard tiers)                                   │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Solution 3: Edge Caching for Hot Items (Cloudflare Workers KV)**
+
+For truly massive scale, push hot item data to the edge:
+
+```typescript
+// Worker that serves item data from KV (edge) or falls back to API
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const url = new URL(request.url);
+    const match = url.pathname.match(/\/api\/v1\/items\/(\d+)\/(.+)/);
+    if (!match) return fetch(request);
+
+    const [, gtin, serial] = match;
+    const kvKey = `item:${gtin}:${serial}`;
+
+    // Try edge cache first
+    const cached = await env.ITEM_KV.get(kvKey, 'json');
+    if (cached) {
+      return new Response(JSON.stringify(cached), {
+        headers: { 'Content-Type': 'application/json', 'X-Cache': 'HIT' },
+      });
+    }
+
+    // Fall back to origin API
+    const response = await fetch(request);
+    const data = await response.json();
+
+    // Cache at edge for 5 minutes (eventual consistency acceptable)
+    await env.ITEM_KV.put(kvKey, JSON.stringify(data), { expirationTtl: 300 });
+
+    return new Response(JSON.stringify(data), {
+      headers: { 'Content-Type': 'application/json', 'X-Cache': 'MISS' },
+    });
+  },
+};
+```
+
+**Cost**: Workers KV ~$0.50/million reads, $5/million writes
+- 1B reads/month = $500/month
+- Much cheaper than scaling RDS for direct queries
 
 ---
 
@@ -2803,12 +2950,23 @@ enum PassportStatus {
 │  • 100B+ scans/day: ~$2,500/month (R2) ← REQUIRES MIGRATION    │
 │  • 1T scans/day: ~$11,000/month (R2) ← REQUIRES MIGRATION      │
 │                                                                  │
-│  ITEM REGISTRATION (WRITE PATH)                                 │
+│  ITEM-LEVEL DPPs (WRITE PATH)                                   │
 │  ──────────────────────────────                                 │
 │  Approach: Template + item data (not full static files/item)   │
-│  Per-item: DB insert only (~300 bytes), no file generation     │
+│  Per-item: DB insert (~300 bytes) + EPCIS events (~7KB/item)   │
 │  Throughput: 100-500M items/day                                │
-│  Storage (10B items): ~3TB (vs 200TB naive approach)           │
+│                                                                  │
+│  ⚠️ HONEST STORAGE MATH (10B items, 10yr):                     │
+│  • ItemInstance rows: 3TB                                       │
+│  • EPCIS events: 75TB (15 events × 500 bytes × 10B)            │
+│  • TOTAL: ~80TB (vs 200TB naive) = 60% reduction, NOT 99%      │
+│                                                                  │
+│  ITEM-LEVEL API LOAD                                            │
+│  ───────────────────                                            │
+│  ⚠️ Item-level DPPs require API call per scan (NOT cacheable) │
+│  • Up to 100M scans/day: Current infra handles (with Redis)    │
+│  • 1B scans/day: Requires read replicas + edge caching         │
+│  • 10B+ scans/day: Custom infrastructure required              │
 │                                                                  │
 │  TIERED STORAGE (10-YEAR RETENTION)                            │
 │  ──────────────────────────────────                            │
@@ -2829,16 +2987,16 @@ enum PassportStatus {
 │  SME customers: ~$500/month (shared infrastructure)            │
 │  Enterprise: ~$2,800/month (priority resources)                │
 │  Mega-customer (1B items/yr, 10yr): ~$1,600/month storage     │
-│  Savings vs naive approach: 80%+                               │
+│  Savings vs all-in-RDS: ~80%                                   │
 │                                                                  │
-│  KEY INSIGHTS                                                   │
-│  ────────────                                                   │
-│  1. Template + item data: 99% storage reduction               │
+│  KEY INSIGHTS (HONEST)                                          │
+│  ─────────────────────                                          │
+│  1. Template + item data: 60% storage reduction (not 99%)     │
 │  2. Tiered storage: 80% cost reduction over 10 years          │
-│  3. Partitioning: Multi-tenant isolation at scale             │
+│  3. Item-level API: NOT cacheable, requires scaling strategy  │
 │  4. CDN for templates, API for item data                      │
 │  5. Hot/warm/cold tiers match access patterns                 │
-│  6. Can handle billion-item customers with 10yr retention     │
+│  6. Billion-item scale requires dedicated infrastructure      │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -2860,4 +3018,4 @@ enum PassportStatus {
 
 ---
 
-*Last Updated: January 11, 2026*
+*Last Updated: January 13, 2026*
