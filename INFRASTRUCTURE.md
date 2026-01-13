@@ -35,6 +35,32 @@ EuroComply uses a **dual-path architecture** that separates:
 
 **Key insight**: The impressive scale numbers come from Cloudflare's global CDN (300+ edge locations, unlimited bandwidth), not our origin servers. Our architecture leverages CDN caching for static DPP files.
 
+### Item-Level DPP Architecture
+
+For item-level serialization (each physical unit has unique DPP), we use a **template + item data** approach:
+- **Static template** (per GTIN): Product info, materials, certifications - served from CDN
+- **Dynamic item data** (per serial): Lifecycle events, status - fetched from API
+- **Item registration**: DB insert only (~300 bytes), no file generation per item
+- **Throughput**: 100-500M item registrations/day possible
+
+This enables billion-scale item tracking without generating billions of static files. See [SCALABILITY.md](docs/SCALABILITY.md) for details.
+
+### Storage Tiers (10-Year Retention)
+
+For ESPR-compliant 10-year data retention, we use tiered storage:
+
+| Tier | Data | Retention | Storage | Cost |
+|------|------|-----------|---------|------|
+| **Hot** (RDS) | Item records + recent events | Last 90 days | PostgreSQL | ~$0.115/GB/mo |
+| **Warm** (R2) | Historical events | 90 days - 2 years | Parquet files | ~$0.015/GB/mo |
+| **Cold** (Glacier) | Archived events | 2-10 years | Compressed archives | ~$0.004/GB/mo |
+
+**Cost comparison for mega-customer (1B items/year, 10 years):**
+- Naive (all in RDS): ~$9,200/month
+- Tiered approach: ~$1,600/month (83% savings)
+
+Automated jobs migrate data between tiers nightly. See [SCALABILITY.md](docs/SCALABILITY.md) for implementation details.
+
 **Note:** EuroComply operates a **Hybrid EPCIS Model**: reading from enterprise EPCIS repositories (SAP, IBM) + hosting OpenEPCIS for SMB customers. See [EPCIS_INTEGRATION.md](docs/EPCIS_INTEGRATION.md) for details.
 
 See [SCALABILITY.md](docs/SCALABILITY.md) for detailed architecture.

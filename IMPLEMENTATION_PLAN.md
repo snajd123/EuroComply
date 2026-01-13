@@ -302,13 +302,14 @@ ImportJob (AI Import)
 ├── mappingSuggestions: JSONB
 └── errors: JSONB
 
-Passport (DPP)
+Passport (DPP Template)
 ├── productId
 ├── data: JSONB (CIRPASS schema)
 ├── vcJwt (Verifiable Credential)
 ├── qrCodeUrl
 ├── attestations: AttestationRef[] (linked attestation VCs)
 ├── status: DRAFT | ACTIVE | REVOKED
+├── isItemLevel: boolean (enables item-level serialization)
 ├── staticJsonKey? (S3 key for JSON file)
 ├── staticHtmlKey? (S3 key for HTML page)
 ├── cdnUrl? (public DPP URL)
@@ -316,6 +317,20 @@ Passport (DPP)
 ├── cdnInvalidatedAt? (when CDN cache cleared)
 ├── revokedAt?, revocationReason?
 └── See SCALABILITY.md for CDN-backed serving architecture
+
+ItemInstance (Item-Level DPP - one per physical unit)
+├── id: cuid
+├── organizationId: FK → Organization
+├── passportId: FK → Passport (the template)
+├── serial: string (unique within GTIN)
+├── batchId?: string (manufacturing batch)
+├── status: ACTIVE | IN_TRANSIT | SOLD | RECYCLED | RECALLED
+├── manufacturedAt: DateTime
+├── itemVcJwt?: string (optional item-level VC)
+├── hasArchivedEvents: boolean (indicates warm/cold tier data)
+├── createdAt, updatedAt
+├── UNIQUE(passportId, serial)
+└── See SCALABILITY.md for item-level architecture
 
 Subscription
 ├── organizationId
@@ -875,6 +890,23 @@ This approach supports industries beyond ESPR compliance - any business needing 
 | Implement Cloudflare cache purge on update/revoke | Planned |
 | Revocation page rendering | Planned |
 | Content negotiation (HTML for browsers, JSON for APIs) | Planned |
+| **Item-Level DPP Support (Serialization)** | |
+| Add ItemInstance model with organizationId partitioning | Planned |
+| Add isItemLevel flag to Passport model | Planned |
+| Implement item registration API (POST /api/v1/items) | Planned |
+| Implement bulk item registration endpoint | Planned |
+| Implement item lookup API (GET /api/v1/items/{gtin}/{serial}) | Planned |
+| Add item-level URL routing (/01/{gtin}/21/{serial}) | Planned |
+| Implement item status updates (sold, recycled, recalled) | Planned |
+| Link EPCIS events to ItemInstance (itemInstanceId FK) | Planned |
+| **Tiered Storage (10-Year Retention)** | |
+| Implement time-based partitioning for EpcisEvent table | Planned |
+| Build hot→warm migration job (PostgreSQL→Parquet→R2) | Planned |
+| Build warm→cold migration job (R2→Glacier) | Planned |
+| Implement query routing by date range (hot/warm/cold) | Planned |
+| Add hasArchivedEvents flag to ItemInstance | Planned |
+| Implement federated lifecycle query (all tiers) | Planned |
+| Build partition maintenance automation | Planned |
 | **R2 Migration Preparation (When Needed)** | |
 | Monitor origin bandwidth usage | Planned |
 | Prepare Cloudflare R2 bucket for extreme scale | Planned |
@@ -887,7 +919,7 @@ This approach supports industries beyond ESPR compliance - any business needing 
 - Compliance Workspace: Moves from "Coming Soon" to fully functional DPP issuance workflow
 - Operations Workspace: Gains EPCIS lifecycle visualization (inventory/orders already in Phase 2)
 
-**Hub at Phase 4:** + Passport, Certification, EpcisRepository, EpcisEvent (hosted)
+**Hub at Phase 4:** + Passport, ItemInstance, Certification, EpcisRepository, EpcisEvent (hosted)
 
 **Dependencies:** Phase 3 (completeness scoring, assets)
 
@@ -896,6 +928,8 @@ This approach supports industries beyond ESPR compliance - any business needing 
 - DPPs are pre-rendered to static files (JSON + HTML) and served via Cloudflare CDN with Hetzner bare-metal origins. This enables up to 50B QR scans/day at fixed cost (~$200/month). Cloudflare CDN handles 99%+ of traffic; ESPR requires free access, so we can't use usage-based pricing.
 - Read path is completely separate from write path. QR scans never touch AWS or the database.
 - **Tiered scaling:** Start with Hetzner (up to ~50B scans/day at $200/month), migrate to Cloudflare R2 for extreme scale (100B+ scans/day at ~$2,500-11,000/month). See [SCALABILITY.md](docs/SCALABILITY.md) for details.
+- **Item-level DPPs use template + item data approach:** Static template per GTIN (CDN-cached), dynamic item data per serial (API-fetched). This enables 100M+ item registrations/day without generating billions of static files.
+- **10-year retention uses tiered storage:** Hot tier (RDS, 90 days), warm tier (Parquet/R2, 2 years), cold tier (Glacier, 10 years). Automated migration jobs move data between tiers. See [SCALABILITY.md](docs/SCALABILITY.md) for details.
 
 See [SCALABILITY.md](docs/SCALABILITY.md) for full architecture.
 

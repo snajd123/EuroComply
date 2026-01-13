@@ -283,6 +283,823 @@ DPP pages use a **hybrid approach**:
 
 ---
 
+## Item-Level DPP Architecture
+
+ESPR requires item-level serialization for many product categories (batteries, electronics, textiles). Each physical unit needs a unique DPP with its own lifecycle tracking. This section describes how EuroComply handles billions of item-level DPPs efficiently.
+
+### The Challenge
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  ITEM-LEVEL SCALE CHALLENGE                                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  REQUIREMENT:                                                               │
+│  • Each physical item needs unique DPP (serial number)                      │
+│  • Track individual lifecycle: manufacturing → shipping → sale → recycling  │
+│  • 10-year retention required by ESPR                                       │
+│                                                                              │
+│  SCALE EXAMPLE (one large customer):                                        │
+│  • 1 billion items/year                                                     │
+│  • 10 billion items over retention period                                   │
+│  • 150 billion EPCIS events (15 events/item average)                       │
+│                                                                              │
+│  NAIVE APPROACH (full static files per item):                              │
+│  • 1B items × 20KB = 20TB/year new files                                   │
+│  • 10 years = 200TB static files                                           │
+│  • File system cannot handle billions of files efficiently                  │
+│  • ❌ Not viable                                                            │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### The Solution: Template + Item Data
+
+Most DPP data is identical across all units of a product (materials, certifications, care instructions). Only serial number and lifecycle events differ. We separate static product data from dynamic item data.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  SMART DPP ARCHITECTURE: TEMPLATE + ITEM DATA                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  STATIC TEMPLATE (per GTIN, CDN-cached):     DYNAMIC ITEM DATA (per item): │
+│  ─────────────────────────────────────       ───────────────────────────── │
+│  • Product identity                          • Serial number                 │
+│  • Materials composition                     • Manufacturing date/batch      │
+│  • Certifications                            • EPCIS lifecycle events        │
+│  • Care instructions                         • Current location/status       │
+│  • Sustainability claims                     • Ownership transfers           │
+│  • Repair information                        • Repair history                │
+│  • Recycling instructions                    • Recycling status              │
+│  • Brand/manufacturer info                   • State-of-health (batteries)   │
+│                                                                              │
+│  Storage: ~20KB per GTIN                     Storage: ~300 bytes/item       │
+│  100K GTINs = 2GB                            1B items = 300GB (DB rows)     │
+│                                                                              │
+│  RESULT:                                                                    │
+│  • 10B items over 10 years = ~3TB (vs 200TB naive approach)                │
+│  • Item registration: DB insert only, no file generation                   │
+│  • Throughput: 100M+ items/day possible                                    │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### URL Structure
+
+```
+Product-level DPP (static template only):
+  https://dpp.eurocomply.eu/01/{gtin}
+  https://dpp.eurocomply.eu/01/05901234567890
+  → Serves static template from CDN
+  → No item-specific data
+
+Item-level DPP (template + dynamic data):
+  https://dpp.eurocomply.eu/01/{gtin}/21/{serial}
+  https://dpp.eurocomply.eu/01/05901234567890/21/ABC123XYZ
+  → Loads static template from CDN (instant)
+  → Fetches item data from API (async)
+  → Renders combined view
+
+API endpoint for item data:
+  GET /api/v1/items/{gtin}/{serial}
+  → Returns: { serial, batchId, status, events: [...] }
+  → Latency: <100ms
+```
+
+### Scan Flow (Item-Level DPP)
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  QR CODE SCAN FLOW (Item-Level DPP)                                          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  QR Code contains: https://dpp.eurocomply.eu/01/05901234567890/21/SN12345   │
+│                                                ──────────────── ────────   │
+│                                                     GTIN         Serial     │
+│                                                                              │
+│  STEP 1: Browser requests item-level URL                                    │
+│  ───────────────────────────────────────                                    │
+│  GET /01/05901234567890/21/SN12345                                          │
+│  → Cloudflare edge routes to static template                                │
+│  → Returns HTML with embedded GTIN + serial                                 │
+│  → Latency: <50ms (edge cache)                                              │
+│                                                                              │
+│  STEP 2: Page loads, JavaScript fetches item data                           │
+│  ────────────────────────────────────────────────                           │
+│  fetch('/api/v1/items/05901234567890/SN12345')                              │
+│  → API looks up ItemInstance by (gtin, serial)                              │
+│  → Fetches recent EPCIS events from hot tier                                │
+│  → Returns JSON: { serial, status, events: [...] }                          │
+│  → Latency: <100ms                                                          │
+│                                                                              │
+│  STEP 3: JavaScript renders combined view                                   │
+│  ────────────────────────────────────────                                   │
+│  → Static template (product info) already displayed                         │
+│  → Dynamic section populated with item data                                 │
+│  → Lifecycle timeline shows this item's journey                             │
+│  → Total time to interactive: <200ms                                        │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Data Model (Item-Level)
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  DATABASE SCHEMA (Item-Level Support)                                        │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Product (existing - one per GTIN)                                          │
+│  ├── id, gtin, name, description                                            │
+│  ├── materials, certifications, sustainability                              │
+│  └── ... (all static product data)                                          │
+│                                                                              │
+│  Passport (existing - template, one per GTIN)                               │
+│  ├── id, productId, vcJwt (product-level VC)                               │
+│  ├── staticPath, templateUrl                                                │
+│  └── isItemLevel: boolean (enables item tracking)                          │
+│                                                                              │
+│  ItemInstance (NEW - one per physical unit)                                 │
+│  ├── id: cuid                                                               │
+│  ├── organizationId: FK → Organization                                     │
+│  ├── passportId: FK → Passport (the template)                              │
+│  ├── serial: string (unique within GTIN)                                   │
+│  ├── batchId: string (optional manufacturing batch)                        │
+│  ├── status: ACTIVE | IN_TRANSIT | SOLD | RECYCLED | RECALLED              │
+│  ├── manufacturedAt: DateTime                                               │
+│  ├── itemVcJwt: string? (optional item-level VC)                           │
+│  ├── hasArchivedEvents: boolean (indicates warm/cold tier data exists)     │
+│  └── createdAt, updatedAt                                                  │
+│                                                                              │
+│  EpcisEvent (existing - updated to link to item)                           │
+│  ├── id, organizationId                                                    │
+│  ├── itemInstanceId: FK → ItemInstance (nullable for batch events)         │
+│  ├── productId: FK → Product                                               │
+│  ├── eventType, eventTime, bizStep, disposition                            │
+│  └── eventData: JSONB                                                       │
+│                                                                              │
+│  INDEXES (critical for performance):                                        │
+│  • ItemInstance(organizationId, passportId, serial) - unique, lookups      │
+│  • ItemInstance(serial) - for direct serial search                         │
+│  • EpcisEvent(itemInstanceId, eventTime DESC) - lifecycle queries          │
+│  • EpcisEvent(organizationId, eventTime) - archival jobs                   │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Item Registration (Issuance) Flow
+
+```typescript
+// Item registration is lightweight - no file generation needed
+async function registerItem(
+  passportId: string,
+  serial: string,
+  batchId?: string,
+  manufacturedAt?: Date
+): Promise<ItemInstance> {
+  // 1. Validate passport exists and supports item-level
+  const passport = await prisma.passport.findUnique({
+    where: { id: passportId },
+    select: { id: true, isItemLevel: true, organizationId: true }
+  });
+
+  if (!passport?.isItemLevel) {
+    throw new Error('Passport does not support item-level tracking');
+  }
+
+  // 2. Create item instance (single DB insert)
+  const item = await prisma.itemInstance.create({
+    data: {
+      organizationId: passport.organizationId,
+      passportId,
+      serial,
+      batchId,
+      manufacturedAt: manufacturedAt ?? new Date(),
+      status: 'ACTIVE'
+    }
+  });
+
+  // 3. Optionally create manufacturing EPCIS event
+  await prisma.epcisEvent.create({
+    data: {
+      organizationId: passport.organizationId,
+      itemInstanceId: item.id,
+      eventType: 'ObjectEvent',
+      eventTime: item.manufacturedAt,
+      bizStep: 'commissioning',
+      disposition: 'active'
+    }
+  });
+
+  return item;
+  // Total time: ~5-20ms (vs 200-500ms for full static file generation)
+}
+
+// Bulk registration for high-volume manufacturers
+async function registerItemsBatch(
+  passportId: string,
+  items: Array<{ serial: string; batchId?: string; manufacturedAt?: Date }>
+): Promise<number> {
+  // Use Prisma createMany for efficient bulk insert
+  const result = await prisma.itemInstance.createMany({
+    data: items.map(item => ({
+      organizationId,
+      passportId,
+      serial: item.serial,
+      batchId: item.batchId,
+      manufacturedAt: item.manufacturedAt ?? new Date(),
+      status: 'ACTIVE'
+    })),
+    skipDuplicates: true
+  });
+
+  return result.count;
+  // Can process 10,000+ items per second
+}
+```
+
+### Capacity (Item-Level Architecture)
+
+| Operation | Old Approach | Template + Item Approach |
+|-----------|--------------|--------------------------|
+| **Per-item issuance** | Generate 3 files (20KB), push to origins | Insert 1 DB row (~300 bytes) |
+| **Issuance latency** | 200-500ms | 5-20ms |
+| **Throughput (single task)** | 2-5 items/sec | 500-1,000 items/sec |
+| **Throughput (10 tasks)** | 20-50 items/sec | 5,000-10,000 items/sec |
+| **Daily capacity** | ~1-4M items | ~100-500M items |
+| **Storage (1B items)** | 20TB static files | ~300GB database |
+| **Storage (10B items, 10yr)** | 200TB | ~3TB |
+
+---
+
+## Tiered Storage Architecture
+
+With 10-year retention requirements and billions of items, we need a tiered storage strategy. Not all data is accessed equally - recent events are queried frequently, while historical events are rarely accessed except for compliance audits.
+
+### Storage Tiers
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  TIERED STORAGE ARCHITECTURE                                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  HOT TIER (PostgreSQL RDS)                                                  │
+│  ─────────────────────────                                                  │
+│  What: Recent data, frequently accessed                                     │
+│  Retention: Last 90 days of EPCIS events                                    │
+│  Data:                                                                       │
+│    • All ItemInstance records (always hot - needed for lookups)             │
+│    • Recent EPCIS events (last 90 days)                                     │
+│    • All Passport templates                                                 │
+│  Access pattern: Every scan, every API call                                 │
+│  Storage per mega-customer: ~5-10 TB                                        │
+│  Cost: ~$0.115/GB/month (RDS gp3)                                          │
+│                                                                              │
+│  WARM TIER (Cloudflare R2 / S3 Standard)                                    │
+│  ───────────────────────────────────────                                    │
+│  What: Historical events, occasionally queried                              │
+│  Retention: 90 days - 2 years                                               │
+│  Format: Parquet files, partitioned by org/year/month                       │
+│  Access pattern: Lifecycle reports, audits, analytics                       │
+│  Query engine: DuckDB or Athena for ad-hoc queries                         │
+│  Storage per mega-customer: ~30 TB                                          │
+│  Cost: ~$0.015/GB/month (R2)                                               │
+│                                                                              │
+│  COLD TIER (S3 Glacier / R2 Infrequent Access)                             │
+│  ─────────────────────────────────────────────                              │
+│  What: Archived events, rarely accessed                                     │
+│  Retention: 2-10 years (ESPR compliance)                                    │
+│  Format: Compressed Parquet, yearly archives                                │
+│  Access pattern: Legal requests, regulatory audits                          │
+│  Retrieval time: Minutes to hours (async)                                   │
+│  Storage per mega-customer: ~40 TB                                          │
+│  Cost: ~$0.004/GB/month (Glacier Deep Archive)                             │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Cost Comparison: Naive vs Tiered
+
+For one mega-customer (1B items/year, 10-year retention):
+
+| Approach | Year 1 | Year 5 | Year 10 | 10yr Total |
+|----------|--------|--------|---------|------------|
+| **Naive (all in RDS)** | $920/mo | $4,600/mo | $9,200/mo | ~$400,000 |
+| **Tiered (hot/warm/cold)** | $600/mo | $1,200/mo | $1,600/mo | ~$75,000 |
+| **Savings** | 35% | 74% | 83% | **81%** |
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  TIERED STORAGE COST BREAKDOWN (Year 10, one mega-customer)                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  HOT TIER (RDS):                                                            │
+│  • ItemInstance: 10B × 300 bytes = 3 TB × $0.115 = $345/month              │
+│  • Recent events: 90 days × 2.7M/day × 500 bytes = 365 GB × $0.115 = $42   │
+│  • Indexes, overhead: ~$200/month                                           │
+│  • Subtotal: ~$600/month                                                    │
+│                                                                              │
+│  WARM TIER (R2):                                                            │
+│  • Events 90d-2yr: ~30 TB × $0.015 = $450/month                            │
+│  • Subtotal: ~$450/month                                                    │
+│                                                                              │
+│  COLD TIER (Glacier):                                                       │
+│  • Events 2-10yr: ~40 TB × $0.004 = $160/month                             │
+│  • Subtotal: ~$160/month                                                    │
+│                                                                              │
+│  TOTAL: ~$1,200-1,600/month (vs $9,200/month naive)                        │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Data Lifecycle Automation
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  AUTOMATED DATA LIFECYCLE JOBS                                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  NIGHTLY JOB: Hot → Warm Migration                                          │
+│  ──────────────────────────────────                                         │
+│  Schedule: 02:00 UTC daily                                                  │
+│  Process:                                                                   │
+│    1. SELECT events WHERE event_time < NOW() - INTERVAL '90 days'           │
+│       AND NOT archived                                                      │
+│    2. Export to Parquet, partition by org_id/year/month                     │
+│    3. Upload to R2/S3 warm bucket                                           │
+│    4. Verify upload integrity (checksum)                                    │
+│    5. DELETE from PostgreSQL                                                │
+│    6. UPDATE item_instances SET has_archived_events = true                  │
+│       WHERE id IN (affected items)                                          │
+│                                                                              │
+│  Throughput: ~10M events/hour (batch processing)                            │
+│  Duration: 2-4 hours for mega-customer daily batch                          │
+│                                                                              │
+│  MONTHLY JOB: Warm → Cold Migration                                         │
+│  ────────────────────────────────────                                        │
+│  Schedule: 1st of month, 04:00 UTC                                          │
+│  Process:                                                                   │
+│    1. Identify Parquet files older than 2 years                             │
+│    2. Compress further (ZSTD level 19)                                      │
+│    3. Move to Glacier/cold R2 storage class                                 │
+│    4. Update metadata index                                                 │
+│                                                                              │
+│  YEARLY JOB: Cold Tier Compaction                                           │
+│  ────────────────────────────────                                           │
+│  Schedule: January 15th, 00:00 UTC                                          │
+│  Process:                                                                   │
+│    1. Merge monthly archives into yearly archives                           │
+│    2. Further compress (maximize storage efficiency)                        │
+│    3. Verify data integrity                                                 │
+│    4. Delete monthly files                                                  │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Query Routing
+
+```typescript
+// Query router determines which tier(s) to query based on date range
+async function getItemLifecycle(
+  gtin: string,
+  serial: string,
+  options?: { from?: Date; to?: Date }
+): Promise<EpcisEvent[]> {
+  const item = await prisma.itemInstance.findFirst({
+    where: { passport: { product: { gtin } }, serial },
+    select: { id: true, hasArchivedEvents: true }
+  });
+
+  if (!item) throw new NotFoundError('Item not found');
+
+  const now = new Date();
+  const from = options?.from ?? new Date(0);
+  const to = options?.to ?? now;
+  const hotCutoff = subDays(now, 90);
+  const warmCutoff = subYears(now, 2);
+
+  const results: EpcisEvent[] = [];
+
+  // Query hot tier (PostgreSQL) for recent events
+  if (to > hotCutoff) {
+    const hotEvents = await prisma.epcisEvent.findMany({
+      where: {
+        itemInstanceId: item.id,
+        eventTime: { gte: max(from, hotCutoff), lte: to }
+      },
+      orderBy: { eventTime: 'desc' }
+    });
+    results.push(...hotEvents);
+  }
+
+  // Query warm tier (Parquet via DuckDB) for historical events
+  if (item.hasArchivedEvents && from < hotCutoff && to > warmCutoff) {
+    const warmEvents = await queryWarmTier(item.id, max(from, warmCutoff), min(to, hotCutoff));
+    results.push(...warmEvents);
+  }
+
+  // Query cold tier (Glacier) for archived events - async with callback
+  if (item.hasArchivedEvents && from < warmCutoff) {
+    // Cold tier queries are async - initiate restore and notify when ready
+    await initiateColdTierQuery(item.id, from, min(to, warmCutoff));
+    // Results delivered via webhook or polling
+  }
+
+  return results.sort((a, b) => b.eventTime.getTime() - a.eventTime.getTime());
+}
+
+// Warm tier query using DuckDB
+async function queryWarmTier(
+  itemInstanceId: string,
+  from: Date,
+  to: Date
+): Promise<EpcisEvent[]> {
+  const db = await getDuckDBConnection();
+
+  // Query Parquet files directly from R2
+  const result = await db.run(`
+    SELECT * FROM read_parquet('r2://eurocomply-events/org_*/year_*/month_*/*.parquet')
+    WHERE item_instance_id = ?
+      AND event_time BETWEEN ? AND ?
+    ORDER BY event_time DESC
+  `, [itemInstanceId, from.toISOString(), to.toISOString()]);
+
+  return result.map(row => ({
+    id: row.id,
+    itemInstanceId: row.item_instance_id,
+    eventType: row.event_type,
+    eventTime: new Date(row.event_time),
+    bizStep: row.biz_step,
+    disposition: row.disposition,
+    eventData: JSON.parse(row.event_data)
+  }));
+}
+```
+
+### Query Performance by Tier
+
+| Query Type | Tier | Latency | Use Case |
+|------------|------|---------|----------|
+| Item lookup | Hot | <10ms | Every scan |
+| Recent events (90d) | Hot | <50ms | Every scan |
+| Historical events (90d-2yr) | Warm | 100-500ms | Lifecycle reports |
+| Archived events (2-10yr) | Cold | 1-12 hours | Compliance audits |
+| Full lifecycle (all tiers) | Federated | 2-5 seconds | Rare, cached |
+
+---
+
+## Database Partitioning Strategy
+
+For multi-tenant isolation and efficient data management at scale, we partition tables by organization and time.
+
+### Partitioning Scheme
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  PARTITIONING STRATEGY                                                       │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ITEM_INSTANCES: Partition by organization_id (LIST)                        │
+│  ───────────────────────────────────────────────────                        │
+│  Why: Each customer's items isolated, enables per-customer maintenance      │
+│                                                                              │
+│  CREATE TABLE item_instances (                                              │
+│    id TEXT NOT NULL,                                                        │
+│    organization_id TEXT NOT NULL,                                           │
+│    passport_id TEXT NOT NULL,                                               │
+│    serial TEXT NOT NULL,                                                    │
+│    batch_id TEXT,                                                           │
+│    status TEXT DEFAULT 'ACTIVE',                                            │
+│    manufactured_at TIMESTAMPTZ,                                             │
+│    has_archived_events BOOLEAN DEFAULT FALSE,                               │
+│    created_at TIMESTAMPTZ DEFAULT NOW(),                                    │
+│    updated_at TIMESTAMPTZ DEFAULT NOW(),                                    │
+│    PRIMARY KEY (organization_id, id)                                        │
+│  ) PARTITION BY LIST (organization_id);                                     │
+│                                                                              │
+│  -- Default partition for small customers (shared)                          │
+│  CREATE TABLE item_instances_default                                        │
+│    PARTITION OF item_instances DEFAULT;                                     │
+│                                                                              │
+│  -- Dedicated partition for mega-customers                                  │
+│  CREATE TABLE item_instances_org_megacorp                                   │
+│    PARTITION OF item_instances                                              │
+│    FOR VALUES IN ('org_megacorp_id');                                       │
+│                                                                              │
+│                                                                              │
+│  EPCIS_EVENTS: Partition by time (RANGE) + sub-partition by org            │
+│  ──────────────────────────────────────────────────────────────             │
+│  Why: Time-based for efficient archival, org-based for isolation           │
+│                                                                              │
+│  CREATE TABLE epcis_events (                                                │
+│    id TEXT NOT NULL,                                                        │
+│    organization_id TEXT NOT NULL,                                           │
+│    item_instance_id TEXT,                                                   │
+│    product_id TEXT,                                                         │
+│    event_type TEXT NOT NULL,                                                │
+│    event_time TIMESTAMPTZ NOT NULL,                                         │
+│    biz_step TEXT,                                                           │
+│    disposition TEXT,                                                        │
+│    event_data JSONB,                                                        │
+│    created_at TIMESTAMPTZ DEFAULT NOW(),                                    │
+│    PRIMARY KEY (event_time, organization_id, id)                            │
+│  ) PARTITION BY RANGE (event_time);                                         │
+│                                                                              │
+│  -- Monthly partitions for easy archival                                    │
+│  CREATE TABLE epcis_events_2026_01                                          │
+│    PARTITION OF epcis_events                                                │
+│    FOR VALUES FROM ('2026-01-01') TO ('2026-02-01');                        │
+│                                                                              │
+│  CREATE TABLE epcis_events_2026_02                                          │
+│    PARTITION OF epcis_events                                                │
+│    FOR VALUES FROM ('2026-02-01') TO ('2026-03-01');                        │
+│  -- ... etc, created automatically by maintenance job                       │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Partition Maintenance
+
+```typescript
+// Automated partition management
+async function ensurePartitionsExist(): Promise<void> {
+  const db = getDbConnection();
+
+  // Create partitions for next 3 months (run weekly)
+  for (let i = 0; i < 3; i++) {
+    const start = startOfMonth(addMonths(new Date(), i));
+    const end = startOfMonth(addMonths(new Date(), i + 1));
+    const partitionName = `epcis_events_${format(start, 'yyyy_MM')}`;
+
+    await db.execute(`
+      CREATE TABLE IF NOT EXISTS ${partitionName}
+      PARTITION OF epcis_events
+      FOR VALUES FROM ('${start.toISOString()}') TO ('${end.toISOString()}')
+    `);
+  }
+}
+
+// Archive old partitions (run monthly)
+async function archiveOldPartitions(): Promise<void> {
+  const cutoff = subDays(new Date(), 90);
+  const partitionName = `epcis_events_${format(cutoff, 'yyyy_MM')}`;
+
+  // Export to Parquet
+  await exportPartitionToParquet(partitionName);
+
+  // Verify export
+  await verifyParquetExport(partitionName);
+
+  // Drop old partition (data now in warm tier)
+  await db.execute(`DROP TABLE IF EXISTS ${partitionName}`);
+}
+```
+
+### Index Strategy
+
+```sql
+-- ItemInstance indexes (on each partition)
+CREATE INDEX idx_item_instances_serial
+  ON item_instances (serial);
+
+CREATE UNIQUE INDEX idx_item_instances_passport_serial
+  ON item_instances (passport_id, serial);
+
+-- EpcisEvent indexes (on each partition)
+CREATE INDEX idx_epcis_events_item
+  ON epcis_events (item_instance_id, event_time DESC);
+
+CREATE INDEX idx_epcis_events_org_time
+  ON epcis_events (organization_id, event_time DESC);
+
+-- Partial index for active items only (common query pattern)
+CREATE INDEX idx_item_instances_active
+  ON item_instances (passport_id, created_at DESC)
+  WHERE status = 'ACTIVE';
+```
+
+---
+
+## Multi-Tenant Isolation
+
+One mega-customer's billions of items shouldn't affect query performance for SME customers.
+
+### Isolation Strategies
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  MULTI-TENANT ISOLATION                                                      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  1. DEDICATED PARTITIONS                                                    │
+│  ────────────────────────                                                   │
+│  • Mega-customers get dedicated table partitions                            │
+│  • Their 10B items physically separated from SME data                       │
+│  • Indexes scoped to partition (smaller, faster)                            │
+│  • Can run VACUUM/ANALYZE per-partition without affecting others            │
+│                                                                              │
+│  2. CONNECTION POOLING (PgBouncer)                                          │
+│  ─────────────────────────────────                                          │
+│  • Separate pools per customer tier                                         │
+│  • Enterprise: dedicated pool (100 connections)                             │
+│  • SME: shared pool (200 connections)                                       │
+│  • Mega-customer cannot exhaust SME connections                             │
+│                                                                              │
+│  Pool configuration:                                                        │
+│  [databases]                                                                │
+│  eurocomply_enterprise = host=primary pool_size=100                         │
+│  eurocomply_sme = host=primary pool_size=200                               │
+│  eurocomply_analytics = host=replica pool_size=50                          │
+│                                                                              │
+│  3. QUERY TIMEOUTS                                                          │
+│  ─────────────────                                                          │
+│  • Item lookup: 100ms timeout (fast, indexed)                               │
+│  • Event query: 1s timeout (bounded)                                        │
+│  • Analytics: No timeout, but uses read replica                             │
+│                                                                              │
+│  SET statement_timeout = '100ms';  -- For item lookups                     │
+│  SET statement_timeout = '1s';     -- For event queries                    │
+│                                                                              │
+│  4. DEDICATED READ REPLICAS (Enterprise tier)                               │
+│  ────────────────────────────────────────────                               │
+│  • Mega-customers get their own read replica                                │
+│  • Analytics queries routed to replica                                      │
+│  • Primary reserved for writes + SME reads                                  │
+│                                                                              │
+│  5. RATE LIMITING (per organization)                                        │
+│  ────────────────────────────────────                                        │
+│  • API rate limits per org, not global                                      │
+│  • Mega-customer bulk imports don't starve SME API access                  │
+│  • Separate queues for bulk operations                                      │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Resource Allocation by Tier
+
+| Resource | SME (shared) | Enterprise | Mega-Customer |
+|----------|--------------|------------|---------------|
+| DB connections | 200 shared | 100 dedicated | 100 dedicated |
+| Read replica | Shared | Shared | Dedicated |
+| API rate limit | 100 req/s | 1,000 req/s | 10,000 req/s |
+| Bulk import queue | Shared | Priority | Dedicated |
+| Storage partition | Default | Default | Dedicated |
+| Support SLA | 48h | 24h | 4h |
+
+---
+
+## 10-Year Retention Strategy
+
+ESPR requires DPP data retention for the product lifetime plus additional years. For many products, this means 10+ years of data retention.
+
+### Retention Requirements
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  ESPR RETENTION REQUIREMENTS                                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  WHAT MUST BE RETAINED:                                                     │
+│  • DPP core data (product information) - lifetime of product + 10 years    │
+│  • EPCIS events (lifecycle tracking) - same retention period               │
+│  • Verifiable Credentials - must remain verifiable                         │
+│  • Audit trail - all changes, who/when                                     │
+│                                                                              │
+│  RETENTION PERIODS BY PRODUCT:                                              │
+│  • Electronics: 10 years (expected lifetime) + 10 years = 20 years         │
+│  • Batteries: 15 years (EV batteries) + 10 years = 25 years               │
+│  • Textiles: 3 years (fast fashion) to 10 years + 10 years                │
+│  • Construction: Building lifetime (50+ years) + 10 years                  │
+│                                                                              │
+│  PRACTICAL APPROACH:                                                        │
+│  • Default: 10 years from item creation                                    │
+│  • Configurable per product category                                       │
+│  • Legal hold capability (prevent deletion)                                │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Data Integrity Over Time
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  LONG-TERM DATA INTEGRITY                                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  CHALLENGE: Ensure data remains readable and verifiable for 10+ years      │
+│                                                                              │
+│  SOLUTIONS:                                                                 │
+│                                                                              │
+│  1. FORMAT STABILITY                                                        │
+│  ───────────────────                                                        │
+│  • Parquet format (columnar, self-describing)                              │
+│  • JSON for event data (universal compatibility)                           │
+│  • Avoid proprietary formats                                               │
+│                                                                              │
+│  2. SCHEMA EVOLUTION                                                        │
+│  ────────────────────                                                        │
+│  • Schema version stored with data                                         │
+│  • Backward-compatible changes only                                        │
+│  • Migration scripts versioned and tested                                  │
+│                                                                              │
+│  3. CRYPTOGRAPHIC INTEGRITY                                                 │
+│  ──────────────────────────                                                 │
+│  • SHA-256 checksums for archived files                                    │
+│  • Merkle tree for batch verification                                      │
+│  • Annual integrity audits                                                 │
+│                                                                              │
+│  4. VC VERIFICATION                                                         │
+│  ──────────────────                                                         │
+│  • DID documents preserved                                                 │
+│  • Signing keys archived (with rotation history)                           │
+│  • Verification possible even if issuer gone                               │
+│                                                                              │
+│  5. GEOGRAPHIC REDUNDANCY                                                   │
+│  ─────────────────────────                                                   │
+│  • Hot tier: Multi-AZ RDS                                                  │
+│  • Warm tier: R2 (replicated)                                              │
+│  • Cold tier: Cross-region Glacier                                         │
+│  • Annual restore tests                                                    │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Compliance Query Patterns
+
+```typescript
+// Regulatory audit: Full lifecycle for specific item
+async function getFullItemHistory(
+  gtin: string,
+  serial: string,
+  requestId: string
+): Promise<AuditResponse> {
+  // 1. Get item instance
+  const item = await prisma.itemInstance.findFirst({
+    where: { passport: { product: { gtin } }, serial },
+    include: { passport: { include: { product: true } } }
+  });
+
+  if (!item) throw new NotFoundError('Item not found');
+
+  // 2. Query all tiers (async for cold)
+  const hotEvents = await getHotTierEvents(item.id);
+  const warmEvents = await getWarmTierEvents(item.id);
+
+  // 3. Initiate cold tier restore if needed
+  let coldRestoreJob = null;
+  if (item.hasArchivedEvents && item.createdAt < subYears(new Date(), 2)) {
+    coldRestoreJob = await initiateColdRestore(item.id, requestId);
+  }
+
+  // 4. Return available data + restore status
+  return {
+    item: {
+      gtin,
+      serial,
+      status: item.status,
+      manufacturedAt: item.manufacturedAt,
+      product: item.passport.product
+    },
+    events: [...hotEvents, ...warmEvents],
+    coldTierStatus: coldRestoreJob ? {
+      status: 'restoring',
+      estimatedCompletion: coldRestoreJob.estimatedCompletion,
+      callbackUrl: `/api/v1/audit/${requestId}/status`
+    } : null,
+    dataCompleteness: coldRestoreJob ? 'partial' : 'complete'
+  };
+}
+
+// Bulk export for regulatory compliance
+async function exportOrganizationData(
+  organizationId: string,
+  fromDate: Date,
+  toDate: Date
+): Promise<ExportJob> {
+  // Create async export job
+  const job = await prisma.exportJob.create({
+    data: {
+      organizationId,
+      status: 'pending',
+      parameters: { fromDate, toDate },
+      estimatedSize: await estimateExportSize(organizationId, fromDate, toDate)
+    }
+  });
+
+  // Queue background processing
+  await exportQueue.add('org-export', {
+    jobId: job.id,
+    organizationId,
+    fromDate,
+    toDate
+  });
+
+  return job;
+}
+```
+
+---
+
 ## DPP Issuance Flow (Write Path)
 
 When a DPP is issued, the Compliance workspace reads workspace data from The Hub and generates static files that are pushed to Hetzner origins. The workspace data contains the complete, authoritative product data aggregated from all workspace contributions:
@@ -1685,38 +2502,51 @@ enum PassportStatus {
 │  ──────────────────────────────────────────────                 │
 │  Current capacity: Up to 50B scans/day (Hetzner)               │
 │  Scalable to: 1T+ scans/day (with R2 migration)                │
-│  Latency: <100ms globally                                       │
-│  Architecture: Cloudflare CDN → Hetzner/R2 static files        │
-│  Database involvement: Zero                                     │
-│  Key: Cloudflare CDN handles 99%+ of traffic                   │
+│  Latency: <200ms (template from CDN + item data from API)      │
+│  Architecture: Static template + dynamic item data              │
+│  Key: Cloudflare CDN handles 99%+ of template traffic          │
 │                                                                  │
 │  Cost by scale:                                                 │
 │  • Up to 50B scans/day: ~$200/month (Hetzner) ← CURRENT        │
 │  • 100B+ scans/day: ~$2,500/month (R2) ← REQUIRES MIGRATION    │
 │  • 1T scans/day: ~$11,000/month (R2) ← REQUIRES MIGRATION      │
 │                                                                  │
-│  WORKSPACE WRITES (WRITE PATH) - AWS → THE HUB                 │
-│  ─────────────────────────────────────────────                  │
-│  Current capacity: ~1,000 concurrent users                      │
-│  Scalable to: 10,000+ users (with RDS upgrade)                 │
-│  Architecture: ECS → PostgreSQL (The Hub) → Redis               │
-│  Cost: ~$300/month                                              │
+│  ITEM REGISTRATION (WRITE PATH)                                 │
+│  ──────────────────────────────                                 │
+│  Approach: Template + item data (not full static files/item)   │
+│  Per-item: DB insert only (~300 bytes), no file generation     │
+│  Throughput: 100-500M items/day                                │
+│  Storage (10B items): ~3TB (vs 200TB naive approach)           │
+│                                                                  │
+│  TIERED STORAGE (10-YEAR RETENTION)                            │
+│  ──────────────────────────────────                            │
+│  Hot (RDS): Last 90 days, <50ms queries                        │
+│  Warm (R2/Parquet): 90 days - 2 years, 100-500ms queries      │
+│  Cold (Glacier): 2-10 years, hours to restore                  │
+│  Cost (mega-customer, 10yr): ~$1,600/month (vs $9,200 naive)  │
+│                                                                  │
+│  MULTI-TENANT ISOLATION                                        │
+│  ──────────────────────                                        │
+│  • Dedicated partitions for mega-customers                     │
+│  • Connection pooling by tier                                  │
+│  • Query timeouts (100ms lookup, 1s events)                   │
+│  • Dedicated read replicas for enterprise                      │
 │                                                                  │
 │  TOTAL INFRASTRUCTURE                                           │
 │  ────────────────────                                           │
-│  Current (up to 50B scans): ~$500/month                        │
-│  With R2 (100B scans): ~$2,800/month                           │
-│  Full scale (1T scans): ~$11,300/month                         │
-│  Savings vs AWS-only: 99.7%                                     │
+│  SME customers: ~$500/month (shared infrastructure)            │
+│  Enterprise: ~$2,800/month (priority resources)                │
+│  Mega-customer (1B items/yr, 10yr): ~$1,600/month storage     │
+│  Savings vs naive approach: 80%+                               │
 │                                                                  │
 │  KEY INSIGHTS                                                   │
 │  ────────────                                                   │
-│  1. Separate read and write paths completely                    │
-│  2. DPPs are immutable → perfect for CDN caching               │
-│  3. Cloudflare CDN does the heavy lifting (99%+ cache rate)    │
-│  4. Hetzner for startup, R2 for extreme scale                  │
-│  5. Current infra handles 50B scans/day - upgrade when needed  │
-│  6. EU Registry will absorb read traffic long-term             │
+│  1. Template + item data: 99% storage reduction               │
+│  2. Tiered storage: 80% cost reduction over 10 years          │
+│  3. Partitioning: Multi-tenant isolation at scale             │
+│  4. CDN for templates, API for item data                      │
+│  5. Hot/warm/cold tiers match access patterns                 │
+│  6. Can handle billion-item customers with 10yr retention     │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
