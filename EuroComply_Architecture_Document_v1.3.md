@@ -1,6 +1,6 @@
 # EuroComply Platform Architecture
 
-**Document Version:** 1.4
+**Document Version:** 1.5
 **Date:** January 2026
 **Status:** Core MVP Architecture - Additional features in planning (see Appendix D)
 
@@ -17,6 +17,9 @@
 7. [Bulk DPP Generation](#7-bulk-dpp-generation)
 8. [Infrastructure](#8-infrastructure)
 9. [Scaling Plan](#9-scaling-plan)
+   - 9.4 [Infrastructure Baseline](#94-infrastructure-baseline)
+   - 9.5 [Auto-Scaling Layers](#95-auto-scaling-layers)
+   - 9.6 [Manual Scaling Operations Guide](#96-manual-scaling-operations-guide)
 10. [Operations](#10-operations)
 11. [Implementation Guide](#11-implementation-guide)
 12. [Standards & Data Formats](#12-standards--data-formats)
@@ -1324,6 +1327,668 @@ Note: The t4g.nano NAT instance works fine for Starter/Growth/Scale/Enterprise t
 
 *DPP revenue estimates assume growing item-level DPP adoption in batteries, electronics, and industrial sectors.*
 
+### 9.4 Infrastructure Baseline
+
+The starting configuration provides a solid foundation that auto-scales as demand grows.
+
+#### Launch Configuration (€158/month)
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    STARTING INFRASTRUCTURE BREAKDOWN                         │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  COMPUTE (ECS Fargate)                                                      │
+│  ────────────────────                                                       │
+│  • API Service: 2 tasks × 0.5 vCPU × 1GB RAM                               │
+│  • Bulk Worker: 0 tasks (scale from 0)                                      │
+│  • Cost: ~€35/month (API always on)                                        │
+│                                                                              │
+│  DATABASE (PostgreSQL RDS)                                                  │
+│  ─────────────────────────                                                  │
+│  • Instance: db.t4g.micro (single-AZ)                                      │
+│  • Storage: 20GB gp3                                                        │
+│  • Capacity: ~200 tenants per cell                                         │
+│  • Cost: ~€18/month                                                        │
+│                                                                              │
+│  CACHE (ElastiCache Redis)                                                  │
+│  ─────────────────────────                                                  │
+│  • Instance: cache.t4g.micro (single node)                                 │
+│  • Capacity: 500MB, sufficient for ~50K cached sessions                    │
+│  • Cost: ~€12/month                                                        │
+│                                                                              │
+│  ITEM STORAGE (DynamoDB)                                                    │
+│  ───────────────────────                                                    │
+│  • Mode: On-Demand (pay per request)                                       │
+│  • Capacity: Unlimited items                                               │
+│  • Cost: ~€0 at low volume, scales with usage                              │
+│                                                                              │
+│  DPP STORAGE & SERVING (Cloudflare R2)                                     │
+│  ─────────────────────────────────────                                      │
+│  • Storage: Pay per GB (first 10GB free)                                   │
+│  • Egress: FREE via Cloudflare CDN                                         │
+│  • Cost: ~€0 initially, scales with DPP volume                             │
+│                                                                              │
+│  NETWORKING                                                                 │
+│  ──────────────                                                             │
+│  • NAT: t4g.nano instance (saves €30/mo vs NAT Gateway)                   │
+│  • VPC: No cost                                                            │
+│  • Cost: ~€3/month                                                         │
+│                                                                              │
+│  QUEUE & EVENTS (SQS)                                                      │
+│  ────────────────────                                                       │
+│  • Queues: Standard queues for bulk processing                             │
+│  • Cost: ~€0 (1M requests free, then $0.40/M)                              │
+│                                                                              │
+│  SECRETS (AWS Secrets Manager)                                             │
+│  ──────────────────────────────                                             │
+│  • Per-tenant database credentials                                         │
+│  • Cost: ~€0.37/tenant/month                                               │
+│                                                                              │
+│  OTHER                                                                      │
+│  ─────                                                                      │
+│  • CloudWatch Logs: ~€5/month                                              │
+│  • Route 53: ~€0.50/month per hosted zone                                  │
+│  • KMS: ~€1/month per key (can share for Starter/Growth)                   │
+│                                                                              │
+│  ═══════════════════════════════════════════════════════════════════════   │
+│  TOTAL BASELINE: ~€158/month                                               │
+│  ═══════════════════════════════════════════════════════════════════════   │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 9.5 Auto-Scaling Layers
+
+Most infrastructure scales automatically without operator intervention.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    AUTO-SCALING vs MANUAL SCALING                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ✅ AUTO-SCALES (Zero Intervention)                                         │
+│  ══════════════════════════════════                                         │
+│                                                                              │
+│  Component          Trigger                    Range                        │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│  API Tasks          CPU > 70% for 3 min        2 → 10 tasks                │
+│  Bulk Workers       Queue depth > 1,000        0 → 20 tasks                │
+│  DynamoDB           Request rate               Unlimited (on-demand)       │
+│  R2 Storage         Data volume                Unlimited                    │
+│  R2 Serving         Request volume             Unlimited (Cloudflare CDN)  │
+│  SQS Queues         Message volume             Unlimited                    │
+│                                                                              │
+│  ⚠️ MANUAL SCALING REQUIRED                                                │
+│  ══════════════════════════════                                             │
+│                                                                              │
+│  Component          Trigger                    Action Required              │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│  PostgreSQL Cell    ~200 tenants OR            Add new cell                 │
+│                     CPU > 70% sustained                                     │
+│                                                                              │
+│  Redis Instance     Memory > 80% OR            Upgrade instance type        │
+│                     CPU > 70% sustained                                     │
+│                                                                              │
+│  NAT Instance       Bulk jobs timeout OR       Upgrade to NAT Gateway       │
+│                     Network errors spike                                    │
+│                                                                              │
+│  Enterprise RDS     New Enterprise customer    Provision dedicated RDS      │
+│                                                                              │
+│  Platform Cluster   New Platform customer      Provision dedicated          │
+│                                                infrastructure               │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### ECS Auto-Scaling Configuration
+
+```hcl
+# API Service - Always-on with CPU-based scaling
+resource "aws_appautoscaling_target" "api" {
+  max_capacity       = 10
+  min_capacity       = 2
+  resource_id        = "service/${aws_ecs_cluster.main.name}/${aws_ecs_service.api.name}"
+  scalable_dimension = "ecs:service:DesiredCount"
+  service_namespace  = "ecs"
+}
+
+resource "aws_appautoscaling_policy" "api_cpu" {
+  name               = "api-cpu-scaling"
+  policy_type        = "TargetTrackingScaling"
+  resource_id        = aws_appautoscaling_target.api.resource_id
+  scalable_dimension = aws_appautoscaling_target.api.scalable_dimension
+  service_namespace  = aws_appautoscaling_target.api.service_namespace
+
+  target_tracking_scaling_policy_configuration {
+    predefined_metric_specification {
+      predefined_metric_type = "ECSServiceAverageCPUUtilization"
+    }
+    target_value       = 70.0
+    scale_in_cooldown  = 300
+    scale_out_cooldown = 60
+  }
+}
+
+# Bulk Worker - Scale from 0 based on queue depth
+resource "aws_appautoscaling_target" "bulk_worker" {
+  max_capacity       = 20
+  min_capacity       = 0
+  resource_id        = "service/${aws_ecs_cluster.main.name}/${aws_ecs_service.bulk_worker.name}"
+  scalable_dimension = "ecs:service:DesiredCount"
+  service_namespace  = "ecs"
+}
+
+resource "aws_appautoscaling_policy" "bulk_worker_queue" {
+  name               = "bulk-worker-queue-scaling"
+  policy_type        = "TargetTrackingScaling"
+  resource_id        = aws_appautoscaling_target.bulk_worker.resource_id
+  scalable_dimension = aws_appautoscaling_target.bulk_worker.scalable_dimension
+  service_namespace  = aws_appautoscaling_target.bulk_worker.service_namespace
+
+  target_tracking_scaling_policy_configuration {
+    customized_metric_specification {
+      metric_name = "ApproximateNumberOfMessagesVisible"
+      namespace   = "AWS/SQS"
+      statistic   = "Average"
+      dimensions {
+        name  = "QueueName"
+        value = aws_sqs_queue.bulk_chunks.name
+      }
+    }
+    target_value       = 100.0  # 100 messages per worker
+    scale_in_cooldown  = 300
+    scale_out_cooldown = 60
+  }
+}
+```
+
+### 9.6 Manual Scaling Operations Guide
+
+This section provides step-by-step procedures for manual scaling operations.
+
+#### 9.6.1 Adding a New Database Cell
+
+**When to trigger:** ~200 tenants in current cell OR database CPU consistently >70%
+
+**Prerequisites:**
+- AWS CLI configured with production credentials
+- Terraform state access
+- Database migration scripts ready
+
+**Procedure:**
+
+```bash
+# 1. Check current cell utilization
+aws cloudwatch get-metric-statistics \
+  --namespace AWS/RDS \
+  --metric-name CPUUtilization \
+  --dimensions Name=DBInstanceIdentifier,Value=eurocomply-cell-1 \
+  --start-time $(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%SZ) \
+  --end-time $(date -u +%Y-%m-%dT%H:%M:%SZ) \
+  --period 300 \
+  --statistics Average
+
+# Check tenant count
+psql -h eurocomply-cell-1.xxx.rds.amazonaws.com -U admin -d eurocomply -c \
+  "SELECT COUNT(DISTINCT schema_name) FROM information_schema.schemata WHERE schema_name LIKE 'tenant_%';"
+
+# 2. Update Terraform to add new cell
+cd infrastructure/terraform/environments/production
+
+# Edit cells.tf - add new cell definition
+cat >> cells.tf << 'EOF'
+module "cell_2" {
+  source = "../../modules/database-cell"
+
+  cell_name        = "cell-2"
+  cell_number      = 2
+  instance_class   = "db.t4g.micro"
+  allocated_storage = 20
+
+  vpc_id           = module.vpc.vpc_id
+  subnet_ids       = module.vpc.database_subnet_ids
+  security_group_id = aws_security_group.database.id
+
+  # Use same master password, different identifier
+  master_username  = var.db_master_username
+  master_password  = var.db_master_password
+
+  tags = local.common_tags
+}
+EOF
+
+# 3. Plan and apply
+terraform plan -target=module.cell_2
+terraform apply -target=module.cell_2
+
+# 4. Wait for RDS to be available (5-10 minutes)
+aws rds wait db-instance-available \
+  --db-instance-identifier eurocomply-cell-2
+
+# 5. Initialize cell schema
+psql -h eurocomply-cell-2.xxx.rds.amazonaws.com -U admin -d postgres << 'EOF'
+CREATE DATABASE eurocomply;
+\c eurocomply
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+EOF
+
+# 6. Deploy PgBouncer for new cell
+cd ../../../pgbouncer
+./deploy-cell.sh cell-2
+
+# 7. Update application routing configuration
+# Set cell_2 as default for new tenants
+aws ssm put-parameter \
+  --name "/eurocomply/production/default-cell" \
+  --value "cell-2" \
+  --type "String" \
+  --overwrite
+
+# 8. Verify new cell is operational
+curl -s https://api.eurocomply.io/health | jq '.database_cells'
+
+# 9. Monitor for 24 hours
+# Watch CloudWatch dashboard for any issues with new cell
+```
+
+**Rollback procedure:**
+```bash
+# If issues occur, route new tenants back to cell-1
+aws ssm put-parameter \
+  --name "/eurocomply/production/default-cell" \
+  --value "cell-1" \
+  --type "String" \
+  --overwrite
+
+# Do NOT destroy cell-2 if any tenants have been provisioned on it
+# Check: SELECT COUNT(*) FROM tenants WHERE cell = 'cell-2';
+```
+
+**Cost impact:** +€18/month for db.t4g.micro, +€0.37/tenant for Secrets Manager
+
+---
+
+#### 9.6.2 Upgrading Redis Instance
+
+**When to trigger:** Memory utilization >80% OR CPU consistently >70% OR cache evictions increasing
+
+**Prerequisites:**
+- Maintenance window scheduled (brief connection drops during failover)
+- Notify customers of potential brief latency spike
+
+**Procedure:**
+
+```bash
+# 1. Check current utilization
+aws cloudwatch get-metric-statistics \
+  --namespace AWS/ElastiCache \
+  --metric-name DatabaseMemoryUsagePercentage \
+  --dimensions Name=CacheClusterId,Value=eurocomply-redis \
+  --start-time $(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%SZ) \
+  --end-time $(date -u +%Y-%m-%dT%H:%M:%SZ) \
+  --period 300 \
+  --statistics Average
+
+# Check evictions
+aws cloudwatch get-metric-statistics \
+  --namespace AWS/ElastiCache \
+  --metric-name Evictions \
+  --dimensions Name=CacheClusterId,Value=eurocomply-redis \
+  --start-time $(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%SZ) \
+  --end-time $(date -u +%Y-%m-%dT%H:%M:%SZ) \
+  --period 300 \
+  --statistics Sum
+
+# 2. Choose target instance type
+# Upgrade path: t4g.micro → t4g.small → t4g.medium → r6g.large
+#
+# Instance      Memory    Cost/month  Use case
+# t4g.micro     0.5 GB    €12         Launch (0-50 customers)
+# t4g.small     1.6 GB    €24         Growth (50-200 customers)
+# t4g.medium    3.2 GB    €48         Scale (200-500 customers)
+# r6g.large     13 GB     €120        Enterprise (500+ customers)
+
+# 3. Update Terraform
+cd infrastructure/terraform/environments/production
+
+# Edit redis.tf
+sed -i 's/node_type = "cache.t4g.micro"/node_type = "cache.t4g.small"/' redis.tf
+
+# 4. Plan and apply (will cause brief downtime)
+terraform plan -target=aws_elasticache_cluster.redis
+terraform apply -target=aws_elasticache_cluster.redis
+
+# Note: Modification takes 5-15 minutes
+# During this time, cache operations will fail
+# Application should gracefully degrade (slower, not broken)
+
+# 5. Verify new instance is operational
+aws elasticache describe-cache-clusters \
+  --cache-cluster-id eurocomply-redis \
+  --show-cache-node-info
+
+# 6. Verify application connectivity
+curl -s https://api.eurocomply.io/health | jq '.redis'
+
+# 7. Monitor memory utilization post-upgrade
+watch -n 60 'aws cloudwatch get-metric-statistics \
+  --namespace AWS/ElastiCache \
+  --metric-name DatabaseMemoryUsagePercentage \
+  --dimensions Name=CacheClusterId,Value=eurocomply-redis \
+  --start-time $(date -u -d "5 minutes ago" +%Y-%m-%dT%H:%M:%SZ) \
+  --end-time $(date -u +%Y-%m-%dT%H:%M:%SZ) \
+  --period 60 \
+  --statistics Average'
+```
+
+**Zero-downtime alternative (Redis Cluster Mode):**
+```bash
+# For Scale+ tier, use Redis Cluster Mode for online scaling
+# This requires application changes to use cluster client
+
+# 1. Create new cluster with replication
+aws elasticache create-replication-group \
+  --replication-group-id eurocomply-redis-cluster \
+  --replication-group-description "EuroComply Redis Cluster" \
+  --automatic-failover-enabled \
+  --cache-node-type cache.t4g.small \
+  --num-cache-clusters 2 \
+  --engine redis \
+  --engine-version 7.0
+
+# 2. Online scaling (no downtime)
+aws elasticache modify-replication-group \
+  --replication-group-id eurocomply-redis-cluster \
+  --cache-node-type cache.t4g.medium \
+  --apply-immediately
+```
+
+**Cost impact:** ~€12-108/month depending on upgrade path
+
+---
+
+#### 9.6.3 Provisioning Enterprise Dedicated RDS
+
+**When to trigger:** New Enterprise tier customer signs up (€1,499/month base)
+
+**Prerequisites:**
+- Customer onboarding complete
+- Tenant ID assigned
+- Customer's data isolation requirements documented
+
+**Procedure:**
+
+```bash
+# 1. Get customer details
+TENANT_ID="ent_abc123"
+CUSTOMER_NAME="acme-corp"
+REGION="eu-west-1"
+
+# 2. Create dedicated RDS instance via Terraform
+cd infrastructure/terraform/environments/production
+
+cat >> enterprise-instances.tf << EOF
+
+module "enterprise_${CUSTOMER_NAME}" {
+  source = "../../modules/enterprise-database"
+
+  tenant_id         = "${TENANT_ID}"
+  customer_name     = "${CUSTOMER_NAME}"
+
+  instance_class    = "db.t4g.medium"  # Enterprise default
+  allocated_storage = 100
+  max_allocated_storage = 1000  # Auto-expand up to 1TB
+
+  # Multi-AZ for Enterprise
+  multi_az          = true
+
+  # Enhanced monitoring
+  monitoring_interval = 60
+  performance_insights_enabled = true
+
+  # Backup
+  backup_retention_period = 35
+  backup_window          = "03:00-04:00"
+  maintenance_window     = "Mon:04:00-Mon:05:00"
+
+  vpc_id            = module.vpc.vpc_id
+  subnet_ids        = module.vpc.database_subnet_ids
+  security_group_id = aws_security_group.enterprise_database.id
+
+  # Customer-specific KMS key
+  kms_key_id        = aws_kms_key.enterprise_${CUSTOMER_NAME}.arn
+
+  tags = merge(local.common_tags, {
+    Customer = "${CUSTOMER_NAME}"
+    Tier     = "Enterprise"
+  })
+}
+
+# Customer-specific encryption key
+resource "aws_kms_key" "enterprise_${CUSTOMER_NAME}" {
+  description             = "KMS key for ${CUSTOMER_NAME}"
+  deletion_window_in_days = 30
+  enable_key_rotation     = true
+
+  tags = {
+    Customer = "${CUSTOMER_NAME}"
+    Tier     = "Enterprise"
+  }
+}
+EOF
+
+# 3. Plan and apply
+terraform plan -target=module.enterprise_${CUSTOMER_NAME}
+terraform apply -target=module.enterprise_${CUSTOMER_NAME}
+
+# Wait for RDS (10-15 minutes for Multi-AZ)
+aws rds wait db-instance-available \
+  --db-instance-identifier eurocomply-ent-${CUSTOMER_NAME}
+
+# 4. Initialize database schema
+export PGHOST=$(terraform output -raw enterprise_${CUSTOMER_NAME}_endpoint)
+export PGUSER=$(aws secretsmanager get-secret-value \
+  --secret-id eurocomply/enterprise/${CUSTOMER_NAME}/master \
+  --query SecretString --output text | jq -r .username)
+export PGPASSWORD=$(aws secretsmanager get-secret-value \
+  --secret-id eurocomply/enterprise/${CUSTOMER_NAME}/master \
+  --query SecretString --output text | jq -r .password)
+
+psql -d postgres << 'EOF'
+CREATE DATABASE eurocomply;
+\c eurocomply
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+EOF
+
+# Run migrations
+cd ../../../../
+npx prisma migrate deploy
+
+# 5. Create tenant record pointing to dedicated instance
+psql -h eurocomply-cell-1.xxx.rds.amazonaws.com -U admin -d eurocomply << EOF
+INSERT INTO tenants (
+  id,
+  name,
+  tier,
+  database_host,
+  database_type,
+  kms_key_id,
+  created_at
+) VALUES (
+  '${TENANT_ID}',
+  '${CUSTOMER_NAME}',
+  'ENTERPRISE',
+  'eurocomply-ent-${CUSTOMER_NAME}.xxx.rds.amazonaws.com',
+  'dedicated',
+  'arn:aws:kms:${REGION}:xxx:key/yyy',
+  NOW()
+);
+EOF
+
+# 6. Update application routing
+aws ssm put-parameter \
+  --name "/eurocomply/production/tenants/${TENANT_ID}/database-host" \
+  --value "eurocomply-ent-${CUSTOMER_NAME}.xxx.rds.amazonaws.com" \
+  --type "SecureString" \
+  --overwrite
+
+# 7. Verify connectivity
+curl -s -H "X-Tenant-ID: ${TENANT_ID}" \
+  https://api.eurocomply.io/health | jq '.database'
+
+# 8. Send onboarding notification to customer
+# (via internal ops tool or manual email)
+```
+
+**Cost breakdown:**
+| Component | Monthly Cost |
+|-----------|--------------|
+| db.t4g.medium Multi-AZ | €90 |
+| 100GB gp3 storage | €12 |
+| Automated backups | €5 |
+| KMS key | €1 |
+| Performance Insights | €2 |
+| **Total** | **~€110/month** |
+
+**Customer revenue:** €1,499/month base + per-DPP fees
+**Net margin:** €1,389/month base profit + DPP revenue
+
+---
+
+#### 9.6.4 Upgrading NAT Instance to NAT Gateway
+
+**When to trigger:**
+- Bulk jobs experiencing network timeouts
+- Platform tier customer onboards
+- MRR exceeds €50K
+- Network throughput >5Gbps consistently
+
+**Prerequisites:**
+- Maintenance window for brief connectivity interruption
+- Monitor bulk jobs during transition
+
+**Procedure:**
+
+```bash
+# 1. Check current NAT instance metrics
+# Look for packet drops, bandwidth saturation
+aws cloudwatch get-metric-statistics \
+  --namespace AWS/EC2 \
+  --metric-name NetworkPacketsOut \
+  --dimensions Name=InstanceId,Value=i-nat-instance-id \
+  --start-time $(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%SZ) \
+  --end-time $(date -u +%Y-%m-%dT%H:%M:%SZ) \
+  --period 300 \
+  --statistics Sum
+
+# 2. Create NAT Gateway via Terraform
+cd infrastructure/terraform/environments/production
+
+# Edit vpc.tf - comment out NAT instance, add NAT Gateway
+cat >> vpc.tf << 'EOF'
+
+# NAT Gateway (replaces NAT instance)
+resource "aws_eip" "nat" {
+  domain = "vpc"
+  tags   = { Name = "eurocomply-nat-eip" }
+}
+
+resource "aws_nat_gateway" "main" {
+  allocation_id = aws_eip.nat.id
+  subnet_id     = aws_subnet.public[0].id
+
+  tags = {
+    Name = "eurocomply-nat-gateway"
+  }
+
+  depends_on = [aws_internet_gateway.main]
+}
+
+# Update route table to use NAT Gateway
+resource "aws_route" "private_nat_gateway" {
+  route_table_id         = aws_route_table.private.id
+  destination_cidr_block = "0.0.0.0/0"
+  nat_gateway_id         = aws_nat_gateway.main.id
+}
+EOF
+
+# 3. Plan changes
+terraform plan
+
+# 4. Apply in maintenance window
+# This will briefly interrupt outbound connectivity from private subnets
+terraform apply
+
+# 5. Terminate old NAT instance (after verification)
+aws ec2 terminate-instances --instance-ids i-nat-instance-id
+
+# 6. Verify bulk jobs are working
+# Run a small test bulk job
+curl -X POST https://api.eurocomply.io/v1/bulk-jobs \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"product_id": "test", "serial_numbers": ["SN001", "SN002"]}'
+
+# 7. Monitor network metrics
+watch -n 60 'aws cloudwatch get-metric-statistics \
+  --namespace AWS/NATGateway \
+  --metric-name BytesOutToDestination \
+  --dimensions Name=NatGatewayId,Value=nat-xxx \
+  --start-time $(date -u -d "5 minutes ago" +%Y-%m-%dT%H:%M:%SZ) \
+  --end-time $(date -u +%Y-%m-%dT%H:%M:%SZ) \
+  --period 60 \
+  --statistics Sum'
+```
+
+**Cost impact:**
+| Component | Before (NAT Instance) | After (NAT Gateway) |
+|-----------|----------------------|---------------------|
+| Fixed cost | €3/month (t4g.nano) | €35/month |
+| Data processing | Included | €0.048/GB |
+| Throughput | ~5 Gbps | 45 Gbps |
+| Availability | Single instance | Highly available |
+
+**When NOT to upgrade:**
+- If bulk processing is <5GB/day, NAT instance is sufficient
+- If budget is constrained and no Platform customers
+- If network errors are caused by other issues (check first)
+
+---
+
+#### 9.6.5 Scaling Decision Matrix
+
+Quick reference for when to trigger each scaling operation:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                       SCALING DECISION MATRIX                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Observation                          Action                                │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│  Tenant count approaching 200         → Add new database cell               │
+│  RDS CPU >70% for >1 hour            → Add new database cell               │
+│  Redis memory >80%                    → Upgrade Redis instance              │
+│  Redis evictions increasing           → Upgrade Redis instance              │
+│  Bulk job timeouts                    → Check NAT, then upgrade if needed  │
+│  New Enterprise customer              → Provision dedicated RDS             │
+│  New Platform customer                → Provision dedicated infrastructure  │
+│  API tasks at max (10)               → Increase max in auto-scaling        │
+│  Bulk workers at max (20)            → Increase max in auto-scaling        │
+│  DynamoDB throttling                  → Already on-demand, check queries   │
+│  R2 write costs >$100/month          → Review bulk job batching            │
+│                                                                              │
+│  ═══════════════════════════════════════════════════════════════════════   │
+│  KEY PRINCIPLE: Most scaling is automatic. Manual intervention is rare     │
+│  and primarily involves database cells and Enterprise provisioning.        │
+│  ═══════════════════════════════════════════════════════════════════════   │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
 ---
 
 ## 10. Operations
@@ -1514,8 +2179,8 @@ While R2 has zero egress fees, write operations (Class A) have costs that can sp
 │  │ 100,000,000  │ 100M        │ $450.00    │ 1 TB = $15.00      │         │
 │  └──────────────┴─────────────┴────────────┴────────────────────┘         │
 │                                                                              │
-│  Note: Mega tier customers generating 100M DPPs/month = ~$450 in R2 writes │
-│  This should be factored into Mega tier pricing (€4,999 easily covers it)  │
+│  Note: Platform tier customers generating 100M DPPs/month = ~$450 in R2 writes │
+│  This is factored into Platform tier custom pricing negotiations               │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1812,8 +2477,8 @@ This document covers **infrastructure** (how we run the platform). The following
 | 2026-01 | Auto-scaling bulk workers (0-20) | Scale to zero, cost efficiency |
 | 2026-01 | Idempotent chunk processing | Handle worker crashes, SQS redelivery |
 | 2026-01 | DLQ with Lambda analyzer | Detect poison pills, auto-notify |
-| 2026-01 | Per-tenant R2 cost tracking | Cost attribution for Mega tier |
-| 2026-01 | NAT instance at launch | $3/mo vs $33/mo, upgrade at Mega tier |
+| 2026-01 | Per-tenant R2 cost tracking | Cost attribution for Platform tier |
+| 2026-01 | NAT instance at launch | $3/mo vs $33/mo, upgrade at Platform tier |
 | 2026-01 | Accept Mega ingestion as CAC | 12% of month 1 is acceptable for €60K LTV |
 
 ---
@@ -2044,5 +2709,7 @@ This document covers **infrastructure** (how we run the platform). The following
 | 1.0 | January 2026 | Architecture Team | Initial release |
 | 1.1 | January 2026 | Architecture Team | Added bulk DPP generation architecture |
 | 1.2 | January 2026 | Architecture Team | Added idempotency, DLQ handling, R2 cost monitoring |
-| 1.3 | January 2026 | Architecture Team | Added Mega tier ingestion spike handling, NAT bandwidth analysis, gross margin breakdown |
+| 1.3 | January 2026 | Architecture Team | Added Platform tier ingestion spike handling, NAT bandwidth analysis, gross margin breakdown |
 | 1.3.1 | January 2026 | Architecture Team | Added Section 12 (Standards & Data Formats), Appendix D (Planned Data Sovereignty Infrastructure) |
+| 1.4 | January 2026 | Architecture Team | Updated pricing model to Base Fee + Per-DPP, renamed Mega to Platform tier |
+| 1.5 | January 2026 | Architecture Team | Added Infrastructure Baseline (9.4), Auto-Scaling Layers (9.5), Manual Scaling Operations Guide (9.6) |
