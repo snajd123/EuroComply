@@ -927,6 +927,187 @@ resource "aws_ecs_service" "worker" {
   tags = {
     Name = "${var.app_name}-worker-${var.environment}"
   }
+
+  lifecycle {
+    ignore_changes = [desired_count]  # Allow autoscaling to manage
+  }
+}
+
+# ==============================================================================
+# AUTO-SCALING - API Service
+# ==============================================================================
+
+resource "aws_appautoscaling_target" "api" {
+  max_capacity       = 10
+  min_capacity       = 2
+  resource_id        = "service/${aws_ecs_cluster.main.name}/${aws_ecs_service.api.name}"
+  scalable_dimension = "ecs:service:DesiredCount"
+  service_namespace  = "ecs"
+}
+
+# Scale based on CPU utilization
+resource "aws_appautoscaling_policy" "api_cpu" {
+  name               = "${var.app_name}-api-cpu-scaling"
+  policy_type        = "TargetTrackingScaling"
+  resource_id        = aws_appautoscaling_target.api.resource_id
+  scalable_dimension = aws_appautoscaling_target.api.scalable_dimension
+  service_namespace  = aws_appautoscaling_target.api.service_namespace
+
+  target_tracking_scaling_policy_configuration {
+    predefined_metric_specification {
+      predefined_metric_type = "ECSServiceAverageCPUUtilization"
+    }
+    target_value       = 70.0
+    scale_in_cooldown  = 300
+    scale_out_cooldown = 60
+  }
+}
+
+# Scale based on request count per target
+resource "aws_appautoscaling_policy" "api_requests" {
+  name               = "${var.app_name}-api-request-scaling"
+  policy_type        = "TargetTrackingScaling"
+  resource_id        = aws_appautoscaling_target.api.resource_id
+  scalable_dimension = aws_appautoscaling_target.api.scalable_dimension
+  service_namespace  = aws_appautoscaling_target.api.service_namespace
+
+  target_tracking_scaling_policy_configuration {
+    predefined_metric_specification {
+      predefined_metric_type = "ALBRequestCountPerTarget"
+      resource_label         = "${aws_lb.main.arn_suffix}/${aws_lb_target_group.api.arn_suffix}"
+    }
+    target_value       = 1000.0  # Scale out when > 1000 requests per target
+    scale_in_cooldown  = 300
+    scale_out_cooldown = 60
+  }
+}
+
+# ==============================================================================
+# AUTO-SCALING - Worker Service (SQS-based)
+# ==============================================================================
+
+resource "aws_appautoscaling_target" "worker" {
+  max_capacity       = 20   # Scale up to 20 workers for bulk DPP generation
+  min_capacity       = 0    # Scale to zero when queue is empty (cost savings)
+  resource_id        = "service/${aws_ecs_cluster.main.name}/${aws_ecs_service.worker.name}"
+  scalable_dimension = "ecs:service:DesiredCount"
+  service_namespace  = "ecs"
+}
+
+# Scale based on SQS queue depth (ApproximateNumberOfMessagesVisible)
+resource "aws_appautoscaling_policy" "worker_sqs_scale_out" {
+  name               = "${var.app_name}-worker-sqs-scale-out"
+  policy_type        = "StepScaling"
+  resource_id        = aws_appautoscaling_target.worker.resource_id
+  scalable_dimension = aws_appautoscaling_target.worker.scalable_dimension
+  service_namespace  = aws_appautoscaling_target.worker.service_namespace
+
+  step_scaling_policy_configuration {
+    adjustment_type         = "ChangeInCapacity"
+    cooldown                = 60
+    metric_aggregation_type = "Average"
+
+    # 1-100 messages: add 1 worker
+    step_adjustment {
+      metric_interval_lower_bound = 0
+      metric_interval_upper_bound = 100
+      scaling_adjustment          = 1
+    }
+
+    # 100-500 messages: add 3 workers
+    step_adjustment {
+      metric_interval_lower_bound = 100
+      metric_interval_upper_bound = 500
+      scaling_adjustment          = 3
+    }
+
+    # 500-1000 messages: add 5 workers
+    step_adjustment {
+      metric_interval_lower_bound = 500
+      metric_interval_upper_bound = 1000
+      scaling_adjustment          = 5
+    }
+
+    # 1000+ messages: add 10 workers
+    step_adjustment {
+      metric_interval_lower_bound = 1000
+      scaling_adjustment          = 10
+    }
+  }
+}
+
+resource "aws_appautoscaling_policy" "worker_sqs_scale_in" {
+  name               = "${var.app_name}-worker-sqs-scale-in"
+  policy_type        = "StepScaling"
+  resource_id        = aws_appautoscaling_target.worker.resource_id
+  scalable_dimension = aws_appautoscaling_target.worker.scalable_dimension
+  service_namespace  = aws_appautoscaling_target.worker.service_namespace
+
+  step_scaling_policy_configuration {
+    adjustment_type         = "ChangeInCapacity"
+    cooldown                = 300  # Longer cooldown for scale-in
+    metric_aggregation_type = "Average"
+
+    # When queue is empty, scale in
+    step_adjustment {
+      metric_interval_upper_bound = 0
+      scaling_adjustment          = -1
+    }
+  }
+}
+
+# CloudWatch Alarm for scale-out (triggers when queue has messages)
+resource "aws_cloudwatch_metric_alarm" "worker_scale_out" {
+  alarm_name          = "${var.app_name}-worker-scale-out"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "ApproximateNumberOfMessagesVisible"
+  namespace           = "AWS/SQS"
+  period              = 60
+  statistic           = "Average"
+  threshold           = 0
+  alarm_description   = "Scale out workers when SQS queue has messages"
+  alarm_actions       = [aws_appautoscaling_policy.worker_sqs_scale_out.arn]
+
+  dimensions = {
+    QueueName = aws_sqs_queue.events.name
+  }
+}
+
+# CloudWatch Alarm for scale-in (triggers when queue is empty)
+resource "aws_cloudwatch_metric_alarm" "worker_scale_in" {
+  alarm_name          = "${var.app_name}-worker-scale-in"
+  comparison_operator = "LessThanOrEqualToThreshold"
+  evaluation_periods  = 5  # Wait 5 minutes before scaling in
+  metric_name         = "ApproximateNumberOfMessagesVisible"
+  namespace           = "AWS/SQS"
+  period              = 60
+  statistic           = "Average"
+  threshold           = 0
+  alarm_description   = "Scale in workers when SQS queue is empty"
+  alarm_actions       = [aws_appautoscaling_policy.worker_sqs_scale_in.arn]
+
+  dimensions = {
+    QueueName = aws_sqs_queue.events.name
+  }
+}
+
+# Alarm for high queue depth (alert if backlog growing)
+resource "aws_cloudwatch_metric_alarm" "sqs_backlog" {
+  alarm_name          = "${var.app_name}-sqs-backlog-high"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 3
+  metric_name         = "ApproximateNumberOfMessagesVisible"
+  namespace           = "AWS/SQS"
+  period              = 300
+  statistic           = "Average"
+  threshold           = 5000  # Alert if > 5000 messages backed up
+  alarm_description   = "SQS queue backlog is growing - workers may be stuck"
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+
+  dimensions = {
+    QueueName = aws_sqs_queue.events.name
+  }
 }
 
 # ==============================================================================
