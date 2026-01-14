@@ -163,8 +163,46 @@ module "growth_cell" {
 }
 
 # ==============================================================================
-# ELASTICACHE - Redis
+# ELASTICACHE - Redis (with encryption)
 # ==============================================================================
+
+# Custom parameter group for Redis
+resource "aws_elasticache_parameter_group" "redis" {
+  family = "redis7"
+  name   = "${var.app_name}-${var.environment}-redis7"
+
+  description = "Redis 7 parameter group for ${var.app_name} ${var.environment}"
+
+  # Memory management
+  parameter {
+    name  = "maxmemory-policy"
+    value = "volatile-lru"
+  }
+
+  # Enable lazy freeing for better performance during key eviction
+  parameter {
+    name  = "lazyfree-lazy-eviction"
+    value = "yes"
+  }
+}
+
+# Redis auth token (password) stored in Secrets Manager
+resource "random_password" "redis_auth" {
+  length           = 32
+  special          = true
+  override_special = "!#$%&*()-_=+[]{}|:,.<>?"
+}
+
+resource "aws_secretsmanager_secret" "redis_auth" {
+  name        = "${var.app_name}/redis-auth-token-${var.environment}"
+  description = "Redis AUTH token for ${var.app_name} ${var.environment}"
+  kms_key_id  = aws_kms_key.main.arn
+}
+
+resource "aws_secretsmanager_secret_version" "redis_auth" {
+  secret_id     = aws_secretsmanager_secret.redis_auth.id
+  secret_string = random_password.redis_auth.result
+}
 
 resource "aws_elasticache_cluster" "main" {
   cluster_id           = "${var.app_name}-${var.environment}"
@@ -173,13 +211,27 @@ resource "aws_elasticache_cluster" "main" {
   node_type            = "cache.t4g.micro"
   num_cache_nodes      = 1  # Single node to start, add HA later
   port                 = 6379
-  parameter_group_name = "default.redis7"
+  parameter_group_name = aws_elasticache_parameter_group.redis.name
 
   subnet_group_name  = module.vpc.elasticache_subnet_group_name
   security_group_ids = [module.vpc.cache_security_group_id]
 
+  # Encryption at rest
+  # Note: Uses service-managed encryption (AES-256)
+  # KMS CMK encryption requires replication group (aws_elasticache_replication_group)
+  at_rest_encryption_enabled = true
+
+  # Encryption in transit (TLS)
+  transit_encryption_enabled = true
+
   snapshot_retention_limit = 1
   snapshot_window          = "05:00-06:00"
+
+  # Auto minor version upgrade for security patches
+  auto_minor_version_upgrade = true
+
+  # Maintenance window for updates
+  maintenance_window = "sun:05:00-sun:06:00"
 
   tags = {
     Name = "${var.app_name}-${var.environment}"
@@ -457,7 +509,10 @@ resource "aws_iam_role_policy" "ecs_execution_secrets" {
         Action = [
           "secretsmanager:GetSecretValue"
         ]
-        Resource = "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:${var.app_name}/*"
+        Resource = [
+          "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:${var.app_name}/*",
+          aws_secretsmanager_secret.redis_auth.arn
+        ]
       },
       {
         Effect = "Allow"
@@ -723,6 +778,7 @@ resource "aws_ecs_task_definition" "api" {
         { name = "SQS_QUEUE_URL", value = aws_sqs_queue.events.url },
         { name = "REDIS_HOST", value = aws_elasticache_cluster.main.cache_nodes[0].address },
         { name = "REDIS_PORT", value = "6379" },
+        { name = "REDIS_TLS", value = "true" },  # TLS encryption enabled
         { name = "S3_BUCKET", value = aws_s3_bucket.assets.id },
       ]
 
@@ -730,6 +786,10 @@ resource "aws_ecs_task_definition" "api" {
         {
           name      = "DATABASE_URL"
           valueFrom = "${module.growth_cell.password_secret_arn}:connection_string::"
+        },
+        {
+          name      = "REDIS_AUTH_TOKEN"
+          valueFrom = aws_secretsmanager_secret.redis_auth.arn
         }
       ]
 
@@ -779,12 +839,17 @@ resource "aws_ecs_task_definition" "worker" {
         { name = "SQS_QUEUE_URL", value = aws_sqs_queue.events.url },
         { name = "REDIS_HOST", value = aws_elasticache_cluster.main.cache_nodes[0].address },
         { name = "REDIS_PORT", value = "6379" },
+        { name = "REDIS_TLS", value = "true" },  # TLS encryption enabled
       ]
 
       secrets = [
         {
           name      = "DATABASE_URL"
           valueFrom = "${module.growth_cell.password_secret_arn}:connection_string::"
+        },
+        {
+          name      = "REDIS_AUTH_TOKEN"
+          valueFrom = aws_secretsmanager_secret.redis_auth.arn
         }
       ]
 
@@ -979,4 +1044,10 @@ output "certificate_validation_records" {
       value  = dvo.resource_record_value
     }
   }
+}
+
+output "redis_auth_secret_arn" {
+  description = "ARN of the Redis AUTH token secret"
+  value       = aws_secretsmanager_secret.redis_auth.arn
+  sensitive   = true
 }
