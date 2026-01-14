@@ -445,6 +445,37 @@ curl https://api.eurocomply.eu/health
 | Queue depth growing | Worker issues | Check worker logs, scale up |
 | Certificate expiry | Missed renewal | Renew via ACM or Cloudflare |
 
+### Scaling Alert Response Guide
+
+The monitoring module sends scaling alerts to Slack. Each alert links to the relevant runbook in the Architecture Document (Section 9.6).
+
+| Alert | Severity | Response |
+|-------|----------|----------|
+| `tenant-count-high` (150+) | Warning | Review growth rate, schedule cell provisioning within 2 weeks |
+| `tenant-count-high` (180+) | Critical | **Immediate action**: Execute [Section 9.6.1](../EuroComply_Architecture_Document_v1.3.md#961-adding-a-new-database-cell) - Add new database cell |
+| `rds-cpu-warning` (60%+) | Warning | Check slow queries, consider query optimization or new cell |
+| `rds-cpu-critical` (75%+) | Critical | **Immediate action**: Execute [Section 9.6.1](../EuroComply_Architecture_Document_v1.3.md#961-adding-a-new-database-cell) - Add new database cell |
+| `rds-connections-warning` (120+) | Warning | Check connection pooling, application connection leaks |
+| `redis-memory-warning` (70%+) | Warning | Review cache TTLs, schedule Redis upgrade |
+| `redis-memory-critical` (85%+) | Critical | **Immediate action**: Execute [Section 9.6.2](../EuroComply_Architecture_Document_v1.3.md#962-upgrading-redis-instance) - Upgrade Redis instance |
+| `redis-evictions` (10+/hour) | Warning | Cache is full, upgrade Redis instance |
+| `nat-bandwidth-warning` (4GB+/hr) | Warning | Monitor bulk processing volume |
+| `nat-bandwidth-critical` (8GB+/hr) | Critical | Execute [Section 9.6.4](../EuroComply_Architecture_Document_v1.3.md#964-upgrading-nat-instance-to-nat-gateway) - Upgrade to NAT Gateway |
+| `api-tasks-near-max` (8/10) | Warning | Review traffic patterns, consider increasing `api_max_capacity` |
+| `api-tasks-at-max` (10/10) | Critical | **Immediate**: Increase `var.api_max_capacity` in Terraform and apply |
+| `bulk-workers-at-max` (20/20) | Warning | Increase `var.worker_max_capacity` in Terraform |
+| `dlq-warning` (1+ messages) | Warning | Check DLQ processor Lambda logs for failure patterns |
+| `dlq-critical` (10+ messages) | Critical | Systematic failure - investigate bulk job data quality |
+| `dynamodb-throttle` (any) | Warning | Unusual - check for hot partitions or runaway queries |
+
+**Dashboard Access:**
+- CloudWatch Dashboard: `eurocomply-production-scaling`
+- Direct link available in Slack alert messages
+
+**Escalation:**
+1. Warning alerts: Acknowledge in Slack, plan remediation within 24 hours
+2. Critical alerts: Immediate response required, notify team lead if >15 minutes
+
 ---
 
 ## Routine Maintenance

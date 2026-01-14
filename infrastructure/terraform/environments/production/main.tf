@@ -1391,8 +1391,70 @@ resource "aws_cloudwatch_metric_alarm" "rds_connections" {
 }
 
 # ==============================================================================
+# MONITORING & ALERTING
+# ==============================================================================
+
+# Slack webhook secret - create manually and store the webhook URL
+resource "aws_secretsmanager_secret" "slack_webhook" {
+  name = "${var.app_name}-slack-webhook-${var.environment}"
+
+  tags = local.security_tags
+}
+
+# Monitoring module - dashboard and scaling alerts
+module "monitoring" {
+  source = "../../modules/monitoring"
+
+  environment = var.environment
+  aws_region  = var.aws_region
+
+  # SNS topic for alerts
+  alert_topic_arn = aws_sns_topic.alerts.arn
+
+  # Slack configuration
+  slack_webhook_secret_arn = aws_secretsmanager_secret.slack_webhook.arn
+
+  # Resource identifiers
+  rds_instance_id         = module.growth_cell.identifier
+  elasticache_cluster_id  = aws_elasticache_cluster.main.id
+  ecs_cluster_name        = aws_ecs_cluster.main.name
+  ecs_api_service_name    = aws_ecs_service.api.name
+  ecs_worker_service_name = aws_ecs_service.worker.name
+  sqs_bulk_queue_name     = aws_sqs_queue.events.name
+  sqs_dlq_name            = aws_sqs_queue.events_dlq.name
+  dynamodb_table_name     = aws_dynamodb_table.items.name
+
+  # NAT instance (optional - leave empty if using NAT Gateway)
+  nat_instance_id = ""
+
+  # VPC configuration for Lambda
+  vpc_id                   = module.vpc.vpc_id
+  private_subnet_ids       = module.vpc.private_subnet_ids
+  lambda_security_group_id = module.vpc.app_security_group_id
+
+  # Database secret for tenant count Lambda
+  database_secret_arn = module.growth_cell.password_secret_arn
+
+  # Scaling thresholds (using defaults)
+  # Override if needed:
+  # tenant_count_warning  = 150
+  # tenant_count_critical = 180
+  # rds_cpu_warning       = 60
+  # rds_cpu_critical      = 75
+  # redis_memory_warning  = 70
+  # redis_memory_critical = 85
+
+  tags = local.common_tags
+}
+
+# ==============================================================================
 # OUTPUTS
 # ==============================================================================
+
+output "monitoring_dashboard_url" {
+  description = "URL to the CloudWatch scaling dashboard"
+  value       = module.monitoring.dashboard_url
+}
 
 output "vpc_id" {
   value = module.vpc.vpc_id
