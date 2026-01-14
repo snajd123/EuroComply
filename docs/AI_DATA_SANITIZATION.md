@@ -664,40 +664,236 @@ Rules:
 
 ---
 
-## 7. Implementation Status
+## 7. Implementation Plan
+
+### 7.1 Technology Choices
+
+| Component | Technology | Rationale |
+|-----------|-----------|-----------|
+| **PII Detection - Regex** | Custom TypeScript | High precision for structured patterns (email, phone, VAT) |
+| **PII Detection - NER** | [Compromise.js](https://github.com/spencermountain/compromise) | Lightweight, browser-compatible, good name/place detection |
+| **Document Parsing** | pdf-parse + xlsx | Extract text from common formats |
+| **Image OCR** | Tesseract.js (client) or AWS Textract (server) | Text extraction from images |
+| **Tokenization** | Custom TypeScript | Simple token replacement with position tracking |
+| **AI Provider** | Anthropic Claude Haiku | Cost-effective, fast, good extraction quality |
+
+### 7.2 MVP Scope vs. Future
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    MVP (Launch) vs. POST-LAUNCH                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  MVP - Required for AI Import Launch:                                       │
+│  ────────────────────────────────────                                       │
+│  ✅ Email detection (regex)                                                 │
+│  ✅ Phone detection (regex, international formats)                          │
+│  ✅ Credit card detection (regex + Luhn validation)                         │
+│  ✅ VAT/Tax ID detection (regex, EU formats)                                │
+│  ✅ IBAN detection (regex)                                                  │
+│  ✅ Basic name detection (Compromise.js NER + title prefixes)               │
+│  ✅ Customer review UI (show detections, allow overrides)                   │
+│  ✅ REDACT and TOKENIZE strategies                                          │
+│  ✅ Explicit consent checkbox                                               │
+│  ✅ Audit logging (hashes, counts, no PII values)                           │
+│  ✅ Anthropic API integration                                               │
+│                                                                              │
+│  POST-LAUNCH - Enhancements:                                                │
+│  ────────────────────────────                                               │
+│  📋 Address detection (complex, requires country-specific NER)              │
+│  📋 GENERALIZE and MASK strategies                                          │
+│  📋 Token restoration (reverse tokenization after extraction)               │
+│  📋 Custom organization patterns                                            │
+│  📋 Multi-language NER (German, French, Spanish)                            │
+│  📋 AWS Comprehend PII detection (more accurate, higher cost)               │
+│  📋 EU-hosted model option (Mistral via AWS Bedrock EU)                     │
+│  📋 Image/PDF OCR improvements                                              │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 7.3 Implementation Status
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| PII Detection - Email | Planned | Regex-based, high confidence |
-| PII Detection - Phone | Planned | International format support |
-| PII Detection - Names | Planned | Requires NER library integration |
-| PII Detection - Addresses | Planned | NER + country-specific patterns |
-| Sanitization Engine | Planned | Core tokenization logic |
-| Customer Review UI | Planned | React component for PII review |
-| Consent Tracking | Planned | Database schema, API endpoints |
-| Audit Logging | Planned | PostgreSQL storage |
-| Anthropic Integration | Planned | API client, error handling |
-| Token Restoration | Planned | Post-extraction value mapping |
-| Organization Settings | Planned | Settings UI, database schema |
+| PII Detection - Email | 📋 MVP | Regex-based, high confidence |
+| PII Detection - Phone | 📋 MVP | International format support |
+| PII Detection - Credit Card | 📋 MVP | Luhn validation included |
+| PII Detection - VAT/IBAN | 📋 MVP | EU format patterns |
+| PII Detection - Names | 📋 MVP | Compromise.js NER |
+| PII Detection - Addresses | 📋 Post-Launch | Complex, requires more NER work |
+| Sanitization - REDACT | 📋 MVP | Simple replacement |
+| Sanitization - TOKENIZE | 📋 MVP | Reversible tokens |
+| Sanitization - GENERALIZE/MASK | 📋 Post-Launch | Lower priority strategies |
+| Customer Review UI | 📋 MVP | React component |
+| Consent Tracking | 📋 MVP | Database + checkbox |
+| Audit Logging | 📋 MVP | PostgreSQL, no PII stored |
+| Anthropic Integration | 📋 MVP | Claude Haiku |
+| Token Restoration | 📋 Post-Launch | Nice-to-have |
+| Organization Settings | 📋 Post-Launch | Use sensible defaults first |
 
-**Required Before Production:**
+### 7.4 NER Library Evaluation
 
-- [ ] Execute DPA with Anthropic
-- [ ] Implement PII detection layer
-- [ ] Implement sanitization engine
-- [ ] Build customer review UI
-- [ ] Implement consent tracking
-- [ ] Add audit logging
-- [ ] Integration tests with sample documents
+We evaluated several NER options:
+
+| Library | Size | Speed | Name Detection | EU Language Support | Decision |
+|---------|------|-------|----------------|---------------------|----------|
+| **Compromise.js** | 200KB | Fast | Good | English only | ✅ MVP |
+| **spaCy (Python)** | 500MB | Medium | Excellent | Multi-language | ❌ Wrong stack |
+| **AWS Comprehend** | API | Medium | Excellent | Multi-language | 📋 Post-Launch |
+| **Google Cloud NLP** | API | Medium | Excellent | Multi-language | ❌ US jurisdiction |
+| **Presidio (MS)** | 100MB | Medium | Excellent | Multi-language | 📋 Evaluate |
+
+**MVP Decision:** Use Compromise.js for name detection with fallback to title-prefix heuristics ("Mr.", "Ms.", "Dr."). Good enough for English documents (majority of supplier docs). Add multi-language NER post-launch if customer demand exists.
+
+### 7.5 Pre-Production Checklist
+
+**Legal & Compliance:**
+- [ ] Execute DPA with Anthropic (in progress)
+- [ ] Update Terms of Service to cover AI processing
+- [ ] Update Privacy Notice with AI data flow
+- [ ] Document lawful basis for US transfer (SCCs + supplementary measures)
+
+**Implementation:**
+- [ ] Implement regex PII detectors (email, phone, CC, VAT, IBAN)
+- [ ] Integrate Compromise.js for name detection
+- [ ] Build sanitization engine (REDACT + TOKENIZE)
+- [ ] Build customer review UI component
+- [ ] Implement consent tracking (database + API)
+- [ ] Implement audit logging
+- [ ] Integrate Anthropic API with error handling
+
+**Testing:**
+- [ ] Unit tests for all PII detectors (>95% recall for MVP patterns)
+- [ ] Integration tests with sample documents (PDF, Excel, CSV)
+- [ ] False positive testing (product names vs. person names)
+- [ ] Performance testing (< 5s for 10MB document)
 - [ ] Security review of sanitization logic
-- [ ] Update customer-facing privacy notice
-- [ ] Document in API reference
+
+**Documentation:**
+- [ ] API reference for AI Import endpoints
+- [ ] Customer-facing help docs
+- [ ] Internal runbook for incident response
 
 ---
 
-## 8. Security Considerations
+## 8. GDPR Compliance for AI Import
 
-### 8.1 Threat Model
+### 8.1 Legal Basis for Processing
+
+AI Import involves two distinct processing activities:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    PROCESSING ACTIVITIES                                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ACTIVITY 1: PII Detection (EuroComply servers, EU)                         │
+│  ─────────────────────────────────────────────────                          │
+│  Controller: Customer (brand/manufacturer)                                  │
+│  Processor: EuroComply                                                      │
+│  Legal basis: Legitimate interest (security) + contract performance         │
+│  Location: EU (Frankfurt AWS region)                                        │
+│  GDPR compliance: ✅ Standard EU processing                                 │
+│                                                                              │
+│  ACTIVITY 2: AI Extraction (Anthropic, US)                                  │
+│  ─────────────────────────────────────────────────                          │
+│  Controller: Customer                                                       │
+│  Processor: EuroComply                                                      │
+│  Sub-processor: Anthropic                                                   │
+│  Legal basis: Explicit consent (for any PII not redacted)                   │
+│  Location: US                                                               │
+│  GDPR compliance: Requires supplementary measures (see below)               │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 8.2 Transfer Impact Assessment (TIA) Summary
+
+| Factor | Assessment | Mitigation |
+|--------|------------|------------|
+| **Data Type** | Product documents, may contain supplier PII | PII sanitization before transfer |
+| **Recipient** | Anthropic (US company) | DPA executed, SOC 2 Type II |
+| **US Laws** | FISA 702, EO 12333 exposure | SCCs + supplementary measures |
+| **Data Minimization** | Only sanitized text sent | Tokenization replaces PII |
+| **Residual Risk** | LOW if sanitization effective | Customer review catches edge cases |
+
+### 8.3 Supplementary Measures
+
+To achieve GDPR compliance for US transfer:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    SUPPLEMENTARY MEASURES                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  TECHNICAL MEASURES:                                                        │
+│  ✅ PII detection and sanitization before transfer                          │
+│  ✅ Customer review and explicit consent                                    │
+│  ✅ No storage of PII at Anthropic (stateless API)                          │
+│  ✅ TLS 1.3 encryption in transit                                           │
+│  ✅ Audit logging of all transfers                                          │
+│                                                                              │
+│  CONTRACTUAL MEASURES:                                                      │
+│  ✅ Standard Contractual Clauses (SCCs) with Anthropic                      │
+│  ✅ DPA specifying data handling requirements                               │
+│  ✅ Prohibition of data retention beyond API call                           │
+│  ✅ Commitment to notify of government access requests                      │
+│                                                                              │
+│  ORGANIZATIONAL MEASURES:                                                   │
+│  ✅ Customer consent UI with clear disclosure                               │
+│  ✅ Opt-in only (AI Import disabled by default)                             │
+│  ✅ Customer can choose to redact all PII                                   │
+│  ✅ Privacy notice updated with AI processing disclosure                    │
+│                                                                              │
+│  RESIDUAL RISK ASSESSMENT: LOW                                              │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│  With sanitization, the data transferred typically contains no PII.        │
+│  Edge cases (missed PII) are mitigated by customer review step.            │
+│  Anthropic does not store data beyond the API call.                        │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 8.4 Customer Consent Requirements
+
+Before any AI Import, customers must:
+
+1. **Review detected PII** - See all flagged items with redaction options
+2. **Choose sanitization** - Decide REDACT vs. PRESERVE for each item
+3. **Explicit consent** - Check consent box acknowledging:
+   - Data will be processed by Anthropic (US)
+   - Any preserved PII has appropriate legal basis
+   - They have authority to consent on behalf of data subjects (or have obtained consent)
+
+```typescript
+// Consent record structure
+interface AIImportConsent {
+  organizationId: string;
+  userId: string;
+  documentId: string;
+
+  // What was consented to
+  piiPreservedCount: number;
+  piiPreservedCategories: PIICategory[];
+
+  // Consent details
+  consentText: string;  // Exact text shown to user
+  consentVersion: string;  // For tracking consent text changes
+  consentTimestamp: Date;
+  consentIpAddress: string;
+  consentUserAgent: string;
+
+  // Retention
+  expiresAt: Date;  // Re-consent required after 90 days
+}
+```
+
+---
+
+## 9. Security Considerations
+
+### 9.1 Threat Model
 
 | Threat | Mitigation |
 |--------|------------|
@@ -708,7 +904,7 @@ Rules:
 | False negatives (missed PII) | Multiple detection methods, customer review |
 | Regex injection | Input validation, safe regex patterns |
 
-### 8.2 Testing Requirements
+### 9.2 Testing Requirements
 
 ```typescript
 // Required test coverage
@@ -738,9 +934,9 @@ describe('Audit', () => {
 
 ---
 
-## 9. Future Enhancements
+## 10. Future Enhancements
 
-### 9.1 EU-Hosted AI Alternative
+### 10.1 EU-Hosted AI Alternative
 
 To reduce transfer risk to LOW:
 
@@ -767,7 +963,7 @@ To reduce transfer risk to LOW:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### 9.2 Enhanced Detection
+### 10.2 Enhanced Detection
 
 - Integration with commercial PII detection APIs (Presidio, AWS Comprehend)
 - Machine learning classifier for organization-specific PII patterns
@@ -784,4 +980,4 @@ To reduce transfer risk to LOW:
 
 ---
 
-*Last Updated: 2026-01-12*
+*Last Updated: 2026-01-14*
