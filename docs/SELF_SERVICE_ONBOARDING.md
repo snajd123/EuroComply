@@ -83,10 +83,9 @@ See [USER_MANAGEMENT.md](./USER_MANAGEMENT.md) for workspace access, role templa
 │  │ │  STARTER  ││  GROWTH   ││   SCALE   ││ENTERPRISE ││ PLATFORM  │││
 │  │ │  €79/mo   ││  €199/mo  ││  €599/mo  ││ €1,499/mo ││  Custom   │││
 │  │ │+€0.10/DPP ││+€0.05/DPP ││+€0.02/DPP ││+€0.008/DPP││ Contact   │││
-│  │ │  10GB     ││   50GB    ││   200GB   ││    1TB    ││           │││
 │  │ │ [Select]  ││ [Select]  ││ [Select]  ││ [Select]  ││ [Contact] │││
 │  │ └───────────┘└───────────┘└───────────┘└───────────┘└───────────┘││
-│  │ All plans: Unlimited products, unlimited users, volume discounts ││
+│  │ All plans: Unlimited products, users, storage, + volume discounts││
 │  │ → Stripe Checkout redirect                                      ││
 │  └─────────────────────────────────────────────────────────────────┘│
 │                              │                                      │
@@ -382,10 +381,10 @@ enum OrganizationType {
 }
 
 enum SubscriptionPlan {
-  STARTER           // €79/mo base + €0.10/DPP, 10GB storage, unlimited products
-  GROWTH            // €199/mo base + €0.05/DPP, 50GB storage, unlimited products
-  SCALE             // €599/mo base + €0.02/DPP, 200GB storage, priority support
-  ENTERPRISE        // €1,499/mo base + €0.008/DPP, 1TB storage, dedicated support + SLA
+  STARTER           // €79/mo base + €0.10/DPP, unlimited storage, email support
+  GROWTH            // €199/mo base + €0.05/DPP, unlimited storage, email support
+  SCALE             // €599/mo base + €0.02/DPP, unlimited storage, priority support
+  ENTERPRISE        // €1,499/mo base + €0.008/DPP, unlimited storage, dedicated support + SLA
   PLATFORM          // Custom base + per-DPP, dedicated infrastructure
 }
 

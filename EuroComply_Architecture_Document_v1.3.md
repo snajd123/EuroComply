@@ -95,15 +95,17 @@ EuroComply consists of four integrated workspaces:
 
 ### 2.2 Pricing Tiers
 
-| Tier | Base Fee | Storage | DPP Price | Volume Discounts | Target Customer |
-|------|----------|---------|-----------|------------------|-----------------|
-| Starter | €79/month | 10 GB | €0.10/DPP | 10K+: €0.08 | Micro-businesses, testing |
-| Growth | €199/month | 50 GB | €0.05/DPP | 50K+: €0.03, 100K+: €0.02 | Small brands |
-| Scale | €599/month | 200 GB | €0.02/DPP | 500K+: €0.01, 1M+: €0.008 | Mid-market manufacturers |
-| Enterprise | €1,499/month | 1 TB | €0.008/DPP | 5M+: €0.005, 10M+: €0.003 | Large brands |
-| Platform | Custom | Custom | €0.001-0.003 | Negotiated | Fortune 500 |
+| Tier | Base Fee | DPP Price | Volume Discounts | Target Customer |
+|------|----------|-----------|------------------|-----------------|
+| Starter | €79/month | €0.10/DPP | 10K+: €0.08 | Micro-businesses, testing |
+| Growth | €199/month | €0.05/DPP | 50K+: €0.03, 100K+: €0.02 | Small brands |
+| Scale | €599/month | €0.02/DPP | 500K+: €0.01, 1M+: €0.008 | Mid-market manufacturers |
+| Enterprise | €1,499/month | €0.008/DPP | 5M+: €0.005, 10M+: €0.003 | Large brands |
+| Platform | Custom | €0.001-0.003 | Negotiated | Fortune 500 |
 
-All tiers include unlimited products/SKUs and unlimited users. Per-DPP pricing includes EPCIS events and 10-year hosting.
+*All tiers include unlimited storage for products, images, PDFs, and all workspace data.*
+
+All tiers include unlimited products/SKUs, unlimited users, and unlimited storage. Per-DPP pricing includes EPCIS events and 10-year hosting.
 
 ### 2.3 Traffic Patterns
 

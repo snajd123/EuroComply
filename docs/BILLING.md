@@ -86,13 +86,15 @@ EuroComply offers five pricing tiers. All tiers include full platform access wit
 
 ### Tier Comparison
 
-| Plan | Base Fee | Storage | Starting DPP Price | Volume Discounts | Support |
-|------|----------|---------|-------------------|------------------|---------|
-| **Starter** | €79/mo | 10 GB | €0.10/DPP | 10K+: €0.08 | Email |
-| **Growth** | €199/mo | 50 GB | €0.05/DPP | 50K+: €0.03, 100K+: €0.02 | Email |
-| **Scale** | €599/mo | 200 GB | €0.02/DPP | 500K+: €0.01, 1M+: €0.008 | Priority |
-| **Enterprise** | €1,499/mo | 1 TB | €0.008/DPP | 5M+: €0.005, 10M+: €0.003 | Dedicated |
-| **Platform** | Custom | Custom | €0.001-0.003 | Negotiated | SLA |
+| Plan | Base Fee | Starting DPP Price | Volume Discounts | Support |
+|------|----------|-------------------|------------------|---------|
+| **Starter** | €79/mo | €0.10/DPP | 10K+: €0.08 | Email |
+| **Growth** | €199/mo | €0.05/DPP | 50K+: €0.03, 100K+: €0.02 | Email |
+| **Scale** | €599/mo | €0.02/DPP | 500K+: €0.01, 1M+: €0.008 | Priority |
+| **Enterprise** | €1,499/mo | €0.008/DPP | 5M+: €0.005, 10M+: €0.003 | Dedicated |
+| **Platform** | Custom | €0.001-0.003 | Negotiated | SLA |
+
+*All tiers include unlimited storage for products, images, PDFs, and all workspace data.*
 
 ### Annual Pricing (20% discount on base fee)
 
@@ -110,6 +112,7 @@ EuroComply offers five pricing tiers. All tiers include full platform access wit
 - All four workspaces (Design, Operations, Marketing, Compliance)
 - Unlimited products/SKUs (no catalog size limits)
 - Unlimited users within organization
+- **Unlimited storage** (products, images, PDFs, all data)
 - Full API access and webhooks
 - Shopify integration
 - Permanent DPP hosting (10+ years)
@@ -137,7 +140,6 @@ EuroComply offers five pricing tiers. All tiers include full platform access wit
 |--------|-------|
 | SSO/SAML | €99/month |
 | Custom Domain | €49/month |
-| Additional Storage (100 GB) | €29/month |
 
 ---
 
@@ -204,9 +206,7 @@ model Organization {
   billingCycle      Cycle     // MONTHLY, ANNUAL
   currentPeriodEnd  DateTime?
 
-  // Storage
-  storageLimit      BigInt    // Bytes (10GB, 50GB, 200GB, 1TB, custom)
-  storageUsed       BigInt    @default(0)
+  // Note: Storage is unlimited for all plans (no tracking needed)
 
   // DPP Pricing (per-DPP rate in cents)
   baseDppPrice      Int       // 10, 5, 2, 0.8, or custom (in cents)
@@ -426,10 +426,7 @@ function calculateDppCost(plan: Plan, dppCount: number): number {
 │     • Historical data: "Jan: 50K, Feb: 75K, Mar: 120K"          │
 │     • Trend visualization in dashboard                          │
 │                                                                  │
-│  5. STORAGE TRACKING (Separate from DPP billing)                │
-│     • Storage metered separately from DPP count                 │
-│     • Warning at 80%: "Storage: 160GB / 200GB used"             │
-│     • Block at 100%: "Upgrade or delete files"                  │
+│  Note: Storage is UNLIMITED - no tracking or limits needed      │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -478,7 +475,7 @@ function calculateDppCost(plan: Plan, dppCount: number): number {
 │     │   - 500K+: €0.01/DPP                         │           │
 │     │   - 1M+: €0.008/DPP                          │           │
 │     │                                               │           │
-│     │ • New storage: 200 GB (was 50 GB)            │           │
+│     │ • Storage: Unlimited (no change)            │           │
 │     │ • Priority support enabled                   │           │
 │     │                                               │           │
 │     │ [Cancel]  [Confirm Upgrade]                  │           │
@@ -489,7 +486,6 @@ function calculateDppCost(plan: Plan, dppCount: number): number {
 │     • Immediate charge: €200.00                                 │
 │     • Update Organization.plan = 'SCALE'                        │
 │     • Update Organization.baseDppPrice = 2 (cents)              │
-│     • Update Organization.storageLimit = 200GB                  │
 │     • DPPs issued rest of month at new rate                     │
 │                                                                  │
 │  5. DPP BILLING FOR SPLIT MONTH                                 │
@@ -512,23 +508,12 @@ function calculateDppCost(plan: Plan, dppCount: number): number {
 │     Target: Growth (€199/month base)                            │
 │     Days remaining in period: 20 days                           │
 │                                                                  │
-│  2. CHECK STORAGE USAGE                                         │
-│     Current storage: 45 GB                                      │
-│     Target limit: 50 GB                                         │
-│     Result: ✅ OK (under new limit)                             │
-│                                                                  │
-│     if (storageUsed > targetLimit) {                            │
-│       throw new Error(                                          │
-│         'Cannot downgrade: 180GB used exceeds Growth 50GB limit'│
-│       );                                                         │
-│     }                                                            │
-│                                                                  │
-│  3. CALCULATE CREDIT                                            │
+│  2. CALCULATE CREDIT                                            │
 │     • Unused Scale credit: €599 × (20/30) = €399.33            │
 │     • Growth cost: €199 × (20/30) = €132.67                    │
 │     • Credit balance: €266.66                                   │
 │                                                                  │
-│  4. CONFIRM WITH USER                                           │
+│  3. CONFIRM WITH USER                                           │
 │     ┌──────────────────────────────────────────────┐           │
 │     │ Downgrade to Growth                           │           │
 │     ├──────────────────────────────────────────────┤           │
@@ -541,16 +526,15 @@ function calculateDppCost(plan: Plan, dppCount: number): number {
 │     │   - 50K+: €0.03/DPP                          │           │
 │     │   - 100K+: €0.02/DPP                         │           │
 │     │                                               │           │
-│     │ • New storage: 50 GB (was 200 GB)            │           │
+│     │ • Storage: Unlimited (no change)            │           │
 │     │ • Priority support disabled                  │           │
 │     │                                               │           │
 │     │ [Cancel]  [Confirm Downgrade]                │           │
 │     └──────────────────────────────────────────────┘           │
 │                                                                  │
-│  5. EXECUTE DOWNGRADE                                           │
+│  4. EXECUTE DOWNGRADE                                           │
 │     • Update Organization.plan = 'GROWTH'                       │
 │     • Update Organization.baseDppPrice = 5 (cents)              │
-│     • Update Organization.storageLimit = 50GB                   │
 │     • Credit balance shown on next invoice                      │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
@@ -846,7 +830,6 @@ Billing management is restricted to users with **ADMIN** role.
 | View current plan | ✅ | ❌ |
 | View invoices | ✅ | ❌ |
 | View DPP usage | ✅ | ❌ |
-| View storage usage | ✅ | ❌ |
 | Update payment method | ✅ | ❌ |
 | Upgrade plan | ✅ | ❌ |
 | Downgrade plan | ✅ | ❌ |
@@ -884,10 +867,6 @@ Billing management is restricted to users with **ADMIN** role.
 │  Estimated DPP cost: €12,500.00                                │
 │                                                                  │
 │  Next discount at 1M DPPs: €0.008/DPP                          │
-│                                                                  │
-│  STORAGE                                                        │
-│  ───────                                                        │
-│  Used: 145 GB / 200 GB [████████████░░░░] 72%                   │
 │                                                                  │
 │  INVOICE HISTORY                                                │
 │  ────────────────                                               │
@@ -974,7 +953,6 @@ async function createSubscription(orgId: string, plan: Plan, cycle: Cycle) {
       billingCycle: cycle,
       currentPeriodEnd: new Date(subscription.current_period_end * 1000),
       subscriptionStatus: 'ACTIVE',
-      storageLimit: limits.storage,
       baseDppPrice: limits.dppPrice,
       volumeDiscounts: limits.volumeDiscounts,
     },
@@ -1024,14 +1002,13 @@ function getUsagePriceId(plan: Plan): string {
 }
 
 function getPlanLimits(plan: Plan) {
+  // Note: Storage is unlimited for all plans - no storage limits tracked
   const limits = {
     STARTER: {
-      storage: 10n * 1024n * 1024n * 1024n, // 10 GB
       dppPrice: 10, // €0.10 in cents
       volumeDiscounts: [{ threshold: 10000, price: 8 }],
     },
     GROWTH: {
-      storage: 50n * 1024n * 1024n * 1024n, // 50 GB
       dppPrice: 5, // €0.05 in cents
       volumeDiscounts: [
         { threshold: 50000, price: 3 },
@@ -1039,7 +1016,6 @@ function getPlanLimits(plan: Plan) {
       ],
     },
     SCALE: {
-      storage: 200n * 1024n * 1024n * 1024n, // 200 GB
       dppPrice: 2, // €0.02 in cents
       volumeDiscounts: [
         { threshold: 500000, price: 1 },
@@ -1047,7 +1023,6 @@ function getPlanLimits(plan: Plan) {
       ],
     },
     ENTERPRISE: {
-      storage: 1024n * 1024n * 1024n * 1024n, // 1 TB
       dppPrice: 0.8, // €0.008 in cents (0.8 = 0.008 EUR)
       volumeDiscounts: [
         { threshold: 5000000, price: 0.5 },
@@ -1055,7 +1030,6 @@ function getPlanLimits(plan: Plan) {
       ],
     },
     PLATFORM: {
-      storage: 0n, // Custom
       dppPrice: 0.3, // Custom, typically €0.003
       volumeDiscounts: [], // Custom negotiated
     },
@@ -1240,9 +1214,7 @@ async function getCurrentUsage(orgId: string) {
       price: nextDiscount.price,
       dppsUntil: nextDiscount.threshold - org.dppCountThisMonth,
     } : null,
-    storageUsed: org.storageUsed,
-    storageLimit: org.storageLimit,
-    storagePercentage: Number(org.storageUsed * 100n / org.storageLimit),
+    storage: 'unlimited',  // All plans include unlimited storage
   };
 }
 

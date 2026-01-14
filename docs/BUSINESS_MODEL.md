@@ -114,7 +114,7 @@ EuroComply uses a **Base Fee + Per-DPP** pricing model that separates platform a
 │  ├── Full platform access (all 4 workspaces)                    │
 │  ├── Unlimited products/SKUs (no catalog size limits)           │
 │  ├── Unlimited users                                            │
-│  ├── PLM/PIM/ERP data storage (product specs, BOMs, content)    │
+│  ├── Unlimited storage (products, images, PDFs, all data)       │
 │  ├── API access and webhooks                                    │
 │  └── Support level (varies by tier)                             │
 │                                                                  │
@@ -131,13 +131,15 @@ EuroComply uses a **Base Fee + Per-DPP** pricing model that separates platform a
 
 ### Pricing Tiers
 
-| Tier | Base Fee | Storage Included | Starting DPP Price | Volume Discounts |
-|------|----------|------------------|-------------------|------------------|
-| **Starter** | €79/mo | 10 GB | €0.10/DPP | 10K+: €0.08 |
-| **Growth** | €199/mo | 50 GB | €0.05/DPP | 50K+: €0.03, 100K+: €0.02 |
-| **Scale** | €599/mo | 200 GB | €0.02/DPP | 500K+: €0.01, 1M+: €0.008 |
-| **Enterprise** | €1,499/mo | 1 TB | €0.008/DPP | 5M+: €0.005, 10M+: €0.003 |
-| **Platform** | Custom | Custom | €0.001-0.003/DPP | Negotiated |
+| Tier | Base Fee | Starting DPP Price | Volume Discounts |
+|------|----------|-------------------|------------------|
+| **Starter** | €79/mo | €0.10/DPP | 10K+: €0.08 |
+| **Growth** | €199/mo | €0.05/DPP | 50K+: €0.03, 100K+: €0.02 |
+| **Scale** | €599/mo | €0.02/DPP | 500K+: €0.01, 1M+: €0.008 |
+| **Enterprise** | €1,499/mo | €0.008/DPP | 5M+: €0.005, 10M+: €0.003 |
+| **Platform** | Custom | €0.001-0.003/DPP | Negotiated |
+
+*All tiers include unlimited storage for products, images, PDFs, and all workspace data.*
 
 ### Volume Discount Details
 
@@ -184,11 +186,25 @@ Each tier has built-in volume discount thresholds that automatically apply as mo
 
 *Per-DPP fees are always billed monthly based on actual usage.*
 
+### Unlimited Storage Policy
+
+All tiers include **unlimited storage** for:
+- Product data, specifications, and BOMs
+- Product images and marketing assets
+- PDFs (certifications, spec sheets, compliance documents)
+- Supplier documentation and certificates
+- Videos and rich media content
+- All workspace data (Design, Operations, Marketing, Compliance)
+
+**Fair Use**: Storage is intended for product lifecycle and compliance data related to your business operations. We reserve the right to contact customers with usage patterns significantly exceeding typical business use (e.g., using EuroComply as general-purpose file hosting unrelated to products).
+
+**No Surprises**: We will never charge overage fees or automatically upgrade your tier based on storage. If usage becomes extreme, we'll work with you to find a solution.
+
 ---
 
 ## Feature Comparison
 
-All tiers include full platform access. Differences are in storage, support, and per-DPP pricing:
+All tiers include full platform access. Differences are in support level and per-DPP pricing:
 
 | Feature | Starter | Growth | Scale | Enterprise | Platform |
 |---------|---------|--------|-------|------------|----------|
@@ -200,7 +216,7 @@ All tiers include full platform access. Differences are in storage, support, and
 | **Limits** | | | | | |
 | Products/SKUs | Unlimited | Unlimited | Unlimited | Unlimited | Unlimited |
 | Users | Unlimited | Unlimited | Unlimited | Unlimited | Unlimited |
-| Storage Included | 10 GB | 50 GB | 200 GB | 1 TB | Custom |
+| Storage | Unlimited | Unlimited | Unlimited | Unlimited | Unlimited |
 | API Rate Limit | 100/min | 500/min | 2,000/min | 10,000/min | Custom |
 | **DPP Pricing** | | | | | |
 | Base DPP Price | €0.10 | €0.05 | €0.02 | €0.008 | Custom |
@@ -226,7 +242,6 @@ All tiers include full platform access. Differences are in storage, support, and
 |--------|-------|
 | SSO/SAML | €99/month |
 | Custom Domain | €49/month |
-| Additional Storage (100 GB) | €29/month |
 
 ---
 
@@ -904,7 +919,7 @@ Targeting SMEs and mid-market companies who:
 Awareness → Trial → Conversion → Expansion
     │          │         │           │
     │          │         │           └── Volume growth (more DPPs = more revenue)
-    │          │         └── Subscribe (tier based on support/storage needs)
+    │          │         └── Subscribe (tier based on support needs + DPP volume)
     │          └── 14-day free trial (full platform access, 100 DPPs free)
     └── Content, SEO, App Store, Partnerships
 ```
