@@ -138,8 +138,27 @@ Each workspace owns and versions its own data independently:
 
 1. **Design creates versioned product definitions** - BOMs, materials, specs tracked with full version history
 2. **Marketing creates versioned content** - Names, descriptions, images with independent versioning (can view Design data while editing)
-3. **Operations creates immutable records** - Batch records lock a specific Design version at production time
+3. **Operations creates immutable records** - Batch records reference a specific Design version at production time
 4. **Compliance issues immutable snapshots** - DPP captures specific Design + Marketing versions at issuance
+
+**Version Reference Semantics (Clarification):**
+
+When Operations creates a BatchRecord or Compliance issues a DPP, they **reference** a specific DesignVersion (e.g., v2). This is a **read-only reference**, not a "lock" in the database sense:
+
+| Action | What Happens | Design Workspace Impact |
+|--------|--------------|------------------------|
+| BatchRecord created referencing v2 | Stores `designVersionId: v2` | **None** - Design retains full control |
+| Design releases v3 | v3 becomes current | BatchRecord still references v2 (valid) |
+| Design archives v2 | v2 status → ARCHIVED | BatchRecord reference remains valid |
+| Design deletes v2 | **Blocked** by foreign key | Cannot delete referenced versions |
+
+**Key Rules:**
+- Operations and Compliance have **no write access** to Design data - only Design can modify DesignVersions
+- **Reference protection**: Versions with active references (BatchRecords, DPPSnapshots) cannot be deleted (foreign key constraint), but CAN be archived
+- **No implicit locking**: Operations cannot prevent Design from releasing new versions or archiving old ones
+- **Deletion safety**: To delete a DesignVersion, all BatchRecords and DPPSnapshots referencing it must first be deleted (rare, typically only in development/testing)
+
+This ensures clear ownership while maintaining referential integrity.
 
 **Compliance Write Behavior:** While Compliance has read-only access to Design, Marketing, and Operations data, the "ISSUE" operation writes to Compliance-owned tables: `Passport` (the issued VC) and `DPPSnapshot` (the immutable data capture). This maintains separation of concerns - Compliance cannot modify source data, only create signed snapshots of it.
 

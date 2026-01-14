@@ -41,22 +41,28 @@ EuroComply is a B2B SaaS platform for EU Digital Product Passport (DPP) complian
 
 ### Cost Summary
 
-| Stage | Customers | Infrastructure | Revenue | Margin |
-|-------|-----------|----------------|---------|--------|
-| Launch | 0-10 | €158/month | €1,290 | 88% |
-| Growth | 50-200 | €158-211/month | €6,450-25,800 | 97-99% |
-| Scale | 200-500 | €400-800/month | €40,000-100,000 | 98% |
+| Stage | Customers | Infrastructure | Revenue | Gross Margin |
+|-------|-----------|----------------|---------|--------------|
+| Launch | 0-10 | €158/month | €1,290 | 70-75% |
+| Growth | 50-200 | €200-400/month | €6,450-25,800 | 74-78% |
+| Scale | 200-500 | €600-1,200/month | €40,000-100,000 | 76-80% |
 
-### Gross Margin by Tier
+### Realistic Gross Margin by Tier
 
-| Tier | Price | Infra Cost | Gross Margin |
-|------|-------|------------|--------------|
-| Growth (€129) | €129/mo | <€5 | **96%** |
-| Scale (€399) | €399/mo | €10-15 | **96%** |
-| Enterprise (€999) | €999/mo | ~€100 | **90%** |
-| Mega (€4,999) | €4,999/mo | €300-500 | **90-94%** |
+| Tier | Price | Infra | Payment (3%) | API/Support | Total COGS | Margin |
+|------|-------|-------|--------------|-------------|------------|--------|
+| Growth (€129) | €129/mo | €5 | €4 | €5 | €14 | **74%** |
+| Scale (€399) | €399/mo | €15 | €12 | €15 | €42 | **79%** |
+| Enterprise (€999) | €999/mo | €100 | €30 | €50 | €180 | **82%** |
+| Mega (€4,999) | €4,999/mo | €400 | €150 | €200 | €750 | **85%** |
 
-Infrastructure costs scale linearly with revenue, ensuring healthy margins at all tiers.
+**Cost Components:**
+- **Infrastructure**: AWS (RDS, ECS, ElastiCache) + Cloudflare (R2, Workers)
+- **Payment processing**: Stripe fees (~2.9% + €0.25 per transaction)
+- **API costs**: walt.id credentials, Anthropic AI import, GLEIF/VIES verification
+- **Support allocation**: Per-customer support cost estimate
+
+Note: Infrastructure costs scale sub-linearly at higher tiers due to shared resources.
 
 ---
 
