@@ -245,17 +245,24 @@ EuroComply uses a modular architecture. Modules are the backend capabilities tha
 
 ### Volume-Based Pricing
 
-All customers receive full platform access. Tier differentiation is based solely on catalog capacity.
+All customers receive full platform access. Tier differentiation is based on catalog capacity and item volume.
 
-| Plan | Monthly | Annual | Products | AI Imports | API | Support |
-|------|---------|--------|----------|------------|-----|---------|
-| **Growth** | €129 | €1,290/yr | 2,000 | 100/mo | Rate Limited | Email |
-| **Scale** | €399 | €3,990/yr | 20,000 | 1,000/mo | High Limits | Priority |
-| **Enterprise** | Custom | Custom | Unlimited | Custom | Custom | Dedicated + SLA |
+| Plan | Monthly | Annual | Products | Items | Max Batch | AI Imports | Support |
+|------|---------|--------|----------|-------|-----------|------------|---------|
+| **Growth** | €129 | €1,290/yr | 500 | 10,000 | 10,000 | 100/mo | Email |
+| **Scale** | €399 | €3,990/yr | 5,000 | 1,000,000 | 100,000 | 1,000/mo | Priority |
+| **Enterprise** | €999 | €9,990/yr | Unlimited | 100,000,000 | 1,000,000 | Custom | Dedicated |
+| **Mega** | €4,999 | €49,990/yr | Unlimited | Unlimited | 10,000,000 | Custom | Dedicated + SLA |
 
 **Included in all plans:** All four workspaces, full module access, Shopify Sync, API Access, Unlimited Users, Permanent DPP Hosting.
 
-**Volume Overages:** €10 per 100 additional SKUs beyond plan limits.
+**Item Overage Pricing:**
+| Tier | Overage Rate |
+|------|--------------|
+| Growth | Upgrade required |
+| Scale | €0.01 per 1,000 items |
+| Enterprise | €0.005 per 1,000 items |
+| Mega | Included |
 
 ---
 
@@ -438,7 +445,7 @@ Track the complete journey of every product with GS1 EPCIS 2.0 integration. Euro
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-See [EPCIS_INTEGRATION.md](docs/EPCIS_INTEGRATION.md) for full documentation.
+See [EuroComply_Architecture_Document_v1.3.md](./EuroComply_Architecture_Document_v1.3.md) for technical details on item tracking.
 
 ### Multi-Party Attestation (All Workspaces)
 
@@ -539,34 +546,57 @@ EuroComply uses a **dual-path architecture** for cost-effective high-volume DPP 
 
 | Path | Component | Technology | Purpose |
 |------|-----------|------------|---------|
-| **Write** | Compute | AWS ECS Fargate | Containerized API |
-| **Write** | Database | AWS RDS | Managed PostgreSQL |
+| **Write** | Compute | AWS ECS Fargate | Containerized API + Workers |
+| **Write** | Database | AWS RDS PostgreSQL | Products, passports, attestations |
+| **Write** | Items DB | AWS DynamoDB | Item-level data (billions of records) |
 | **Write** | Cache | AWS ElastiCache | Managed Redis |
 | **Write** | Storage | AWS S3 | Asset storage |
 | **Read** | CDN | Cloudflare | Global edge, unlimited bandwidth |
-| **Read** | Origins | Hetzner (EU) | Static DPP files |
+| **Read** | Storage | Cloudflare R2 | Static DPP files (zero egress) |
+| **Read** | Edge | Cloudflare Workers | DPP serving + lazy generation |
 | **Both** | Frontend | Vercel | Next.js hosting |
 
-**Why hybrid?** ESPR requires free DPP access. AWS bandwidth costs would be ~$38k/month at 1B scans/day. Cloudflare + Hetzner read path is fixed at ~$185/month for realistic capacity of ~10-20B scans/day (depends on cache hit rate).
+**Why hybrid?** ESPR requires free DPP access. AWS bandwidth costs would be ~$38k/month at 1B scans/day. Cloudflare R2 has **zero egress fees** - unlimited DPP scans at fixed cost.
 
-**Infrastructure Cost Breakdown:**
+**Infrastructure Cost (from Architecture Doc v1.3):**
 
-| Path | Component | Development | Production (10K users) |
-|------|-----------|-------------|------------------------|
-| **Read** (DPP serving) | Cloudflare + Hetzner | ~$20/month | ~$185/month (fixed) |
-| **Write** (API, database) | AWS (full stack) | ~$70/month | ~$600-1,000/month |
-| **Total** | | **~$90/month** | **~$800-1,200/month** |
+| Stage | Customers | Monthly Cost | Notes |
+|-------|-----------|--------------|-------|
+| Launch | 0-10 | €158/month | Base infrastructure |
+| Growth | 50-200 | €158-211/month | Scales with usage |
+| Scale | 200-500 | €400-800/month | Additional cells |
 
-*Read path costs fixed within bandwidth limits (~60TB/month). Write path includes often-overlooked items (NAT Gateway, CloudWatch, etc.). See [INFRASTRUCTURE.md](INFRASTRUCTURE.md) for detailed breakdown and capacity caveats.*
+**Base Cost Breakdown:**
+| Component | Monthly Cost |
+|-----------|--------------|
+| Fargate API (2 tasks) | €17 |
+| Fargate Workers (1-21 auto-scaling) | €8-148 |
+| RDS PostgreSQL (Multi-AZ) | €53 |
+| DynamoDB (on-demand) | €1-45 |
+| ElastiCache Redis | €11 |
+| Cloudflare Pro + Workers + R2 | €25-42 |
+| Other (ALB, NAT, KMS, logs) | €35 |
+
+See [EuroComply_Architecture_Document_v1.3.md](./EuroComply_Architecture_Document_v1.3.md) for detailed breakdown.
 
 ---
 
 ## Data Model
 
+### Hybrid Database Architecture
+
+EuroComply uses polyglot persistence for different data patterns:
+
+| Database | Purpose | Scale |
+|----------|---------|-------|
+| **PostgreSQL** | Products, passports, attestations, user data | ~200 tenants/cell (schema-per-tenant) |
+| **DynamoDB** | Item-level serialization (serial numbers) | Billions of records |
+| **Cloudflare R2** | Static DPP files | Unlimited (zero egress) |
+
 ### Core Entities
 
 ```
-Organization (tenant)
+Organization (tenant) - each gets dedicated PostgreSQL schema
 ├── Products (Identity Only)
 │   ├── sku: String (unique within org)
 │   ├── gtin: String (optional, globally unique)
@@ -587,7 +617,13 @@ Organization (tenant)
 ├── BatchRecords (immutable - owned by Operations workspace)
 │   ├── productId, batchNumber, quantity
 │   ├── designVersionId (locks specific Design version)
-│   └── producedAt, facility, EPCIS events
+│   └── producedAt, facility
+│
+├── Items (DynamoDB - item-level serialization)
+│   ├── PK: ORG#{orgId}#PROD#{productId}
+│   ├── SK: ITEM#{serialNumber}
+│   ├── status, lifecycle events
+│   └── dppUrl (Cloudflare R2 path)
 │
 ├── DPPSnapshots (immutable - owned by Compliance workspace)
 │   ├── productId, passportId
@@ -793,18 +829,17 @@ Organizations own their data. Full portability guaranteed:
 
 | Document | Description |
 |----------|-------------|
+| [EuroComply_Architecture_Document_v1.3.md](./EuroComply_Architecture_Document_v1.3.md) | **Master architecture document** |
 | [USER_MANAGEMENT.md](./docs/USER_MANAGEMENT.md) | User roles, permissions, and workspace data ownership |
-| [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) | Technical implementation roadmap |
 | [BUSINESS_MODEL.md](./docs/BUSINESS_MODEL.md) | Pricing and business model |
-| [SCALABILITY.md](./docs/SCALABILITY.md) | CDN-backed DPP serving architecture (scalable to billions) |
-| [EPCIS_INTEGRATION.md](./docs/EPCIS_INTEGRATION.md) | Supply chain lifecycle tracking |
-| [EU_INTEGRATION.md](./docs/EU_INTEGRATION.md) | EBSI and EU DPP Registry integration |
+| [SECURITY.md](./docs/SECURITY.md) | 7-layer security architecture |
+| [DATA_SOVEREIGNTY.md](./docs/DATA_SOVEREIGNTY.md) | Data ownership and export |
 | [ARCHITECTURE_PORTABILITY.md](./docs/ARCHITECTURE_PORTABILITY.md) | Data portability architecture |
 | [VERIFIABLE_CREDENTIALS.md](./docs/VERIFIABLE_CREDENTIALS.md) | VC/DID technical details |
 | [MULTI_PARTY_ATTESTATION.md](./docs/MULTI_PARTY_ATTESTATION.md) | Third-party data contribution architecture |
 | [PASSPORT_TRUST_MODEL.md](./docs/PASSPORT_TRUST_MODEL.md) | Trust architecture and verification |
-| [DPP_CONTENT_PLAN.md](./docs/DPP_CONTENT_PLAN.md) | DPP content creation workflow |
-| [INFRASTRUCTURE.md](./INFRASTRUCTURE.md) | AWS infrastructure guide |
+| [SELF_SERVICE_ONBOARDING.md](./docs/SELF_SERVICE_ONBOARDING.md) | Onboarding flow and tenant provisioning |
+| [EU_INTEGRATION.md](./docs/EU_INTEGRATION.md) | EBSI and EU DPP Registry integration |
 | [ECOMMERCE_INTEGRATIONS.md](./docs/ECOMMERCE_INTEGRATIONS.md) | Shopify integration guide |
 
 ---
