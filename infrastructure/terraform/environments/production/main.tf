@@ -596,8 +596,88 @@ resource "aws_lb_listener" "http" {
   }
 }
 
-# Note: HTTPS listener requires ACM certificate
-# You'll need to create certificate and add listener after domain setup
+# ==============================================================================
+# ACM - SSL/TLS Certificate
+# ==============================================================================
+
+resource "aws_acm_certificate" "main" {
+  domain_name       = "api.${var.domain}"
+  validation_method = "DNS"
+
+  subject_alternative_names = [
+    "*.${var.domain}",  # Wildcard for subdomains
+    var.domain,         # Apex domain
+  ]
+
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  tags = {
+    Name = "${var.app_name}-${var.environment}"
+  }
+}
+
+# Note: DNS validation requires creating CNAME records in Route53 or your DNS provider
+# You can find the validation records in the AWS Console or by running:
+#   terraform output certificate_validation_records
+#
+# For automation, use Route53:
+#   1. Create Route53 hosted zone for eurocomply.eu
+#   2. Uncomment the aws_route53_record resources below
+#   3. Update nameservers at your domain registrar
+
+# Uncomment if using Route53 for DNS:
+# resource "aws_route53_zone" "main" {
+#   name = var.domain
+# }
+#
+# resource "aws_route53_record" "cert_validation" {
+#   for_each = {
+#     for dvo in aws_acm_certificate.main.domain_validation_options : dvo.domain_name => {
+#       name   = dvo.resource_record_name
+#       record = dvo.resource_record_value
+#       type   = dvo.resource_record_type
+#     }
+#   }
+#
+#   allow_overwrite = true
+#   name            = each.value.name
+#   records         = [each.value.record]
+#   ttl             = 60
+#   type            = each.value.type
+#   zone_id         = aws_route53_zone.main.zone_id
+# }
+#
+# resource "aws_acm_certificate_validation" "main" {
+#   certificate_arn         = aws_acm_certificate.main.arn
+#   validation_record_fqdns = [for record in aws_route53_record.cert_validation : record.fqdn]
+# }
+
+# ==============================================================================
+# ALB - HTTPS Listener
+# ==============================================================================
+
+resource "aws_lb_listener" "https" {
+  load_balancer_arn = aws_lb.main.arn
+  port              = "443"
+  protocol          = "HTTPS"
+  ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"  # TLS 1.3 + 1.2
+  certificate_arn   = aws_acm_certificate.main.arn
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.api.arn
+  }
+}
+
+# Note: Certificate must be validated before HTTPS listener will work
+# Validation options:
+#   1. DNS validation (recommended): Add CNAME records to your DNS
+#   2. Email validation: Respond to validation email sent to domain admin
+#
+# Check certificate status:
+#   aws acm describe-certificate --certificate-arn <arn>
 
 # ==============================================================================
 # ECS SERVICES - Task Definitions
@@ -883,4 +963,20 @@ output "sqs_queue_url" {
 
 output "kms_key_id" {
   value = aws_kms_key.main.id
+}
+
+output "certificate_arn" {
+  description = "ARN of the ACM certificate for HTTPS"
+  value       = aws_acm_certificate.main.arn
+}
+
+output "certificate_validation_records" {
+  description = "DNS records required for certificate validation - add these to your DNS provider"
+  value = {
+    for dvo in aws_acm_certificate.main.domain_validation_options : dvo.domain_name => {
+      name   = dvo.resource_record_name
+      type   = dvo.resource_record_type
+      value  = dvo.resource_record_value
+    }
+  }
 }
