@@ -242,6 +242,14 @@ async function verifyEmail(token: string) {
 ### 3. Plan Enforcement
 
 ```typescript
+// Plan limits (from Architecture Doc v1.3)
+const PLAN_LIMITS = {
+  growth: { productLimit: 500, itemLimit: 10_000, maxBatchSize: 10_000 },
+  scale: { productLimit: 5_000, itemLimit: 1_000_000, maxBatchSize: 100_000 },
+  enterprise: { productLimit: -1, itemLimit: 100_000_000, maxBatchSize: 1_000_000 },
+  mega: { productLimit: -1, itemLimit: -1, maxBatchSize: 10_000_000 },
+};
+
 // Check product quota before creation
 async function checkProductQuota(organizationId: string): Promise<boolean> {
   const organization = await prisma.organization.findUnique({
@@ -253,11 +261,36 @@ async function checkProductQuota(organizationId: string): Promise<boolean> {
     throw new Error('No active subscription');
   }
 
-  const limit = PLANS[organization.subscription.plan].productLimit;
+  const limits = PLAN_LIMITS[organization.subscription.plan.toLowerCase()];
   const used = organization._count.products;
 
-  if (used >= limit) {
-    throw new Error(`Product limit reached (${used}/${limit}). Upgrade your plan.`);
+  if (limits.productLimit !== -1 && used >= limits.productLimit) {
+    throw new Error(`Product limit reached (${used}/${limits.productLimit}). Upgrade your plan.`);
+  }
+
+  return true;
+}
+
+// Check item quota before bulk generation
+async function checkItemQuota(organizationId: string, newItemCount: number): Promise<boolean> {
+  const organization = await prisma.organization.findUnique({
+    where: { id: organizationId },
+    include: { subscription: true },
+  });
+
+  const limits = PLAN_LIMITS[organization.subscription.plan.toLowerCase()];
+
+  // Check batch size limit
+  if (newItemCount > limits.maxBatchSize) {
+    throw new Error(`Batch size ${newItemCount} exceeds limit (${limits.maxBatchSize}). Split into smaller batches.`);
+  }
+
+  // Check total item limit (query DynamoDB for current count)
+  if (limits.itemLimit !== -1) {
+    const currentItemCount = await getItemCount(organizationId); // DynamoDB query
+    if (currentItemCount + newItemCount > limits.itemLimit) {
+      throw new Error(`Item limit would be exceeded. Current: ${currentItemCount}, Adding: ${newItemCount}, Limit: ${limits.itemLimit}`);
+    }
   }
 
   return true;
@@ -496,6 +529,72 @@ function OnboardingProgress({ currentStep }: { currentStep: number }) {
 
 ---
 
+## Technical Provisioning
+
+When a subscription is activated, the system provisions tenant infrastructure per [Architecture Document v1.3](../EuroComply_Architecture_Document_v1.3.md).
+
+### Provisioning Steps (Architecture v1.3 §3.5)
+
+```typescript
+async function provisionTenant(organizationId: string, plan: SubscriptionPlan) {
+  // 1. Assign to cell with capacity (~200 tenants max per cell)
+  const cell = await findCellWithCapacity();
+
+  // 2. Create dedicated PostgreSQL schema
+  await cell.connection.query(`CREATE SCHEMA IF NOT EXISTS tenant_${organizationId}`);
+
+  // 3. Generate per-tenant encryption key (KMS DEK)
+  const dek = await kms.generateDataKey({ KeyId: MASTER_KEY_ID });
+  await storeEncryptedDEK(organizationId, dek);
+
+  // 4. Run schema migrations
+  await runMigrations(cell.connection, `tenant_${organizationId}`);
+
+  // 5. Register in routing database
+  await prisma.tenantRouting.create({
+    data: {
+      organizationId,
+      cellId: cell.id,
+      schemaName: `tenant_${organizationId}`,
+      createdAt: new Date(),
+    }
+  });
+
+  // 6. For Mega tier: provision dedicated cluster
+  if (plan === 'MEGA') {
+    await provisionDedicatedCluster(organizationId);
+  }
+}
+```
+
+### Module to Workspace Mapping
+
+The `enabledModules` field maps to Architecture v1.3 workspace capabilities:
+
+| Module | Workspace | Architecture v1.3 Reference |
+|--------|-----------|---------------------------|
+| `core` | All | Base platform functionality |
+| `compliance` | Compliance | DPP generation, audit, export (§2.1) |
+| `pim` | Marketing | Product content, families, variants |
+| `dam` | Design + Marketing | Technical docs (Design), Media assets (Marketing) |
+| `import` | All | AI-powered import, CSV/Excel |
+| `syndication` | Marketing | Shopify sync, channel export |
+| `item_tracking` | Operations | DynamoDB items, lifecycle events (§5.3) |
+| `attestation` | All | Multi-party attestation VCs |
+
+### Tier-Specific Infrastructure
+
+| Tier | Cell Type | Database | Notes |
+|------|-----------|----------|-------|
+| Growth | Shared cell | Schema in shared RDS | ~200 tenants/cell |
+| Scale | Shared cell | Schema in shared RDS | Same isolation as Growth |
+| Enterprise | Dedicated instance | Own RDS instance | Full instance isolation |
+| Mega | Dedicated cluster | Multi-AZ RDS + dedicated workers | Custom SLA |
+
+See [Architecture Document §3 (Multi-Tenancy)](../EuroComply_Architecture_Document_v1.3.md#3-multi-tenancy-architecture) for complete details.
+
+---
+
 ## Related Documentation
 
 - [User Management](./USER_MANAGEMENT.md) - Workspace-based access control and data ownership
@@ -505,4 +604,4 @@ function OnboardingProgress({ currentStep }: { currentStep: number }) {
 
 ---
 
-*Last Updated: 2026-01-13*
+*Last Updated: 2026-01-14*
