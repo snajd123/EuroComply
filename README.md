@@ -54,42 +54,21 @@ Each workspace manages its own data in **The Hub** - the central database. Produ
 
 At the center of EuroComply is **The Hub** - the central database. Each product has an **identity record** (SKU, GTIN) that links to **workspace-specific data**.
 
-#### What is "The Hub"?
+#### The Central Database
 
-**The Hub is not a database model or schema** - it's a conceptual name for the central PostgreSQL database that stores all workspace data.
+"The Hub" is simply the PostgreSQL database. All workspace data is stored in separate tables within this single database:
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    "THE HUB" = PostgreSQL Database                           │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  The Hub is NOT:                                                            │
-│  ✗ A Prisma model called "Hub"                                              │
-│  ✗ A separate database schema or namespace                                  │
-│  ✗ A unified "golden record" containing all data in one row                 │
-│                                                                              │
-│  The Hub IS:                                                                │
-│  ✓ A conceptual name for the PostgreSQL database                            │
-│  ✓ Contains workspace-separated tables (Product, DesignVersion, etc.)       │
-│  ✓ All workspaces read/write to these tables via Prisma                     │
-│                                                                              │
-│  PHYSICAL STRUCTURE                                                         │
-│  ──────────────────                                                         │
-│  PostgreSQL Database ("The Hub")                                            │
-│  ├── Product table (identity records)                                       │
-│  ├── DesignVersion table (Design workspace data)                            │
-│  ├── MarketingVersion table (Marketing workspace data)                      │
-│  ├── BatchRecord table (Operations workspace data)                          │
-│  ├── DPPSnapshot table (Compliance workspace data)                          │
-│  └── ... other tables                                                       │
-│                                                                              │
-│  When documentation says "write to The Hub" or "read from The Hub,"         │
-│  it means standard Prisma operations on these PostgreSQL tables.            │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
+PostgreSQL Database
+├── Product          (identity: SKU, GTIN, family)
+├── DesignVersion    (Design workspace - versioned)
+├── MarketingVersion (Marketing workspace - versioned)
+├── BatchRecord      (Operations workspace - immutable)
+├── DPPSnapshot      (Compliance workspace - immutable)
+└── ... other tables
 ```
 
-See [USER_MANAGEMENT.md](./docs/USER_MANAGEMENT.md) for the complete Prisma schema.
+All workspaces read/write via Prisma ORM. See [USER_MANAGEMENT.md](./docs/USER_MANAGEMENT.md) for the complete schema.
 
 #### Product = Identity + Links
 
@@ -206,6 +185,30 @@ The "READ + ISSUE" access pattern means Compliance has a **split data flow**:
 | Internal use | Public-facing proof |
 
 When workspace data changes after DPP issuance, the existing DPP remains valid (it captured the version numbers at issuance). Organizations can issue a new DPP version that captures newer versions.
+
+#### DPP Version Migration
+
+When product data changes materially (new composition, updated certifications), issue a new DPP version:
+
+```
+Product "Organic T-Shirt" (GTIN: 5901234567890)
+├── DPP v1 (Jan 2026) → Design v1, Marketing v1 → QR: dpp.eurocomply.eu/pass_abc/v1
+├── DPP v2 (Mar 2026) → Design v2, Marketing v1 → QR: dpp.eurocomply.eu/pass_abc/v2
+└── DPP v3 (Jun 2026) → Design v2, Marketing v2 → QR: dpp.eurocomply.eu/pass_abc/v3
+```
+
+**Migration rules:**
+- **Material change** (composition, origin): Issue new DPP version, update QR codes on new products
+- **Minor update** (typo fix, image update): Can issue new version, but not required
+- **Existing products**: Old QR codes continue working (point to original DPP version)
+- **Verifier notification**: Each DPP version is a separate VC; verifiers see version in credential
+
+**QR code strategy:**
+| Strategy | When to Use | QR Points To |
+|----------|-------------|--------------|
+| **Fixed version** | Product already printed | Specific DPP version (v1) |
+| **Latest version** | E-commerce, dynamic labels | Latest DPP version |
+| **Serial-specific** | Batch traceability | DPP for specific serial number |
 
 See [USER_MANAGEMENT.md](docs/USER_MANAGEMENT.md) for complete documentation on version control and workspace data ownership.
 
@@ -695,6 +698,58 @@ The database uses a hybrid relational/JSONB approach:
 - **JSONB columns**: Workspace-specific attributes validated by ProductFamily schema
 
 This provides SQL query performance for lookups with NoSQL flexibility for workspace-specific data.
+
+### Product Family Schema Evolution
+
+Product Families define the attribute schema for products. When business needs change, schemas evolve:
+
+#### Adding New Fields
+
+New fields are additive and backward-compatible:
+
+```
+ProductFamily "Textile" v1 → v2 (add recycledContent field)
+├── Existing products: New field is NULL (optional by default)
+├── New products: Can populate new field immediately
+└── Completeness: New field included if marked as required for channel
+```
+
+#### Modifying Existing Fields
+
+Field modifications require migration strategies:
+
+| Change Type | Migration Strategy | Impact |
+|-------------|-------------------|--------|
+| **Rename field** | Copy data to new field, deprecate old | Zero data loss |
+| **Change type** | Transform during migration (e.g., string→enum) | Requires data validation |
+| **Make required** | Set default for existing, require for new | Gradual enforcement |
+| **Remove field** | Mark deprecated, remove after grace period | Notify affected products |
+
+#### Workspace-Specific Schema Changes
+
+Each workspace manages its own schema portion:
+
+```
+ProductFamily "Textile"
+├── Design Schema
+│   ├── fiberComposition (required)
+│   └── countryOfOrigin (required)
+├── Marketing Schema
+│   ├── shortDescription (required for Shopify)
+│   └── careInstructions (optional)
+└── Operations Schema
+    └── warehouseLocation (optional)
+```
+
+Schema changes in one workspace don't affect other workspaces.
+
+#### Migration Workflow
+
+1. **Draft schema change**: Edit ProductFamily attributeSchema (draft mode)
+2. **Impact analysis**: System shows affected products and completeness impact
+3. **Apply migration**: Execute field transformations
+4. **Notify users**: Alert product owners of new requirements
+5. **Grace period**: Products with missing required fields flagged but not blocked
 
 ---
 

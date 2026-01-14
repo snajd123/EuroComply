@@ -445,6 +445,91 @@ Each DPP gets a compliance score based on field completeness.
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+### Completeness Scoring Algorithm
+
+Completeness is calculated per **channel** (DPP, Shopify, Amazon, etc.) using the ProductFamily's `completenessRules`:
+
+```typescript
+interface CompletenessRules {
+  channels: {
+    [channelId: string]: {
+      required: string[];    // Fields that MUST have values
+      recommended: string[]; // Fields that SHOULD have values
+      weights?: {            // Optional custom weights (default: equal)
+        required: number;    // Weight for required section (default: 70)
+        recommended: number; // Weight for recommended section (default: 30)
+      };
+    };
+  };
+}
+
+// Example for Textile product family
+const textileCompletenessRules: CompletenessRules = {
+  channels: {
+    dpp: {
+      required: ['fiberComposition', 'careInstructions', 'countryOfOrigin', 'durability'],
+      recommended: ['carbonFootprint', 'recyclability', 'certifications', 'repairInstructions'],
+      weights: { required: 70, recommended: 30 }
+    },
+    shopify: {
+      required: ['title', 'description', 'price', 'images'],
+      recommended: ['metaTitle', 'metaDescription', 'tags'],
+      weights: { required: 80, recommended: 20 }
+    }
+  }
+};
+```
+
+**Calculation Formula:**
+
+```
+completeness = (requiredScore × requiredWeight) + (recommendedScore × recommendedWeight)
+
+Where:
+  requiredScore = (fieldsWithValue / totalRequiredFields) × 100
+  recommendedScore = (fieldsWithValue / totalRecommendedFields) × 100
+  requiredWeight = weights.required / 100 (default: 0.70)
+  recommendedWeight = weights.recommended / 100 (default: 0.30)
+```
+
+**Example Calculation:**
+
+```
+Product: Organic T-Shirt
+Channel: DPP
+
+Required fields (4 total):
+  ✓ fiberComposition: "95% Organic Cotton, 5% Elastane"
+  ✓ careInstructions: "Machine wash 30°C"
+  ✓ countryOfOrigin: "Portugal"
+  ✓ durability: "50 wash cycles"
+  → requiredScore = 4/4 = 100%
+
+Recommended fields (4 total):
+  ✓ carbonFootprint: 4.2 kgCO2e
+  ✓ recyclability: 90%
+  ○ certifications: null
+  ○ repairInstructions: null
+  → recommendedScore = 2/4 = 50%
+
+Completeness = (100% × 0.70) + (50% × 0.30) = 70% + 15% = 85%
+```
+
+**DPP Issuance Rules:**
+
+| Completeness | DPP Status | Action |
+|--------------|------------|--------|
+| **100%** | Ready | Appears in DPP Ready list for approval |
+| **70-99%** | Almost Ready | Cannot issue DPP; shows missing fields |
+| **< 70%** | Incomplete | Cannot issue DPP; requires more data |
+| **All required = 100%** | Minimum Viable | Can issue if all required fields complete |
+
+**Important:** Products can only appear in the DPP Ready list when:
+1. ALL required fields have values (requiredScore = 100%), AND
+2. Total completeness ≥ 70%
+
+Products with all required fields but low recommended completion (e.g., 70%) can technically be issued but are flagged as "minimum viable" to encourage enrichment.
+
 ---
 
 ## Data Source Tracking
@@ -584,4 +669,4 @@ Track where data comes from for transparency.
 
 ---
 
-*Last Updated: 2026-01-11*
+*Last Updated: 2026-01-14*
