@@ -2798,6 +2798,370 @@ function getVersionActionButtons_WRONG(user, version, workspace) {
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
+### 8.4 Founder Mode: Streamlined Workflow for Small Organizations
+
+**Problem:** In small organizations (especially single-person companies), the Contributor workflow creates a UX deadlock:
+
+1. Founder edits a product
+2. UI shows "Submit for Review" as an option (even if "Release" is also available)
+3. Founder accidentally clicks "Submit for Review"
+4. Content enters PENDING_REVIEW state
+5. Founder must navigate to Approval Inbox, claim the review, then approve their own work
+6. This "mode switching" is confusing and unnecessary
+
+**Root Cause:** The system doesn't recognize that the submitter IS the only approver.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    FOUNDER MODE DEADLOCK                                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  CURRENT FLOW (Confusing):                                                  │
+│  ─────────────────────────                                                  │
+│                                                                              │
+│  ┌──────────┐    "Submit"    ┌─────────────────┐    Navigate to    ┌──────┐│
+│  │  Edit    │───────────────▶│ PENDING_REVIEW  │────────────────▶│ Inbox ││
+│  │  Mode    │                └─────────────────┘    Inbox           │      ││
+│  └──────────┘                        │                              │      ││
+│       │                              │                              │      ││
+│       │ "Release"                    │ Claim                        │      ││
+│       │ (correct)                    ▼                              │      ││
+│       │                      ┌─────────────────┐   Approve          │      ││
+│       │                      │   IN_REVIEW     │◀──────────────────│      ││
+│       │                      └─────────────────┘                    └──────┘│
+│       │                              │                                      │
+│       ▼                              ▼                                      │
+│  ┌─────────────────────────────────────────────────────────────────────────┐│
+│  │                           RELEASED                                       ││
+│  └─────────────────────────────────────────────────────────────────────────┘│
+│                                                                              │
+│  FOUNDER MODE (Streamlined):                                                │
+│  ───────────────────────────                                                │
+│                                                                              │
+│  ┌──────────┐   "Release"    ┌─────────────────────────────────────────────┐│
+│  │  Edit    │───────────────▶│              RELEASED                        ││
+│  │  Mode    │                └─────────────────────────────────────────────┘│
+│  └──────────┘                                                               │
+│       │                                                                      │
+│       │ Only button shown when Founder Mode active                          │
+│       │ "Submit for Review" hidden                                          │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 8.4.1 Solution: Three-Layer Approach
+
+**Layer 1: Smart Button Rendering**
+
+Only show buttons that make sense for the user's authority AND organization context:
+
+```typescript
+// src/components/version-actions.ts
+
+interface WorkflowContext {
+  user: User;
+  organization: Organization;
+  workspace: Workspace;
+  version: Version;
+}
+
+function getVersionActionButtons(ctx: WorkflowContext): ActionButton[] {
+  const authority = getUserWorkspaceAuthority(ctx.user, ctx.workspace);
+  const orgSettings = ctx.organization.settings;
+  const approverCount = getApproverCount(ctx.workspace);
+
+  // MANAGER/EDITOR: Always show "Release"
+  if (authority === 'MANAGER' || authority === 'EDITOR') {
+    // Founder Mode: ONLY show Release (hide Submit for Review)
+    if (orgSettings.founderModeEnabled || approverCount === 1) {
+      return [{
+        label: 'Release Version',
+        action: 'release',
+        primary: true,
+        tooltip: 'Sign and publish this version'
+      }];
+    }
+
+    // Team Mode: Show both, but emphasize Release
+    return [
+      {
+        label: 'Release Version',
+        action: 'release',
+        primary: true,
+        tooltip: 'Sign and publish this version directly'
+      },
+      {
+        label: 'Request Peer Review',
+        action: 'submit_for_review',
+        primary: false,
+        tooltip: 'Optional: Get feedback before publishing'
+      }
+    ];
+  }
+
+  // CONTRIBUTOR: Only show Submit for Review
+  if (authority === 'CONTRIBUTOR') {
+    return [{
+      label: 'Submit for Review',
+      action: 'submit_for_review',
+      primary: true,
+      tooltip: 'Send to an Editor or Manager for approval'
+    }];
+  }
+
+  return []; // VIEWER: No actions
+}
+```
+
+**Layer 2: Inline Self-Approval**
+
+If a user with approval authority views their own pending submission, show inline approval:
+
+```typescript
+// src/components/version-detail.ts
+
+function renderVersionDetail(ctx: WorkflowContext): JSX.Element {
+  const version = ctx.version;
+  const canApprove = canUserApprove(ctx.user, ctx.workspace);
+  const isOwnSubmission = version.submittedById === ctx.user.id;
+  const isPendingReview = version.status === 'PENDING_REVIEW';
+
+  // Self-approval scenario: User submitted AND can approve AND it's pending
+  if (isPendingReview && isOwnSubmission && canApprove) {
+    return (
+      <InlineSelfApproval
+        version={version}
+        message="You submitted this version and can approve it directly."
+        actions={[
+          { label: 'Approve & Release', action: 'approve', primary: true },
+          { label: 'Cancel Submission', action: 'cancel', primary: false }
+        ]}
+      />
+    );
+  }
+
+  // ... normal rendering
+}
+```
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  VERSION DETAIL                                                              │
+│  Organic Cotton T-Shirt (TSH-001) • Design v4 • PENDING REVIEW              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────────┐│
+│  │  ℹ️  You submitted this version and can approve it directly.            ││
+│  │                                                                          ││
+│  │  [Cancel Submission]                              [Approve & Release]   ││
+│  └─────────────────────────────────────────────────────────────────────────┘│
+│                                                                              │
+│  Changes in this version:                                                   │
+│  • Updated fiber composition: 90% → 95% organic cotton                      │
+│  • Added GOTS certification reference                                       │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Layer 3: Organization Workflow Settings**
+
+Allow organizations to configure their approval workflow:
+
+```typescript
+// Organization settings schema
+interface OrganizationWorkflowSettings {
+  // Founder Mode: Disable approval workflow entirely
+  founderModeEnabled: boolean;
+
+  // Auto-detection threshold
+  founderModeAutoThreshold: number; // Default: 1 (auto-enable for single-person orgs)
+
+  // When to prompt for team workflow
+  teamModePromptAt: number; // Default: 3 (prompt to disable founder mode at 3 users)
+
+  // Per-workspace overrides
+  workspaceOverrides: {
+    [workspace: string]: {
+      requireApproval: boolean;
+      minimumApprovers: number;
+    };
+  };
+}
+```
+
+#### 8.4.2 Organization Settings UI
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  ORGANIZATION SETTINGS                                                       │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Workflow Mode                                                               │
+│  ─────────────                                                              │
+│                                                                              │
+│  ○ Founder Mode (Recommended for small teams)                               │
+│    Editors and Managers publish directly. No approval workflow.             │
+│    Best for: Solo founders, small teams with high trust.                    │
+│                                                                              │
+│  ● Team Mode                                                                │
+│    Optional peer review available. Contributors require approval.           │
+│    Best for: Growing teams, external collaborators.                         │
+│                                                                              │
+│  ○ Compliance Mode                                                          │
+│    All changes require approval from a different user.                      │
+│    Best for: Regulated industries, audit requirements.                      │
+│                                                                              │
+│  ───────────────────────────────────────────────────────────────────────────│
+│                                                                              │
+│  Current team size: 1 user                                                  │
+│  💡 Founder Mode is recommended for your organization size.                 │
+│                                                                              │
+│  [Save Changes]                                                              │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 8.4.3 Auto-Detection Logic
+
+```typescript
+// src/lib/workflow/founder-mode.ts
+
+interface FounderModeStatus {
+  recommended: boolean;
+  reason: string;
+  canEnable: boolean;
+  warnings: string[];
+}
+
+function evaluateFounderMode(org: Organization): FounderModeStatus {
+  const userCount = org.users.filter(u => u.status === 'ACTIVE').length;
+  const hasExternalContributors = org.users.some(u =>
+    u.type === 'GUEST_PARTNER' &&
+    u.workspaceAuthorities.some(wa => wa.authority === 'CONTRIBUTOR')
+  );
+  const hasComplianceRequirements = org.settings.requireApprovalAuditTrail;
+
+  // Single user: Strongly recommend Founder Mode
+  if (userCount === 1) {
+    return {
+      recommended: true,
+      reason: 'You are the only user in this organization.',
+      canEnable: true,
+      warnings: []
+    };
+  }
+
+  // Small team without external contributors
+  if (userCount <= 3 && !hasExternalContributors) {
+    return {
+      recommended: true,
+      reason: 'Small trusted team detected.',
+      canEnable: true,
+      warnings: []
+    };
+  }
+
+  // External contributors present
+  if (hasExternalContributors) {
+    return {
+      recommended: false,
+      reason: 'External contributors require approval workflow.',
+      canEnable: true,
+      warnings: ['External contributors will still require approval even in Founder Mode.']
+    };
+  }
+
+  // Compliance requirements
+  if (hasComplianceRequirements) {
+    return {
+      recommended: false,
+      reason: 'Your compliance settings require approval audit trails.',
+      canEnable: false,
+      warnings: ['Disable "Require Approval Audit Trail" in Compliance settings first.']
+    };
+  }
+
+  return {
+    recommended: false,
+    reason: 'Team Mode is recommended for organizations with 4+ users.',
+    canEnable: true,
+    warnings: []
+  };
+}
+```
+
+#### 8.4.4 Workflow Mode Comparison
+
+| Aspect | Founder Mode | Team Mode | Compliance Mode |
+|--------|--------------|-----------|-----------------|
+| **MANAGER/EDITOR** | Direct release only | Release + optional peer review | Must request approval |
+| **CONTRIBUTOR** | Submit for review | Submit for review | Submit for review |
+| **Self-approval** | N/A (no submissions) | Allowed with inline prompt | Blocked |
+| **Audit trail** | Records who released | Records submit + approve | Full chain required |
+| **Best for** | Solo founders, tiny teams | Growing teams | Regulated industries |
+
+#### 8.4.5 Migration Path: Growing Teams
+
+When an organization grows, prompt them to consider Team Mode:
+
+```typescript
+// src/lib/workflow/growth-detection.ts
+
+async function checkWorkflowModePrompt(org: Organization): Promise<Prompt | null> {
+  const settings = org.settings;
+  const userCount = org.users.filter(u => u.status === 'ACTIVE').length;
+
+  // Already in Team Mode or Compliance Mode
+  if (!settings.founderModeEnabled) {
+    return null;
+  }
+
+  // Check if we should prompt
+  if (userCount >= settings.teamModePromptAt) {
+    return {
+      type: 'WORKFLOW_MODE_SUGGESTION',
+      title: 'Your team is growing!',
+      message: `You now have ${userCount} team members. Consider switching to Team Mode for optional peer review.`,
+      actions: [
+        { label: 'Switch to Team Mode', action: 'enable_team_mode' },
+        { label: 'Keep Founder Mode', action: 'dismiss' },
+        { label: 'Don\'t ask again', action: 'suppress_prompt' }
+      ],
+      dismissable: true
+    };
+  }
+
+  return null;
+}
+```
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  💡 Your team is growing!                                           [✕]    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  You now have 4 team members. Consider switching to Team Mode:             │
+│                                                                              │
+│  • Optional peer review for quality assurance                               │
+│  • External contributors can submit work for approval                       │
+│  • Full audit trail of who reviewed what                                    │
+│                                                                              │
+│  You can always switch back to Founder Mode later.                          │
+│                                                                              │
+│  [Keep Founder Mode]              [Switch to Team Mode]                     │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 8.4.6 Default Behavior by Organization Size
+
+| Users | Default Mode | Behavior |
+|-------|--------------|----------|
+| 1 | Founder Mode (auto) | "Release" button only, no approval workflow |
+| 2-3 | Founder Mode | "Release" primary, peer review available |
+| 4+ | Team Mode prompt | Suggest switching, user decides |
+| Any + CONTRIBUTOR | Team Mode enforced for CONTRIBUTORs | Mixed: founders release, contributors need approval |
+
 ---
 
 ## 9. UI Components
