@@ -15,7 +15,7 @@ SMEs today piece together multiple tools for product lifecycle management:
 | Product Content | Entry-level PIM | €300-1,500 |
 | Compliance/DPP | Consultants or manual | €5,000-20,000 one-time |
 
-**EuroComply unifies all four for €129-399/month.** This is the "TurboTax for product lifecycle management" - self-service, affordable, and compliant.
+**EuroComply unifies all four for €79-599/month base + per-DPP.** This is the "TurboTax for product lifecycle management" - self-service, affordable, and compliant.
 
 ---
 
@@ -91,7 +91,7 @@ Current solutions are either "too complex" or "too simple" for SMEs:
 │  ✓ Self-service onboarding (no sales calls)                    │
 │  ✓ Sign up with credit card, same-day compliance               │
 │  ✓ AI-powered data import (dump any file format)               │
-│  ✓ Low price point (€129-399/month, not €500+)                 │
+│  ✓ Low price point (€79-599/month base + per-DPP)              │
 │  ✓ No IT team required                                          │
 │  ✓ Works with existing tools (Shopify integration)             │
 │                                                                  │
@@ -109,7 +109,7 @@ Current solutions are either "too complex" or "too simple" for SMEs:
 | Capability | SAP/Siemens | Mid-Market (Renoon) | **EuroComply** |
 |------------|-------------|---------------------|----------------|
 | Target market | Fortune 500 | Mid-size brands | **SMEs (99%)** |
-| Price | €100k+ | €10k+/year | **€129-399/month** |
+| Price | €100k+ | €10k+/year | **€79-599/month base + per-DPP** |
 | Sales model | Enterprise sales | Demo required | **Self-service** |
 
 ### The Workspace Advantage
@@ -219,7 +219,7 @@ Phase 3 (2027): + Electronics, Batteries
 | Data management | Workspace-based data model with completeness scoring |
 | Technical integration | Native Shopify integration |
 | Trust/verification | W3C Verifiable Credentials (did:key) |
-| Cost sensitivity | €129/month starting tier |
+| Cost sensitivity | €79/month base + per-DPP starting tier |
 | 10-year data retention | Managed hosting + data portability |
 | Lock-in concerns | Full export (VCs + keys + status list), signature verification offline |
 
@@ -265,7 +265,7 @@ Phase 3 (2027): + Electronics, Batteries
 │  OUR SOLUTION                                                   │
 │  • Compliance-First PIM with DPP Ready approval workflow        │
 │  • Self-service (sign up → compliant same day)                  │
-│  • Affordable (€129-399/month vs €100k+)                        │
+│  • Affordable (€79-599/month base + per-DPP vs €100k+)          │
 │  • AI-powered import (dump any file format)                     │
 │  • E-commerce native (Shopify integration)                      │
 │  • No lock-in (portable VCs, full export)                       │

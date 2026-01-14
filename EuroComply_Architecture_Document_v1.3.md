@@ -25,7 +25,7 @@
 
 ## 1. Executive Summary
 
-EuroComply is a B2B SaaS platform for EU Digital Product Passport (DPP) compliance under the ESPR regulation. The platform serves customers across four pricing tiers, from €129/month startups to €4,999/month enterprises.
+EuroComply is a B2B SaaS platform for EU Digital Product Passport (DPP) compliance under the ESPR regulation. The platform uses a Base Fee + Per-DPP pricing model, with tiers from €79/month (Starter) to custom Enterprise/Platform pricing.
 
 ### Key Architecture Decisions
 
@@ -41,28 +41,30 @@ EuroComply is a B2B SaaS platform for EU Digital Product Passport (DPP) complian
 
 ### Cost Summary
 
-| Stage | Customers | Infrastructure | Revenue | Gross Margin |
-|-------|-----------|----------------|---------|--------------|
-| Launch | 0-10 | €158/month | €1,290 | 70-75% |
-| Growth | 50-200 | €200-400/month | €6,450-25,800 | 74-78% |
-| Scale | 200-500 | €600-1,200/month | €40,000-100,000 | 76-80% |
+| Stage | Customers | Infrastructure | Base Revenue | Est. DPP Revenue | Gross Margin |
+|-------|-----------|----------------|--------------|------------------|--------------|
+| Launch | 0-10 | €158/month | €1,990 | €500 | 85-90% |
+| Growth | 50-200 | €200-400/month | €9,950-39,800 | €5,000-50,000 | 88-92% |
+| Scale | 200-500 | €600-1,200/month | €79,600-199,000 | €100K-500K | 89-92% |
 
 ### Realistic Gross Margin by Tier
 
-| Tier | Price | Infra | Payment (3%) | API/Support | Total COGS | Margin |
-|------|-------|-------|--------------|-------------|------------|--------|
-| Growth (€129) | €129/mo | €5 | €4 | €5 | €14 | **74%** |
-| Scale (€399) | €399/mo | €15 | €12 | €15 | €42 | **79%** |
-| Enterprise (€999) | €999/mo | €100 | €30 | €50 | €180 | **82%** |
-| Mega (€4,999) | €4,999/mo | €400 | €150 | €200 | €750 | **85%** |
+| Tier | Base Fee | Infra | Payment (3%) | API/Support | Total COGS | Base Margin | DPP Margin |
+|------|----------|-------|--------------|-------------|------------|-------------|------------|
+| Starter (€79) | €79/mo | €3 | €2.50 | €5 | €10.50 | **87%** | **99%** |
+| Growth (€199) | €199/mo | €5 | €6 | €10 | €21 | **89%** | **98%** |
+| Scale (€599) | €599/mo | €15 | €18 | €25 | €58 | **90%** | **95%** |
+| Enterprise (€1,499) | €1,499/mo | €100 | €45 | €75 | €220 | **85%** | **87%** |
+| Platform (Custom) | Custom | €400+ | Custom | Custom | Custom | **70-80%** | **0-67%** |
 
 **Cost Components:**
 - **Infrastructure**: AWS (RDS, ECS, ElastiCache) + Cloudflare (R2, Workers)
 - **Payment processing**: Stripe fees (~2.9% + €0.25 per transaction)
 - **API costs**: walt.id credentials, Anthropic AI import, GLEIF/VIES verification
 - **Support allocation**: Per-customer support cost estimate
+- **Per-DPP cost**: ~€0.001 (R2 storage + compute for 10-year hosting)
 
-Note: Infrastructure costs scale sub-linearly at higher tiers due to shared resources.
+Note: Per-DPP margins are extremely high (87-99%) except at Platform tier where volume discounts approach cost.
 
 ---
 
@@ -90,12 +92,15 @@ EuroComply consists of four integrated workspaces:
 
 ### 2.2 Pricing Tiers
 
-| Tier | Price | Products | Items | Max Batch Size | Target Customer |
-|------|-------|----------|-------|----------------|-----------------|
-| Growth | €129/month | 500 | 10,000 | 10,000 | Startups, small brands |
-| Scale | €399/month | 5,000 | 1,000,000 | 100,000 | Mid-market manufacturers |
-| Enterprise | €999/month | Unlimited | 100,000,000 | 1,000,000 | Large brands |
-| Mega | €4,999/month | Unlimited | Unlimited | 10,000,000 | Fortune 500 |
+| Tier | Base Fee | Storage | DPP Price | Volume Discounts | Target Customer |
+|------|----------|---------|-----------|------------------|-----------------|
+| Starter | €79/month | 10 GB | €0.10/DPP | 10K+: €0.08 | Micro-businesses, testing |
+| Growth | €199/month | 50 GB | €0.05/DPP | 50K+: €0.03, 100K+: €0.02 | Small brands |
+| Scale | €599/month | 200 GB | €0.02/DPP | 500K+: €0.01, 1M+: €0.008 | Mid-market manufacturers |
+| Enterprise | €1,499/month | 1 TB | €0.008/DPP | 5M+: €0.005, 10M+: €0.003 | Large brands |
+| Platform | Custom | Custom | €0.001-0.003 | Negotiated | Fortune 500 |
+
+All tiers include unlimited products/SKUs and unlimited users. Per-DPP pricing includes EPCIS events and 10-year hosting.
 
 ### 2.3 Traffic Patterns
 
@@ -133,10 +138,11 @@ QR Scan → CDN → Static DPP (Pre-Generated)
 
 | Tier | Isolation Model | Max Breach Impact |
 |------|-----------------|-------------------|
+| Starter | Schema + Cell | 1 tenant |
 | Growth | Schema + Cell | 1 tenant |
 | Scale | Schema + Cell + Credentials | 1 tenant |
 | Enterprise | Dedicated Instance | 1 tenant |
-| Mega | Dedicated Cluster | 1 tenant |
+| Platform | Dedicated Cluster | 1 tenant |
 
 ### 3.2 Schema Isolation Model
 
@@ -257,7 +263,7 @@ CREATE TABLE tenants (
     schema_name TEXT NOT NULL UNIQUE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     status TEXT DEFAULT 'active' CHECK (status IN ('active', 'suspended', 'migrating', 'deleted')),
-    tier TEXT NOT NULL CHECK (tier IN ('growth', 'scale', 'enterprise')),
+    tier TEXT NOT NULL CHECK (tier IN ('starter', 'growth', 'scale', 'enterprise', 'platform')),
     dek_key_id TEXT NOT NULL,  -- KMS key ID for tenant DEK
     db_credentials_arn TEXT,   -- Secrets Manager ARN for per-schema credentials (Scale+)
     metadata JSONB DEFAULT '{}'
@@ -304,7 +310,7 @@ interface TenantRouting {
   region: string;       // eu-central-1
   schemaName: string;   // schema_tenant_abc123
   status: 'active' | 'migrating' | 'suspended';
-  tier: 'growth' | 'scale' | 'enterprise';
+  tier: 'starter' | 'growth' | 'scale' | 'enterprise' | 'platform';
   updatedAt: string;    // ISO timestamp
 }
 
@@ -1006,12 +1012,15 @@ export default {
 
 ### 7.9 Tier Limits for Bulk Operations
 
-| Tier | Max Batch Size | Max Items/Month | Overage |
-|------|----------------|-----------------|---------|
-| Growth | 10,000 | 100,000 | Not available |
-| Scale | 100,000 | 10,000,000 | €0.01/1000 items |
-| Enterprise | 1,000,000 | 100,000,000 | €0.005/1000 items |
-| Mega | 10,000,000 | Unlimited | Included |
+| Tier | Max Batch Size | API Rate Limit | DPP Price |
+|------|----------------|----------------|-----------|
+| Starter | 1,000 | 100/min | €0.10/DPP |
+| Growth | 10,000 | 500/min | €0.05/DPP |
+| Scale | 100,000 | 2,000/min | €0.02/DPP |
+| Enterprise | 1,000,000 | 10,000/min | €0.008/DPP |
+| Platform | 10,000,000 | Custom | €0.001-0.003/DPP |
+
+Note: No monthly item/DPP limits - all tiers can issue unlimited DPPs at their per-DPP rate with volume discounts.
 
 ### 7.10 Cost Considerations for Bulk Operations
 
@@ -1020,31 +1029,18 @@ export default {
 │                    BULK OPERATION COST AWARENESS                             │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  1. MEGA TIER INGESTION SPIKE                                               │
+│  1. PLATFORM TIER INGESTION SPIKE                                           │
 │  ────────────────────────────────────────────────────────────────────────   │
 │                                                                              │
-│  Scenario: Fortune 500 signs up, immediately imports 500M items             │
+│  Scenario: Fortune 500 signs up, immediately issues 500M DPPs              │
 │                                                                              │
-│  DynamoDB Write Cost:                                                       │
-│  • 500M items × $1.25/million WRU = $625 instant COGS hit                  │
-│  • This is 12% of the €4,999 monthly fee                                   │
+│  Cost Analysis (at €0.001/DPP):                                             │
+│  • 500M DPPs × €0.001 = €500,000 DPP revenue                               │
+│  • AWS cost: 500M × $0.001 = $500 (R2 + compute)                           │
+│  • DynamoDB: 500M × $0.00125/1K = $625                                     │
+│  • Total COGS: ~$1,125 (0.2% of revenue!)                                  │
 │                                                                              │
-│  Mitigation Options:                                                        │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │ Option A: Onboarding Fee                                            │   │
-│  │ • Charge €2,500 one-time setup fee for Mega tier                   │   │
-│  │ • Covers initial ingestion + dedicated onboarding support          │   │
-│  │                                                                     │   │
-│  │ Option B: Ingestion Rate Limiting                                   │   │
-│  │ • Cap at 50M items/day for first month                             │   │
-│  │ • Spreads $625 cost over 10 days                                   │   │
-│  │                                                                     │   │
-│  │ Option C: Accept as Customer Acquisition Cost                       │   │
-│  │ • 12% of month 1 revenue is acceptable CAC                         │   │
-│  │ • LTV of Mega customer (€60K/year) easily absorbs this             │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-│                                                                              │
-│  RECOMMENDATION: Option C for strategic accounts, Option A for standard    │
+│  The per-DPP model makes bulk ingestion PROFITABLE, not a cost concern.    │
 │                                                                              │
 │  ────────────────────────────────────────────────────────────────────────   │
 │                                                                              │
@@ -1061,7 +1057,7 @@ export default {
 │  • Cause bulk job timeouts                                                 │
 │                                                                              │
 │  Trigger for Upgrade:                                                       │
-│  • First Mega tier customer OR                                             │
+│  • First Platform tier customer OR                                          │
 │  • Bulk jobs processing >10GB/day consistently                             │
 │                                                                              │
 │  Upgrade Path:                                                              │
@@ -1072,22 +1068,22 @@ export default {
 │  │ Cost at 500GB/month: $33 + $22.50 = $55.50                         │   │
 │  │ Cost at 1TB/month:   $33 + $45.00 = $78.00                         │   │
 │  │                                                                     │   │
-│  │ This is still <2% of Mega tier revenue                             │   │
+│  │ At €0.001/DPP, 1M DPPs/month = €1,000 revenue vs $78 NAT cost     │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Overage Fee Margin Analysis:**
+**Per-DPP Margin Analysis:**
 
-| Cost Component | AWS Cost per 1K Items | Customer Price | Margin |
-|----------------|----------------------|----------------|--------|
-| DynamoDB Write | $0.00125 | - | - |
-| DynamoDB Storage | $0.00025/mo | - | - |
-| R2 Write (if pre-gen) | $0.0045 | - | - |
-| **Total (Year 1)** | **~$0.006** | **€0.01 (~$0.011)** | **~180%** |
+| Cost Component | AWS Cost per DPP | Customer Price Range | Margin Range |
+|----------------|------------------|---------------------|--------------|
+| R2 Storage (10KB, 10yr) | $0.00018 | - | - |
+| Compute (Lambda/ECS) | $0.0001 | - | - |
+| DynamoDB Write | $0.000001 | - | - |
+| **Total Cost** | **~$0.001** | **€0.001-€0.10** | **0-99%** |
 
-The overage pricing provides healthy margins while remaining competitive.
+The per-DPP pricing provides healthy margins at all tiers. Even at the lowest Platform pricing (€0.001/DPP), costs are break-even, with the base subscription providing profitability.
 
 ---
 
@@ -1270,45 +1266,45 @@ At €129/tenant/month (Growth tier), the $0.40 secrets cost is <0.4% of revenue
 
 ### 9.2 Milestone Details
 
-#### Milestone 1: Launch (0-200 Growth Customers)
+#### Milestone 1: Launch (0-200 Starter/Growth Customers)
 
 **Infrastructure:** Base configuration
 **Cost:** €158/month + ~€0.37/tenant (Secrets Manager)
 **Bulk Capacity:** Up to 1M DPPs/batch (auto-scaling workers)
 **Connection Pooling:** PgBouncer with `max_client_conn=2500`, per-tenant database roles
 
-#### Milestone 2: Second Growth Cell (200+ Customers)
+#### Milestone 2: Second Cell (200+ Customers)
 
-**Trigger:** Approaching 200 Growth customers OR database CPU >70%
-**Action:** Deploy second Growth cell
+**Trigger:** Approaching 200 Starter/Growth customers OR database CPU >70%
+**Action:** Deploy second cell
 **Cost Impact:** +€53/month (RDS) + ~€74/month (Secrets Manager for 200 tenants)
 **Deployment:** Zero downtime, new tenants routed to Cell 2
 **PgBouncer:** Deploy dedicated PgBouncer instance per cell; each handles up to 2,000 pooled connections
 
 #### Milestone 3: First Scale Customer
 
-**Trigger:** Customer signs Scale tier (€399/month)  
-**Action:** Deploy Scale cell with per-tenant credentials  
-**Cost Impact:** +€95/month  
-**Net:** +€304/month profit
+**Trigger:** Customer signs Scale tier (€599/month base + per-DPP)
+**Action:** Deploy Scale cell with per-tenant credentials
+**Cost Impact:** +€95/month
+**Net:** +€504/month base profit + DPP revenue
 
 #### Milestone 4: First Enterprise Customer
 
-**Trigger:** Customer signs Enterprise tier (€999/month)  
-**Action:** Provision dedicated RDS instance  
-**Cost Impact:** +€110/month per customer  
-**Net:** +€889/month profit per customer
+**Trigger:** Customer signs Enterprise tier (€1,499/month base + per-DPP)
+**Action:** Provision dedicated RDS instance
+**Cost Impact:** +€110/month per customer
+**Net:** +€1,389/month base profit per customer + DPP revenue
 
 #### Milestone 5: High Availability + NAT Upgrade
 
-**Trigger:** €20K+ MRR OR first Mega tier customer OR bulk processing >10GB/day  
-**Action:** NAT Gateway + Redis cluster  
+**Trigger:** €50K+ MRR OR first Platform tier customer OR bulk processing >10GB/day
+**Action:** NAT Gateway + Redis cluster
 **Cost Impact:** +€50-80/month (NAT Gateway + data processing)
 
-Note: The t4g.nano NAT instance works fine for Growth/Scale/Enterprise tiers. Upgrade to NAT Gateway when:
+Note: The t4g.nano NAT instance works fine for Starter/Growth/Scale/Enterprise tiers. Upgrade to NAT Gateway when:
 - Bulk jobs consistently process >10GB/day
 - Network timeout errors appear in bulk worker logs
-- First Mega tier customer onboards
+- First Platform tier customer onboards
 
 #### Milestone 6: Multi-Region
 
@@ -1318,13 +1314,15 @@ Note: The t4g.nano NAT instance works fine for Growth/Scale/Enterprise tiers. Up
 
 ### 9.3 Cost Projection
 
-| Customers | Mix | Infrastructure | Revenue | Margin |
-|-----------|-----|----------------|---------|--------|
-| 10 | 10 Growth | €158/mo | €1,290/mo | 88% |
-| 50 | 50 Growth | €158/mo | €6,450/mo | 98% |
-| 100 | 90 Growth, 8 Scale, 2 Enterprise | €360/mo | €16,800/mo | 98% |
-| 200 | 170 Growth, 25 Scale, 5 Enterprise | €520/mo | €36,920/mo | 99% |
-| 500 | 400 Growth, 80 Scale, 18 Ent, 2 Mega | €1,200/mo | €104,700/mo | 99% |
+| Customers | Mix | Infrastructure | Base Revenue | Est. DPP Revenue | Total MRR | Margin |
+|-----------|-----|----------------|--------------|------------------|-----------|--------|
+| 10 | 5 Starter, 5 Growth | €158/mo | €1,390/mo | €500/mo | €1,890/mo | 92% |
+| 50 | 15 Starter, 30 Growth, 5 Scale | €200/mo | €9,350/mo | €5,000/mo | €14,350/mo | 99% |
+| 100 | 25 Starter, 50 Growth, 20 Scale, 5 Ent | €360/mo | €25,895/mo | €25,000/mo | €50,895/mo | 99% |
+| 200 | 40 Starter, 100 Growth, 45 Scale, 14 Ent, 1 Platform | €520/mo | €71,256/mo | €100,000/mo | €171,256/mo | 99.7% |
+| 500 | 75 Starter, 250 Growth, 130 Scale, 42 Ent, 3 Platform | €1,200/mo | €210,533/mo | €500,000/mo | €710,533/mo | 99.8% |
+
+*DPP revenue estimates assume growing item-level DPP adoption in batteries, electronics, and industrial sectors.*
 
 ---
 

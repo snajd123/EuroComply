@@ -1,6 +1,6 @@
 # Billing & Payment Processing
 
-**Version:** 1.0
+**Version:** 2.0
 **Status:** Active
 **Last Updated:** 2026-01-14
 
@@ -12,7 +12,7 @@
 2. [Pricing Tiers](#2-pricing-tiers)
 3. [Payment Processing](#3-payment-processing)
 4. [Billing Cycles](#4-billing-cycles)
-5. [Usage-Based Billing](#5-usage-based-billing)
+5. [Per-DPP Billing](#5-per-dpp-billing)
 6. [Plan Changes](#6-plan-changes)
 7. [Invoice Generation](#7-invoice-generation)
 8. [Failed Payment Handling](#8-failed-payment-handling)
@@ -25,7 +25,7 @@
 
 ## 1. Overview
 
-EuroComply uses a **volume-based subscription model** with usage-based billing for item-level serialization. All billing operations are powered by Stripe.
+EuroComply uses a **Base Fee + Per-DPP pricing model** that separates platform access from compliance output. All billing operations are powered by Stripe.
 
 ### Billing Architecture
 
@@ -34,17 +34,19 @@ EuroComply uses a **volume-based subscription model** with usage-based billing f
 │                    BILLING ARCHITECTURE                          │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  SUBSCRIPTION MANAGEMENT                                        │
-│  ───────────────────────                                        │
-│  • Base plan (€129, €399, €999, €4,999/month)                  │
-│  • Monthly or annual billing cycles                             │
-│  • Automatic renewal                                            │
+│  BASE SUBSCRIPTION                                              │
+│  ─────────────────                                              │
+│  • Monthly/annual platform fee                                  │
+│  • Covers: Platform access, storage, support level              │
+│  • Tiers: Starter (€79), Growth (€199), Scale (€599),          │
+│           Enterprise (€1,499), Platform (Custom)                │
 │                                                                  │
-│  USAGE TRACKING (Item Overages)                                │
+│  PER-DPP BILLING (Usage-Based)                                  │
 │  ──────────────────────────────                                 │
-│  • Item count metered per organization                          │
-│  • Billable overages calculated monthly                         │
-│  • Per-tier overage rates (€0.01 or €0.005 per 1,000 items)    │
+│  • DPP count metered per organization per month                 │
+│  • Per-DPP rate varies by tier (€0.10 → €0.001)                │
+│  • Volume discounts applied automatically at thresholds         │
+│  • Includes: VC issuance, QR generation, 10-year hosting        │
 │                                                                  │
 │  PAYMENT COLLECTION                                             │
 │  ──────────────────                                             │
@@ -55,7 +57,7 @@ EuroComply uses a **volume-based subscription model** with usage-based billing f
 │  INVOICE GENERATION                                             │
 │  ──────────────────                                             │
 │  • PDF invoices via Stripe                                      │
-│  • Email delivery                                               │
+│  • Two line items: Base fee + DPP usage                         │
 │  • VAT calculation for EU customers                             │
 │                                                                  │
 │  DUNNING (Failed Payment Recovery)                             │
@@ -69,56 +71,73 @@ EuroComply uses a **volume-based subscription model** with usage-based billing f
 
 ### Key Principles
 
-1. **Transparent Pricing**: No hidden fees, all costs shown upfront
+1. **Transparent Pricing**: Base fee + per-DPP, no hidden costs
 2. **Fair Prorating**: Upgrades and downgrades prorated to the day
-3. **EU Tax Compliance**: Automatic VAT calculation and collection
-4. **Grace Period**: 7-day grace period for failed payments before suspension
-5. **Self-Service**: Admins can manage billing without support intervention
+3. **Volume Rewards**: Automatic discounts as DPP volume increases
+4. **EU Tax Compliance**: Automatic VAT calculation and collection
+5. **Grace Period**: 7-day grace period for failed payments before suspension
+6. **Self-Service**: Admins can manage billing without support intervention
 
 ---
 
 ## 2. Pricing Tiers
 
-EuroComply offers four pricing tiers with full platform access in all plans.
+EuroComply offers five pricing tiers. All tiers include full platform access with unlimited products/SKUs and users.
 
 ### Tier Comparison
 
-| Plan | Monthly | Annual (20% discount) | Products | Items | Batch Size | AI Imports | Support |
-|------|---------|----------------------|----------|-------|------------|------------|---------|
-| **Growth** | €129 | €1,290/yr (€108/mo) | 500 | 10,000 | 10,000 | 100/mo | Email |
-| **Scale** | €399 | €3,990/yr (€333/mo) | 5,000 | 1,000,000 | 100,000 | 1,000/mo | Priority |
-| **Enterprise** | €999 | €9,990/yr (€833/mo) | Unlimited | 100,000,000 | 1,000,000 | Custom | Dedicated |
-| **Mega** | €4,999 | €49,990/yr (€4,166/mo) | Unlimited | Unlimited | 10,000,000 | Custom | SLA |
+| Plan | Base Fee | Storage | Starting DPP Price | Volume Discounts | Support |
+|------|----------|---------|-------------------|------------------|---------|
+| **Starter** | €79/mo | 10 GB | €0.10/DPP | 10K+: €0.08 | Email |
+| **Growth** | €199/mo | 50 GB | €0.05/DPP | 50K+: €0.03, 100K+: €0.02 | Email |
+| **Scale** | €599/mo | 200 GB | €0.02/DPP | 500K+: €0.01, 1M+: €0.008 | Priority |
+| **Enterprise** | €1,499/mo | 1 TB | €0.008/DPP | 5M+: €0.005, 10M+: €0.003 | Dedicated |
+| **Platform** | Custom | Custom | €0.001-0.003 | Negotiated | SLA |
 
-**Annual Savings:**
-- Growth: Save €258/year
-- Scale: Save €798/year
-- Enterprise: Save €1,998/year
-- Mega: Save €9,998/year
+### Annual Pricing (20% discount on base fee)
+
+| Plan | Monthly | Annual | Annual Savings |
+|------|---------|--------|----------------|
+| Starter | €79/mo | €758/year | €190/year |
+| Growth | €199/mo | €1,910/year | €478/year |
+| Scale | €599/mo | €5,750/year | €1,438/year |
+| Enterprise | €1,499/mo | €14,390/year | €3,598/year |
+
+*Per-DPP fees are always billed monthly based on actual usage.*
 
 ### Included in All Plans
 
 - All four workspaces (Design, Operations, Marketing, Compliance)
-- Full module access (Registry, PIM, Compliance, EPCIS, Attestation)
+- Unlimited products/SKUs (no catalog size limits)
 - Unlimited users within organization
+- Full API access and webhooks
 - Shopify integration
-- API access
-- Permanent DPP hosting
+- Permanent DPP hosting (10+ years)
 - Standard security (encryption, backups)
+- EPCIS lifecycle events (included in DPP price)
 
 ### Additional Features by Tier
 
-| Feature | Growth | Scale | Enterprise | Mega |
-|---------|:------:|:-----:|:----------:|:----:|
-| Email Support | ✅ | ✅ | ✅ | ✅ |
-| Priority Support (4-hour response) | ❌ | ✅ | ✅ | ✅ |
-| Dedicated Support (1-hour response) | ❌ | ❌ | ✅ | ✅ |
-| SLA (99.9% uptime guarantee) | ❌ | ❌ | ❌ | ✅ |
-| SSO (SAML, OAuth) | ❌ | ❌ | ✅ | ✅ |
-| Invoice Payment (NET30) | ❌ | ❌ | ✅ | ✅ |
-| Custom Contract Terms | ❌ | ❌ | ✅ | ✅ |
-| Dedicated Account Manager | ❌ | ❌ | ❌ | ✅ |
-| Dedicated Infrastructure | ❌ | ❌ | ❌ | ✅ |
+| Feature | Starter | Growth | Scale | Enterprise | Platform |
+|---------|:-------:|:------:|:-----:|:----------:|:--------:|
+| Email Support | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Priority Support (4-hour response) | ❌ | ❌ | ✅ | ✅ | ✅ |
+| Dedicated Support (1-hour response) | ❌ | ❌ | ❌ | ✅ | ✅ |
+| SLA (99.95% uptime guarantee) | ❌ | ❌ | ❌ | ❌ | ✅ |
+| SSO (SAML, OAuth) | ❌ | ❌ | Add-on | ✅ | ✅ |
+| Custom Domain | ❌ | ❌ | Add-on | ✅ | ✅ |
+| Invoice Payment (NET30) | ❌ | ❌ | ❌ | ✅ | ✅ |
+| Custom Contract Terms | ❌ | ❌ | ❌ | ✅ | ✅ |
+| Dedicated Account Manager | ❌ | ❌ | ❌ | ✅ | ✅ |
+| Dedicated Infrastructure | ❌ | ❌ | ❌ | ❌ | ✅ |
+
+### Add-ons (Scale tier)
+
+| Add-on | Price |
+|--------|-------|
+| SSO/SAML | €99/month |
+| Custom Domain | €49/month |
+| Additional Storage (100 GB) | €29/month |
 
 ---
 
@@ -133,24 +152,30 @@ All payments are processed through **Stripe** (Stripe Billing + Stripe Tax).
 │                    STRIPE INTEGRATION                            │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  STRIPE PRODUCTS (configured in Stripe Dashboard)               │
-│  ────────────────────────────────────────────────────────       │
-│  • EuroComply Growth (€129/month or €1,290/year)                │
-│  • EuroComply Scale (€399/month or €3,990/year)                 │
-│  • EuroComply Enterprise (€999/month or €9,990/year)            │
-│  • EuroComply Mega (€4,999/month or €49,990/year)               │
+│  STRIPE PRODUCTS (Base Subscriptions)                           │
+│  ────────────────────────────────────                           │
+│  • EuroComply Starter (€79/month or €758/year)                  │
+│  • EuroComply Growth (€199/month or €1,910/year)                │
+│  • EuroComply Scale (€599/month or €5,750/year)                 │
+│  • EuroComply Enterprise (€1,499/month or €14,390/year)         │
+│  • EuroComply Platform (custom pricing)                         │
 │                                                                  │
-│  METERED BILLING (usage-based)                                  │
-│  ────────────────────────────                                   │
-│  • Item Overage - Scale (€0.01 per 1,000 items)                 │
-│  • Item Overage - Enterprise (€0.005 per 1,000 items)           │
+│  METERED BILLING (Per-DPP Usage)                                │
+│  ───────────────────────────────                                │
+│  • DPP Usage - Starter (€0.10/DPP, volume discounts)            │
+│  • DPP Usage - Growth (€0.05/DPP, volume discounts)             │
+│  • DPP Usage - Scale (€0.02/DPP, volume discounts)              │
+│  • DPP Usage - Enterprise (€0.008/DPP, volume discounts)        │
+│  • DPP Usage - Platform (custom per-DPP rate)                   │
 │                                                                  │
 │  STRIPE OBJECTS                                                 │
 │  ──────────────                                                 │
 │  • Customer: Maps to EuroComply Organization                    │
-│  • Subscription: Active plan + billing cycle                    │
+│  • Subscription: Base plan + metered DPP component              │
+│  • SubscriptionItem: Separate items for base + usage            │
+│  • UsageRecord: Monthly DPP counts                              │
 │  • PaymentMethod: Saved card or SEPA mandate                    │
-│  • Invoice: Generated monthly with line items                   │
+│  • Invoice: Base fee + DPP usage + VAT                          │
 │                                                                  │
 │  WEBHOOKS (Stripe → EuroComply API)                             │
 │  ──────────────────────────────────                             │
@@ -175,17 +200,23 @@ model Organization {
   // Billing
   stripeCustomerId  String?   @unique
   subscriptionId    String?   @unique
-  plan              Plan      // GROWTH, SCALE, ENTERPRISE, MEGA
+  plan              Plan      // STARTER, GROWTH, SCALE, ENTERPRISE, PLATFORM
   billingCycle      Cycle     // MONTHLY, ANNUAL
   currentPeriodEnd  DateTime?
 
-  // Limits
-  productLimit      Int       // 500, 5000, or unlimited
-  itemLimit         Int       // 10000, 1000000, 100000000, or unlimited
+  // Storage
+  storageLimit      BigInt    // Bytes (10GB, 50GB, 200GB, 1TB, custom)
+  storageUsed       BigInt    @default(0)
 
-  // Usage (updated real-time)
-  productCount      Int       @default(0)
-  itemCount         Int       @default(0)
+  // DPP Pricing (per-DPP rate in cents)
+  baseDppPrice      Int       // 10, 5, 2, 0.8, or custom (in cents)
+
+  // DPP Usage (monthly)
+  dppCountThisMonth Int       @default(0)
+  dppCountTotal     BigInt    @default(0)
+
+  // Volume Discount Thresholds (stored for custom Platform plans)
+  volumeDiscounts   Json?     // [{threshold: 10000, price: 8}, ...]
 
   // Status
   subscriptionStatus SubscriptionStatus // ACTIVE, PAST_DUE, CANCELED, TRIAL
@@ -198,10 +229,11 @@ model Organization {
 }
 
 enum Plan {
+  STARTER
   GROWTH
   SCALE
   ENTERPRISE
-  MEGA
+  PLATFORM
 }
 
 enum Cycle {
@@ -230,29 +262,31 @@ enum SubscriptionStatus {
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
 │  Day 1: Subscription starts                                     │
-│  • Stripe charges €399 for Scale plan                           │
+│  • Stripe charges €599 for Scale base plan                      │
 │  • currentPeriodEnd = Day 30                                    │
 │  • Organization status = ACTIVE                                 │
+│  • dppCountThisMonth = 0                                        │
 │                                                                  │
-│  Day 1-30: Usage tracking                                       │
-│  • Item count tracked in real-time                              │
-│  • If itemCount > 1,000,000 → overage accrued                   │
+│  Day 1-30: DPP tracking                                         │
+│  • Each DPP issued increments dppCountThisMonth                 │
+│  • Volume discounts calculated at month-end                     │
 │                                                                  │
 │  Day 30: End of billing period                                  │
-│  • Stripe calculates overage charges:                           │
-│    - Items used: 1,250,000                                      │
-│    - Overage: 250,000 items                                     │
-│    - Overage cost: 250 × €0.01 = €2.50                          │
+│  • Calculate DPP charges with volume discounts:                 │
+│    - DPPs issued: 750,000                                       │
+│    - First 500K at €0.02 = €10,000                              │
+│    - Next 250K at €0.01 (500K+ discount) = €2,500               │
+│    - Total DPP cost: €12,500                                    │
 │                                                                  │
 │  Day 30: Invoice generated                                      │
-│  • Line item 1: Scale plan - €399.00                            │
-│  • Line item 2: Item overage (250k) - €2.50                     │
-│  • VAT (if applicable): €80.30 (20%)                            │
-│  • Total: €481.80                                               │
+│  • Line item 1: Scale base plan - €599.00                       │
+│  • Line item 2: DPP usage (750K) - €12,500.00                   │
+│  • VAT (if applicable): €2,619.80 (20%)                         │
+│  • Total: €15,718.80                                            │
 │                                                                  │
 │  Day 30: Payment attempt                                        │
 │  • Stripe charges saved payment method                          │
-│  • If success: Renew for Day 31-60                              │
+│  • If success: Renew for Day 31-60, reset dppCountThisMonth     │
 │  • If failure: Enter dunning process (see §8)                   │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
@@ -266,22 +300,22 @@ enum SubscriptionStatus {
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
 │  Day 1: Subscription starts                                     │
-│  • Stripe charges €3,990 for Scale annual plan                  │
-│  • 20% discount applied (vs. €4,788 monthly)                    │
+│  • Stripe charges €5,750 for Scale annual plan                  │
+│  • 20% discount applied (vs. €7,188 monthly)                    │
 │  • currentPeriodEnd = Day 365                                   │
 │                                                                  │
-│  Monthly usage billing                                          │
-│  • Item overages still billed monthly                           │
+│  Monthly DPP billing                                            │
+│  • DPP usage still billed monthly (not annually)                │
 │  • Invoice generated on the same day each month                 │
 │                                                                  │
 │  Month 1 invoice:                                               │
-│  • Line item 1: Item overage - €2.50                            │
-│  • VAT: €0.50                                                   │
-│  • Total: €3.00                                                 │
+│  • Line item 1: DPP usage (750K) - €12,500.00                   │
+│  • VAT: €2,500.00                                               │
+│  • Total: €15,000.00                                            │
 │  • (Base plan already paid annually)                            │
 │                                                                  │
 │  Day 365: Annual renewal                                        │
-│  • Stripe charges €3,990 for next year                          │
+│  • Stripe charges €5,750 for next year                          │
 │  • Customer receives renewal notification 30 days prior         │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
@@ -289,85 +323,127 @@ enum SubscriptionStatus {
 
 ---
 
-## 5. Usage-Based Billing
+## 5. Per-DPP Billing
 
-### Item Overage Calculation
+### Volume Discount Calculation
 
-Only **Scale** and **Enterprise** tiers have usage-based billing. Growth must upgrade to Scale when limits are reached.
+Each tier has different volume discount thresholds that automatically apply:
 
 ```typescript
-// Calculate billable overage
-function calculateOverage(org: Organization): number {
-  const { plan, itemLimit, itemCount } = org;
+// DPP pricing configuration by tier
+const DPP_PRICING = {
+  STARTER: {
+    basePrice: 0.10,     // €0.10/DPP
+    discounts: [
+      { threshold: 10000, price: 0.08 },  // 10K+: €0.08
+    ],
+  },
+  GROWTH: {
+    basePrice: 0.05,     // €0.05/DPP
+    discounts: [
+      { threshold: 50000, price: 0.03 },   // 50K+: €0.03
+      { threshold: 100000, price: 0.02 },  // 100K+: €0.02
+    ],
+  },
+  SCALE: {
+    basePrice: 0.02,     // €0.02/DPP
+    discounts: [
+      { threshold: 500000, price: 0.01 },   // 500K+: €0.01
+      { threshold: 1000000, price: 0.008 }, // 1M+: €0.008
+    ],
+  },
+  ENTERPRISE: {
+    basePrice: 0.008,    // €0.008/DPP
+    discounts: [
+      { threshold: 5000000, price: 0.005 },  // 5M+: €0.005
+      { threshold: 10000000, price: 0.003 }, // 10M+: €0.003
+    ],
+  },
+  PLATFORM: {
+    basePrice: 0.003,    // Custom, typically €0.001-0.003
+    discounts: [],       // Custom negotiated
+  },
+};
 
-  // Mega plan: unlimited, no overage
-  if (plan === 'MEGA') return 0;
+// Calculate DPP cost with volume discounts
+function calculateDppCost(plan: Plan, dppCount: number): number {
+  const pricing = DPP_PRICING[plan];
+  let totalCost = 0;
+  let remainingDpps = dppCount;
 
-  // Growth plan: no overage billing, must upgrade
-  if (plan === 'GROWTH') {
-    if (itemCount > itemLimit) {
-      throw new Error('Item limit exceeded. Please upgrade to Scale.');
+  // Sort discounts by threshold descending
+  const sortedDiscounts = [...pricing.discounts].sort(
+    (a, b) => b.threshold - a.threshold
+  );
+
+  // Apply tiered pricing (highest discount first)
+  for (const discount of sortedDiscounts) {
+    if (remainingDpps > discount.threshold) {
+      const dppsAtThisRate = remainingDpps - discount.threshold;
+      totalCost += dppsAtThisRate * discount.price;
+      remainingDpps = discount.threshold;
     }
-    return 0;
   }
 
-  // Scale and Enterprise: calculate overage
-  if (itemCount <= itemLimit) return 0;
+  // Remaining DPPs at base price
+  totalCost += remainingDpps * pricing.basePrice;
 
-  const overage = itemCount - itemLimit;
-  const rate = plan === 'SCALE' ? 0.01 : 0.005; // per 1,000 items
-
-  // Round up to nearest 1,000
-  const billableUnits = Math.ceil(overage / 1000);
-  const cost = billableUnits * rate;
-
-  return cost;
+  return totalCost;
 }
+
+// Example: Scale tier with 750,000 DPPs
+// - First 500,000 at €0.02 = €10,000
+// - Next 250,000 at €0.01 = €2,500
+// - Total: €12,500
 ```
 
-### Usage Tracking
+### DPP Tracking Flow
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                     USAGE TRACKING FLOW                          │
+│                     DPP TRACKING FLOW                            │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  1. ITEM CREATED (via bulk DPP generation)                      │
-│     • Worker creates item record in DynamoDB                    │
-│     • Increment Organization.itemCount                          │
-│     • Write to usage_events table for audit                     │
+│  1. DPP ISSUED (via API, bulk generation, or UI)                │
+│     • Create DPP record with VC                                 │
+│     • Increment Organization.dppCountThisMonth                  │
+│     • Increment Organization.dppCountTotal                      │
+│     • Write to dpp_usage_events table for audit                 │
 │                                                                  │
-│  2. PERIODIC SYNC (every 5 minutes)                             │
-│     • Aggregate itemCount from DynamoDB                         │
-│     • Update Organization.itemCount in PostgreSQL               │
-│     • Check if limit exceeded                                   │
+│  2. REAL-TIME DISPLAY                                           │
+│     • Dashboard shows: "12,450 DPPs issued this month"          │
+│     • Estimated cost: "~€622.50 (€0.05/DPP)"                    │
+│     • Projected discount: "At 50K: €0.03/DPP"                   │
 │                                                                  │
-│  3. LIMIT CHECK                                                 │
-│     if (itemCount > itemLimit) {                                │
-│       if (plan === 'GROWTH') {                                  │
-│         // Block further item creation                          │
-│         throw new Error('Limit reached. Upgrade required.');    │
-│       } else {                                                  │
-│         // Allow overage, will bill at month-end                │
-│         logOverage(organizationId, itemCount - itemLimit);      │
-│       }                                                          │
-│     }                                                            │
-│                                                                  │
-│  4. MONTH-END (triggered by Stripe webhook)                     │
-│     • Calculate overage: itemCount - itemLimit                  │
+│  3. MONTH-END (triggered by Stripe billing cycle)               │
+│     • Calculate total DPP cost with volume discounts            │
 │     • Report usage to Stripe Billing                            │
-│     • Stripe generates invoice with overage line item           │
+│     • Stripe generates invoice with DPP line item               │
+│     • Reset dppCountThisMonth = 0                               │
 │                                                                  │
-│  5. DASHBOARD DISPLAY                                           │
-│     • Show real-time usage: "1,250,000 / 1,000,000 items"       │
-│     • Estimated overage cost: "~€2.50 this month"               │
-│     • Progress bar with color coding:                           │
-│       - Green: < 80% of limit                                   │
-│       - Yellow: 80-100% of limit                                │
-│       - Red: > 100% (overage)                                   │
+│  4. USAGE HISTORY                                               │
+│     • Monthly DPP counts stored for analytics                   │
+│     • Historical data: "Jan: 50K, Feb: 75K, Mar: 120K"          │
+│     • Trend visualization in dashboard                          │
+│                                                                  │
+│  5. STORAGE TRACKING (Separate from DPP billing)                │
+│     • Storage metered separately from DPP count                 │
+│     • Warning at 80%: "Storage: 160GB / 200GB used"             │
+│     • Block at 100%: "Upgrade or delete files"                  │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+### What Counts as a DPP
+
+| Action | Counts as DPP? | Notes |
+|--------|:--------------:|-------|
+| Issue new DPP | ✅ Yes | Each unique DPP issuance |
+| Update existing DPP | ❌ No | Updates are free |
+| Revoke DPP | ❌ No | Revocations are free |
+| Add EPCIS event | ❌ No | Included in DPP price |
+| Bulk DPP generation | ✅ Yes | Each DPP in batch counts |
+| Re-issue same DPP | ✅ Yes | New VC = new DPP |
 
 ---
 
@@ -381,41 +457,45 @@ function calculateOverage(org: Organization): number {
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
 │  1. USER INITIATES UPGRADE                                      │
-│     Current: Growth (€129/month)                                │
-│     Target: Scale (€399/month)                                  │
+│     Current: Growth (€199/month base + €0.05/DPP)               │
+│     Target: Scale (€599/month base + €0.02/DPP)                 │
 │     Days remaining in period: 15 days                           │
 │                                                                  │
-│  2. CALCULATE PRORATION                                         │
-│     • Unused Growth credit: €129 × (15/30) = €64.50            │
-│     • Scale prorated charge: €399 × (15/30) = €199.50          │
-│     • Net charge today: €199.50 - €64.50 = €135.00             │
+│  2. CALCULATE PRORATION (Base Fee Only)                         │
+│     • Unused Growth credit: €199 × (15/30) = €99.50            │
+│     • Scale prorated charge: €599 × (15/30) = €299.50          │
+│     • Net charge today: €299.50 - €99.50 = €200.00             │
 │                                                                  │
 │  3. CONFIRM WITH USER                                           │
 │     ┌──────────────────────────────────────────────┐           │
 │     │ Upgrade to Scale                              │           │
 │     ├──────────────────────────────────────────────┤           │
-│     │ • Charge today: €135.00 (prorated)           │           │
-│     │ • Next billing: €399.00 on Feb 15            │           │
-│     │ • New limits:                                │           │
-│     │   - Products: 500 → 5,000                    │           │
-│     │   - Items: 10,000 → 1,000,000                │           │
+│     │ • Charge today: €200.00 (prorated base)      │           │
+│     │ • Next billing: €599.00 on Feb 15            │           │
+│     │                                               │           │
+│     │ • New DPP pricing:                           │           │
+│     │   - Base: €0.02/DPP (was €0.05)              │           │
+│     │   - 500K+: €0.01/DPP                         │           │
+│     │   - 1M+: €0.008/DPP                          │           │
+│     │                                               │           │
+│     │ • New storage: 200 GB (was 50 GB)            │           │
+│     │ • Priority support enabled                   │           │
 │     │                                               │           │
 │     │ [Cancel]  [Confirm Upgrade]                  │           │
 │     └──────────────────────────────────────────────┘           │
 │                                                                  │
 │  4. EXECUTE UPGRADE                                             │
-│     • Stripe.subscriptions.update(subscriptionId, {             │
-│         items: [{ price: 'price_scale_monthly' }],              │
-│         proration_behavior: 'always_invoice',                   │
-│       })                                                         │
-│     • Stripe immediately charges €135.00                        │
+│     • Stripe.subscriptions.update(...)                          │
+│     • Immediate charge: €200.00                                 │
 │     • Update Organization.plan = 'SCALE'                        │
-│     • Update limits: productLimit = 5000, itemLimit = 1000000   │
+│     • Update Organization.baseDppPrice = 2 (cents)              │
+│     • Update Organization.storageLimit = 200GB                  │
+│     • DPPs issued rest of month at new rate                     │
 │                                                                  │
-│  5. CONFIRMATION                                                │
-│     • Email sent: "Upgraded to Scale"                           │
-│     • Dashboard updated with new limits                         │
-│     • Invoice emailed                                           │
+│  5. DPP BILLING FOR SPLIT MONTH                                 │
+│     • DPPs before upgrade: 30,000 at €0.05 = €1,500            │
+│     • DPPs after upgrade: 25,000 at €0.02 = €500               │
+│     • Total DPP cost: €2,000                                    │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -428,74 +508,52 @@ function calculateOverage(org: Organization): number {
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
 │  1. USER INITIATES DOWNGRADE                                    │
-│     Current: Scale (€399/month)                                 │
-│     Target: Growth (€129/month)                                 │
+│     Current: Scale (€599/month base)                            │
+│     Target: Growth (€199/month base)                            │
 │     Days remaining in period: 20 days                           │
 │                                                                  │
-│  2. CHECK USAGE VS NEW LIMITS                                   │
-│     Current usage:                                              │
-│     • Products: 450 (within Growth limit of 500) ✅             │
-│     • Items: 8,000 (within Growth limit of 10,000) ✅           │
+│  2. CHECK STORAGE USAGE                                         │
+│     Current storage: 45 GB                                      │
+│     Target limit: 50 GB                                         │
+│     Result: ✅ OK (under new limit)                             │
 │                                                                  │
-│     if (currentUsage > targetLimits) {                          │
-│       // Block downgrade, show error                            │
+│     if (storageUsed > targetLimit) {                            │
 │       throw new Error(                                          │
-│         'Cannot downgrade: 450 products exceeds Growth limit'   │
+│         'Cannot downgrade: 180GB used exceeds Growth 50GB limit'│
 │       );                                                         │
 │     }                                                            │
 │                                                                  │
-│  3. CALCULATE CREDIT (NO REFUND - CREDIT APPLIED)               │
-│     • Unused Scale credit: €399 × (20/30) = €266.00            │
-│     • Growth cost: €129 × (20/30) = €86.00                      │
-│     • Credit balance: €266.00 - €86.00 = €180.00               │
+│  3. CALCULATE CREDIT                                            │
+│     • Unused Scale credit: €599 × (20/30) = €399.33            │
+│     • Growth cost: €199 × (20/30) = €132.67                    │
+│     • Credit balance: €266.66                                   │
 │                                                                  │
 │  4. CONFIRM WITH USER                                           │
 │     ┌──────────────────────────────────────────────┐           │
 │     │ Downgrade to Growth                           │           │
 │     ├──────────────────────────────────────────────┤           │
 │     │ • Charge today: €0.00                        │           │
-│     │ • Credit applied: €180.00                    │           │
-│     │ • Next billing: €0.00 on Feb 15              │           │
-│     │   (covered by credit)                        │           │
-│     │ • Following billing: €129.00 on Mar 15       │           │
+│     │ • Credit applied: €266.66                    │           │
+│     │ • Next billing: €0.00 (covered by credit)    │           │
 │     │                                               │           │
-│     │ • New limits:                                │           │
-│     │   - Products: 5,000 → 500                    │           │
-│     │   - Items: 1,000,000 → 10,000                │           │
-│     │   - No overage billing available             │           │
+│     │ • New DPP pricing:                           │           │
+│     │   - Base: €0.05/DPP (was €0.02)              │           │
+│     │   - 50K+: €0.03/DPP                          │           │
+│     │   - 100K+: €0.02/DPP                         │           │
+│     │                                               │           │
+│     │ • New storage: 50 GB (was 200 GB)            │           │
+│     │ • Priority support disabled                  │           │
 │     │                                               │           │
 │     │ [Cancel]  [Confirm Downgrade]                │           │
 │     └──────────────────────────────────────────────┘           │
 │                                                                  │
 │  5. EXECUTE DOWNGRADE                                           │
-│     • Stripe.subscriptions.update(subscriptionId, {             │
-│         items: [{ price: 'price_growth_monthly' }],             │
-│         proration_behavior: 'always_invoice',                   │
-│       })                                                         │
 │     • Update Organization.plan = 'GROWTH'                       │
-│     • Update limits: productLimit = 500, itemLimit = 10000      │
+│     • Update Organization.baseDppPrice = 5 (cents)              │
+│     • Update Organization.storageLimit = 50GB                   │
 │     • Credit balance shown on next invoice                      │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
-```
-
-### Monthly ↔ Annual Conversion
-
-```
-MONTHLY → ANNUAL
-────────────────
-1. User switches to annual
-2. Calculate prorated credit from remaining monthly period
-3. Charge annual amount minus credit
-4. Reset billing cycle to annual
-
-ANNUAL → MONTHLY
-────────────────
-1. User switches to monthly
-2. Calculate unused annual credit
-3. Apply credit to future monthly invoices
-4. No immediate charge
-5. Reset billing cycle to monthly
 ```
 
 ---
@@ -513,7 +571,7 @@ ANNUAL → MONTHLY
 │  VAT: DE123456789                       Due: February 7, 2026    │
 │                                                                  │
 │  Bill To:                               Subscription Period:     │
-│  Acme Fashion GmbH                      Jan 1, 2026 - Jan 31, 2026│
+│  Acme Electronics GmbH                  Jan 1, 2026 - Jan 31, 2026│
 │  Munich, Germany                                                 │
 │  VAT: DE987654321                                                │
 │                                                                  │
@@ -521,19 +579,35 @@ ANNUAL → MONTHLY
 │                                                                  │
 │  DESCRIPTION                            QTY      PRICE   AMOUNT  │
 │  ──────────────────────────────────────────────────────────────│
-│  Scale Plan (Monthly)                    1     €399.00  €399.00 │
-│  Item Overage (250,000 items)          250      €0.01    €2.50 │
+│  Scale Plan (Monthly Base Fee)           1    €599.00   €599.00 │
 │                                                                  │
-│                                         Subtotal:       €401.50 │
-│                                         VAT (19%):       €76.29 │
+│  DPP Usage                                                       │
+│   - First 500,000 DPPs at €0.02    500,000     €0.02 €10,000.00 │
+│   - Next 250,000 DPPs at €0.01     250,000     €0.01  €2,500.00 │
+│  ──────────────────────────────────────────────────────────────│
+│  DPP Subtotal (750,000 DPPs)                        €12,500.00 │
+│                                                                  │
+│                                         Subtotal:    €13,099.00 │
+│                                         VAT (19%):    €2,488.81 │
 │                                         ───────────────────────│
-│                                         Total:          €477.79 │
+│                                         Total:       €15,587.81 │
 │                                                                  │
 │  Payment Method: •••• 4242 (Visa)                               │
 │  Status: PAID - Jan 31, 2026                                    │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+### Invoice Line Items
+
+| Line Item | Description | Calculation |
+|-----------|-------------|-------------|
+| Base Plan | Monthly subscription fee | Fixed by tier |
+| DPP Usage (Tier 1) | DPPs at base rate | Count × base price |
+| DPP Usage (Tier 2) | DPPs at first discount | Count × discount price |
+| DPP Usage (Tier N) | DPPs at Nth discount | Count × discount price |
+| Add-ons | SSO, Custom Domain, etc. | Fixed monthly |
+| VAT | EU tax | Subtotal × VAT rate |
 
 ### Invoice Delivery
 
@@ -543,13 +617,7 @@ ANNUAL → MONTHLY
 | Payment failed | Billing admin(s) | Payment failure notice + retry schedule |
 | Upcoming renewal | Billing admin(s) | Reminder 7 days before renewal |
 | Plan changed | Billing admin(s) | Confirmation + prorated invoice |
-
-### Invoice Archiving
-
-- All invoices stored in Stripe
-- Accessible via dashboard: Settings → Billing → Invoice History
-- Download as PDF or view in browser
-- Invoices retained indefinitely for compliance
+| High usage alert | Billing admin(s) | "You've issued 500K DPPs, unlocking €0.01 rate" |
 
 ---
 
@@ -569,6 +637,7 @@ ANNUAL → MONTHLY
 │  • Send email: "Payment Failed - Update Payment Method"         │
 │  • Dashboard banner: "Payment failed. Please update."           │
 │  • Service remains ACTIVE (grace period)                        │
+│  • DPP issuance continues (billed next attempt)                 │
 │                                                                  │
 │  DAY 1: First retry                                             │
 │  • Stripe auto-retries payment                                  │
@@ -670,14 +739,18 @@ EuroComply uses **Stripe Tax** for automatic VAT calculation and collection.
 │  INVOICE DISPLAY                                                │
 │  ───────────────                                                │
 │  B2C Invoice:                                                   │
-│    Subtotal: €399.00                                            │
-│    VAT (19%): €75.81                                            │
-│    Total: €474.81                                               │
+│    Base fee: €599.00                                            │
+│    DPP usage: €12,500.00                                        │
+│    Subtotal: €13,099.00                                         │
+│    VAT (19%): €2,488.81                                         │
+│    Total: €15,587.81                                            │
 │                                                                  │
 │  B2B Invoice (reverse charge):                                  │
-│    Subtotal: €399.00                                            │
+│    Base fee: €599.00                                            │
+│    DPP usage: €12,500.00                                        │
+│    Subtotal: €13,099.00                                         │
 │    VAT: €0.00 (reverse charge)                                  │
-│    Total: €399.00                                               │
+│    Total: €13,099.00                                            │
 │    Note: "VAT reverse charge - Customer VAT: DE123456789"       │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
@@ -703,7 +776,7 @@ EuroComply uses **Stripe Tax** for automatic VAT calculation and collection.
 |--------|--------------|----------------|------|
 | **Credit/Debit Card** | All tiers | Instant | 1.4% + €0.25 |
 | **SEPA Direct Debit** | EU organizations | 3-5 business days | 0.8% (capped at €5) |
-| **Invoice (NET30)** | Enterprise, Mega | 30 days | None |
+| **Invoice (NET30)** | Enterprise, Platform | 30 days | None |
 
 ### Card Payment
 
@@ -741,11 +814,11 @@ EuroComply uses **Stripe Tax** for automatic VAT calculation and collection.
    • User can switch to card payment
 ```
 
-### Invoice Payment (Enterprise, Mega Only)
+### Invoice Payment (Enterprise, Platform Only)
 
 ```
 1. Enable invoice payment
-   • Requires Enterprise or Mega tier
+   • Requires Enterprise or Platform tier
    • Credit check may be required
    • NET30 payment terms
 
@@ -772,7 +845,8 @@ Billing management is restricted to users with **ADMIN** role.
 |--------|:-----:|:---------:|
 | View current plan | ✅ | ❌ |
 | View invoices | ✅ | ❌ |
-| View usage | ✅ | ❌ |
+| View DPP usage | ✅ | ❌ |
+| View storage usage | ✅ | ❌ |
 | Update payment method | ✅ | ❌ |
 | Upgrade plan | ✅ | ❌ |
 | Downgrade plan | ✅ | ❌ |
@@ -790,25 +864,40 @@ Billing management is restricted to users with **ADMIN** role.
 │                                                                  │
 │  CURRENT PLAN                                                   │
 │  ─────────────                                                  │
-│  Scale (€399/month)                    [Upgrade] [Downgrade]    │
+│  Scale (€599/month base + €0.02/DPP)    [Upgrade] [Downgrade]   │
 │  Next billing: February 1, 2026                                 │
 │  Payment method: Visa •••• 4242                  [Update]       │
 │                                                                  │
-│  USAGE THIS MONTH                                               │
-│  ─────────────────                                              │
-│  Products: 450 / 5,000        [████████░░] 9%                   │
-│  Items: 1,250,000 / 1,000,000 [██████████] 125% ⚠️             │
-│  Estimated overage: €2.50                                       │
+│  DPP USAGE THIS MONTH                                           │
+│  ─────────────────────                                          │
+│  DPPs issued: 750,000                                           │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ ████████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ │   │
+│  │ 0        500K       1M                                   │   │
+│  │          ↑ Volume discount unlocked!                     │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│  Pricing breakdown:                                             │
+│   - 500K DPPs at €0.02 = €10,000.00                            │
+│   - 250K DPPs at €0.01 = €2,500.00  ← Volume discount!         │
+│  ─────────────────────────────────                              │
+│  Estimated DPP cost: €12,500.00                                │
+│                                                                  │
+│  Next discount at 1M DPPs: €0.008/DPP                          │
+│                                                                  │
+│  STORAGE                                                        │
+│  ───────                                                        │
+│  Used: 145 GB / 200 GB [████████████░░░░] 72%                   │
 │                                                                  │
 │  INVOICE HISTORY                                                │
 │  ────────────────                                               │
-│  Jan 2026  €477.79  PAID     [Download PDF]                    │
-│  Dec 2025  €401.50  PAID     [Download PDF]                    │
-│  Nov 2025  €399.00  PAID     [Download PDF]                    │
+│  Jan 2026  Base: €599 + DPPs: €12,500 = €15,587.81  PAID  [PDF]│
+│  Dec 2025  Base: €599 + DPPs: €8,200 = €10,471.81   PAID  [PDF]│
+│  Nov 2025  Base: €599 + DPPs: €5,100 = €6,782.81    PAID  [PDF]│
 │                                                                  │
 │  BILLING INFORMATION                                            │
 │  ────────────────────                                           │
-│  Company: Acme Fashion GmbH                      [Edit]         │
+│  Company: Acme Electronics GmbH                     [Edit]      │
 │  VAT ID: DE987654321 ✓ Verified                                │
 │  Address: Munich, Germany                                       │
 │                                                                  │
@@ -857,19 +946,25 @@ async function createStripeCustomer(org: Organization) {
   return customer;
 }
 
-// Create subscription
+// Create subscription with base + metered DPP
 async function createSubscription(orgId: string, plan: Plan, cycle: Cycle) {
   const org = await prisma.organization.findUnique({ where: { id: orgId } });
 
-  const priceId = getPriceId(plan, cycle);
+  const basePriceId = getBasePriceId(plan, cycle);
+  const usagePriceId = getUsagePriceId(plan);
 
   const subscription = await stripe.subscriptions.create({
     customer: org.stripeCustomerId!,
-    items: [{ price: priceId }],
+    items: [
+      { price: basePriceId },              // Fixed monthly base fee
+      { price: usagePriceId },             // Metered DPP usage
+    ],
     payment_behavior: 'default_incomplete',
     payment_settings: { save_default_payment_method: 'on_subscription' },
     expand: ['latest_invoice.payment_intent'],
   });
+
+  const limits = getPlanLimits(plan);
 
   await prisma.organization.update({
     where: { id: orgId },
@@ -879,6 +974,9 @@ async function createSubscription(orgId: string, plan: Plan, cycle: Cycle) {
       billingCycle: cycle,
       currentPeriodEnd: new Date(subscription.current_period_end * 1000),
       subscriptionStatus: 'ACTIVE',
+      storageLimit: limits.storage,
+      baseDppPrice: limits.dppPrice,
+      volumeDiscounts: limits.volumeDiscounts,
     },
   });
 
@@ -886,8 +984,12 @@ async function createSubscription(orgId: string, plan: Plan, cycle: Cycle) {
 }
 
 // Price ID mapping
-function getPriceId(plan: Plan, cycle: Cycle): string {
+function getBasePriceId(plan: Plan, cycle: Cycle): string {
   const prices = {
+    STARTER: {
+      MONTHLY: process.env.STRIPE_PRICE_STARTER_MONTHLY!,
+      ANNUAL: process.env.STRIPE_PRICE_STARTER_ANNUAL!,
+    },
     GROWTH: {
       MONTHLY: process.env.STRIPE_PRICE_GROWTH_MONTHLY!,
       ANNUAL: process.env.STRIPE_PRICE_GROWTH_ANNUAL!,
@@ -900,13 +1002,66 @@ function getPriceId(plan: Plan, cycle: Cycle): string {
       MONTHLY: process.env.STRIPE_PRICE_ENTERPRISE_MONTHLY!,
       ANNUAL: process.env.STRIPE_PRICE_ENTERPRISE_ANNUAL!,
     },
-    MEGA: {
-      MONTHLY: process.env.STRIPE_PRICE_MEGA_MONTHLY!,
-      ANNUAL: process.env.STRIPE_PRICE_MEGA_ANNUAL!,
+    PLATFORM: {
+      MONTHLY: process.env.STRIPE_PRICE_PLATFORM_MONTHLY!,
+      ANNUAL: process.env.STRIPE_PRICE_PLATFORM_ANNUAL!,
     },
   };
 
   return prices[plan][cycle];
+}
+
+function getUsagePriceId(plan: Plan): string {
+  const usagePrices = {
+    STARTER: process.env.STRIPE_USAGE_STARTER!,
+    GROWTH: process.env.STRIPE_USAGE_GROWTH!,
+    SCALE: process.env.STRIPE_USAGE_SCALE!,
+    ENTERPRISE: process.env.STRIPE_USAGE_ENTERPRISE!,
+    PLATFORM: process.env.STRIPE_USAGE_PLATFORM!,
+  };
+
+  return usagePrices[plan];
+}
+
+function getPlanLimits(plan: Plan) {
+  const limits = {
+    STARTER: {
+      storage: 10n * 1024n * 1024n * 1024n, // 10 GB
+      dppPrice: 10, // €0.10 in cents
+      volumeDiscounts: [{ threshold: 10000, price: 8 }],
+    },
+    GROWTH: {
+      storage: 50n * 1024n * 1024n * 1024n, // 50 GB
+      dppPrice: 5, // €0.05 in cents
+      volumeDiscounts: [
+        { threshold: 50000, price: 3 },
+        { threshold: 100000, price: 2 },
+      ],
+    },
+    SCALE: {
+      storage: 200n * 1024n * 1024n * 1024n, // 200 GB
+      dppPrice: 2, // €0.02 in cents
+      volumeDiscounts: [
+        { threshold: 500000, price: 1 },
+        { threshold: 1000000, price: 0.8 },
+      ],
+    },
+    ENTERPRISE: {
+      storage: 1024n * 1024n * 1024n * 1024n, // 1 TB
+      dppPrice: 0.8, // €0.008 in cents (0.8 = 0.008 EUR)
+      volumeDiscounts: [
+        { threshold: 5000000, price: 0.5 },
+        { threshold: 10000000, price: 0.3 },
+      ],
+    },
+    PLATFORM: {
+      storage: 0n, // Custom
+      dppPrice: 0.3, // Custom, typically €0.003
+      volumeDiscounts: [], // Custom negotiated
+    },
+  };
+
+  return limits[plan];
 }
 ```
 
@@ -961,9 +1116,13 @@ async function handlePaymentSucceeded(invoice: Stripe.Invoice) {
     where: { stripeCustomerId: invoice.customer as string },
   });
 
+  // Reset monthly DPP counter on successful payment
   await prisma.organization.update({
     where: { id: org!.id },
-    data: { subscriptionStatus: 'ACTIVE' },
+    data: {
+      subscriptionStatus: 'ACTIVE',
+      dppCountThisMonth: 0, // Reset for new billing period
+    },
   });
 
   // Send receipt email
@@ -995,23 +1154,19 @@ async function handlePaymentFailed(invoice: Stripe.Invoice) {
 }
 ```
 
-### 12.3 Usage Reporting
+### 12.3 DPP Usage Reporting
 
 ```typescript
-// Report usage to Stripe (called at month-end)
-async function reportUsageToStripe(orgId: string) {
+// Report DPP usage to Stripe (called at month-end)
+async function reportDppUsageToStripe(orgId: string) {
   const org = await prisma.organization.findUnique({ where: { id: orgId } });
 
-  if (org.plan === 'GROWTH' || org.plan === 'MEGA') {
-    return; // No usage billing
-  }
+  if (org.dppCountThisMonth === 0) return;
 
-  const overage = Math.max(0, org.itemCount - org.itemLimit);
-  if (overage === 0) return;
+  // Calculate cost with volume discounts
+  const cost = calculateDppCost(org.plan, org.dppCountThisMonth);
 
-  const billableUnits = Math.ceil(overage / 1000);
-
-  // Find usage-based subscription item
+  // Find metered subscription item
   const subscription = await stripe.subscriptions.retrieve(org.subscriptionId!);
   const usageItem = subscription.items.data.find(item =>
     item.price.id === getUsagePriceId(org.plan)
@@ -1021,18 +1176,89 @@ async function reportUsageToStripe(orgId: string) {
     throw new Error('Usage price not found in subscription');
   }
 
-  // Report usage
+  // Report total DPP count (Stripe calculates cost based on price tiers)
   await stripe.subscriptionItems.createUsageRecord(usageItem.id, {
-    quantity: billableUnits,
+    quantity: org.dppCountThisMonth,
     timestamp: Math.floor(Date.now() / 1000),
-    action: 'set', // Replace previous usage
+    action: 'set',
+  });
+
+  // Log for audit
+  await prisma.billingEvent.create({
+    data: {
+      organizationId: orgId,
+      type: 'DPP_USAGE_REPORTED',
+      dppCount: org.dppCountThisMonth,
+      calculatedCost: cost,
+      timestamp: new Date(),
+    },
   });
 }
 
-function getUsagePriceId(plan: Plan): string {
-  return plan === 'SCALE'
-    ? process.env.STRIPE_USAGE_SCALE!
-    : process.env.STRIPE_USAGE_ENTERPRISE!;
+// Track DPP issuance in real-time
+async function trackDppIssuance(orgId: string, count: number = 1) {
+  await prisma.organization.update({
+    where: { id: orgId },
+    data: {
+      dppCountThisMonth: { increment: count },
+      dppCountTotal: { increment: count },
+    },
+  });
+
+  // Log individual DPP event for detailed audit
+  await prisma.dppUsageEvent.create({
+    data: {
+      organizationId: orgId,
+      count,
+      timestamp: new Date(),
+    },
+  });
+}
+
+// Get current usage and cost estimate
+async function getCurrentUsage(orgId: string) {
+  const org = await prisma.organization.findUnique({ where: { id: orgId } });
+
+  const estimatedCost = calculateDppCost(org.plan, org.dppCountThisMonth);
+  const pricing = DPP_PRICING[org.plan];
+
+  // Find next discount threshold
+  const sortedDiscounts = [...pricing.discounts].sort(
+    (a, b) => a.threshold - b.threshold
+  );
+  const nextDiscount = sortedDiscounts.find(
+    d => d.threshold > org.dppCountThisMonth
+  );
+
+  return {
+    dppCountThisMonth: org.dppCountThisMonth,
+    dppCountTotal: org.dppCountTotal,
+    estimatedCost,
+    currentRate: getCurrentRate(org.plan, org.dppCountThisMonth),
+    nextDiscount: nextDiscount ? {
+      threshold: nextDiscount.threshold,
+      price: nextDiscount.price,
+      dppsUntil: nextDiscount.threshold - org.dppCountThisMonth,
+    } : null,
+    storageUsed: org.storageUsed,
+    storageLimit: org.storageLimit,
+    storagePercentage: Number(org.storageUsed * 100n / org.storageLimit),
+  };
+}
+
+function getCurrentRate(plan: Plan, dppCount: number): number {
+  const pricing = DPP_PRICING[plan];
+  const sortedDiscounts = [...pricing.discounts].sort(
+    (a, b) => b.threshold - a.threshold
+  );
+
+  for (const discount of sortedDiscounts) {
+    if (dppCount >= discount.threshold) {
+      return discount.price;
+    }
+  }
+
+  return pricing.basePrice;
 }
 ```
 
@@ -1050,4 +1276,5 @@ function getUsagePriceId(plan: Plan): string {
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.0 | 2026-01-14 | Major update: Base Fee + Per-DPP pricing model |
 | 1.0 | 2026-01-14 | Initial specification |

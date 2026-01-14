@@ -82,10 +82,11 @@ Rate limits are applied per API key or user token:
 | Tier | Requests/Minute | Requests/Hour | Burst (10s) | Applied To |
 |------|-----------------|---------------|-------------|------------|
 | **Free Trial** | 60 | 1,000 | 20 | Trial accounts |
-| **Growth** | 300 | 10,000 | 100 | Growth plan |
-| **Scale** | 600 | 30,000 | 200 | Scale plan |
-| **Enterprise** | 1,200 | 60,000 | 400 | Enterprise plan |
-| **Mega** | 3,000 | 150,000 | 1,000 | Mega plan |
+| **Starter** | 100 | 3,000 | 30 | Starter plan |
+| **Growth** | 500 | 15,000 | 100 | Growth plan |
+| **Scale** | 2,000 | 60,000 | 400 | Scale plan |
+| **Enterprise** | 10,000 | 300,000 | 2,000 | Enterprise plan |
+| **Platform** | Custom | Custom | Custom | Platform plan |
 
 ### 3.2 Endpoint-Specific Limits
 

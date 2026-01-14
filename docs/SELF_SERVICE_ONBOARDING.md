@@ -79,14 +79,14 @@ See [USER_MANAGEMENT.md](./USER_MANAGEMENT.md) for workspace access, role templa
 │                              ▼                                      │
 │  STEP 3: SELECT PLAN (2 min)                                       │
 │  ┌─────────────────────────────────────────────────────────────────┐│
-│  │ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐││
-│  │ │   GROWTH    │ │    SCALE    │ │ ENTERPRISE  │ │    MEGA     │││
-│  │ │  €129/mo    │ │   €399/mo   │ │   €999/mo   │ │  €4,999/mo  │││
-│  │ │500 products │ │5K products  │ │  Unlimited  │ │  Unlimited  │││
-│  │ │ 10K items   │ │  1M items   │ │ 100M items  │ │  Unlimited  │││
-│  │ │  [Select]   │ │  [Select]   │ │  [Select]   │ │  [Contact]  │││
-│  │ └─────────────┘ └─────────────┘ └─────────────┘ └─────────────┘││
-│  │                                                                  ││
+│  │ ┌───────────┐┌───────────┐┌───────────┐┌───────────┐┌───────────┐││
+│  │ │  STARTER  ││  GROWTH   ││   SCALE   ││ENTERPRISE ││ PLATFORM  │││
+│  │ │  €79/mo   ││  €199/mo  ││  €599/mo  ││ €1,499/mo ││  Custom   │││
+│  │ │+€0.10/DPP ││+€0.05/DPP ││+€0.02/DPP ││+€0.008/DPP││ Contact   │││
+│  │ │  10GB     ││   50GB    ││   200GB   ││    1TB    ││           │││
+│  │ │ [Select]  ││ [Select]  ││ [Select]  ││ [Select]  ││ [Contact] │││
+│  │ └───────────┘└───────────┘└───────────┘└───────────┘└───────────┘││
+│  │ All plans: Unlimited products, unlimited users, volume discounts ││
 │  │ → Stripe Checkout redirect                                      ││
 │  └─────────────────────────────────────────────────────────────────┘│
 │                              │                                      │
@@ -382,10 +382,11 @@ enum OrganizationType {
 }
 
 enum SubscriptionPlan {
-  GROWTH            // €129/mo, 500 products, 10K items, ALL features, unlimited users
-  SCALE             // €399/mo, 5,000 products, 1M items, ALL features, unlimited users
-  ENTERPRISE        // €999/mo, unlimited products, 100M items, ALL features + SLA/SSO
-  MEGA              // €4,999/mo, unlimited, dedicated cluster
+  STARTER           // €79/mo base + €0.10/DPP, 10GB storage, unlimited products
+  GROWTH            // €199/mo base + €0.05/DPP, 50GB storage, unlimited products
+  SCALE             // €599/mo base + €0.02/DPP, 200GB storage, priority support
+  ENTERPRISE        // €1,499/mo base + €0.008/DPP, 1TB storage, dedicated support + SLA
+  PLATFORM          // Custom base + per-DPP, dedicated infrastructure
 }
 
 enum SubscriptionStatus {
@@ -560,8 +561,8 @@ async function provisionTenant(organizationId: string, plan: SubscriptionPlan) {
     }
   });
 
-  // 6. For Mega tier: provision dedicated cluster
-  if (plan === 'MEGA') {
+  // 6. For Platform tier: provision dedicated cluster
+  if (plan === 'PLATFORM') {
     await provisionDedicatedCluster(organizationId);
   }
 }
@@ -586,10 +587,11 @@ The `enabledModules` field maps to Architecture v1.3 workspace capabilities:
 
 | Tier | Cell Type | Database | Notes |
 |------|-----------|----------|-------|
+| Starter | Shared cell | Schema in shared RDS | ~200 tenants/cell |
 | Growth | Shared cell | Schema in shared RDS | ~200 tenants/cell |
-| Scale | Shared cell | Schema in shared RDS | Same isolation as Growth |
+| Scale | Shared cell | Schema in shared RDS + per-tenant credentials | Same isolation, enhanced auth |
 | Enterprise | Dedicated instance | Own RDS instance | Full instance isolation |
-| Mega | Dedicated cluster | Multi-AZ RDS + dedicated workers | Custom SLA |
+| Platform | Dedicated cluster | Multi-AZ RDS + dedicated workers | Custom SLA |
 
 See [Architecture Document §3 (Multi-Tenancy)](../EuroComply_Architecture_Document_v1.3.md#3-multi-tenancy-architecture) for complete details.
 

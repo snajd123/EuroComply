@@ -99,7 +99,7 @@ Customer signs up → Payment processed → Account created → Welcome email
 │                    PLAN UPGRADE PROCEDURE                        │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  SELF-SERVICE (Growth → Scale)                                  │
+│  SELF-SERVICE (Starter → Growth → Scale)                        │
 │  ─────────────────────────────                                  │
 │  1. Customer selects new plan in dashboard                      │
 │  2. Stripe calculates prorated amount                           │
@@ -132,7 +132,7 @@ Customer signs up → Payment processed → Account created → Welcome email
 
 **Downgrade Blockers:**
 - Product count exceeds new plan limit
-- Active Shopify connections (Growth+ only)
+- Active Shopify connections (all tiers)
 - Active API integrations
 
 ### Account Cancellation

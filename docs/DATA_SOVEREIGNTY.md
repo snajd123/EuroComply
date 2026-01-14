@@ -323,7 +323,7 @@ Customer pays → We spin up container → Customer owns infrastructure
 - €50-110/month infrastructure + customer labor
 - Defeats "no IT team needed" promise
 
-**Verdict**: Only for Enterprise tier (€599+/month)
+**Verdict**: Only for Enterprise tier (€1,499+/month)
 
 ---
 
@@ -837,36 +837,36 @@ interface FullExportResponse {
 ## Pricing
 
 ```
-┌──────────────────────────────┬───────────┬─────────────────────────────┐
-│ Tier                         │ Price     │ Features                    │
-├──────────────────────────────┼───────────┼─────────────────────────────┤
-│ Growth (500 products, 10K    │ €129/mo   │ ✅ Full platform access     │
-│ items)                       │           │ ✅ Self-contained VCs       │
-│                              │           │ ✅ One-click export         │
-│                              │           │ ✅ Offline verification     │
-│                              │           │ ✅ Full PIM + Attestation   │
-│                              │           │ ✅ Shopify sync + API       │
-│                              │           │ ✅ 100 AI imports/month     │
-├──────────────────────────────┼───────────┼─────────────────────────────┤
-│ Scale (5,000 products, 1M    │ €399/mo   │ ✅ Full platform access     │
-│ items)                       │           │ ✅ 1,000 AI imports/month   │
-│                              │           │ ✅ Higher API limits        │
-│                              │           │ ✅ Priority support         │
-├──────────────────────────────┼───────────┼─────────────────────────────┤
-│ Enterprise (Unlimited,       │ €999/mo   │ ✅ Full platform access     │
-│ 100M items)                  │           │ ✅ Custom AI limits         │
-│                              │           │ ✅ SSO, 99.9% SLA           │
-│                              │           │ ✅ Dedicated support        │
-├──────────────────────────────┼───────────┼─────────────────────────────┤
-│ Mega (Unlimited, dedicated)  │ €4,999/mo │ ✅ Dedicated cluster        │
-│                              │           │ ✅ Unlimited items          │
-│                              │           │ ✅ Custom SLA               │
-└──────────────────────────────┴───────────┴─────────────────────────────┘
+┌──────────────────────────────┬───────────────────┬─────────────────────────────┐
+│ Tier                         │ Price             │ Features                    │
+├──────────────────────────────┼───────────────────┼─────────────────────────────┤
+│ Starter                      │ €79/mo base       │ ✅ Full platform access     │
+│                              │ + €0.10/DPP       │ ✅ Self-contained VCs       │
+│                              │ 10GB storage      │ ✅ One-click export         │
+│                              │                   │ ✅ Offline verification     │
+├──────────────────────────────┼───────────────────┼─────────────────────────────┤
+│ Growth                       │ €199/mo base      │ ✅ Full platform access     │
+│                              │ + €0.05/DPP       │ ✅ Shopify sync + API       │
+│                              │ 50GB storage      │ ✅ 50K+: €0.03, 100K+: €0.02│
+├──────────────────────────────┼───────────────────┼─────────────────────────────┤
+│ Scale                        │ €599/mo base      │ ✅ Full platform access     │
+│                              │ + €0.02/DPP       │ ✅ Priority support         │
+│                              │ 200GB storage     │ ✅ 500K+: €0.01, 1M+: €0.008│
+├──────────────────────────────┼───────────────────┼─────────────────────────────┤
+│ Enterprise                   │ €1,499/mo base    │ ✅ Full platform access     │
+│                              │ + €0.008/DPP      │ ✅ SSO, 99.95% SLA          │
+│                              │ 1TB storage       │ ✅ Dedicated support        │
+│                              │                   │ ✅ 5M+: €0.005, 10M+: €0.003│
+├──────────────────────────────┼───────────────────┼─────────────────────────────┤
+│ Platform                     │ Custom base       │ ✅ Dedicated cluster        │
+│                              │ + €0.001-0.003/DPP│ ✅ Custom SLA               │
+│                              │ Custom storage    │ ✅ Custom integrations      │
+└──────────────────────────────┴───────────────────┴─────────────────────────────┘
 
-**All tiers include unlimited users and full data sovereignty guarantees.**
+**All tiers include unlimited products/SKUs, unlimited users, and full data sovereignty guarantees.**
 ```
 
-All customers receive full platform access. Tier differentiation is based on catalog capacity and item volume.
+All customers receive full platform access. Tier differentiation is based on storage, support level, and per-DPP pricing.
 
 ---
 

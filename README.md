@@ -265,26 +265,23 @@ EuroComply uses a modular architecture. Modules are the backend capabilities tha
 
 **Note:** Multi-Party Attestation is available in ALL workspaces - different personas request attestations for different datapoints (Design: material certs, Operations: supplier audits, Marketing: brand claims, Compliance: regulatory certifications).
 
-### Volume-Based Pricing
+### Base Fee + Per-DPP Pricing
 
-All customers receive full platform access. Tier differentiation is based on catalog capacity and item volume.
+All customers receive full platform access with unlimited products/SKUs and users. Pricing is based on a monthly base fee plus per-DPP charges.
 
-| Plan | Monthly | Annual | Products | Items | Max Batch | AI Imports | Support |
-|------|---------|--------|----------|-------|-----------|------------|---------|
-| **Growth** | €129 | €1,290/yr | 500 | 10,000 | 10,000 | 100/mo | Email |
-| **Scale** | €399 | €3,990/yr | 5,000 | 1,000,000 | 100,000 | 1,000/mo | Priority |
-| **Enterprise** | €999 | €9,990/yr | Unlimited | 100,000,000 | 1,000,000 | Custom | Dedicated |
-| **Mega** | €4,999 | €49,990/yr | Unlimited | Unlimited | 10,000,000 | Custom | Dedicated + SLA |
+| Plan | Base Fee | Storage | DPP Price | Volume Discounts | Support |
+|------|----------|---------|-----------|------------------|---------|
+| **Starter** | €79/mo | 10 GB | €0.10/DPP | 10K+: €0.08 | Email |
+| **Growth** | €199/mo | 50 GB | €0.05/DPP | 50K+: €0.03, 100K+: €0.02 | Email |
+| **Scale** | €599/mo | 200 GB | €0.02/DPP | 500K+: €0.01, 1M+: €0.008 | Priority |
+| **Enterprise** | €1,499/mo | 1 TB | €0.008/DPP | 5M+: €0.005, 10M+: €0.003 | Dedicated |
+| **Platform** | Custom | Custom | €0.001-0.003 | Negotiated | SLA |
 
-**Included in all plans:** All four workspaces, full module access, Shopify Sync, API Access, Unlimited Users, Permanent DPP Hosting.
+**Base fee includes:** All four workspaces, unlimited products/SKUs, unlimited users, API access, Shopify Sync, EPCIS events, 10-year DPP hosting.
 
-**Item Overage Pricing:**
-| Tier | Overage Rate |
-|------|--------------|
-| Growth | Upgrade required |
-| Scale | €0.01 per 1,000 items |
-| Enterprise | €0.005 per 1,000 items |
-| Mega | Included |
+**Per-DPP fee includes:** VC issuance, QR code generation, R2 storage, 10-year serving via Cloudflare edge.
+
+**Annual pricing:** 20% discount on base fees (per-DPP fees always monthly based on usage).
 
 ---
 
