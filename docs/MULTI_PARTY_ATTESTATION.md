@@ -831,6 +831,367 @@ IMMEDIATE ACTION REQUIRED:
 | REGISTRY_VERIFIED | Manual verification | ✅ High | Verified certification body |
 | EUDI_VERIFIED | EU wallet | 🇪🇺 Highest | EU government vouches |
 
+### Verification Process
+
+#### How to Achieve Each Verification Level
+
+**1. SELF_ATTESTED (Automatic on Signup)**
+
+No verification required. Contributor creates account with email and claims an organization name.
+
+⚠️ **Security Risk:** Anyone can claim to be any organization.
+
+---
+
+**2. EMAIL_VERIFIED (Automatic After Email Confirmation)**
+
+```
+Flow:
+1. Contributor signs up with email: certifier@controlunion.com
+2. Receives verification email with one-time link
+3. Clicks link → email confirmed
+4. Status: EMAIL_VERIFIED
+
+Proves: Email address works at claimed domain
+Does NOT prove: Actually owns/works for Control Union
+```
+
+⚠️ **Security Risk:** Email can be created at lookalike domains (controlunion.io instead of controlunion.com)
+
+---
+
+**3. DNS_VERIFIED (Proves Domain Control)**
+
+Contributor must add a DNS TXT record to prove they control the domain:
+
+```
+Process:
+1. Contributor goes to Settings → Verification
+2. System generates unique verification code:
+   TXT _eurocomply-verification.controlunion.com = "ec_verify_a3f9d2c8b1e5..."
+
+3. Contributor adds TXT record to DNS:
+   @ or subdomain: _eurocomply-verification
+   Type: TXT
+   Value: ec_verify_a3f9d2c8b1e5...
+
+4. Click "Verify Domain"
+5. System queries DNS:
+   dig TXT _eurocomply-verification.controlunion.com
+
+6. If match found:
+   Status: DNS_VERIFIED
+   Badge updated in UI
+
+Proves: Controls DNS for the domain
+Does NOT prove: Business legally exists or is accredited
+```
+
+**Implementation:**
+
+```typescript
+async function verifyDomain(contributorId: string): Promise<boolean> {
+  const contributor = await prisma.contributor.findUnique({ where: { id: contributorId } });
+  const domain = extractDomain(contributor.email); // controlunion.com
+  const expectedCode = contributor.dnsVerificationCode; // ec_verify_a3f9...
+
+  // Query DNS TXT record
+  const records = await dns.resolveTxt(`_eurocomply-verification.${domain}`);
+  const found = records.flat().find(r => r === expectedCode);
+
+  if (found) {
+    await prisma.contributor.update({
+      where: { id: contributorId },
+      data: {
+        verificationLevel: 'DNS_VERIFIED',
+        domainVerifiedAt: new Date(),
+      },
+    });
+    return true;
+  }
+
+  return false;
+}
+```
+
+---
+
+**4. VAT_VERIFIED (Proves Business Legally Exists in EU)**
+
+Contributor provides their EU VAT number for verification via VIES (VAT Information Exchange System):
+
+```
+Process:
+1. Contributor goes to Settings → Verification → VAT
+2. Enters VAT number: DE123456789
+3. System validates via EU VIES API:
+   https://ec.europa.eu/taxation_customs/vies/
+
+4. If valid:
+   - Retrieves business name, address from VIES
+   - Checks if name matches claimed organization name
+   - Status: VAT_VERIFIED
+
+Proves:
+- Business legally registered in EU
+- VAT number is active
+- Business name matches registration
+
+Does NOT prove:
+- Certification body accreditation
+- Authority to issue specific certifications
+```
+
+**Implementation:**
+
+```typescript
+async function verifyVAT(contributorId: string, vatNumber: string): Promise<boolean> {
+  const contributor = await prisma.contributor.findUnique({ where: { id: contributorId } });
+
+  // Validate VAT format (e.g., DE + 9 digits)
+  if (!isValidVATFormat(vatNumber)) {
+    throw new Error('Invalid VAT format');
+  }
+
+  // Query EU VIES API
+  const viesResult = await fetch('https://ec.europa.eu/taxation_customs/vies/rest-api/check-vat-number', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      countryCode: vatNumber.substring(0, 2),
+      vatNumber: vatNumber.substring(2),
+    }),
+  }).then(r => r.json());
+
+  if (!viesResult.valid) {
+    throw new Error('VAT number not found in VIES');
+  }
+
+  // Check if business name matches claimed name (fuzzy match)
+  const similarity = stringSimilarity(
+    viesResult.name.toLowerCase(),
+    contributor.companyName.toLowerCase()
+  );
+
+  if (similarity < 0.7) {
+    throw new Error(`VAT business name "${viesResult.name}" does not match claimed "${contributor.companyName}"`);
+  }
+
+  // Update contributor
+  await prisma.contributor.update({
+    where: { id: contributorId },
+    data: {
+      verificationLevel: 'VAT_VERIFIED',
+      vatNumber,
+      vatBusinessName: viesResult.name,
+      vatAddress: viesResult.address,
+      vatVerifiedAt: new Date(),
+    },
+  });
+
+  return true;
+}
+```
+
+---
+
+**5. LEI_VERIFIED (Global Business Identifier)**
+
+Contributor provides their Legal Entity Identifier (LEI) for verification via GLEIF:
+
+```
+Process:
+1. Contributor enters LEI: 5493001KJTIIGC8Y1R12
+2. System validates via GLEIF API:
+   https://api.gleif.org/api/v1/lei-records/{lei}
+
+3. If valid and active:
+   - Retrieves legal name, jurisdiction
+   - Status: LEI_VERIFIED
+
+Proves:
+- Global business identity verified
+- Registered with financial regulators
+```
+
+---
+
+**6. REGISTRY_VERIFIED (Trusted Certification Bodies)**
+
+**Manual verification process** for certification bodies and critical suppliers:
+
+```
+Process:
+1. Contributor requests REGISTRY_VERIFIED status
+2. Provides evidence:
+   - Accreditation certificates (IOAS, IAF, etc.)
+   - Certification body license
+   - Proof of accreditation scope
+
+3. EuroComply team verifies:
+   - Check accreditation body registry (IOAS, IAF, etc.)
+   - Verify license is active
+   - Confirm scope matches requested certifications
+
+4. Manual approval:
+   - Add to Trust Registry
+   - Assign accreditation scope (GOTS, GRS, etc.)
+   - Status: REGISTRY_VERIFIED
+
+5. Ongoing monitoring:
+   - Periodic re-verification (annually)
+   - Automatic alerts if accreditation expires
+```
+
+**Trust Registry Structure:**
+
+```typescript
+model TrustedIssuer {
+  id                String    @id
+  contributorId     String    @unique
+
+  // Verification
+  verifiedBy        String    // EuroComply admin who verified
+  verifiedAt        DateTime
+  reVerifyBy        DateTime  // Annual re-verification
+
+  // Accreditation
+  accreditationBody String    // "IOAS", "IAF", "DAkkS", etc.
+  accreditationId   String    // Accreditation certificate number
+  accreditedScopes  String[]  // ["GOTS", "GRS", "OCS", "RCS"]
+
+  // Evidence
+  evidenceUrls      String[]  // Links to accreditation certificates
+
+  // Status
+  status            TrustStatus // ACTIVE, SUSPENDED, REVOKED
+}
+
+enum TrustStatus {
+  ACTIVE       // Currently trusted
+  SUSPENDED    // Temporary suspension pending review
+  REVOKED      // Permanently removed from registry
+}
+```
+
+---
+
+**7. EUDI_VERIFIED (EU Digital Identity Wallet - Future)**
+
+```
+Process (Planned):
+1. Contributor connects EU Digital Identity Wallet (EUDI)
+2. Wallet provides government-verified identity claims
+3. EuroComply validates wallet signature
+4. Status: EUDI_VERIFIED
+
+Proves: EU member state government vouches for identity
+
+Timeline: EUDI wallet rollout 2024-2027
+```
+
+---
+
+### Automatic Verification During Signup
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                CONTRIBUTOR SIGNUP & VERIFICATION                 │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  1. SIGNUP                                                      │
+│     Email: certifier@controlunion.com                           │
+│     Company: Control Union                                      │
+│     Type: CERTIFIER                                             │
+│     Status: SELF_ATTESTED ⚠️                                    │
+│                                                                  │
+│  2. EMAIL VERIFICATION (Automatic)                              │
+│     Send verification email → click link                        │
+│     Status: EMAIL_VERIFIED ⚠️                                   │
+│                                                                  │
+│  3. PROMPT FOR ADDITIONAL VERIFICATION                          │
+│     ┌────────────────────────────────────────────────────┐    │
+│     │ ⚠️ Improve Your Trust Level                        │    │
+│     │                                                     │    │
+│     │ Current: EMAIL_VERIFIED (Weak)                     │    │
+│     │                                                     │    │
+│     │ To attest certifications, you need higher          │    │
+│     │ verification. Choose an option:                    │    │
+│     │                                                     │    │
+│     │ [Verify VAT Number] (EU businesses) → 🟢          │    │
+│     │ [Verify Domain (DNS)] → 🔵                         │    │
+│     │ [Request Trust Registry] → ✅ (certification bodies)│    │
+│     └────────────────────────────────────────────────────┘    │
+│                                                                  │
+│  4. CERTIFICATION ATTESTATION BLOCKED                           │
+│     if (contributorType === 'CERTIFIER' &&                      │
+│         verificationLevel !== 'REGISTRY_VERIFIED') {            │
+│       throw new Error(                                          │
+│         'Only REGISTRY_VERIFIED contributors can attest'        │
+│         + ' certifications. Please apply for verification.'     │
+│       );                                                         │
+│     }                                                            │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### Certification Attestation Restrictions
+
+**Enforcement:**
+
+```typescript
+async function createAttestation(contributorId: string, data: AttestationData) {
+  const contributor = await prisma.contributor.findUnique({ where: { id: contributorId } });
+
+  // Check if attestation includes certifications
+  const hasCertifications = data.fields.some(f =>
+    ['certifications', 'gots', 'grs', 'ocs', 'iso', 'fsc'].includes(f.key)
+  );
+
+  if (hasCertifications && contributor.type === 'CERTIFIER') {
+    // Require REGISTRY_VERIFIED for certification attestations
+    if (contributor.verificationLevel !== 'REGISTRY_VERIFIED') {
+      throw new ForbiddenError(
+        'Certification attestations require REGISTRY_VERIFIED status. ' +
+        'Please apply for Trust Registry inclusion at Settings → Verification.'
+      );
+    }
+
+    // Check if certification is in accredited scope
+    const certTypes = data.fields.map(f => f.key.toUpperCase());
+    const accreditedScopes = await getTrustedIssuerScopes(contributorId);
+
+    const unscopedCerts = certTypes.filter(c => !accreditedScopes.includes(c));
+    if (unscopedCerts.length > 0) {
+      throw new ForbiddenError(
+        `Not accredited for: ${unscopedCerts.join(', ')}. ` +
+        `Your accredited scopes: ${accreditedScopes.join(', ')}`
+      );
+    }
+  }
+
+  // Non-certification attestations allow VAT_VERIFIED or higher
+  if (!hasCertifications) {
+    const allowedLevels = ['VAT_VERIFIED', 'LEI_VERIFIED', 'DNS_VERIFIED', 'REGISTRY_VERIFIED', 'EUDI_VERIFIED'];
+
+    if (!allowedLevels.includes(contributor.verificationLevel)) {
+      // Still allow but show warning
+      data.metadata = {
+        ...data.metadata,
+        lowTrustWarning: true,
+        verificationLevel: contributor.verificationLevel,
+      };
+    }
+  }
+
+  // Create attestation...
+}
+```
+
+---
+
 ### Trust Display in UI
 
 **Trusted Certification Body (REGISTRY_VERIFIED):**
