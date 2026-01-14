@@ -3655,7 +3655,93 @@ function getEffectiveAuthority(userId: string, workspace: Workspace): Authority 
 
 ---
 
-## 15. Related Documentation
+## 15. Technical Infrastructure
+
+This document describes user management features and workflows. For the underlying infrastructure, see [Architecture Document v1.3](../EuroComply_Architecture_Document_v1.3.md).
+
+### Infrastructure Mapping
+
+| Feature in This Doc | Architecture v1.3 Reference | Status |
+|---------------------|----------------------------|--------|
+| User authentication (email/password, magic links) | §4.3 Auth Layer, §4.4 Application Layer | 📋 Planned |
+| Per-workspace authority (VIEWER → MANAGER) | §4.5 Schema Isolation (RLS policies) | 📋 Planned |
+| DID storage (walt.id Custodian) | Appendix D.1 Identity & Signing Infrastructure | 📋 Planned |
+| DID revocation (Status List 2021) | Appendix D.2 Status List Infrastructure | 📋 Planned |
+| Audit logging (who/what/when) | §4.4 Application Layer, PostgreSQL per-tenant | 📋 Planned |
+| Session management | §4.3 Auth Layer (JWT/session tokens) | 📋 Planned |
+
+### Security Layer Mapping
+
+User requests flow through the 7-layer security model defined in Architecture v1.3 §4:
+
+```
+User Request
+     │
+     ▼
+┌─────────────────────────────────────────────────────────────┐
+│ Layer 1: Edge (Cloudflare)                                   │
+│ • DDoS protection, WAF, geographic filtering                │
+├─────────────────────────────────────────────────────────────┤
+│ Layer 2: Load Balancer                                       │
+│ • TLS termination, request routing                          │
+├─────────────────────────────────────────────────────────────┤
+│ Layer 3: Auth (this document's scope)                        │
+│ • JWT validation, session check, magic link verification    │
+│ • Maps to: User Types, Authority Levels, Workspace Access   │
+├─────────────────────────────────────────────────────────────┤
+│ Layer 4: Application                                         │
+│ • Business logic, workspace-based filtering                 │
+│ • Maps to: Version Control, Approval Routing                │
+├─────────────────────────────────────────────────────────────┤
+│ Layer 5: Schema Isolation                                    │
+│ • Per-tenant PostgreSQL schema                              │
+│ • Maps to: Data Model (users, workspace_access, etc.)       │
+├─────────────────────────────────────────────────────────────┤
+│ Layer 6: Row-Level Security                                  │
+│ • RLS policies enforce workspace authority                  │
+│ • VIEWER/CONTRIBUTOR/EDITOR/MANAGER permissions             │
+├─────────────────────────────────────────────────────────────┤
+│ Layer 7: Encryption                                          │
+│ • AES-256 at rest, TLS 1.3 in transit                       │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### DID Infrastructure (Planned)
+
+User DIDs and signing depend on infrastructure defined in Architecture v1.3 Appendix D:
+
+| Component | Purpose | Appendix D Reference |
+|-----------|---------|---------------------|
+| walt.id Community Stack | Custodial DID management for internal/guest users | D.1 |
+| did:key generation | Ephemeral DIDs for transactional partners | D.1 |
+| Ed25519 key pairs | User signing keys, stored in Custodian Vault | D.1 |
+| Status List 2021 | User credential revocation (e.g., when user leaves org) | D.2 |
+
+### Database Tables (Architecture v1.3 §3.5)
+
+User management tables reside in the per-tenant PostgreSQL schema:
+
+```
+tenant_{id}/
+├── users                    # User profiles, hashed passwords
+├── workspace_access         # User → Workspace → Authority mapping
+├── teams                    # Team definitions (📋 Planned)
+├── team_members             # User → Team mapping (📋 Planned)
+├── audit_log                # All user actions with timestamps
+├── magic_links              # Pending magic link tokens
+└── sessions                 # Active user sessions
+```
+
+### Related Architecture Sections
+
+- **§3.5 Schema-per-Tenant Isolation**: How user data is isolated per organization
+- **§4 Security Architecture**: 7-layer model that user requests traverse
+- **§5.1 PostgreSQL**: Where user tables are stored
+- **Appendix D**: Planned DID/signing infrastructure (walt.id)
+
+---
+
+## 16. Related Documentation
 
 | Document | Description |
 |----------|-------------|
@@ -3668,4 +3754,4 @@ function getEffectiveAuthority(userId: string, workspace: Workspace): Authority 
 
 ---
 
-*Last Updated: January 13, 2026*
+*Last Updated: 2026-01-14*
