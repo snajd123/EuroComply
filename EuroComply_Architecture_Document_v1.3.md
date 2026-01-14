@@ -1739,6 +1739,198 @@ This document covers **infrastructure** (how we run the platform). The following
 
 ---
 
+## Appendix D: Planned - Data Sovereignty Infrastructure
+
+> **Status: 📋 PLANNED** - This appendix documents infrastructure that will be built to support the data sovereignty features described in [DATA_SOVEREIGNTY.md](./docs/DATA_SOVEREIGNTY.md). None of this is implemented yet.
+
+### D.1 Identity & Signing Infrastructure
+
+**Purpose:** Enable organizations to sign VCs with their own did:key identity.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  IDENTITY SERVICE (walt.id on Fargate)                          📋 PLANNED  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  NEW TABLES (per-tenant schema):                                            │
+│  ───────────────────────────────                                            │
+│  organization_keys                                                          │
+│  ├── id: UUID                                                               │
+│  ├── organization_id: UUID                                                  │
+│  ├── did: String (did:key:z6Mk...)                                         │
+│  ├── public_key_jwk: JSONB                                                  │
+│  ├── encrypted_private_key: BYTEA (encrypted with tenant DEK)              │
+│  ├── key_type: Ed25519                                                      │
+│  ├── created_at, rotated_at                                                 │
+│  └── is_active: Boolean                                                     │
+│                                                                              │
+│  NEW SERVICE:                                                                │
+│  ────────────                                                                │
+│  packages/identity/                                                          │
+│  ├── did-key.service.ts    - Generate/manage did:key                        │
+│  ├── vc.service.ts         - Sign VCs using walt.id                         │
+│  ├── key.service.ts        - Key storage/export                             │
+│  └── wallet.provider.ts    - EUDI-ready wallet abstraction                  │
+│                                                                              │
+│  INFRASTRUCTURE:                                                             │
+│  ───────────────                                                             │
+│  • walt.id Community Stack containers on Fargate                            │
+│  • Core API (:7000), Signatory (:7001), Custodian (:7002), Auditor (:7003) │
+│  • Keys encrypted at rest with per-tenant KMS DEK                           │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### D.2 Status List Infrastructure (Revocation)
+
+**Purpose:** Enable credential revocation per W3C Status List 2021 standard.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  STATUS LIST 2021 INFRASTRUCTURE                                 📋 PLANNED │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  NEW TABLES (per-tenant schema):                                            │
+│  ───────────────────────────────                                            │
+│  status_lists                                                                │
+│  ├── id: UUID                                                               │
+│  ├── organization_id: UUID                                                  │
+│  ├── list_index: Integer (which list, for pagination)                       │
+│  ├── bitstring: BYTEA (compressed bitstring, up to 131,072 entries)        │
+│  ├── last_updated: Timestamp                                                │
+│  └── signed_credential: JSONB (the Status List 2021 VC itself)             │
+│                                                                              │
+│  credential_status                                                           │
+│  ├── credential_id: UUID (references passports or attestations)             │
+│  ├── status_list_id: UUID                                                   │
+│  ├── status_list_index: Integer                                             │
+│  ├── is_revoked: Boolean                                                    │
+│  ├── revoked_at: Timestamp                                                  │
+│  └── revocation_reason: String                                              │
+│                                                                              │
+│  NEW API ENDPOINTS:                                                          │
+│  ──────────────────                                                          │
+│  GET  /api/v1/status/{orgId}           - Public status list (cached at CDN) │
+│  POST /api/v1/passports/:id/revoke     - Revoke a DPP                       │
+│  POST /api/v1/attestations/:id/revoke  - Revoke an attestation              │
+│                                                                              │
+│  CDN CACHING:                                                                │
+│  ────────────                                                                │
+│  Cache-Control: public, max-age=300, stale-while-revalidate=60              │
+│  Cloudflare cache purge on revocation for critical cases                    │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### D.3 Export Service Architecture
+
+**Purpose:** Enable one-click export of all organization data for portability.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  EXPORT SERVICE                                                  📋 PLANNED │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  NEW API ENDPOINTS:                                                          │
+│  ──────────────────                                                          │
+│  GET  /api/v1/organization/export/did              - Get organization DID   │
+│  POST /api/v1/organization/export/did              - Create DID if missing  │
+│  GET  /api/v1/organization/export/dpp/:productId   - Export single DPP      │
+│  GET  /api/v1/organization/export/keys             - Export signing keys    │
+│  GET  /api/v1/organization/export/status-list      - Export status list     │
+│  GET  /api/v1/organization/export/viewer/:productId- Offline HTML viewer    │
+│  POST /api/v1/organization/export/full             - Full org export (async)│
+│                                                                              │
+│  EXPORT PACKAGE STRUCTURE:                                                   │
+│  ─────────────────────────                                                   │
+│  dpp-export-{org-id}.zip                                                     │
+│  ├── credentials/                                                            │
+│  │   ├── dpp-001.vc.json     (signed VC with ALL data embedded)             │
+│  │   ├── dpp-002.vc.json                                                     │
+│  │   └── ...                                                                 │
+│  ├── attestations/                                                           │
+│  │   ├── att-001.vc.json     (third-party attestation VCs)                  │
+│  │   └── ...                                                                 │
+│  ├── identity/                                                               │
+│  │   ├── did.json            (DID document)                                  │
+│  │   └── private-key.jwk     (for future VC signing)                        │
+│  ├── status-list/                                                            │
+│  │   ├── current.json        (current status list credential)               │
+│  │   └── signing-key.jwk     (to sign updated status lists)                 │
+│  ├── images/                                                                 │
+│  │   ├── product-001-hero.jpg                                                │
+│  │   └── ...                                                                 │
+│  ├── viewer.html             (self-contained offline viewer)                │
+│  ├── qr-codes/                                                               │
+│  │   ├── dpp-001.svg                                                         │
+│  │   └── ...                                                                 │
+│  ├── manifest.json           (GTIN → VC mapping)                             │
+│  └── HOSTING.md              (self-hosting instructions)                     │
+│                                                                              │
+│  SECURITY:                                                                   │
+│  ─────────                                                                   │
+│  • Rate limit: 10 full exports per day                                       │
+│  • Audit log: All exports logged with user, timestamp, scope                │
+│  • Key export requires re-authentication                                     │
+│  • Optional 24-hour delay for enterprise security policies                  │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### D.4 Offline Viewer Generation
+
+**Purpose:** Generate self-contained HTML viewers that work without any server.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  OFFLINE VIEWER PIPELINE                                         📋 PLANNED │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  VIEWER CHARACTERISTICS:                                                     │
+│  ───────────────────────                                                     │
+│  • Single HTML file with embedded CSS/JS (no external dependencies)         │
+│  • Loads VC from same folder (credentials/dpp-xxx.vc.json)                  │
+│  • Verifies Ed25519 signature client-side (noble-ed25519 library)           │
+│  • Renders DPP data with styling                                             │
+│  • Works completely offline for signature verification                       │
+│  • Images: Base64 embedded OR URL references (configurable)                 │
+│                                                                              │
+│  GENERATION:                                                                 │
+│  ───────────                                                                 │
+│  packages/dpp-generator/                                                     │
+│  ├── templates/                                                              │
+│  │   └── offline-viewer.html.ejs   (template with embedded JS)              │
+│  ├── assets/                                                                 │
+│  │   ├── noble-ed25519.min.js      (signature verification)                 │
+│  │   ├── multibase.min.js          (did:key parsing)                        │
+│  │   └── styles.css                                                          │
+│  └── offline-viewer.service.ts     (generates self-contained HTML)          │
+│                                                                              │
+│  vs. ONLINE DPP (current):                                                   │
+│  ─────────────────────────                                                   │
+│  • Online DPP: Cloudflare Worker renders HTML, fetches data from R2         │
+│  • Offline viewer: All data + verification code in one HTML file            │
+│  • Both share the same DPP rendering templates (different delivery)         │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### D.5 Implementation Priority
+
+| Component | Priority | Dependency | Est. Effort |
+|-----------|----------|------------|-------------|
+| Identity Service (walt.id) | P0 | None | 2-3 weeks |
+| VC Signing Pipeline | P0 | Identity Service | 1-2 weeks |
+| Status List Tables | P1 | VC Signing | 1 week |
+| Revocation API | P1 | Status List Tables | 1 week |
+| Export Endpoints | P2 | All above | 2 weeks |
+| Offline Viewer | P2 | VC Signing | 1 week |
+| Full Export Package | P3 | Export Endpoints | 1 week |
+
+**Total estimated: 9-12 weeks for full data sovereignty stack.**
+
+---
+
 **Document Control**
 
 | Version | Date | Author | Changes |
@@ -1747,3 +1939,4 @@ This document covers **infrastructure** (how we run the platform). The following
 | 1.1 | January 2026 | Architecture Team | Added bulk DPP generation architecture |
 | 1.2 | January 2026 | Architecture Team | Added idempotency, DLQ handling, R2 cost monitoring |
 | 1.3 | January 2026 | Architecture Team | Added Mega tier ingestion spike handling, NAT bandwidth analysis, gross margin breakdown |
+| 1.3.1 | January 2026 | Architecture Team | Added Section 12 (Standards & Data Formats), Appendix D (Planned Data Sovereignty Infrastructure) |
