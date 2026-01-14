@@ -430,5 +430,7 @@ These rules are enforced through:
 
 ---
 
-**Last Updated**: 2026-01-07
-**Version**: 1.0
+**Last Updated**: 2026-01-14
+**Version**: 1.1
+
+> Note: For Claude-specific workflow instructions, see [CLAUDE.md](./CLAUDE.md)
