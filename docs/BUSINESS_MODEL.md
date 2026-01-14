@@ -435,25 +435,35 @@ The per-DPP model creates a significant shift in revenue composition:
 │                    DPP COST BREAKDOWN                            │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
+│  DEDUPLICATED ARCHITECTURE (see Architecture Doc Section 7.7)   │
+│  ──────────────────────────────────────────────────────────────  │
+│  Static data (images, materials, descriptions) stored ONCE per  │
+│  product type. Dynamic data (serial, batch) per item.           │
+│                                                                  │
 │  DPP GENERATION (one-time):                                     │
 │  ├── VC computation (Lambda/ECS): €0.0001                       │
 │  ├── QR code generation: €0.00001                               │
 │  └── Subtotal: ~€0.0001                                         │
 │                                                                  │
-│  10-YEAR STORAGE (R2):                                          │
-│  ├── Static DPP file (10KB): €0.0018 over 10 years              │
-│  ├── Product images (2MB avg): €0.36 over 10 years              │
-│  └── Subtotal: ~€0.002-0.36 (varies by content)                 │
+│  10-YEAR STORAGE:                                               │
+│  ├── Product template (R2, shared): €0.00003/item amortized     │
+│  │   (30KB template ÷ avg 1,000 items per product)              │
+│  ├── Item record (DynamoDB): €0.0006 over 10 years              │
+│  │   (500 bytes × $0.125/GB/month × 120 months)                 │
+│  └── Subtotal: ~€0.0006/item                                    │
 │                                                                  │
 │  SERVING (Cloudflare):                                          │
 │  ├── CDN bandwidth: €0 (R2 has zero egress)                     │
 │  ├── Worker invocations: ~€0.0001/scan                          │
+│  ├── Template cached at edge (30-day TTL)                       │
 │  └── Subtotal: ~€0 (amortized)                                  │
 │                                                                  │
-│  TOTAL COST PER DPP: €0.001-0.002 (minimal content)             │
-│                      €0.002-0.40 (with rich media)              │
+│  TOTAL COST PER DPP: ~€0.001 (all content included)             │
 │                                                                  │
-│  BLENDED AVERAGE: ~€0.001/DPP at scale                          │
+│  10-YEAR PROJECTION (10B DPPs):                                 │
+│  ├── Naive approach: 10B × 30KB = 300TB = ~€54M                 │
+│  ├── Deduplicated: 100K templates + 10B records = ~€600K        │
+│  └── SAVINGS: 99% ($53.4M saved)                                │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -541,11 +551,11 @@ The per-DPP model creates a significant shift in revenue composition:
 
 ### Architecture Overview
 
-EuroComply uses a **polyglot persistence** architecture optimized for both cost and scale:
+EuroComply uses a **deduplicated storage** architecture optimized for both cost and scale:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  INFRASTRUCTURE ARCHITECTURE (from Architecture Doc v1.3)        │
+│  INFRASTRUCTURE ARCHITECTURE (from Architecture Doc v1.5)        │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
 │  WRITE PATH (AWS)                                               │
@@ -556,15 +566,21 @@ EuroComply uses a **polyglot persistence** architecture optimized for both cost 
 │  • SQS FIFO: Event processing + bulk generation                 │
 │                                                                  │
 │  READ PATH (Cloudflare)                                         │
-│  • R2: Static DPP files (zero egress cost)                      │
-│  • Workers: DPP serving + lazy generation                       │
+│  • R2: Product templates (static content, stored ONCE)          │
+│  • Workers: On-demand DPP rendering (template + item data)      │
 │  • CDN: Edge caching (<50ms global latency)                     │
+│                                                                  │
+│  DEDUPLICATED STORAGE (see Architecture Doc Section 7.7)        │
+│  • Static data (images, materials): 1 template per product type │
+│  • Dynamic data (serial, batch): 1 record per item in DynamoDB  │
+│  • DPPs rendered on-demand: template + item merged at scan time │
+│  • 99% storage savings (300TB → 5TB for 10B items)              │
 │                                                                  │
 │  WHY THIS ARCHITECTURE?                                         │
 │  • ESPR requires free DPP access for everyone                   │
 │  • R2 has zero egress fees (vs AWS $0.085/GB)                   │
-│  • Schema-per-tenant provides strong isolation                  │
-│  • DynamoDB handles billions of items without RDS limits        │
+│  • Deduplication eliminates need for tiered/archival storage    │
+│  • All DPPs served instantly - no cold storage delays           │
 │                                                                  │
 │  BASE COST: €158/month (see breakdown below)                    │
 │                                                                  │
@@ -609,16 +625,26 @@ See [EuroComply_Architecture_Document_v1.3.md](../EuroComply_Architecture_Docume
 
 ### DPP Hosting Economics (10-Year Lifetime)
 
-ESPR requires DPP data to be accessible for 10+ years. With Cloudflare R2:
+ESPR requires DPP data to be accessible for 10+ years. With deduplicated storage:
 
-| Component | Size | 10-Year Cost |
-|-----------|------|--------------|
-| Static DPP (R2) | 10KB | ~$0.0018 |
-| Product images (R2) | 2MB | ~$0.36 |
-| **Total per DPP** | ~2MB | **~$0.36** |
-| **Scans** | Unlimited | **FREE** (R2 egress) |
+| Component | Per Product Type | Per Item | Notes |
+|-----------|------------------|----------|-------|
+| Template (R2) | ~30KB ($0.005/10yr) | Shared | Images, materials, descriptions |
+| Item record (DynamoDB) | - | 500 bytes ($0.0006/10yr) | Serial, batch, status |
+| **Amortized per item** | | **~$0.001** | (1,000 items/product avg) |
+| **Scans** | | **FREE** | R2 egress is free |
 
-Key advantage: R2 has zero egress fees, so unlimited scans cost nothing.
+**10-Year Projection:**
+| Approach | 10B Items | Cost |
+|----------|-----------|------|
+| Naive (pre-generated files) | 300TB | ~$54M |
+| **Deduplicated** | ~5TB | **~$600K** |
+| **Savings** | 98% | **$53.4M** |
+
+Key advantages:
+- R2 has zero egress fees, so unlimited scans cost nothing
+- Templates cached at Cloudflare edge (30-day TTL)
+- All DPPs served instantly (<50ms) - no archival delays
 
 ### QR Code Scan Economics
 

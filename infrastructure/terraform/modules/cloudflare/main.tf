@@ -1,10 +1,17 @@
 # infrastructure/terraform/modules/cloudflare/main.tf
 #
 # Cloudflare module for EuroComply DPP serving infrastructure
-# - R2 bucket for pre-generated DPP HTML files (zero egress cost)
+# - R2 bucket for product templates (deduplicated, stored once per product type)
+# - DPP rendering: templates from R2 + item records from API = on-demand merge
 # - DNS records for API and DPP subdomains
-# - Workers for intelligent DPP routing
+# - Workers for intelligent DPP routing with on-demand rendering
 # - Cache rules for optimal performance
+#
+# Architecture (see EuroComply_Architecture_Document_v1.5.md Section 7.7):
+# - Product templates (static): 30KB per product type, stored once in R2
+# - Item records (dynamic): 500 bytes per item, stored in DynamoDB
+# - On-demand rendering: Worker fetches template + item, merges, returns DPP
+# - Result: 99% storage savings (300TB → 5TB for 10B items)
 
 # -----------------------------------------------------------------------------
 # Variables
@@ -67,8 +74,20 @@ variable "cache_ttl_status_list" {
   description = "Cache TTL for status list in seconds (may update on revocation)"
 }
 
+variable "cache_ttl_template" {
+  type        = number
+  default     = 2592000 # 30 days
+  description = "Cache TTL for product templates in seconds (static content)"
+}
+
+variable "api_internal_endpoint" {
+  type        = string
+  default     = ""
+  description = "Internal API endpoint for fetching item records (e.g., https://api.eurocomply.eu). If empty, uses https://api.{domain}"
+}
+
 # -----------------------------------------------------------------------------
-# R2 Bucket for DPP Storage
+# R2 Bucket for Product Templates (Deduplicated Storage)
 # -----------------------------------------------------------------------------
 
 resource "cloudflare_r2_bucket" "dpps" {
@@ -77,6 +96,10 @@ resource "cloudflare_r2_bucket" "dpps" {
   location   = "WEUR" # Western Europe
 
   # Note: R2 buckets have zero egress fees, making this ideal for DPP serving
+  # Storage structure:
+  #   templates/{passportId}/template.html  - DPP template with placeholders
+  #   templates/{passportId}/image_main.webp - Product images (optional)
+  # Item records are stored in DynamoDB (not in R2)
 }
 
 # R2 bucket for status lists (if enabled)
@@ -158,7 +181,8 @@ resource "cloudflare_record" "www" {
 # Cloudflare Workers
 # -----------------------------------------------------------------------------
 
-# Worker script for serving DPPs from R2
+# Worker script for on-demand DPP rendering
+# Architecture: Template (R2) + Item Record (API/DynamoDB) = Rendered DPP
 resource "cloudflare_worker_script" "dpp_server" {
   count = var.enable_workers ? 1 : 0
 
@@ -166,11 +190,23 @@ resource "cloudflare_worker_script" "dpp_server" {
   name       = "${var.name}-dpp-server"
   content    = <<-WORKER
     /**
-     * EuroComply DPP Server Worker
+     * EuroComply DPP Server Worker - On-Demand Rendering
      *
-     * Serves pre-generated DPP HTML files from R2 with optimal caching.
-     * Zero egress cost architecture - all DPP content served from edge.
+     * Deduplicated storage architecture (see Architecture Doc v1.5 Section 7.7):
+     * - Product templates (static): stored ONCE per product type in R2 (~30KB)
+     * - Item records (dynamic): stored per serial in DynamoDB (~500 bytes)
+     * - On-demand rendering: template + item data merged at scan time
+     *
+     * This architecture provides:
+     * - 99% storage savings (300TB → 5TB for 10B items over 10 years)
+     * - All DPPs served instantly (<50ms) - no archival delays
+     * - Template updates propagate to all items immediately
      */
+
+    const API_ENDPOINT = '${var.api_internal_endpoint != "" ? var.api_internal_endpoint : "https://api.${var.domain}"}';
+    const TEMPLATE_CACHE_TTL = ${var.cache_ttl_template};
+    const DPP_CACHE_TTL = ${var.cache_ttl_dpp};
+
     export default {
       async fetch(request, env, ctx) {
         const url = new URL(request.url);
@@ -192,22 +228,53 @@ resource "cloudflare_worker_script" "dpp_server" {
         }
 
         const passportId = dppMatch[1];
-        const serialNumber = dppMatch[2] || 'default';
-
-        // Construct R2 object key
-        const objectKey = `dpps/$${passportId}/$${serialNumber}.html`;
+        const serialNumber = dppMatch[2];
 
         try {
-          // Fetch from R2
-          const object = await env.R2_BUCKET.get(objectKey);
+          // 1. Fetch product template from R2 (heavily cached at edge)
+          const templateKey = `templates/$${passportId}/template.html`;
+          const templateObject = await env.R2_BUCKET.get(templateKey);
 
-          if (!object) {
-            // Try fallback to non-serialized version
-            const fallbackKey = `dpps/$${passportId}/index.html`;
-            const fallbackObject = await env.R2_BUCKET.get(fallbackKey);
+          if (!templateObject) {
+            return new Response('DPP template not found', {
+              status: 404,
+              headers: {
+                'Content-Type': 'text/plain',
+                'Cache-Control': 'no-store'
+              }
+            });
+          }
 
-            if (!fallbackObject) {
-              return new Response('DPP not found', {
+          let templateHtml = await templateObject.text();
+
+          // 2. For product-level DPP (no serial), return template as-is
+          if (!serialNumber) {
+            return new Response(templateHtml, {
+              headers: {
+                'Content-Type': 'text/html; charset=utf-8',
+                'Cache-Control': `public, max-age=$${TEMPLATE_CACHE_TTL}, immutable`,
+                'X-Content-Type-Options': 'nosniff',
+                'X-Frame-Options': 'SAMEORIGIN',
+                'Content-Security-Policy': "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'",
+                'X-DPP-Source': 'template-only'
+              }
+            });
+          }
+
+          // 3. For item-level DPP, fetch item record from API (DynamoDB)
+          const itemResponse = await fetch(
+            `$${API_ENDPOINT}/v1/internal/items/$${passportId}/$${serialNumber}`,
+            {
+              headers: {
+                'Accept': 'application/json',
+                'X-Internal-Request': 'dpp-worker'
+              }
+            }
+          );
+
+          if (!itemResponse.ok) {
+            if (itemResponse.status === 404) {
+              return new Response('Item not found', {
                 status: 404,
                 headers: {
                   'Content-Type': 'text/plain',
@@ -215,32 +282,30 @@ resource "cloudflare_worker_script" "dpp_server" {
                 }
               });
             }
-
-            return new Response(fallbackObject.body, {
-              headers: {
-                'Content-Type': 'text/html; charset=utf-8',
-                'Cache-Control': 'public, max-age=${var.cache_ttl_dpp}, immutable',
-                'X-Content-Type-Options': 'nosniff',
-                'X-Frame-Options': 'SAMEORIGIN',
-                'Content-Security-Policy': "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'",
-                'X-DPP-Source': 'r2-fallback'
-              }
-            });
+            throw new Error(`Item fetch failed: $${itemResponse.status}`);
           }
 
-          return new Response(object.body, {
+          const itemRecord = await itemResponse.json();
+
+          // 4. Render DPP by merging template + item data
+          const renderedDpp = renderDpp(templateHtml, itemRecord.data);
+
+          // 5. Return rendered DPP with appropriate caching
+          // Cache is shorter for item-level DPPs since status may change
+          return new Response(renderedDpp, {
             headers: {
               'Content-Type': 'text/html; charset=utf-8',
-              'Cache-Control': 'public, max-age=${var.cache_ttl_dpp}, immutable',
+              'Cache-Control': `private, max-age=$${DPP_CACHE_TTL}`,
               'X-Content-Type-Options': 'nosniff',
               'X-Frame-Options': 'SAMEORIGIN',
-              'Content-Security-Policy': "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'",
-              'X-DPP-Source': 'r2'
+              'Content-Security-Policy': "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'",
+              'X-DPP-Source': 'rendered',
+              'X-DPP-Serial': serialNumber
             }
           });
 
         } catch (error) {
-          console.error('R2 fetch error:', error);
+          console.error('DPP rendering error:', error);
           return new Response('Internal Server Error', {
             status: 500,
             headers: { 'Content-Type': 'text/plain' }
@@ -248,6 +313,44 @@ resource "cloudflare_worker_script" "dpp_server" {
         }
       }
     };
+
+    /**
+     * Render DPP by replacing template placeholders with item data
+     */
+    function renderDpp(template, item) {
+      return template
+        .replace(/\{\{serialNumber\}\}/g, escapeHtml(item.serialNumber || ''))
+        .replace(/\{\{batchNumber\}\}/g, escapeHtml(item.batchNumber || ''))
+        .replace(/\{\{productionDate\}\}/g, escapeHtml(formatDate(item.productionDate)))
+        .replace(/\{\{facilityId\}\}/g, escapeHtml(item.facilityId || ''))
+        .replace(/\{\{status\}\}/g, escapeHtml(item.status || 'active'))
+        .replace(/\{\{statusClass\}\}/g, item.status === 'revoked' ? 'revoked' : 'active')
+        .replace(/\{\{epcisLink\}\}/g, `/api/epcis/$${item.passportId}/$${item.serialNumber}`)
+        .replace(/\{\{createdAt\}\}/g, escapeHtml(formatDate(item.createdAt)));
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function formatDate(dateStr) {
+      if (!dateStr) return '';
+      try {
+        return new Date(dateStr).toLocaleDateString('en-GB', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric'
+        });
+      } catch {
+        return dateStr;
+      }
+    }
   WORKER
 
   module = true
@@ -369,14 +472,16 @@ resource "cloudflare_worker_route" "api_status_compat" {
 # Page Rules & Cache Configuration
 # -----------------------------------------------------------------------------
 
-# Cache rule for DPP pages (immutable, long-lived)
+# Cache rules for DPP serving
+# Note: With on-demand rendering, we cache templates aggressively but rendered DPPs shorter
 resource "cloudflare_ruleset" "cache_rules" {
   zone_id = var.cloudflare_zone_id
   name    = "EuroComply Cache Rules"
   kind    = "zone"
   phase   = "http_request_cache_settings"
 
-  # DPP pages - immutable, cache forever
+  # Product-level DPPs (no serial) - immutable template, cache long
+  # Item-level DPPs (with serial) - rendered, shorter cache (item status may change)
   rules {
     action = "set_cache_settings"
     action_parameters {
@@ -391,7 +496,7 @@ resource "cloudflare_ruleset" "cache_rules" {
       }
     }
     expression  = "(http.host eq \"dpp.${var.domain}\")"
-    description = "Cache DPP pages for 30 days (immutable content)"
+    description = "Cache DPP pages - templates long-lived, item DPPs shorter"
     enabled     = true
   }
 

@@ -736,11 +736,14 @@ A sequential approach (100ms per DPP) would take 27+ hours for 1 million items. 
 │       │   ┌──────────────────────────────────────────────────────────────┐  │
 │       │   │                    PARALLEL WRITES                           │  │
 │       │   │                                                              │  │
-│       │   │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │  │
-│       │   │  │  DynamoDB   │  │     R2      │  │   Redis     │         │  │
-│       │   │  │ BatchWrite  │  │  Bulk Put   │  │  Progress   │         │  │
-│       │   │  │ (25/batch)  │  │ (50 conc.)  │  │  Counter    │         │  │
-│       │   │  └─────────────┘  └─────────────┘  └─────────────┘         │  │
+│       │   │  ┌─────────────────────────┐  ┌─────────────┐               │  │
+│       │   │  │       DynamoDB          │  │   Redis     │               │  │
+│       │   │  │   BatchWrite Items      │  │  Progress   │               │  │
+│       │   │  │     (25/batch)          │  │  Counter    │               │  │
+│       │   │  └─────────────────────────┘  └─────────────┘               │  │
+│       │   │                                                              │  │
+│       │   │  Note: DPPs rendered on-demand from template + item record  │  │
+│       │   │  (No per-item R2 uploads needed)                            │  │
 │       │   │                                                              │  │
 │       │   └──────────────────────────────────────────────────────────────┘  │
 │       │                                                                      │
@@ -757,30 +760,39 @@ A sequential approach (100ms per DPP) would take 27+ hours for 1 million items. 
 
 ### 7.3 Performance Targets
 
+With deduplicated storage (DynamoDB writes only, no per-item R2 uploads):
+
 | Batch Size | Workers | Chunks | Time | Cost |
 |------------|---------|--------|------|------|
-| 1,000 | 1 | 1 | 5 sec | $0.01 |
-| 10,000 | 2 | 10 | 30 sec | $0.05 |
-| 100,000 | 5 | 100 | 2 min | $0.50 |
-| 1,000,000 | 10 | 1,000 | 10 min | $11 |
-| 10,000,000 | 20 | 10,000 | 1-2 hours | $110 |
+| 1,000 | 1 | 1 | 1 sec | $0.001 |
+| 10,000 | 2 | 10 | 6 sec | $0.01 |
+| 100,000 | 5 | 100 | 25 sec | $0.10 |
+| 1,000,000 | 10 | 1,000 | 2 min | $1 |
+| 10,000,000 | 20 | 10,000 | 10 min | $10 |
+
+*Note: ~5x faster than pre-generated approach due to elimination of per-item R2 uploads.*
 
 ### 7.4 Chunk Processing
 
-Each worker processes a 1,000-item chunk:
+Each worker processes a 1,000-item chunk. With deduplicated storage, workers only write item records to DynamoDB (no individual R2 uploads needed):
 
 ```
 PER CHUNK (1,000 items):
 ────────────────────────
 
-1. Fetch passport template (cached):     50ms
-2. Generate 1,000 DPPs in memory:        2,000ms (parallel)
+1. Validate serial numbers:              50ms
+2. Build item records in memory:         200ms
 3. Batch write to DynamoDB:              800ms (40 batches × 25 items)
-4. Bulk upload to R2:                    2,000ms (50 concurrent uploads)
-5. Update progress in Redis:             50ms
+4. Update progress in Redis:             50ms
 ───────────────────────────────────────────────
-Total per chunk:                         ~5 seconds
+Total per chunk:                         ~1.1 seconds
+
+TEMPLATE UPLOAD (once per passport, not per chunk):
+───────────────────────────────────────────────────
+Upload template.html + images to R2:     500ms (one-time)
 ```
+
+**Note:** With deduplicated storage, bulk creation is ~5x faster because we only write small item records to DynamoDB, not large DPP files to R2. DPPs are rendered on-demand when consumers scan QR codes.
 
 ### 7.5 Idempotency
 
@@ -804,11 +816,11 @@ Bulk processing must handle worker crashes and message redelivery gracefully. Ev
 │  └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                              │
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │ R2: Idempotent by design                                            │   │
+│  │ R2 TEMPLATE: One-time upload per passport                           │   │
 │  │                                                                      │   │
-│  │ • Key: dpps/{passportId}/{serial}.html                             │   │
-│  │ • PUT with same key = overwrite (not duplicate)                    │   │
-│  │ • Content is deterministic (same input → same output)              │   │
+│  │ • Key: templates/{passportId}/template.html                        │   │
+│  │ • Uploaded once when passport is published (not per item)          │   │
+│  │ • Individual item DPPs are rendered on-demand, not pre-stored      │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                              │
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
@@ -842,15 +854,12 @@ class BulkDPPWorker {
     }
     
     // 2. Process chunk (all operations are idempotent)
-    const passport = await this.getPassportTemplate(chunk.passportId);
     const serials = await this.getSerialNumbers(chunk);
-    const dpps = await this.generateDPPs(passport, serials);
-    
-    // 3. Write to DynamoDB (idempotent: same key = overwrite)
-    await this.batchWriteDynamoDB(chunk.organizationId, dpps);
-    
-    // 4. Write to R2 (idempotent: same key = overwrite)
-    await this.bulkUploadR2(dpps);
+    const itemRecords = this.buildItemRecords(chunk.passportId, serials, chunk);
+
+    // 3. Write item records to DynamoDB (idempotent: same key = overwrite)
+    // Note: No R2 upload needed - DPPs are rendered on-demand from template + item record
+    await this.batchWriteDynamoDB(chunk.organizationId, itemRecords);
     
     // 5. Mark chunk as completed (atomic)
     await this.redis.sadd(
@@ -1089,6 +1098,78 @@ Note: No monthly item/DPP limits - all tiers can issue unlimited DPPs at their p
 | **Total Cost** | **~$0.001** | **€0.001-€0.10** | **0-99%** |
 
 The per-DPP pricing provides healthy margins at all tiers. Even at the lowest Platform pricing (€0.001/DPP), costs are break-even, with the base subscription providing profitability.
+
+### 7.7 Deduplicated DPP Storage Architecture
+
+DPPs contain two types of data with very different storage characteristics:
+
+| Data Type | Description | Storage Pattern |
+|-----------|-------------|-----------------|
+| **Static (Template)** | Images, materials, care instructions, descriptions | Same for ALL items of a product |
+| **Dynamic (Item)** | Serial number, batch, production date, EPCIS events | Unique per item |
+
+**Naive approach (inefficient):**
+- 2M shoes of same product → 2M complete DPP files × 30KB = 60GB
+- 90%+ of content is identical (same images, same materials, same descriptions)
+
+**Deduplicated approach:**
+- 1 product template (static content) = 30KB stored ONCE in R2
+- 2M item records (dynamic content) = ~500 bytes each in DynamoDB
+- Total: 30KB + 1GB = **~1GB (98% reduction)**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                     DEDUPLICATED DPP ARCHITECTURE                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  PRODUCT TEMPLATE (R2 - Static, stored ONCE per passport)                   │
+│  ─────────────────────────────────────────────────────────                   │
+│  templates/{passportId}/                                                     │
+│  ├── template.html     (DPP with {{serial}}, {{batch}} placeholders)        │
+│  ├── image_main.webp   (~15KB product image)                                │
+│  └── image_detail.webp                                                       │
+│                                                                              │
+│  Size: ~30KB per product type                                               │
+│  Cache: 30 days at Cloudflare edge                                          │
+│                                                                              │
+│  ITEM RECORD (DynamoDB - Dynamic, stored per serial number)                 │
+│  ───────────────────────────────────────────────────────────                 │
+│  {                                                                           │
+│    pk: "ORG#{orgId}#PASSPORT#{passportId}",                                 │
+│    sk: "SERIAL#{serialNumber}",                                             │
+│    batchNumber, productionDate, facilityId, status,                         │
+│    epcisEventIds: ["evt_1", "evt_2"]  // References, not embedded           │
+│  }                                                                           │
+│                                                                              │
+│  Size: ~500 bytes per item                                                  │
+│  Access: Always instant (DynamoDB on-demand)                                │
+│                                                                              │
+│  CONSUMER SCAN FLOW (On-Demand Rendering)                                   │
+│  ─────────────────────────────────────────                                   │
+│  1. Scan QR → Cloudflare Worker receives serial number                      │
+│  2. Fetch item record from DynamoDB via API Gateway (1ms)                   │
+│  3. Fetch product template from R2 (cached at edge, <10ms)                  │
+│  4. Render DPP by merging template + item data                              │
+│  5. Return HTML (<50ms total)                                               │
+│                                                                              │
+│  EPCIS events loaded on-demand via separate API call (not embedded)         │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**10-Year Storage Projection:**
+
+| Approach | 10B Items | Storage | Cost (10yr) |
+|----------|-----------|---------|-------------|
+| **Naive (pre-generated)** | 10B × 30KB | 300TB | ~$54M |
+| **Deduplicated** | 100K templates + 10B records | ~5TB | ~$600K |
+| **Savings** | | **98%** | **$53.4M** |
+
+**Benefits:**
+- **Instant access**: All DPPs served in <50ms (no archival/restore delays)
+- **Template updates**: Change template once, affects all items immediately
+- **Fresh events**: EPCIS data always current (queried on-demand, not stale embedded copy)
+- **Faster bulk creation**: Only write to DynamoDB (no R2 uploads per item)
 
 ---
 
