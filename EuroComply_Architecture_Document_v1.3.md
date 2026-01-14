@@ -19,6 +19,7 @@
 9. [Scaling Plan](#9-scaling-plan)
 10. [Operations](#10-operations)
 11. [Implementation Guide](#11-implementation-guide)
+12. [Standards & Data Formats](#12-standards--data-formats)
 
 ---
 
@@ -1621,6 +1622,74 @@ eurocomply/
 └── docs/
     └── architecture.md
 ```
+
+---
+
+## 12. Standards & Data Formats
+
+This document covers **infrastructure** (how we run the platform). The following documents cover **standards** (what format the data is in):
+
+### 12.1 Document Map
+
+| Document | Covers | Key Topics |
+|----------|--------|------------|
+| **This document** | Infrastructure | AWS, DynamoDB, R2, scaling, costs |
+| [VERIFIABLE_CREDENTIALS.md](./docs/VERIFIABLE_CREDENTIALS.md) | Standards | W3C VCs, did:key, signing, revocation |
+| [ARCHITECTURE_PORTABILITY.md](./docs/ARCHITECTURE_PORTABILITY.md) | Portability | Export, data ownership, self-hosting |
+
+### 12.2 Standards Implementation
+
+| Standard | Purpose | Covered In |
+|----------|---------|------------|
+| **W3C Verifiable Credentials** | DPP data format | VERIFIABLE_CREDENTIALS.md §4.4 |
+| **did:key** | Portable issuer identity | VERIFIABLE_CREDENTIALS.md §3 |
+| **Status List 2021** | Credential revocation | VERIFIABLE_CREDENTIALS.md §14 |
+| **GS1 Digital Link** | QR code format | ARCHITECTURE_PORTABILITY.md |
+| **Ed25519** | Signature algorithm | VERIFIABLE_CREDENTIALS.md §4.1 |
+| **JSON-LD** | VC context | VERIFIABLE_CREDENTIALS.md §4.4 |
+
+### 12.3 How Infrastructure Supports Standards
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    INFRASTRUCTURE → STANDARDS FLOW                           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  1. SIGNING (walt.id Custodian on Fargate)                                  │
+│     • Per-organization Ed25519 key pairs                                    │
+│     • Keys stored encrypted (per-tenant KMS DEK)                            │
+│     • Signs VCs with did:key issuer                                         │
+│                                                                              │
+│  2. STORAGE                                                                  │
+│     PostgreSQL (dpp_data JSONB)  →  Signed VC (JSON-LD + proof)            │
+│                    ↓                                                         │
+│     R2 Static Files (.json)      →  Self-contained VC for public access    │
+│                                                                              │
+│  3. REVOCATION                                                               │
+│     PostgreSQL (status_list table)  →  Status List 2021 credential          │
+│                    ↓                                                         │
+│     API endpoint (/v1/status/{orgId})  →  Public status list URL           │
+│                                                                              │
+│  4. VERIFICATION                                                             │
+│     Cloudflare Worker  →  Serves static VC  →  Client verifies signature   │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 12.4 Key Architecture Decisions
+
+| Decision | Infrastructure Implication | Standards Implication |
+|----------|---------------------------|----------------------|
+| did:key over did:web | No DID document hosting needed | Signatures verify offline |
+| Self-contained VCs | Store full data in R2 files | No database lookup on scan |
+| Per-tenant KMS keys | Encryption at rest | Signing key isolation |
+| Status List 2021 | Revocation API endpoint | W3C-standard revocation |
+
+### 12.5 Related Documentation
+
+- [VERIFIABLE_CREDENTIALS.md](./docs/VERIFIABLE_CREDENTIALS.md) - Complete VC implementation including wallet architecture, attestations, and identity verification
+- [ARCHITECTURE_PORTABILITY.md](./docs/ARCHITECTURE_PORTABILITY.md) - Export, data sovereignty, and self-hosting options
+- [DATA_SOVEREIGNTY.md](./docs/DATA_SOVEREIGNTY.md) - Customer data ownership and GDPR compliance
 
 ---
 
