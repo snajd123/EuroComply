@@ -734,6 +734,418 @@ These events trigger immediate alerts:
 | Application logs | 30 days | CloudWatch |
 | Access logs (ALB) | 90 days | S3 |
 
+### 8.4 Raw SQL Audit Enforcement
+
+**Problem:** For performance reasons, bulk operations use raw SQL (`$executeRaw`, `$queryRaw`) which bypasses Prisma middleware, including automatic audit logging. This creates a structural risk where critical state changes could miss the audit trail if developers forget to manually implement logging.
+
+**Solution:** Enforce audit logging programmatically through a required wrapper, static analysis, and verification tests.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    AUDIT ENFORCEMENT LAYERS                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Layer 1: WRAPPER (Runtime)                                                 │
+│  ─────────────────────────                                                  │
+│  AuditedRawSQL class enforces audit config as mandatory parameter.          │
+│  Direct $executeRaw/$queryRaw usage is prohibited.                          │
+│                                                                              │
+│  Layer 2: ESLINT (Development)                                              │
+│  ─────────────────────────────                                              │
+│  Static analysis flags direct raw SQL usage at development time.            │
+│  CI fails if violations detected.                                           │
+│                                                                              │
+│  Layer 3: VERIFICATION (Testing)                                            │
+│  ───────────────────────────────                                            │
+│  Integration tests verify audit entries exist for all state changes.        │
+│  Periodic reconciliation queries detect drift.                              │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 8.4.1 AuditedRawSQL Wrapper (Required)
+
+All raw SQL operations MUST use this wrapper instead of direct Prisma methods:
+
+```typescript
+// src/lib/db/audited-raw-sql.ts
+
+import { PrismaClient, Prisma } from '@prisma/client';
+
+interface AuditConfig {
+  action: string;                    // e.g., 'CLAIM_AUTO_RELEASED'
+  resourceType: string;              // e.g., 'DesignVersion'
+  getAffectedRecords: () => Promise<AuditableRecord[]>;
+  systemAction?: boolean;            // true for background jobs
+  metadata?: Record<string, unknown>;
+}
+
+interface AuditableRecord {
+  id: string;
+  organizationId: string;
+  [key: string]: unknown;
+}
+
+export class AuditedRawSQL {
+  constructor(private prisma: PrismaClient) {}
+
+  /**
+   * Execute raw SQL with mandatory audit logging.
+   *
+   * Pattern:
+   * 1. Fetch affected records BEFORE mutation
+   * 2. Execute the raw SQL
+   * 3. Create audit entries for all affected records
+   *
+   * This ensures no state change can bypass the audit trail.
+   */
+  async executeRaw<T = unknown>(
+    query: Prisma.Sql,
+    auditConfig: AuditConfig
+  ): Promise<{ result: T; auditedCount: number }> {
+    const { action, resourceType, getAffectedRecords, systemAction, metadata } = auditConfig;
+
+    // Step 1: Capture affected records BEFORE mutation
+    const affectedRecords = await getAffectedRecords();
+
+    if (affectedRecords.length === 0) {
+      return { result: undefined as T, auditedCount: 0 };
+    }
+
+    // Step 2: Execute the raw SQL within a transaction
+    const result = await this.prisma.$transaction(async (tx) => {
+      // Execute the actual raw SQL
+      const sqlResult = await tx.$executeRaw(query);
+
+      // Step 3: Create audit entries (batch for performance)
+      if (affectedRecords.length > 0) {
+        await tx.auditLog.createMany({
+          data: affectedRecords.map(record => ({
+            action,
+            resourceType,
+            resourceId: record.id,
+            organizationId: record.organizationId,
+            metadata: {
+              ...metadata,
+              ...(record.auditMetadata || {}),
+            },
+            systemAction: systemAction ?? false,
+            createdAt: new Date(),
+          })),
+        });
+      }
+
+      return sqlResult;
+    });
+
+    return { result: result as T, auditedCount: affectedRecords.length };
+  }
+
+  /**
+   * Query raw SQL (read-only, no audit required for reads).
+   * Provided for completeness - reads don't need audit logging.
+   */
+  async queryRaw<T = unknown>(query: Prisma.Sql): Promise<T> {
+    return this.prisma.$queryRaw<T>(query);
+  }
+}
+
+// Singleton instance
+let auditedRawSQL: AuditedRawSQL | null = null;
+
+export function getAuditedRawSQL(prisma: PrismaClient): AuditedRawSQL {
+  if (!auditedRawSQL) {
+    auditedRawSQL = new AuditedRawSQL(prisma);
+  }
+  return auditedRawSQL;
+}
+```
+
+**Usage Example:**
+
+```typescript
+// ❌ PROHIBITED: Direct raw SQL (bypasses audit)
+await prisma.$executeRaw`UPDATE "DesignVersion" SET status = 'PENDING_REVIEW' ...`;
+
+// ✅ REQUIRED: Use AuditedRawSQL wrapper
+const auditedSQL = getAuditedRawSQL(prisma);
+
+const { auditedCount } = await auditedSQL.executeRaw(
+  Prisma.sql`
+    UPDATE "DesignVersion" dv
+    SET status = 'PENDING_REVIEW',
+        "claimedById" = NULL,
+        "claimedAt" = NULL
+    FROM "Product" p
+    JOIN "Organization" o ON p."organizationId" = o.id
+    WHERE dv."productId" = p.id
+      AND dv.status = 'IN_REVIEW'
+      AND dv."claimedAt" < NOW() - INTERVAL '1 hour' * COALESCE(
+        (o.settings->>'claimExpiryHours')::int, 24
+      )
+  `,
+  {
+    action: 'CLAIM_AUTO_RELEASED',
+    resourceType: 'DesignVersion',
+    systemAction: true,
+    metadata: { reason: 'claim_expiry', source: 'background_job' },
+    getAffectedRecords: async () => {
+      // Query MUST match the UPDATE's WHERE clause
+      return prisma.$queryRaw<AuditableRecord[]>`
+        SELECT dv.id, o.id as "organizationId", dv."claimedById" as "previousClaimant"
+        FROM "DesignVersion" dv
+        JOIN "Product" p ON dv."productId" = p.id
+        JOIN "Organization" o ON p."organizationId" = o.id
+        WHERE dv.status = 'IN_REVIEW'
+          AND dv."claimedAt" < NOW() - INTERVAL '1 hour' * COALESCE(
+            (o.settings->>'claimExpiryHours')::int, 24
+          )
+      `;
+    },
+  }
+);
+
+logger.info(`Released ${auditedCount} expired claims with audit trail`);
+```
+
+#### 8.4.2 ESLint Rule: no-direct-raw-sql
+
+Enforce wrapper usage at development time:
+
+```typescript
+// eslint-rules/no-direct-raw-sql.ts
+
+import { ESLintUtils } from '@typescript-eslint/utils';
+
+const createRule = ESLintUtils.RuleCreator(
+  name => `https://eurocomply.dev/eslint/${name}`
+);
+
+export const noDirectRawSQL = createRule({
+  name: 'no-direct-raw-sql',
+  meta: {
+    type: 'problem',
+    docs: {
+      description: 'Disallow direct $executeRaw/$queryRaw to prevent audit trail bypass',
+    },
+    messages: {
+      noDirectExecuteRaw:
+        'Direct $executeRaw bypasses audit logging. Use AuditedRawSQL.executeRaw() instead.',
+      noDirectQueryRawMutation:
+        'Raw queries that modify data must use AuditedRawSQL.executeRaw() for audit logging.',
+    },
+    schema: [],
+  },
+  defaultOptions: [],
+  create(context) {
+    return {
+      // Match: prisma.$executeRaw`...` or prisma.$executeRawUnsafe(...)
+      CallExpression(node) {
+        if (
+          node.callee.type === 'MemberExpression' &&
+          node.callee.property.type === 'Identifier' &&
+          ['$executeRaw', '$executeRawUnsafe'].includes(node.callee.property.name)
+        ) {
+          context.report({
+            node,
+            messageId: 'noDirectExecuteRaw',
+          });
+        }
+      },
+      // Match: prisma.$executeRaw`...` (tagged template)
+      TaggedTemplateExpression(node) {
+        if (
+          node.tag.type === 'MemberExpression' &&
+          node.tag.property.type === 'Identifier' &&
+          node.tag.property.name === '$executeRaw'
+        ) {
+          context.report({
+            node,
+            messageId: 'noDirectExecuteRaw',
+          });
+        }
+      },
+    };
+  },
+});
+```
+
+**ESLint Configuration:**
+
+```javascript
+// .eslintrc.js
+module.exports = {
+  plugins: ['@eurocomply'],
+  rules: {
+    '@eurocomply/no-direct-raw-sql': 'error',
+  },
+};
+```
+
+#### 8.4.3 Verification Tests
+
+**Unit Tests for AuditedRawSQL:**
+
+```typescript
+// src/lib/db/__tests__/audited-raw-sql.test.ts
+
+describe('AuditedRawSQL', () => {
+  describe('executeRaw', () => {
+    it('should_create_audit_entries_when_records_affected', async () => {
+      // Arrange
+      const mockRecords = [
+        { id: 'dv_1', organizationId: 'org_1', claimedById: 'user_1' },
+        { id: 'dv_2', organizationId: 'org_1', claimedById: 'user_2' },
+      ];
+
+      const auditedSQL = new AuditedRawSQL(prisma);
+
+      // Act
+      const { auditedCount } = await auditedSQL.executeRaw(
+        Prisma.sql`UPDATE "DesignVersion" SET status = 'PENDING_REVIEW'`,
+        {
+          action: 'CLAIM_AUTO_RELEASED',
+          resourceType: 'DesignVersion',
+          systemAction: true,
+          getAffectedRecords: async () => mockRecords,
+        }
+      );
+
+      // Assert
+      expect(auditedCount).toBe(2);
+
+      const auditEntries = await prisma.auditLog.findMany({
+        where: { action: 'CLAIM_AUTO_RELEASED' },
+      });
+      expect(auditEntries).toHaveLength(2);
+      expect(auditEntries[0].resourceId).toBe('dv_1');
+      expect(auditEntries[1].resourceId).toBe('dv_2');
+    });
+
+    it('should_skip_audit_when_no_records_affected', async () => {
+      // Arrange
+      const auditedSQL = new AuditedRawSQL(prisma);
+
+      // Act
+      const { auditedCount } = await auditedSQL.executeRaw(
+        Prisma.sql`UPDATE "DesignVersion" SET status = 'PENDING_REVIEW' WHERE 1=0`,
+        {
+          action: 'CLAIM_AUTO_RELEASED',
+          resourceType: 'DesignVersion',
+          getAffectedRecords: async () => [], // No records match
+        }
+      );
+
+      // Assert
+      expect(auditedCount).toBe(0);
+    });
+
+    it('should_rollback_both_mutation_and_audit_on_failure', async () => {
+      // Arrange
+      const auditedSQL = new AuditedRawSQL(prisma);
+      const initialCount = await prisma.auditLog.count();
+
+      // Act & Assert
+      await expect(
+        auditedSQL.executeRaw(
+          Prisma.sql`INVALID SQL SYNTAX`,
+          {
+            action: 'TEST_ACTION',
+            resourceType: 'Test',
+            getAffectedRecords: async () => [{ id: '1', organizationId: 'org_1' }],
+          }
+        )
+      ).rejects.toThrow();
+
+      // Verify no audit entries were created (transaction rolled back)
+      const finalCount = await prisma.auditLog.count();
+      expect(finalCount).toBe(initialCount);
+    });
+  });
+});
+```
+
+**Integration Test - Audit Completeness:**
+
+```typescript
+// src/__tests__/integration/audit-completeness.test.ts
+
+describe('Audit Trail Completeness', () => {
+  it('should_have_audit_entry_for_every_claim_release', async () => {
+    // Arrange: Create claims that will expire
+    const testOrg = await createTestOrganization({ claimExpiryHours: 0 });
+    const products = await createTestProducts(testOrg.id, 5);
+    const claims = await createTestClaims(products, { expiredAt: new Date() });
+
+    // Act: Run the release job
+    await releaseClaimExpired();
+
+    // Assert: Every released claim has an audit entry
+    for (const claim of claims) {
+      const auditEntry = await prisma.auditLog.findFirst({
+        where: {
+          action: 'CLAIM_AUTO_RELEASED',
+          resourceType: 'DesignVersion',
+          resourceId: claim.designVersionId,
+        },
+      });
+
+      expect(auditEntry).not.toBeNull();
+      expect(auditEntry?.organizationId).toBe(testOrg.id);
+      expect(auditEntry?.metadata).toMatchObject({
+        previousClaimant: claim.claimedById,
+        reason: 'claim_expiry',
+      });
+    }
+  });
+
+  it('should_have_audit_entry_for_every_checkout_release', async () => {
+    // Similar pattern for checkout releases
+  });
+
+  it('should_have_audit_entry_for_every_bulk_status_transition', async () => {
+    // Similar pattern for status transitions
+  });
+});
+```
+
+**Periodic Reconciliation Query:**
+
+```sql
+-- Run daily to detect audit trail gaps
+-- Alert if any discrepancy found
+
+WITH state_changes AS (
+  SELECT
+    'DesignVersion' as resource_type,
+    id as resource_id,
+    DATE(updated_at) as change_date
+  FROM "DesignVersion"
+  WHERE status = 'PENDING_REVIEW'
+    AND "claimedById" IS NULL
+    AND updated_at > NOW() - INTERVAL '7 days'
+),
+audit_entries AS (
+  SELECT
+    "resourceType" as resource_type,
+    "resourceId" as resource_id,
+    DATE("createdAt") as audit_date
+  FROM "AuditLog"
+  WHERE action = 'CLAIM_AUTO_RELEASED'
+    AND "createdAt" > NOW() - INTERVAL '7 days'
+)
+SELECT
+  sc.resource_type,
+  sc.resource_id,
+  sc.change_date,
+  CASE WHEN ae.resource_id IS NULL THEN 'MISSING_AUDIT' ELSE 'OK' END as status
+FROM state_changes sc
+LEFT JOIN audit_entries ae
+  ON sc.resource_id = ae.resource_id
+  AND sc.change_date = ae.audit_date
+WHERE ae.resource_id IS NULL;
+```
+
 ---
 
 ## 9. Incident Response
