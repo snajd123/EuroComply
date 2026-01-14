@@ -1540,6 +1540,462 @@ CREATE POLICY tenant_isolation ON products
 - Blocks raw SQL queries that bypass Prisma
 - Defense-in-depth principle
 
+### 13.10 Cell-Level Hardening
+
+**Problem:** While schema-per-tenant provides strong logical isolation, tenants within a Cell (~200 per Growth cell) share:
+- Database credentials (`growth_cell_1_user`)
+- Compute resources (CPU, memory, IOPS)
+- Network bandwidth
+
+A credential compromise or noisy neighbor affects all ~200 tenants simultaneously.
+
+**Solution:** Defense-in-depth at the Cell level through per-schema credentials, resource quotas, monitoring, and incident response procedures.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    CELL-LEVEL HARDENING LAYERS                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Layer A: PER-SCHEMA CREDENTIALS                                            │
+│  ───────────────────────────────                                            │
+│  Each tenant schema has dedicated PostgreSQL role.                          │
+│  Credential leak exposes 1 tenant, not 200.                                 │
+│                                                                              │
+│  Layer B: RESOURCE QUOTAS                                                   │
+│  ────────────────────────                                                   │
+│  Per-tenant connection limits, statement timeouts, temp file limits.        │
+│  Noisy neighbor cannot monopolize shared resources.                         │
+│                                                                              │
+│  Layer C: ANOMALY DETECTION                                                 │
+│  ─────────────────────────                                                  │
+│  Real-time monitoring for unusual query patterns, resource spikes.          │
+│  Alert before impact spreads to other tenants.                              │
+│                                                                              │
+│  Layer D: CELL QUARANTINE                                                   │
+│  ────────────────────────                                                   │
+│  Incident response procedure to isolate compromised cells.                  │
+│  Tenant migration path to clean cell.                                       │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 13.10.1 Per-Schema Database Credentials
+
+Each tenant receives a dedicated PostgreSQL role restricted to their schema:
+
+```sql
+-- On tenant provisioning: create dedicated role
+CREATE ROLE tenant_org_abc123 WITH LOGIN PASSWORD 'rotated_secret';
+
+-- Grant access ONLY to tenant's schema
+GRANT USAGE ON SCHEMA org_abc123 TO tenant_org_abc123;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA org_abc123 TO tenant_org_abc123;
+ALTER DEFAULT PRIVILEGES IN SCHEMA org_abc123
+  GRANT ALL PRIVILEGES ON TABLES TO tenant_org_abc123;
+
+-- Explicitly deny access to other schemas
+REVOKE ALL ON SCHEMA public FROM tenant_org_abc123;
+-- (Other tenant schemas are not granted, so already inaccessible)
+```
+
+**Connection Routing:**
+
+```typescript
+// src/lib/db/tenant-connection.ts
+
+interface TenantCredentials {
+  host: string;
+  database: string;
+  username: string;      // tenant_org_abc123 (per-tenant)
+  password: string;      // From AWS Secrets Manager
+  schema: string;
+}
+
+class SecureTenantRouter {
+  private credentialsCache: Map<string, CachedCredential> = new Map();
+
+  async getConnection(organizationId: string): Promise<PoolClient> {
+    const creds = await this.getTenantCredentials(organizationId);
+    const pool = await this.getOrCreatePool(creds);
+    const client = await pool.connect();
+
+    // Schema is already enforced by role permissions, but set explicitly for safety
+    await client.query(`SET search_path TO ${creds.schema}, public`);
+    await client.query(`SET app.current_org TO '${organizationId}'`);
+
+    return client;
+  }
+
+  private async getTenantCredentials(orgId: string): Promise<TenantCredentials> {
+    // Credentials stored in AWS Secrets Manager, cached locally with TTL
+    const cached = this.credentialsCache.get(orgId);
+    if (cached && !cached.isExpired()) {
+      return cached.credentials;
+    }
+
+    const secret = await secretsManager.getSecretValue({
+      SecretId: `eurocomply/tenant/${orgId}/db-credentials`
+    }).promise();
+
+    const credentials = JSON.parse(secret.SecretString!);
+    this.credentialsCache.set(orgId, {
+      credentials,
+      expiresAt: Date.now() + 5 * 60 * 1000  // 5 min cache
+    });
+
+    return credentials;
+  }
+}
+```
+
+**Blast Radius Comparison:**
+
+| Credential Type | If Compromised | Blast Radius |
+|----------------|----------------|--------------|
+| Cell credential (old) | Attacker can query any schema | ~200 tenants |
+| Per-schema credential (new) | Attacker limited to one schema | 1 tenant |
+
+#### 13.10.2 Resource Quotas
+
+Prevent noisy neighbors from impacting other tenants:
+
+```sql
+-- Per-tenant role resource limits
+ALTER ROLE tenant_org_abc123 SET statement_timeout = '30s';
+ALTER ROLE tenant_org_abc123 SET lock_timeout = '10s';
+ALTER ROLE tenant_org_abc123 SET idle_in_transaction_session_timeout = '60s';
+ALTER ROLE tenant_org_abc123 SET temp_file_limit = '100MB';
+
+-- Connection limits (enforced at application layer via PgBouncer)
+-- Growth tier: 10 connections per tenant
+-- Scale tier: 25 connections per tenant
+-- Enterprise: Dedicated pool
+```
+
+**Application-Layer Enforcement:**
+
+```typescript
+// src/lib/db/resource-governor.ts
+
+interface TenantQuotas {
+  maxConnections: number;
+  maxQueriesPerMinute: number;
+  maxRowsPerQuery: number;
+  statementTimeoutMs: number;
+}
+
+const TIER_QUOTAS: Record<Tier, TenantQuotas> = {
+  growth: {
+    maxConnections: 10,
+    maxQueriesPerMinute: 1000,
+    maxRowsPerQuery: 10000,
+    statementTimeoutMs: 30000,
+  },
+  scale: {
+    maxConnections: 25,
+    maxQueriesPerMinute: 5000,
+    maxRowsPerQuery: 50000,
+    statementTimeoutMs: 60000,
+  },
+  enterprise: {
+    maxConnections: 100,
+    maxQueriesPerMinute: 20000,
+    maxRowsPerQuery: 100000,
+    statementTimeoutMs: 120000,
+  },
+};
+
+class ResourceGovernor {
+  private queryCounters: Map<string, SlidingWindowCounter> = new Map();
+
+  async checkQuota(orgId: string, tier: Tier): Promise<void> {
+    const quotas = TIER_QUOTAS[tier];
+    const counter = this.getCounter(orgId);
+
+    if (counter.count >= quotas.maxQueriesPerMinute) {
+      throw new QuotaExceededError(
+        `Rate limit exceeded: ${quotas.maxQueriesPerMinute} queries/min`,
+        { retryAfter: counter.windowResetMs }
+      );
+    }
+
+    counter.increment();
+  }
+}
+```
+
+#### 13.10.3 Credential Rotation
+
+Automatic rotation reduces exposure window from credential compromise:
+
+```typescript
+// infrastructure/lambda/rotate-tenant-credentials.ts
+
+import { SecretsManagerRotationHandler } from 'aws-lambda';
+
+export const handler: SecretsManagerRotationHandler = async (event) => {
+  const { SecretId, Step } = event;
+
+  switch (Step) {
+    case 'createSecret':
+      // Generate new password
+      const newPassword = generateSecurePassword(32);
+      await secretsManager.putSecretValue({
+        SecretId,
+        ClientRequestToken: event.ClientRequestToken,
+        SecretString: JSON.stringify({ ...currentSecret, password: newPassword }),
+        VersionStage: 'AWSPENDING',
+      }).promise();
+      break;
+
+    case 'setSecret':
+      // Update PostgreSQL role password
+      const pending = await getSecret(SecretId, 'AWSPENDING');
+      await adminPool.query(
+        `ALTER ROLE ${pending.username} WITH PASSWORD '${pending.password}'`
+      );
+      break;
+
+    case 'testSecret':
+      // Verify new credentials work
+      const testPool = new Pool(pending);
+      await testPool.query('SELECT 1');
+      await testPool.end();
+      break;
+
+    case 'finishSecret':
+      // Promote pending to current
+      await secretsManager.updateSecretVersionStage({
+        SecretId,
+        VersionStage: 'AWSCURRENT',
+        MoveToVersionId: event.ClientRequestToken,
+        RemoveFromVersionId: currentVersionId,
+      }).promise();
+      break;
+  }
+};
+```
+
+**Rotation Schedule:**
+
+| Tier | Rotation Frequency | Reason |
+|------|-------------------|--------|
+| Growth | 90 days | Balance security vs operational overhead |
+| Scale | 30 days | Higher security requirements |
+| Enterprise | 7 days | Maximum security |
+| On-demand | Immediate | Triggered by suspected compromise |
+
+#### 13.10.4 Cell Monitoring & Anomaly Detection
+
+Real-time detection of noisy neighbors and suspicious activity:
+
+```typescript
+// src/lib/monitoring/cell-monitor.ts
+
+interface CellMetrics {
+  cellId: string;
+  timestamp: Date;
+  cpu: number;
+  memory: number;
+  iops: number;
+  connections: number;
+  activeQueries: number;
+  slowQueries: number;
+  tenantBreakdown: Map<string, TenantMetrics>;
+}
+
+interface TenantMetrics {
+  organizationId: string;
+  connections: number;
+  queriesPerMinute: number;
+  avgQueryTimeMs: number;
+  rowsScanned: number;
+  tempFilesUsed: number;
+}
+
+class CellMonitor {
+  private readonly THRESHOLDS = {
+    tenantCpuShare: 0.3,        // Alert if one tenant uses >30% of cell CPU
+    tenantConnectionShare: 0.2, // Alert if one tenant uses >20% of connections
+    queryTimeP99Ms: 5000,       // Alert if P99 query time exceeds 5s
+    tempFileUsageMb: 500,       // Alert if temp file usage exceeds 500MB
+  };
+
+  async collectMetrics(cellId: string): Promise<CellMetrics> {
+    const pgStats = await this.queryPgStats(cellId);
+    const tenantBreakdown = await this.aggregateByTenant(pgStats);
+
+    return {
+      cellId,
+      timestamp: new Date(),
+      ...pgStats,
+      tenantBreakdown,
+    };
+  }
+
+  async detectAnomalies(metrics: CellMetrics): Promise<Anomaly[]> {
+    const anomalies: Anomaly[] = [];
+
+    for (const [orgId, tenant] of metrics.tenantBreakdown) {
+      // Noisy neighbor detection
+      if (tenant.connections / metrics.connections > this.THRESHOLDS.tenantConnectionShare) {
+        anomalies.push({
+          type: 'NOISY_NEIGHBOR',
+          severity: 'WARNING',
+          organizationId: orgId,
+          message: `Tenant using ${tenant.connections}/${metrics.connections} connections`,
+          recommendation: 'Consider throttling or migration to dedicated cell',
+        });
+      }
+
+      // Unusual query patterns (potential compromise)
+      if (tenant.rowsScanned > 1000000 && tenant.queriesPerMinute > 100) {
+        anomalies.push({
+          type: 'SUSPICIOUS_ACTIVITY',
+          severity: 'CRITICAL',
+          organizationId: orgId,
+          message: `Unusual scan pattern: ${tenant.rowsScanned} rows in ${tenant.queriesPerMinute} queries`,
+          recommendation: 'Investigate for potential credential compromise',
+        });
+      }
+    }
+
+    return anomalies;
+  }
+}
+```
+
+**Alerting Configuration:**
+
+```yaml
+# cloudwatch-alarms.yaml
+CellNoisyNeighborAlarm:
+  Type: AWS::CloudWatch::Alarm
+  Properties:
+    AlarmName: !Sub "${CellId}-noisy-neighbor"
+    MetricName: TenantResourceShare
+    Namespace: EuroComply/Cells
+    Statistic: Maximum
+    Period: 60
+    EvaluationPeriods: 3
+    Threshold: 0.3
+    ComparisonOperator: GreaterThanThreshold
+    AlarmActions:
+      - !Ref OpsSlackTopic
+      - !Ref AutoThrottleLambda
+```
+
+#### 13.10.5 Cell Quarantine Procedure
+
+When a cell is suspected to be compromised:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    CELL QUARANTINE PROCEDURE                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  TRIGGER CONDITIONS:                                                        │
+│  • Credential leak detected (e.g., found in public repo)                   │
+│  • Anomaly detection flags multiple suspicious tenants                      │
+│  • Security scan detects unauthorized access patterns                       │
+│  • Customer reports potential breach                                        │
+│                                                                              │
+│  PHASE 1: IMMEDIATE (0-5 minutes)                                          │
+│  ─────────────────────────────────                                          │
+│  1. Page on-call security engineer                                          │
+│  2. Enable enhanced logging on affected cell                                │
+│  3. Rotate ALL credentials in affected cell                                 │
+│  4. Block new connections (existing queries complete)                       │
+│                                                                              │
+│  PHASE 2: ASSESSMENT (5-30 minutes)                                        │
+│  ──────────────────────────────────                                         │
+│  5. Analyze audit logs for unauthorized access                              │
+│  6. Identify affected tenants (data access patterns)                        │
+│  7. Snapshot cell for forensic analysis                                     │
+│  8. Determine if data exfiltration occurred                                 │
+│                                                                              │
+│  PHASE 3: REMEDIATION (30-120 minutes)                                     │
+│  ─────────────────────────────────────                                      │
+│  9. Provision clean cell with fresh credentials                             │
+│  10. Migrate affected tenants to clean cell                                 │
+│  11. Notify affected customers (per GDPR Article 34 if breach confirmed)   │
+│  12. Decommission quarantined cell                                          │
+│                                                                              │
+│  PHASE 4: POST-INCIDENT (24-72 hours)                                      │
+│  ────────────────────────────────────                                       │
+│  13. Complete forensic analysis                                             │
+│  14. File breach report if required (GDPR Article 33: 72 hours)            │
+│  15. Update security controls based on findings                             │
+│  16. Conduct blameless postmortem                                           │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Tenant Migration During Quarantine:**
+
+```typescript
+// src/lib/operations/cell-migration.ts
+
+async function migrateTenantToCleanCell(
+  organizationId: string,
+  sourceCell: string,
+  targetCell: string
+): Promise<MigrationResult> {
+  const migration = await prisma.tenantMigration.create({
+    data: {
+      organizationId,
+      sourceCell,
+      targetCell,
+      status: 'IN_PROGRESS',
+      startedAt: new Date(),
+    },
+  });
+
+  try {
+    // 1. Create schema in target cell
+    await targetAdmin.query(`CREATE SCHEMA IF NOT EXISTS ${schemaName}`);
+
+    // 2. Create new credentials for target cell
+    const newCreds = await createTenantCredentials(organizationId, targetCell);
+
+    // 3. Dump and restore (pg_dump/pg_restore for consistency)
+    await execAsync(`pg_dump -h ${sourceCell} -n ${schemaName} | pg_restore -h ${targetCell}`);
+
+    // 4. Update routing config (atomic switch)
+    await prisma.organizationConfig.update({
+      where: { organizationId },
+      data: {
+        cellId: targetCell,
+        credentialsSecretArn: newCreds.secretArn,
+        migratedAt: new Date(),
+      },
+    });
+
+    // 5. Invalidate connection pools
+    await connectionManager.invalidatePool(organizationId);
+
+    return { success: true, migration };
+  } catch (error) {
+    await prisma.tenantMigration.update({
+      where: { id: migration.id },
+      data: { status: 'FAILED', error: error.message },
+    });
+    throw error;
+  }
+}
+```
+
+#### 13.10.6 Updated Attack Scenarios
+
+With Cell-Level Hardening, the attack scenario outcomes improve:
+
+| Attack Vector | Mitigation | Impact (Before) | Impact (After) |
+|---------------|------------|-----------------|----------------|
+| Cell credential leak | Per-schema credentials | ~200 tenants | 1 tenant |
+| Noisy neighbor | Resource quotas + throttling | ~200 tenants degraded | 1 tenant throttled |
+| Complete cell compromise | Quarantine + migration | ~200 tenants, hours to recover | ~200 tenants, minutes to migrate |
+| Credential enumeration | Per-tenant secrets, rotation | Persistent access | Access revoked within rotation window |
+
 ---
 
 ## 14. Implementation Status

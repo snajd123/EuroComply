@@ -307,10 +307,13 @@ Seven layers of security protect tenant data:
 |---------------|------------|----------------------|
 | SQL Injection | Parameterized queries + RLS | 1 tenant max |
 | Stolen JWT | Short expiry + refresh rotation | 1 user session |
-| Cell credential leak | Schema isolation | Must know schema name |
+| Cell credential leak | Per-schema credentials + rotation | 1 tenant max |
 | Application bug | RLS + schema isolation | 1 tenant max |
 | Database snapshot theft | Per-tenant encryption | Data unreadable |
-| Complete cell compromise | Cell isolation | ~200 tenants max |
+| Complete cell compromise | Quarantine + migration | ~200 tenants, minutes to recover |
+| Noisy neighbor | Resource quotas + throttling | 1 tenant throttled |
+
+> **Cell-Level Hardening:** For detailed implementation of per-schema credentials, resource quotas, anomaly detection, and cell quarantine procedures, see [SECURITY.md §13.10](./docs/SECURITY.md#1310-cell-level-hardening).
 
 ---
 
