@@ -912,117 +912,215 @@ interface BatchGenerateResponse {
 }
 ```
 
-### 7.7 Eager Generation (Pre-Generated DPPs)
+### 7.7 Deduplicated Storage + On-Demand Rendering
 
-All DPPs are pre-generated and stored in Cloudflare R2 to eliminate AWS egress costs:
+DPPs use **deduplicated storage** to handle billions of items efficiently over 10+ years:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                          EAGER GENERATION FLOW                               │
+│                     DEDUPLICATED DPP ARCHITECTURE                            │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  BATCH REQUEST (Upfront Generation)                                         │
-│  ───────────────────────────────────                                        │
-│  1. User submits 1M serial numbers                                          │
-│  2. System creates 1M DynamoDB records (2 min)                              │
-│  3. Fan-out to 20 workers to generate DPP HTML files                        │
-│  4. Each worker generates 50K DPPs (8 min total)                            │
-│  5. Upload all 1M DPP files to Cloudflare R2 (parallel)                     │
-│  6. Total time: ~10 minutes for 1M DPPs                                     │
-│  7. Job completes, items are "ready to scan"                                │
+│  KEY INSIGHT: 90%+ of DPP content is duplicate static data                  │
+│  ─────────────────────────────────────────────────────────                   │
+│  2M shoes of same product = 2M copies of identical images, materials, etc.  │
+│  Solution: Store static data ONCE, reference from items                      │
 │                                                                              │
-│  CONSUMER SCAN (Static File Serving)                                        │
-│  ─────────────────────────────────────                                      │
-│  1. Consumer scans QR code                                                  │
-│     https://dpp.eurocomply.eu/p/{passportId}/{serial}                       │
+│  STORAGE ARCHITECTURE                                                        │
+│  ────────────────────                                                        │
 │                                                                              │
-│  2. Request hits Cloudflare edge (nearest datacenter)                       │
+│  PRODUCT TEMPLATE (R2 - stored ONCE per product type)                       │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │  templates/{passportId}/                                                │ │
+│  │  ├── template.html     (DPP with {{serial}}, {{batch}} placeholders)   │ │
+│  │  ├── image_main.webp   (~15KB product image)                           │ │
+│  │  └── image_detail.webp                                                  │ │
+│  │                                                                          │ │
+│  │  Size: ~30KB per product type                                           │ │
+│  │  Cache: 30 days at Cloudflare edge (immutable)                         │ │
+│  └────────────────────────────────────────────────────────────────────────┘ │
 │                                                                              │
-│       ┌─────────────┐                                                       │
-│       │ Edge Cache? │                                                       │
-│       └──────┬──────┘                                                       │
-│              │                                                               │
-│      ┌───────┴───────┐                                                      │
-│      │               │                                                       │
-│      ▼ HIT           ▼ MISS                                                 │
-│   Return          Fetch from                                                │
-│   cached          Cloudflare R2                                             │
-│   DPP             (intra-Cloudflare,                                        │
-│   <10ms            zero egress)                                             │
-│                   <30ms                                                      │
-│                       │                                                      │
-│                       ▼                                                      │
-│                   Cache at edge                                              │
-│                   Return DPP                                                 │
+│  ITEM RECORD (DynamoDB - stored per serial number)                          │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │  {                                                                      │ │
+│  │    pk: "ORG#{orgId}#PASSPORT#{passportId}",                            │ │
+│  │    sk: "SERIAL#{serialNumber}",                                        │ │
+│  │    batchNumber, productionDate, facilityId, status,                    │ │
+│  │    epcisEventIds: ["evt_1", "evt_2"]  // References, not embedded      │ │
+│  │  }                                                                      │ │
+│  │                                                                          │ │
+│  │  Size: ~500 bytes per item                                              │ │
+│  │  Access: Always instant (DynamoDB on-demand)                           │ │
+│  └────────────────────────────────────────────────────────────────────────┘ │
 │                                                                              │
-│  PATH: dpps/{passportId}/{serial}.html                                      │
+│  STORAGE COMPARISON (2M shoes example)                                       │
+│  ─────────────────────────────────────                                       │
+│  │ Approach        │ Static Data      │ Dynamic Data    │ Total    │       │
+│  │─────────────────│──────────────────│─────────────────│──────────│       │
+│  │ Naive (files)   │ 2M × 30KB = 60GB │ -               │ 60GB     │       │
+│  │ Deduplicated    │ 1 × 30KB = 30KB  │ 2M × 500B = 1GB │ ~1GB     │       │
+│  │ Savings         │                  │                 │ 98%      │       │
 │                                                                              │
-│  BENEFITS:                                                                  │
-│  • Zero AWS egress cost (all traffic stays within Cloudflare)              │
-│  • Ultra-low latency: <30ms first scan, <10ms cached                       │
-│  • No API calls to AWS during scans                                         │
-│  • Predictable costs: R2 storage + Class A operations only                 │
-│  • Scales to billions of DPPs without bandwidth cost explosion             │
-│                                                                              │
-│  COST COMPARISON (1B scans/month):                                          │
-│  • Lazy generation (AWS egress): ~€2M/month ❌                              │
-│  • Eager generation (R2 static): ~€25/month ✅                              │
+│  10-YEAR PROJECTION (10B items)                                             │
+│  ──────────────────────────────                                              │
+│  │ Approach       │ Storage │ Cost (10yr) │                                │
+│  │────────────────│─────────│─────────────│                                │
+│  │ Naive          │ 300TB   │ ~$54M       │                                │
+│  │ Deduplicated   │ ~5TB    │ ~$600K      │                                │
+│  │ Savings        │ 98%     │ $53.4M      │                                │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 7.8 Cloudflare Worker for DPP Serving
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      ON-DEMAND RENDERING FLOW                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  BATCH CREATION (Fast - DynamoDB only)                                      │
+│  ─────────────────────────────────────                                       │
+│  1. User submits 1M serial numbers                                          │
+│  2. Upload product template to R2 (ONCE): 50ms                              │
+│  3. Fan-out to 20 workers to create item records                            │
+│  4. Batch write to DynamoDB: ~2 minutes for 1M records                      │
+│  5. Job completes, items are "ready to scan"                                │
+│  Total time: ~2 minutes (5x faster than file generation)                    │
+│                                                                              │
+│  CONSUMER SCAN (On-Demand Merge)                                            │
+│  ────────────────────────────────                                            │
+│  1. Consumer scans QR code                                                  │
+│     https://dpp.eurocomply.eu/dpp/{passportId}/{serial}                     │
+│                                                                              │
+│  2. Cloudflare Worker receives request                                      │
+│                                                                              │
+│       ┌─────────────────────────────────────────────────────────────┐       │
+│       │                                                              │       │
+│       │   ┌──────────────┐         ┌──────────────┐                │       │
+│       │   │  Fetch from  │         │  Fetch from  │                │       │
+│       │   │  R2 (cached) │         │  API/DynamoDB│                │       │
+│       │   │              │         │              │                │       │
+│       │   │  Template    │         │  Item Record │                │       │
+│       │   │  (~30KB)     │         │  (~500 bytes)│                │       │
+│       │   └──────┬───────┘         └──────┬───────┘                │       │
+│       │          │                        │                         │       │
+│       │          └────────────┬───────────┘                         │       │
+│       │                       │                                     │       │
+│       │                       ▼                                     │       │
+│       │              ┌────────────────┐                            │       │
+│       │              │  Merge & Render │                           │       │
+│       │              │  template.replace({{serial}}, item.serial)  │       │
+│       │              └────────┬───────┘                            │       │
+│       │                       │                                     │       │
+│       │                       ▼                                     │       │
+│       │              Return rendered DPP                            │       │
+│       │              (<50ms total)                                  │       │
+│       │                                                              │       │
+│       └─────────────────────────────────────────────────────────────┘       │
+│                                                                              │
+│  BENEFITS:                                                                  │
+│  • 99% storage reduction (templates stored once, not per-item)             │
+│  • Zero AWS egress cost (templates served from Cloudflare R2)              │
+│  • Ultra-low latency: <50ms (template cached, DynamoDB instant)            │
+│  • Template updates propagate to ALL items immediately                      │
+│  • EPCIS events always fresh (queried on-demand, not stale embedded copy)  │
+│  • No archival delays - all DPPs served instantly                          │
+│                                                                              │
+│  COST COMPARISON (10B items over 10 years):                                 │
+│  • Naive (pre-generated files): ~$54M ❌                                    │
+│  • Deduplicated + on-demand: ~$600K ✅                                      │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 7.8 Cloudflare Worker for On-Demand DPP Rendering
 
 ```typescript
-// Cloudflare Worker - serves pre-generated static DPPs from R2
+// Cloudflare Worker - renders DPPs on-demand by merging template + item data
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-    const match = url.pathname.match(/\/p\/([^/]+)\/([^/]+)/);
+    const match = url.pathname.match(/\/dpp\/([^/]+)(?:\/([^/]+))?/);
 
     if (!match) {
       return new Response('Not Found', { status: 404 });
     }
 
-    const [, passportId, serial] = match;
+    const [, passportId, serialNumber] = match;
 
-    // Construct R2 object key
-    const objectKey = `dpps/${passportId}/${serial}.html`;
+    // 1. Fetch product template from R2 (heavily cached at edge)
+    const templateKey = `templates/${passportId}/template.html`;
+    const templateObject = await env.R2_BUCKET.get(templateKey);
 
-    // Fetch from R2 (intra-Cloudflare, zero egress cost)
-    const dppFile = await env.R2_BUCKET.get(objectKey);
+    if (!templateObject) {
+      return new Response('DPP template not found', { status: 404 });
+    }
 
-    if (!dppFile) {
-      return new Response('DPP Not Found', {
-        status: 404,
-        headers: { 'Content-Type': 'text/html' },
+    let templateHtml = await templateObject.text();
+
+    // 2. For product-level DPP (no serial), return template as-is
+    if (!serialNumber) {
+      return new Response(templateHtml, {
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'public, max-age=2592000, immutable', // 30 days
+          'X-DPP-Source': 'template-only',
+        },
       });
     }
 
-    // Return DPP with aggressive caching
-    return new Response(dppFile.body, {
+    // 3. Fetch item record from API (DynamoDB via API Gateway)
+    const itemResponse = await fetch(
+      `${env.API_ENDPOINT}/v1/internal/items/${passportId}/${serialNumber}`,
+      { headers: { 'X-Internal-Request': 'dpp-worker' } }
+    );
+
+    if (!itemResponse.ok) {
+      return new Response('Item not found', { status: 404 });
+    }
+
+    const { data: item } = await itemResponse.json();
+
+    // 4. Render DPP by merging template + item data
+    const renderedDpp = templateHtml
+      .replace(/\{\{serialNumber\}\}/g, escapeHtml(item.serialNumber))
+      .replace(/\{\{batchNumber\}\}/g, escapeHtml(item.batchNumber))
+      .replace(/\{\{productionDate\}\}/g, formatDate(item.productionDate))
+      .replace(/\{\{status\}\}/g, item.status)
+      .replace(/\{\{epcisLink\}\}/g, `/api/epcis/${passportId}/${serialNumber}`);
+
+    // 5. Return rendered DPP (shorter cache - item status may change)
+    return new Response(renderedDpp, {
       headers: {
         'Content-Type': 'text/html; charset=utf-8',
-        'Cache-Control': 'public, max-age=2592000, immutable', // 30 days
-        'X-DPP-Source': 'r2-static',
-        'X-Passport-ID': passportId,
-        'X-Serial': serial,
-        // CORS headers for embedding
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Cache-Control': 'private, max-age=300', // 5 min (item data may change)
+        'X-DPP-Source': 'rendered',
+        'X-DPP-Serial': serialNumber,
       },
     });
   },
 };
+
+function escapeHtml(str: string): string {
+  return str?.replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
+  }[c] || c)) || '';
+}
+
+function formatDate(dateStr: string): string {
+  return new Date(dateStr).toLocaleDateString('en-GB', {
+    year: 'numeric', month: 'long', day: 'numeric'
+  });
+}
 ```
 
 **Key Optimizations:**
 
-1. **No API Calls**: DPP files are static, no database lookups required
-2. **Zero AWS Egress**: All data stays within Cloudflare network
-3. **Immutable Caching**: DPPs never change, cache for 30 days
-4. **Edge Caching**: Cloudflare CDN caches popular DPPs at edge locations
-5. **Scalability**: Can serve billions of scans without cost explosion
+1. **Deduplicated Storage**: Templates stored once, item records per-serial
+2. **On-Demand Rendering**: Merge template + item data at scan time
+3. **Zero AWS Egress**: Templates served from Cloudflare R2
+4. **Template Caching**: 30-day cache for templates (immutable static content)
+5. **Fresh Item Data**: Item records fetched from DynamoDB (always current)
+6. **EPCIS Lazy Loading**: Events loaded on-demand via separate API call
 
 ### 7.9 Tier Limits for Bulk Operations
 
@@ -1099,78 +1197,6 @@ Note: No monthly item/DPP limits - all tiers can issue unlimited DPPs at their p
 
 The per-DPP pricing provides healthy margins at all tiers. Even at the lowest Platform pricing (€0.001/DPP), costs are break-even, with the base subscription providing profitability.
 
-### 7.7 Deduplicated DPP Storage Architecture
-
-DPPs contain two types of data with very different storage characteristics:
-
-| Data Type | Description | Storage Pattern |
-|-----------|-------------|-----------------|
-| **Static (Template)** | Images, materials, care instructions, descriptions | Same for ALL items of a product |
-| **Dynamic (Item)** | Serial number, batch, production date, EPCIS events | Unique per item |
-
-**Naive approach (inefficient):**
-- 2M shoes of same product → 2M complete DPP files × 30KB = 60GB
-- 90%+ of content is identical (same images, same materials, same descriptions)
-
-**Deduplicated approach:**
-- 1 product template (static content) = 30KB stored ONCE in R2
-- 2M item records (dynamic content) = ~500 bytes each in DynamoDB
-- Total: 30KB + 1GB = **~1GB (98% reduction)**
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                     DEDUPLICATED DPP ARCHITECTURE                            │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  PRODUCT TEMPLATE (R2 - Static, stored ONCE per passport)                   │
-│  ─────────────────────────────────────────────────────────                   │
-│  templates/{passportId}/                                                     │
-│  ├── template.html     (DPP with {{serial}}, {{batch}} placeholders)        │
-│  ├── image_main.webp   (~15KB product image)                                │
-│  └── image_detail.webp                                                       │
-│                                                                              │
-│  Size: ~30KB per product type                                               │
-│  Cache: 30 days at Cloudflare edge                                          │
-│                                                                              │
-│  ITEM RECORD (DynamoDB - Dynamic, stored per serial number)                 │
-│  ───────────────────────────────────────────────────────────                 │
-│  {                                                                           │
-│    pk: "ORG#{orgId}#PASSPORT#{passportId}",                                 │
-│    sk: "SERIAL#{serialNumber}",                                             │
-│    batchNumber, productionDate, facilityId, status,                         │
-│    epcisEventIds: ["evt_1", "evt_2"]  // References, not embedded           │
-│  }                                                                           │
-│                                                                              │
-│  Size: ~500 bytes per item                                                  │
-│  Access: Always instant (DynamoDB on-demand)                                │
-│                                                                              │
-│  CONSUMER SCAN FLOW (On-Demand Rendering)                                   │
-│  ─────────────────────────────────────────                                   │
-│  1. Scan QR → Cloudflare Worker receives serial number                      │
-│  2. Fetch item record from DynamoDB via API Gateway (1ms)                   │
-│  3. Fetch product template from R2 (cached at edge, <10ms)                  │
-│  4. Render DPP by merging template + item data                              │
-│  5. Return HTML (<50ms total)                                               │
-│                                                                              │
-│  EPCIS events loaded on-demand via separate API call (not embedded)         │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-**10-Year Storage Projection:**
-
-| Approach | 10B Items | Storage | Cost (10yr) |
-|----------|-----------|---------|-------------|
-| **Naive (pre-generated)** | 10B × 30KB | 300TB | ~$54M |
-| **Deduplicated** | 100K templates + 10B records | ~5TB | ~$600K |
-| **Savings** | | **98%** | **$53.4M** |
-
-**Benefits:**
-- **Instant access**: All DPPs served in <50ms (no archival/restore delays)
-- **Template updates**: Change template once, affects all items immediately
-- **Fresh events**: EPCIS data always current (queried on-demand, not stale embedded copy)
-- **Faster bulk creation**: Only write to DynamoDB (no R2 uploads per item)
-
 ---
 
 ## 8. Infrastructure
@@ -1183,7 +1209,7 @@ DPPs contain two types of data with very different storage characteristics:
 │                                                                              │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐        │
 │  │     DNS     │  │     WAF     │  │     CDN     │  │     R2      │        │
-│  │             │  │             │  │             │  │  (DPP files)│        │
+│  │             │  │             │  │             │  │ (templates) │        │
 │  │ eurocomply  │  │  DDoS       │  │  Edge       │  │             │        │
 │  │ .eu         │  │  Protection │  │  Caching    │  │  Workers    │        │
 │  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘        │
