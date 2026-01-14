@@ -2056,6 +2056,622 @@ app.get('/api/v1/public/verify-issuer/:did', async (req, res) => {
 | Updated Verification Levels | Medium | Q1 2026 | 📋 Planned |
 | UI Trust Indicators | Medium | Q1 2026 | 📋 Planned |
 | EUDI Wallet Integration | High | Q3 2026 | 📋 Planned |
+| Proactive Identity Protection | Medium | Q1 2026 | 📋 Planned |
+
+### 17.5 Proactive Identity Protection
+
+The solutions above are **reactive** - they verify identity when requested. This section adds **proactive** defenses against impersonation attacks.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    PROACTIVE IDENTITY PROTECTION                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  REACTIVE (Solutions 1-4):                                                  │
+│  ─────────────────────────                                                  │
+│  • Verify identity when attestation is checked                              │
+│  • Display warnings for unverified issuers                                  │
+│  • User must notice and act on warnings                                     │
+│                                                                              │
+│  PROACTIVE (This section):                                                  │
+│  ─────────────────────────                                                  │
+│  • Detect lookalike domains at registration time                            │
+│  • Block known impersonation patterns                                       │
+│  • Alert trusted issuers of suspicious activity                            │
+│  • Maintain blocklist of known bad actors                                   │
+│                                                                              │
+│  Defense in depth: Even if proactive detection fails,                       │
+│  reactive verification catches it at display time.                          │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 17.5.1 Lookalike Domain Detection
+
+Detect domains that are confusingly similar to trusted issuers:
+
+```typescript
+// src/lib/identity/lookalike-detection.ts
+
+interface LookalikeCheckResult {
+  isSuspicious: boolean;
+  similarTo?: TrustedIssuer;
+  similarity: number;
+  reasons: string[];
+  action: 'ALLOW' | 'FLAG_FOR_REVIEW' | 'BLOCK';
+}
+
+// Homoglyph mappings (characters that look similar)
+const HOMOGLYPHS: Record<string, string[]> = {
+  'a': ['а', 'ạ', 'ă', 'α'],      // Cyrillic 'а', Vietnamese, etc.
+  'e': ['е', 'ẹ', 'ė', 'ε'],      // Cyrillic 'е', Greek epsilon
+  'o': ['о', 'ọ', 'ο', '0'],      // Cyrillic 'о', Greek omicron, zero
+  'i': ['і', 'ị', 'ı', '1', 'l'], // Cyrillic 'і', Turkish dotless i, one, lowercase L
+  'c': ['с', 'ç', 'ċ'],           // Cyrillic 'с'
+  'u': ['υ', 'ụ', 'μ'],           // Greek upsilon, mu
+  'n': ['п', 'ń', 'η'],           // Cyrillic 'п', Greek eta
+  // ... more mappings
+};
+
+// Common TLD typosquatting patterns
+const SUSPICIOUS_TLD_PATTERNS = [
+  { trusted: '.com', suspicious: ['.co', '.cm', '.corn', '.com.de', '.io', '.net', '.org'] },
+  { trusted: '.org', suspicious: ['.og', '.org.com', '.io'] },
+  { trusted: '.eu', suspicious: ['.eu.com', '.ею'] },
+];
+
+async function checkForLookalike(
+  registrationDomain: string,
+  registrationName: string
+): Promise<LookalikeCheckResult> {
+  const trustedIssuers = await getTrustedIssuers();
+  const results: LookalikeCheckResult[] = [];
+
+  for (const issuer of trustedIssuers) {
+    const domainSimilarity = calculateDomainSimilarity(
+      registrationDomain,
+      new URL(issuer.officialWebsite).hostname
+    );
+
+    const nameSimilarity = calculateNameSimilarity(
+      registrationName,
+      issuer.name
+    );
+
+    if (domainSimilarity > 0.7 || nameSimilarity > 0.8) {
+      results.push({
+        isSuspicious: true,
+        similarTo: issuer,
+        similarity: Math.max(domainSimilarity, nameSimilarity),
+        reasons: buildSuspicionReasons(registrationDomain, registrationName, issuer),
+        action: determineAction(domainSimilarity, nameSimilarity),
+      });
+    }
+  }
+
+  // Return the most suspicious match
+  if (results.length > 0) {
+    return results.sort((a, b) => b.similarity - a.similarity)[0];
+  }
+
+  return {
+    isSuspicious: false,
+    similarity: 0,
+    reasons: [],
+    action: 'ALLOW',
+  };
+}
+
+function calculateDomainSimilarity(domain1: string, domain2: string): number {
+  // Normalize domains
+  const d1 = normalizeDomain(domain1);
+  const d2 = normalizeDomain(domain2);
+
+  // Exact match (different TLD)
+  const d1Base = d1.split('.')[0];
+  const d2Base = d2.split('.')[0];
+
+  if (d1Base === d2Base) {
+    return 0.95; // Same base, different TLD = very suspicious
+  }
+
+  // Levenshtein distance
+  const levenshteinSim = 1 - (levenshteinDistance(d1Base, d2Base) / Math.max(d1Base.length, d2Base.length));
+
+  // Homoglyph detection
+  const homoglyphSim = calculateHomoglyphSimilarity(d1Base, d2Base);
+
+  // Character insertion/deletion (e.g., "controll-union" vs "control-union")
+  const typoSim = calculateTypoSimilarity(d1Base, d2Base);
+
+  return Math.max(levenshteinSim, homoglyphSim, typoSim);
+}
+
+function calculateHomoglyphSimilarity(s1: string, s2: string): number {
+  // Normalize both strings by replacing homoglyphs with their base character
+  const normalize = (s: string): string => {
+    let normalized = s.toLowerCase();
+    for (const [base, variants] of Object.entries(HOMOGLYPHS)) {
+      for (const variant of variants) {
+        normalized = normalized.replace(new RegExp(variant, 'g'), base);
+      }
+    }
+    return normalized;
+  };
+
+  const n1 = normalize(s1);
+  const n2 = normalize(s2);
+
+  if (n1 === n2) {
+    return 1.0; // Homoglyph attack detected
+  }
+
+  return 1 - (levenshteinDistance(n1, n2) / Math.max(n1.length, n2.length));
+}
+
+function buildSuspicionReasons(
+  domain: string,
+  name: string,
+  trustedIssuer: TrustedIssuer
+): string[] {
+  const reasons: string[] = [];
+  const trustedDomain = new URL(trustedIssuer.officialWebsite).hostname;
+
+  // Check for TLD swap
+  const domainBase = domain.split('.')[0];
+  const trustedBase = trustedDomain.split('.')[0];
+
+  if (domainBase === trustedBase) {
+    reasons.push(`Same base domain as ${trustedIssuer.name} but different TLD`);
+  }
+
+  // Check for homoglyphs
+  if (containsHomoglyphs(domain)) {
+    reasons.push('Domain contains characters that look like Latin letters but are not (homoglyph attack)');
+  }
+
+  // Check for typosquatting patterns
+  if (isTyposquat(domain, trustedDomain)) {
+    reasons.push(`Domain is a typosquat variant of ${trustedDomain}`);
+  }
+
+  // Check for name similarity
+  if (calculateNameSimilarity(name, trustedIssuer.name) > 0.8) {
+    reasons.push(`Organization name "${name}" is very similar to trusted issuer "${trustedIssuer.name}"`);
+  }
+
+  return reasons;
+}
+
+function determineAction(domainSim: number, nameSim: number): 'ALLOW' | 'FLAG_FOR_REVIEW' | 'BLOCK' {
+  const maxSim = Math.max(domainSim, nameSim);
+
+  if (maxSim >= 0.95) return 'BLOCK';        // Almost certain impersonation
+  if (maxSim >= 0.80) return 'FLAG_FOR_REVIEW'; // Needs human review
+  return 'ALLOW';
+}
+```
+
+#### 17.5.2 Registration-Time Enforcement
+
+Apply lookalike detection during contributor registration:
+
+```typescript
+// src/services/contributor-registration.ts
+
+async function registerContributor(
+  registration: ContributorRegistration
+): Promise<RegistrationResult> {
+  // Step 1: Check for lookalike domains
+  const lookalikeCheck = await checkForLookalike(
+    registration.domain,
+    registration.organizationName
+  );
+
+  if (lookalikeCheck.action === 'BLOCK') {
+    // Log for security audit
+    await auditLog.create({
+      action: 'REGISTRATION_BLOCKED',
+      resourceType: 'Contributor',
+      metadata: {
+        attemptedDomain: registration.domain,
+        attemptedName: registration.organizationName,
+        similarTo: lookalikeCheck.similarTo?.name,
+        similarity: lookalikeCheck.similarity,
+        reasons: lookalikeCheck.reasons,
+      },
+    });
+
+    // Alert the trusted issuer being impersonated
+    await alertTrustedIssuer(lookalikeCheck.similarTo!, registration);
+
+    return {
+      success: false,
+      error: {
+        code: 'REGISTRATION_BLOCKED',
+        message: 'Registration blocked due to similarity to a verified certification body.',
+        details: {
+          similarTo: lookalikeCheck.similarTo?.name,
+          reasons: lookalikeCheck.reasons,
+          contactEmail: 'security@eurocomply.eu',
+        },
+      },
+    };
+  }
+
+  if (lookalikeCheck.action === 'FLAG_FOR_REVIEW') {
+    // Create registration in PENDING_REVIEW state
+    const contributor = await prisma.contributor.create({
+      data: {
+        ...registration,
+        status: 'PENDING_MANUAL_REVIEW',
+        reviewReason: lookalikeCheck.reasons.join('; '),
+        flaggedSimilarTo: lookalikeCheck.similarTo?.did,
+      },
+    });
+
+    // Notify security team
+    await notifySecurityTeam({
+      type: 'SUSPICIOUS_REGISTRATION',
+      contributorId: contributor.id,
+      lookalikeCheck,
+    });
+
+    return {
+      success: true,
+      pendingReview: true,
+      message: 'Registration submitted for manual review. You will be contacted within 2 business days.',
+    };
+  }
+
+  // Normal registration flow
+  return await completeRegistration(registration);
+}
+```
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  REGISTRATION FLOW WITH LOOKALIKE DETECTION                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  User submits registration                                                  │
+│         │                                                                    │
+│         ▼                                                                    │
+│  ┌─────────────────────────┐                                                │
+│  │  Lookalike Detection    │                                                │
+│  │  • Domain similarity    │                                                │
+│  │  • Name similarity      │                                                │
+│  │  • Homoglyph check      │                                                │
+│  └───────────┬─────────────┘                                                │
+│              │                                                               │
+│     ┌────────┼────────┐                                                     │
+│     │        │        │                                                     │
+│     ▼        ▼        ▼                                                     │
+│  ┌──────┐ ┌──────┐ ┌──────┐                                                │
+│  │ALLOW │ │REVIEW│ │BLOCK │                                                │
+│  └──┬───┘ └──┬───┘ └──┬───┘                                                │
+│     │        │        │                                                     │
+│     ▼        ▼        ▼                                                     │
+│  Continue  Manual   Reject +                                                │
+│  normally  review   Alert issuer                                            │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 17.5.3 Trust Registry Governance
+
+Transparent governance model for the trusted issuer registry:
+
+```typescript
+// Trust Registry Governance Model
+
+interface TrustRegistryGovernance {
+  // Criteria for inclusion
+  inclusionCriteria: {
+    certificationBodies: {
+      required: [
+        'Accreditation by recognized body (IOAS, IAF member, national body)',
+        'Active accreditation status verified against official registry',
+        'Domain ownership verified via DNS TXT',
+        'Official contact confirmation (phone call + email)',
+      ],
+      recommended: [
+        'LEI registration',
+        'Member of industry association (Textile Exchange, etc.)',
+      ],
+    },
+    governmentBodies: {
+      required: [
+        'Official government domain (.gov, .europa.eu, etc.)',
+        'DNS TXT verification',
+        'Letter of authorization on official letterhead',
+      ],
+    },
+  };
+
+  // Decision process
+  decisionProcess: {
+    reviewer: 'EuroComply Security Team',
+    approvalRequired: 2, // Two-person approval
+    slaBusinessDays: 5,
+    documentation: 'All evidence stored in audit log',
+  };
+
+  // Appeals process
+  appealsProcess: {
+    contactEmail: 'trust-registry-appeals@eurocomply.eu',
+    reviewPeriod: '10 business days',
+    escalationTo: 'External advisory board (annual review)',
+  };
+
+  // Removal criteria
+  removalCriteria: [
+    'Accreditation revoked or expired',
+    'Evidence of fraudulent certifications',
+    'Failure to respond to verification renewal (annual)',
+    'Request from the organization itself',
+  ];
+
+  // Transparency
+  transparency: {
+    publicRegistry: true, // List of trusted issuers is public
+    changeLog: true,      // All additions/removals logged
+    auditReports: 'annual', // Annual transparency report
+  };
+}
+```
+
+**Public Transparency Log:**
+
+```typescript
+// GET /api/v1/public/trust-registry/changelog
+interface TrustRegistryChange {
+  id: string;
+  timestamp: Date;
+  action: 'ADDED' | 'REMOVED' | 'UPDATED';
+  issuerDid: string;
+  issuerName: string;
+  reason: string;
+  verificationMethod: string;
+  approvedBy: string[]; // Anonymized reviewer IDs
+}
+
+// Example changelog entries
+const changelog: TrustRegistryChange[] = [
+  {
+    id: 'chg_001',
+    timestamp: new Date('2026-01-15'),
+    action: 'ADDED',
+    issuerDid: 'did:key:z6MkControlUnion...',
+    issuerName: 'Control Union Certifications',
+    reason: 'Initial registry population - major certification body',
+    verificationMethod: 'IOAS registry + official contact + DNS TXT',
+    approvedBy: ['reviewer_a1b2', 'reviewer_c3d4'],
+  },
+  {
+    id: 'chg_002',
+    timestamp: new Date('2026-03-20'),
+    action: 'REMOVED',
+    issuerDid: 'did:key:z6MkExpiredCert...',
+    issuerName: 'Expired Certifications Ltd',
+    reason: 'Accreditation expired, not renewed',
+    verificationMethod: 'IOAS registry check - status changed to EXPIRED',
+    approvedBy: ['reviewer_e5f6', 'reviewer_g7h8'],
+  },
+];
+```
+
+#### 17.5.4 Impersonation Alerting
+
+Notify trusted issuers when potential impersonation is detected:
+
+```typescript
+// src/services/impersonation-alerting.ts
+
+interface ImpersonationAlert {
+  trustedIssuer: TrustedIssuer;
+  suspiciousRegistration: {
+    domain: string;
+    name: string;
+    email: string;
+    ipAddress: string;
+    registrationTime: Date;
+  };
+  similarity: number;
+  reasons: string[];
+  action: 'BLOCKED' | 'FLAGGED_FOR_REVIEW';
+}
+
+async function alertTrustedIssuer(
+  issuer: TrustedIssuer,
+  registration: ContributorRegistration
+): Promise<void> {
+  const alert: ImpersonationAlert = {
+    trustedIssuer: issuer,
+    suspiciousRegistration: {
+      domain: registration.domain,
+      name: registration.organizationName,
+      email: registration.email,
+      ipAddress: registration.ipAddress,
+      registrationTime: new Date(),
+    },
+    similarity: 0, // Set by caller
+    reasons: [],   // Set by caller
+    action: 'BLOCKED',
+  };
+
+  // Send email to trusted issuer's security contact
+  await sendEmail({
+    to: issuer.securityContact || `security@${new URL(issuer.officialWebsite).hostname}`,
+    subject: `[EuroComply Alert] Potential impersonation attempt detected`,
+    template: 'impersonation-alert',
+    data: {
+      issuerName: issuer.name,
+      suspiciousDomain: registration.domain,
+      suspiciousName: registration.organizationName,
+      reasons: alert.reasons,
+      actionTaken: alert.action,
+      reportUrl: `https://eurocomply.eu/security/report/${alert.id}`,
+    },
+  });
+
+  // Log for our records
+  await prisma.impersonationAlert.create({
+    data: {
+      trustedIssuerId: issuer.did,
+      suspiciousDomain: registration.domain,
+      suspiciousName: registration.organizationName,
+      suspiciousEmail: registration.email,
+      similarity: alert.similarity,
+      reasons: alert.reasons,
+      actionTaken: alert.action,
+      alertSentAt: new Date(),
+    },
+  });
+}
+```
+
+**Alert Email Template:**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  Subject: [EuroComply Alert] Potential impersonation attempt detected        │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Dear Control Union Certifications Security Team,                           │
+│                                                                              │
+│  EuroComply's identity protection system has detected and BLOCKED a         │
+│  registration attempt that appears to impersonate your organization.        │
+│                                                                              │
+│  SUSPICIOUS REGISTRATION:                                                   │
+│  • Domain: controlunion.io                                                  │
+│  • Organization Name: "Control Union Certifications"                        │
+│  • Registration Time: 2026-01-15 14:32:00 UTC                              │
+│                                                                              │
+│  REASONS FOR BLOCKING:                                                      │
+│  • Same base domain as Control Union but different TLD (.io vs .com)       │
+│  • Organization name exactly matches your verified name                     │
+│  • Attempted to register as CERTIFIER with GOTS attestation capability     │
+│                                                                              │
+│  ACTION TAKEN:                                                              │
+│  Registration was automatically BLOCKED. No attestations were issued.      │
+│                                                                              │
+│  RECOMMENDED ACTIONS:                                                       │
+│  • Consider registering controlunion.io defensively                        │
+│  • Report this domain to your legal team if appropriate                    │
+│  • No action required on EuroComply - we've handled it                     │
+│                                                                              │
+│  View full report: https://eurocomply.eu/security/report/rpt_abc123        │
+│                                                                              │
+│  Questions? Contact security@eurocomply.eu                                  │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 17.5.5 Known Bad Actor Blocklist
+
+Maintain a blocklist of confirmed bad actors:
+
+```typescript
+// src/lib/identity/blocklist.ts
+
+interface BlocklistEntry {
+  id: string;
+  type: 'DOMAIN' | 'EMAIL_PATTERN' | 'IP_RANGE' | 'NAME_PATTERN';
+  value: string;           // The blocked value or pattern
+  reason: string;
+  addedAt: Date;
+  addedBy: string;         // Reviewer ID
+  expiresAt?: Date;        // Optional expiry
+  evidence: string[];      // Links to evidence
+}
+
+const blocklist: BlocklistEntry[] = [
+  {
+    id: 'blk_001',
+    type: 'DOMAIN',
+    value: 'controlunion.io',
+    reason: 'Confirmed impersonation attempt of Control Union Certifications',
+    addedAt: new Date('2026-01-15'),
+    addedBy: 'security_team',
+    evidence: ['incident_report_001', 'legal_notice_cu_2026_01'],
+  },
+  {
+    id: 'blk_002',
+    type: 'EMAIL_PATTERN',
+    value: '*@fake-certifications.com',
+    reason: 'Domain used for multiple fraudulent certification claims',
+    addedAt: new Date('2026-02-01'),
+    addedBy: 'security_team',
+    evidence: ['incident_report_002', 'incident_report_003'],
+  },
+  {
+    id: 'blk_003',
+    type: 'NAME_PATTERN',
+    value: '/control.?union/i', // Regex pattern
+    reason: 'Block variations of Control Union name from non-verified registrations',
+    addedAt: new Date('2026-01-20'),
+    addedBy: 'security_team',
+    expiresAt: undefined, // Permanent
+    evidence: ['policy_decision_001'],
+  },
+];
+
+async function checkBlocklist(registration: ContributorRegistration): Promise<BlocklistMatch | null> {
+  for (const entry of blocklist) {
+    if (entry.expiresAt && entry.expiresAt < new Date()) {
+      continue; // Expired entry
+    }
+
+    let matched = false;
+
+    switch (entry.type) {
+      case 'DOMAIN':
+        matched = registration.domain === entry.value;
+        break;
+      case 'EMAIL_PATTERN':
+        matched = matchWildcard(registration.email, entry.value);
+        break;
+      case 'NAME_PATTERN':
+        matched = new RegExp(entry.value).test(registration.organizationName);
+        break;
+      case 'IP_RANGE':
+        matched = ipInRange(registration.ipAddress, entry.value);
+        break;
+    }
+
+    if (matched) {
+      return {
+        entry,
+        matchedField: entry.type,
+        matchedValue: getMatchedValue(registration, entry.type),
+      };
+    }
+  }
+
+  return null;
+}
+```
+
+#### 17.5.6 Defense Summary
+
+| Layer | Mechanism | Catches |
+|-------|-----------|---------|
+| **Blocklist** | Known bad domains/patterns | Repeat offenders |
+| **Lookalike Detection** | Domain/name similarity | New impersonation attempts |
+| **Registration Review** | Manual verification | Edge cases, sophisticated attacks |
+| **Trusted Issuer Alert** | Notify impersonation targets | Brand protection |
+| **Transparency Log** | Public changelog | Accountability, trust |
+
+**Attack Resistance:**
+
+| Attack | Defense |
+|--------|---------|
+| `controlunion.io` (TLD swap) | Lookalike detection → BLOCK |
+| `сontrolunion.com` (Cyrillic 'с') | Homoglyph detection → BLOCK |
+| `control-union-certifications.com` | Name similarity → FLAG_FOR_REVIEW |
+| `controlunion.com` (legitimate) | Already in Trust Registry → ALLOW |
+| Known bad actor returns | Blocklist → BLOCK |
 
 ### What This Doesn't Solve
 
