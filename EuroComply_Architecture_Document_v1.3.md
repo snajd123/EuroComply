@@ -242,6 +242,94 @@ CREATE POLICY tenant_isolation ON products
     USING (organization_id = current_setting('app.current_org')::uuid);
 ```
 
+### 3.6 Configuration Database Schema
+
+The platform maintains a central configuration database (`schema_config`) in each cell that stores tenant routing and metadata. This is separate from tenant data.
+
+```sql
+-- Configuration schema (one per cell, stores metadata for all tenants in cell)
+CREATE SCHEMA schema_config;
+SET search_path = schema_config;
+
+-- Tenant registry: which organization is in which schema
+CREATE TABLE tenants (
+    organization_id UUID PRIMARY KEY,
+    schema_name TEXT NOT NULL UNIQUE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    status TEXT DEFAULT 'active' CHECK (status IN ('active', 'suspended', 'migrating', 'deleted')),
+    tier TEXT NOT NULL CHECK (tier IN ('growth', 'scale', 'enterprise')),
+    dek_key_id TEXT NOT NULL,  -- KMS key ID for tenant DEK
+    db_credentials_arn TEXT,   -- Secrets Manager ARN for per-schema credentials (Scale+)
+    metadata JSONB DEFAULT '{}'
+);
+
+-- Cell health and capacity tracking
+CREATE TABLE cell_metadata (
+    cell_id TEXT PRIMARY KEY,
+    region TEXT NOT NULL,
+    endpoint TEXT NOT NULL,
+    max_tenants INTEGER DEFAULT 200,
+    current_tenants INTEGER DEFAULT 0,
+    status TEXT DEFAULT 'active' CHECK (status IN ('active', 'draining', 'quarantined')),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Tenant activity metrics (for capacity planning)
+CREATE TABLE tenant_metrics (
+    organization_id UUID REFERENCES tenants(organization_id),
+    recorded_at TIMESTAMPTZ DEFAULT NOW(),
+    product_count INTEGER,
+    passport_count INTEGER,
+    storage_bytes BIGINT,
+    api_calls_24h INTEGER,
+    PRIMARY KEY (organization_id, recorded_at)
+);
+
+-- Indexes for routing performance
+CREATE INDEX idx_tenants_schema ON tenants(schema_name);
+CREATE INDEX idx_tenants_status ON tenants(status) WHERE status = 'active';
+```
+
+**Cross-Cell Routing Database:**
+
+For multi-cell deployments, a global routing table exists in AWS DynamoDB:
+
+```typescript
+// DynamoDB table: eurocomply-routing
+interface TenantRouting {
+  pk: string;           // ORG#{organizationId}
+  sk: string;           // ROUTING
+  cellId: string;       // growth-cell-1, scale-cell-1, etc.
+  region: string;       // eu-central-1
+  schemaName: string;   // schema_tenant_abc123
+  status: 'active' | 'migrating' | 'suspended';
+  tier: 'growth' | 'scale' | 'enterprise';
+  updatedAt: string;    // ISO timestamp
+}
+
+// Query pattern: O(1) lookup
+const routing = await dynamodb.get({
+  TableName: 'eurocomply-routing',
+  Key: { pk: `ORG#${organizationId}`, sk: 'ROUTING' }
+});
+```
+
+**Tenant Router Cache:**
+
+Redis caches routing information for fast lookups:
+
+```typescript
+// Cache key: tenant:routing:{organizationId}
+// TTL: 5 minutes (short to handle migrations)
+interface CachedRouting {
+  cellId: string;
+  schemaName: string;
+  endpoint: string;
+  dekKeyId: string;
+}
+```
+
 ---
 
 ## 4. Security Architecture

@@ -27,37 +27,55 @@ provider "aws" {
   region = var.aws_region
 
   default_tags {
-    tags = {
-      Environment = var.environment
-      Project     = "eurocomply"
-      ManagedBy   = "terraform"
-    }
+    tags = local.common_tags
   }
 }
 
 # ==============================================================================
-# VARIABLES
+# LOCAL VALUES - Common Tags
 # ==============================================================================
 
-variable "aws_region" {
-  type    = string
-  default = "eu-central-1"
+locals {
+  common_tags = merge(
+    {
+      Environment        = var.environment
+      Project            = var.app_name
+      ManagedBy          = "terraform"
+      CostCenter         = var.cost_center
+      Owner              = var.owner
+      Compliance         = "ESPR"
+      DataClassification = "confidential"
+      CreatedBy          = "terraform"
+    },
+    var.additional_tags
+  )
+
+  # Resource-specific tag sets
+  database_tags = merge(local.common_tags, {
+    Service    = "database"
+    Encryption = "required"
+    Backup     = "enabled"
+  })
+
+  compute_tags = merge(local.common_tags, {
+    Service = "compute"
+  })
+
+  network_tags = merge(local.common_tags, {
+    Service = "network"
+  })
+
+  storage_tags = merge(local.common_tags, {
+    Service = "storage"
+  })
+
+  security_tags = merge(local.common_tags, {
+    Service    = "security"
+    Encryption = "required"
+  })
 }
 
-variable "environment" {
-  type    = string
-  default = "production"
-}
-
-variable "app_name" {
-  type    = string
-  default = "eurocomply"
-}
-
-variable "domain" {
-  type    = string
-  default = "eurocomply.eu"
-}
+# Variables are defined in variables.tf
 
 # ==============================================================================
 # VPC
@@ -67,16 +85,16 @@ module "vpc" {
   source = "../../modules/vpc"
 
   name               = "${var.app_name}-${var.environment}"
-  cidr               = "10.0.0.0/16"
-  availability_zones = ["${var.aws_region}a", "${var.aws_region}b"]
+  cidr               = var.vpc_cidr
+  availability_zones = [for i in range(var.availability_zone_count) : "${var.aws_region}${["a", "b", "c"][i]}"]
 
-  public_subnets   = ["10.0.1.0/24", "10.0.2.0/24"]
-  private_subnets  = ["10.0.10.0/24", "10.0.11.0/24"]
-  database_subnets = ["10.0.20.0/24", "10.0.21.0/24"]
+  public_subnets   = var.public_subnet_cidrs
+  private_subnets  = var.private_subnet_cidrs
+  database_subnets = var.database_subnet_cidrs
 
   # Use NAT Instance to save ~€30/month
-  enable_nat_instance = true
-  nat_instance_type   = "t4g.nano"
+  enable_nat_instance = var.enable_nat_instance
+  nat_instance_type   = var.nat_instance_type
 }
 
 # ==============================================================================
@@ -85,7 +103,7 @@ module "vpc" {
 
 resource "aws_kms_key" "main" {
   description             = "KMS key for ${var.app_name} ${var.environment}"
-  deletion_window_in_days = 30
+  deletion_window_in_days = var.kms_deletion_window_days
   enable_key_rotation     = true
 
   policy = jsonencode({
@@ -139,11 +157,11 @@ module "growth_cell" {
   engine        = "postgres"
   engine_version = "15.4"
 
-  instance_class        = "db.t4g.small"  # 2 vCPU, 2GB RAM - good for ~200 tenants
-  allocated_storage     = 50
-  max_allocated_storage = 200
+  instance_class        = var.db_instance_class
+  allocated_storage     = var.db_allocated_storage
+  max_allocated_storage = var.db_max_allocated_storage
 
-  multi_az = true  # High availability
+  multi_az = var.db_multi_az
 
   db_name  = "eurocomply"
   username = "eurocomply_admin"
@@ -152,14 +170,14 @@ module "growth_cell" {
   subnet_group_name      = module.vpc.db_subnet_group_name
   vpc_security_group_ids = [module.vpc.database_security_group_id]
 
-  backup_retention_period = 7
+  backup_retention_period = var.db_backup_retention_days
   backup_window           = "03:00-04:00"
   maintenance_window      = "Mon:04:00-Mon:05:00"
 
   performance_insights_enabled = true
   kms_key_id                   = aws_kms_key.main.arn
 
-  deletion_protection = true
+  deletion_protection = var.db_deletion_protection
 }
 
 # ==============================================================================
@@ -207,9 +225,9 @@ resource "aws_secretsmanager_secret_version" "redis_auth" {
 resource "aws_elasticache_cluster" "main" {
   cluster_id           = "${var.app_name}-${var.environment}"
   engine               = "redis"
-  engine_version       = "7.0"
-  node_type            = "cache.t4g.micro"
-  num_cache_nodes      = 1  # Single node to start, add HA later
+  engine_version       = var.redis_engine_version
+  node_type            = var.redis_node_type
+  num_cache_nodes      = var.redis_num_cache_nodes
   port                 = 6379
   parameter_group_name = aws_elasticache_parameter_group.redis.name
 
@@ -224,7 +242,7 @@ resource "aws_elasticache_cluster" "main" {
   # Encryption in transit (TLS)
   transit_encryption_enabled = true
 
-  snapshot_retention_limit = 1
+  snapshot_retention_limit = var.redis_snapshot_retention_days
   snapshot_window          = "05:00-06:00"
 
   # Auto minor version upgrade for security patches
@@ -299,13 +317,13 @@ resource "aws_sqs_queue" "events" {
   fifo_queue                  = true
   content_based_deduplication = true
 
-  visibility_timeout_seconds = 300
-  message_retention_seconds  = 1209600  # 14 days
-  receive_wait_time_seconds  = 20       # Long polling
+  visibility_timeout_seconds = var.sqs_visibility_timeout_seconds
+  message_retention_seconds  = var.sqs_message_retention_seconds
+  receive_wait_time_seconds  = 20  # Long polling
 
   redrive_policy = jsonencode({
     deadLetterTargetArn = aws_sqs_queue.events_dlq.arn
-    maxReceiveCount     = 5
+    maxReceiveCount     = var.sqs_dlq_max_receive_count
   })
 
   kms_master_key_id = aws_kms_key.main.id
@@ -318,11 +336,213 @@ resource "aws_sqs_queue" "events" {
 resource "aws_sqs_queue" "events_dlq" {
   name                        = "${var.app_name}-events-dlq-${var.environment}.fifo"
   fifo_queue                  = true
-  message_retention_seconds   = 1209600
+  message_retention_seconds   = var.sqs_message_retention_seconds
   kms_master_key_id           = aws_kms_key.main.id
 
   tags = {
     Name = "${var.app_name}-events-dlq-${var.environment}"
+  }
+}
+
+# ==============================================================================
+# LAMBDA - DLQ Processor
+# ==============================================================================
+
+# IAM role for DLQ processor Lambda
+resource "aws_iam_role" "dlq_processor" {
+  name = "${var.app_name}-dlq-processor-${var.environment}"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "lambda.amazonaws.com"
+        }
+      }
+    ]
+  })
+
+  tags = {
+    Name = "${var.app_name}-dlq-processor-${var.environment}"
+  }
+}
+
+# IAM policy for DLQ processor
+resource "aws_iam_role_policy" "dlq_processor" {
+  name = "${var.app_name}-dlq-processor-policy"
+  role = aws_iam_role.dlq_processor.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "sqs:ReceiveMessage",
+          "sqs:DeleteMessage",
+          "sqs:GetQueueAttributes"
+        ]
+        Resource = aws_sqs_queue.events_dlq.arn
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject"
+        ]
+        Resource = "${aws_s3_bucket.assets.arn}/dlq-archive/*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents"
+        ]
+        Resource = "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "kms:Decrypt"
+        ]
+        Resource = aws_kms_key.main.arn
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "sns:Publish"
+        ]
+        Resource = aws_sns_topic.alerts.arn
+      }
+    ]
+  })
+}
+
+# CloudWatch Log Group for DLQ processor
+resource "aws_cloudwatch_log_group" "dlq_processor" {
+  name              = "/aws/lambda/${var.app_name}-dlq-processor-${var.environment}"
+  retention_in_days = var.log_retention_days
+}
+
+# Lambda function for DLQ processing
+resource "aws_lambda_function" "dlq_processor" {
+  function_name = "${var.app_name}-dlq-processor-${var.environment}"
+  role          = aws_iam_role.dlq_processor.arn
+  runtime       = "nodejs20.x"
+  handler       = "index.handler"
+  timeout       = 30
+  memory_size   = 256
+
+  # Placeholder - actual code deployed via CI/CD
+  filename         = data.archive_file.dlq_processor_placeholder.output_path
+  source_code_hash = data.archive_file.dlq_processor_placeholder.output_base64sha256
+
+  environment {
+    variables = {
+      ENVIRONMENT     = var.environment
+      S3_BUCKET       = aws_s3_bucket.assets.id
+      S3_PREFIX       = "dlq-archive"
+      SNS_TOPIC_ARN   = aws_sns_topic.alerts.arn
+      ALERT_THRESHOLD = "10"  # Alert if more than 10 messages in batch
+    }
+  }
+
+  depends_on = [
+    aws_cloudwatch_log_group.dlq_processor,
+    aws_iam_role_policy.dlq_processor
+  ]
+
+  tags = {
+    Name = "${var.app_name}-dlq-processor-${var.environment}"
+  }
+}
+
+# Placeholder code for Lambda (actual code deployed via CI/CD)
+data "archive_file" "dlq_processor_placeholder" {
+  type        = "zip"
+  output_path = "${path.module}/dlq_processor_placeholder.zip"
+
+  source {
+    content  = <<-EOF
+      exports.handler = async (event) => {
+        const AWS = require('aws-sdk');
+        const s3 = new AWS.S3();
+        const sns = new AWS.SNS();
+
+        const bucket = process.env.S3_BUCKET;
+        const prefix = process.env.S3_PREFIX;
+        const topicArn = process.env.SNS_TOPIC_ARN;
+        const threshold = parseInt(process.env.ALERT_THRESHOLD || '10');
+
+        console.log('Processing DLQ batch:', JSON.stringify({
+          recordCount: event.Records.length,
+          environment: process.env.ENVIRONMENT
+        }));
+
+        // Archive failed messages to S3
+        for (const record of event.Records) {
+          const messageId = record.messageId;
+          const timestamp = new Date().toISOString();
+          const key = prefix + '/' + timestamp.split('T')[0] + '/' + messageId + '.json';
+
+          await s3.putObject({
+            Bucket: bucket,
+            Key: key,
+            Body: JSON.stringify({
+              messageId,
+              body: record.body,
+              attributes: record.attributes,
+              messageAttributes: record.messageAttributes,
+              receivedAt: timestamp
+            }),
+            ContentType: 'application/json'
+          }).promise();
+
+          console.log('Archived message:', messageId);
+        }
+
+        // Send alert if batch exceeds threshold
+        if (event.Records.length >= threshold) {
+          await sns.publish({
+            TopicArn: topicArn,
+            Subject: 'DLQ Alert: High failure rate detected',
+            Message: JSON.stringify({
+              environment: process.env.ENVIRONMENT,
+              messageCount: event.Records.length,
+              timestamp: new Date().toISOString(),
+              sampleMessageIds: event.Records.slice(0, 5).map(r => r.messageId)
+            }, null, 2)
+          }).promise();
+
+          console.log('Alert sent for high failure rate');
+        }
+
+        return { processed: event.Records.length };
+      };
+    EOF
+    filename = "index.js"
+  }
+}
+
+# Event source mapping - Lambda trigger from DLQ
+resource "aws_lambda_event_source_mapping" "dlq_processor" {
+  event_source_arn = aws_sqs_queue.events_dlq.arn
+  function_name    = aws_lambda_function.dlq_processor.arn
+  batch_size       = 10
+  enabled          = true
+}
+
+# SNS Topic for alerts (if not already defined)
+resource "aws_sns_topic" "alerts" {
+  name = "${var.app_name}-alerts-${var.environment}"
+
+  kms_master_key_id = aws_kms_key.main.id
+
+  tags = {
+    Name = "${var.app_name}-alerts-${var.environment}"
   }
 }
 
@@ -740,20 +960,20 @@ resource "aws_lb_listener" "https" {
 
 resource "aws_cloudwatch_log_group" "api" {
   name              = "/ecs/${var.app_name}-api-${var.environment}"
-  retention_in_days = 30
+  retention_in_days = var.log_retention_days
 }
 
 resource "aws_cloudwatch_log_group" "worker" {
   name              = "/ecs/${var.app_name}-worker-${var.environment}"
-  retention_in_days = 30
+  retention_in_days = var.log_retention_days
 }
 
 resource "aws_ecs_task_definition" "api" {
   family                   = "${var.app_name}-api-${var.environment}"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
-  cpu                      = 256
-  memory                   = 512
+  cpu                      = var.api_cpu
+  memory                   = var.api_memory
   execution_role_arn       = aws_iam_role.ecs_execution.arn
   task_role_arn            = aws_iam_role.ecs_task.arn
 
@@ -821,8 +1041,8 @@ resource "aws_ecs_task_definition" "worker" {
   family                   = "${var.app_name}-worker-${var.environment}"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
-  cpu                      = 256
-  memory                   = 512
+  cpu                      = var.worker_cpu
+  memory                   = var.worker_memory
   execution_role_arn       = aws_iam_role.ecs_execution.arn
   task_role_arn            = aws_iam_role.ecs_task.arn
 
@@ -877,7 +1097,7 @@ resource "aws_ecs_service" "api" {
   name            = "api"
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.api.arn
-  desired_count   = 2  # 2 tasks for HA
+  desired_count   = var.api_desired_count
   launch_type     = "FARGATE"
 
   network_configuration {
@@ -938,8 +1158,8 @@ resource "aws_ecs_service" "worker" {
 # ==============================================================================
 
 resource "aws_appautoscaling_target" "api" {
-  max_capacity       = 10
-  min_capacity       = 2
+  max_capacity       = var.api_max_count
+  min_capacity       = var.api_min_count
   resource_id        = "service/${aws_ecs_cluster.main.name}/${aws_ecs_service.api.name}"
   scalable_dimension = "ecs:service:DesiredCount"
   service_namespace  = "ecs"
@@ -987,8 +1207,8 @@ resource "aws_appautoscaling_policy" "api_requests" {
 # ==============================================================================
 
 resource "aws_appautoscaling_target" "worker" {
-  max_capacity       = 20   # Scale up to 20 workers for bulk DPP generation
-  min_capacity       = 0    # Scale to zero when queue is empty (cost savings)
+  max_capacity       = var.worker_max_count
+  min_capacity       = var.worker_min_count
   resource_id        = "service/${aws_ecs_cluster.main.name}/${aws_ecs_service.worker.name}"
   scalable_dimension = "ecs:service:DesiredCount"
   service_namespace  = "ecs"
