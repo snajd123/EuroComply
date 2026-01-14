@@ -163,6 +163,203 @@ See [Status List Migration Guide](#status-list-migration-guide) below for detail
 
 ---
 
+## Long-Term Financial Reality
+
+> ⚠️ **Honest Assessment**: While we minimize technical lock-in, ESPR compliance creates an ongoing infrastructure dependency that has real costs. This section provides transparent cost projections.
+
+### 10-Year Compliance Cost Analysis
+
+ESPR requires DPP availability for product lifetime (typically 10+ years). Here's what that means financially:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    10-YEAR COST SCENARIOS                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  SCENARIO A: Active Subscription (Full Platform)                            │
+│  ───────────────────────────────────────────────                            │
+│  Year 1-10: €129-999/month depending on tier                                │
+│  10-Year Total: €15,480 - €119,880                                          │
+│                                                                              │
+│  SCENARIO B: Active → Compliance Archive                                    │
+│  ───────────────────────────────────────────────                            │
+│  Year 1-3: Active subscription (€129-999/month)                             │
+│  Year 4-10: Compliance Archive (€99-299/year)                               │
+│                                                                              │
+│  Example (Scale tier → Archive):                                            │
+│  Years 1-3: €399 × 36 months = €14,364                                      │
+│  Years 4-10: €99 × 7 years = €693                                           │
+│  10-Year Total: €15,057                                                     │
+│                                                                              │
+│  SCENARIO C: Compliance Archive Only (From Day 1)                           │
+│  ───────────────────────────────────────────────                            │
+│  Not available - must have active subscription to create DPPs               │
+│                                                                              │
+│  SCENARIO D: Self-Host After Export                                         │
+│  ───────────────────────────────────────────────                            │
+│  Year 1-3: Active subscription                                              │
+│  Year 4-10: Self-hosting costs (varies widely)                              │
+│                                                                              │
+│  Minimum self-hosting costs:                                                │
+│  • Domain: ~€15/year                                                        │
+│  • SSL certificate: Free (Let's Encrypt) or ~€100/year (commercial)         │
+│  • Static hosting: €0-50/month (S3, GitHub Pages, Cloudflare Pages)         │
+│  • Status list server: €0-100/month (if hosting dynamic revocations)        │
+│                                                                              │
+│  10-Year Self-Host Estimate: €14,364 (3yr active) + €1,000-5,000 hosting    │
+│                                                                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  MINIMUM COMMITMENT (Compliance Archive, smallest tier):                    │
+│  €99/year × 10 years = €990 MINIMUM for URL preservation                    │
+│                                                                              │
+│  This is NOT optional if:                                                   │
+│  • You have products in market with printed QR codes                        │
+│  • You're subject to ESPR enforcement                                       │
+│  • You don't have technical capability to self-host                         │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### What "Data Ownership" Actually Means
+
+We say "you own your data" - here's exactly what that means and doesn't mean:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    DATA OWNERSHIP REALITY                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  WHAT YOU FULLY OWN (no ongoing dependency):                                │
+│  ✅ Verifiable Credential files (JSON)                                      │
+│  ✅ Private signing keys (exportable JWK)                                   │
+│  ✅ Product data (JSON export)                                              │
+│  ✅ did:key identity (self-contained, no server needed)                     │
+│  ✅ Signature verification capability (works forever, offline)              │
+│                                                                              │
+│  WHAT HAS ONGOING DEPENDENCY:                                               │
+│  ⚠️  Status List URLs - hardcoded in every VC, requires hosting            │
+│  ⚠️  QR Code URLs - printed on products, requires hosting                  │
+│  ⚠️  Revocation capability - requires status list server access            │
+│                                                                              │
+│  THE UNCOMFORTABLE TRUTH:                                                   │
+│  You own the DATA, but ESPR requires the data to be ACCESSIBLE.            │
+│  Accessibility requires infrastructure. Infrastructure has costs.           │
+│  "Zero lock-in" applies to the data itself, not the hosting obligation.    │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## EuroComply Business Continuity
+
+### What Happens If EuroComply Shuts Down?
+
+This is a legitimate concern. Here's our honest assessment and mitigation plan:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    EUROCOMPLY SHUTDOWN SCENARIOS                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  SCENARIO: Orderly Wind-Down (Planned Exit)                                 │
+│  ───────────────────────────────────────────                                │
+│  Timeline: 12+ months notice                                                │
+│                                                                              │
+│  What we commit to:                                                         │
+│  1. 12 months advance notice to all customers                               │
+│  2. Data export assistance (bulk export tools)                              │
+│  3. Status list migration support                                           │
+│  4. Option to transfer Compliance Archive to successor entity               │
+│  5. Open-source core resolver code for self-hosting                         │
+│                                                                              │
+│  Customer impact:                                                           │
+│  • Signature verification: ✅ Unaffected (did:key is self-contained)       │
+│  • Revocation checking: ⚠️  Requires migration to self-hosted or successor │
+│  • QR codes: ⚠️  Requires redirect setup or reprinting                     │
+│                                                                              │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│                                                                              │
+│  SCENARIO: Sudden Shutdown (Bankruptcy, Force Majeure)                      │
+│  ─────────────────────────────────────────────────────                      │
+│  Timeline: Little or no notice                                              │
+│                                                                              │
+│  Mitigations in place:                                                      │
+│  1. Customer data encrypted with per-tenant keys (exportable)               │
+│  2. Status list credentials are W3C standard (portable)                     │
+│  3. did:key works without any server                                        │
+│  4. Legal: Data belongs to customers, not EuroComply creditors              │
+│                                                                              │
+│  Customer impact (worst case):                                              │
+│  • Signature verification: ✅ Still works (did:key)                        │
+│  • Revocation checking: ❌ Fails until customer self-hosts                 │
+│  • QR codes: ❌ 404/503 errors until redirect or reprint                   │
+│  • ESPR compliance: ⚠️  At risk until customer takes action                │
+│                                                                              │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│                                                                              │
+│  WHAT CUSTOMERS SHOULD DO (Risk Mitigation):                                │
+│  ─────────────────────────────────────────────                              │
+│                                                                              │
+│  LOW EFFORT:                                                                │
+│  • Export data quarterly (automated via API)                                │
+│  • Keep private keys in secure backup                                       │
+│  • Document your status list URL for emergency hosting                      │
+│                                                                              │
+│  MEDIUM EFFORT:                                                             │
+│  • Use GS1 Digital Link (redirect control)                                  │
+│  • Use your own domain with redirects                                       │
+│                                                                              │
+│  HIGH EFFORT (Maximum Independence):                                        │
+│  • Self-host status list server                                             │
+│  • Self-host DPP viewer                                                     │
+│  • Own domain for all QR codes                                              │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Our Commitments
+
+To address business continuity concerns, EuroComply commits to:
+
+1. **Data Escrow**: Quarterly encrypted backups to independent escrow service
+2. **Open Standards**: All data formats are W3C/GS1 standards (no proprietary formats)
+3. **Export Always Available**: Full data export at no additional cost
+4. **Successor Planning**: Legal framework for Compliance Archive transfer
+5. **Source Code Escrow**: Core resolver code in escrow for customer access if needed
+
+### Regulatory Risk Acknowledgment
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    ESPR NON-COMPLIANCE RISK                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  IF EUROCOMPLY BECOMES UNAVAILABLE AND CUSTOMER TAKES NO ACTION:            │
+│                                                                              │
+│  Immediate Effects:                                                         │
+│  • QR codes return errors                                                   │
+│  • Consumers cannot access DPP data                                         │
+│  • Market Surveillance Authorities may investigate                          │
+│                                                                              │
+│  ESPR Consequences (Articles 9, 10, 68):                                    │
+│  • Warning letters from MSAs                                                │
+│  • Fines (Member State dependent, potentially significant)                  │
+│  • Product withdrawal orders                                                │
+│  • Prohibition of making products available                                 │
+│                                                                              │
+│  WHO IS LIABLE:                                                             │
+│  The Economic Operator (brand/manufacturer), NOT EuroComply.                │
+│  We are a service provider - compliance responsibility stays with you.     │
+│                                                                              │
+│  MITIGATION: Maintain export backups and have a hosting contingency plan.  │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
 ## What's Exportable
 
 ### Complete Export Package
@@ -1032,36 +1229,54 @@ ESPR requires DPP data to remain accessible for the product's lifetime.
 │  TARGET: SMEs (99% of EU businesses)                            │
 │  APPROACH: Simple standards, no enterprise complexity           │
 │                                                                  │
-│  WHAT YOU OWN                                                   │
+│  WHAT YOU FULLY OWN (Portable, No Dependency)                   │
 │  → All Verifiable Credentials (signed DPPs)                     │
 │  → Your identity (did:key + private key)                        │
 │  → Product data (workspace versions + records)                  │
-│  → QR codes                                                     │
+│  → Signature verification works forever, offline                │
+│                                                                  │
+│  WHAT HAS ONGOING REQUIREMENTS                                  │
+│  → Status List URLs must remain accessible (hosting cost)       │
+│  → QR code URLs must resolve (hosting or redirect)              │
+│  → ESPR compliance requires 10+ year URL availability           │
+│  → Minimum €990 over 10 years (Compliance Archive)              │
+│    OR self-hosting capability required                          │
 │                                                                  │
 │  WHAT YOU CAN DO                                                │
-│  → Export everything at any time                                │
-│  → Host VCs anywhere                                            │
+│  → Export everything at any time (no extra cost)                │
+│  → Host VCs anywhere (self-host, CDN, IPFS, etc.)              │
 │  → Continue signing new VCs with your key                       │
 │  → Use another provider that supports W3C VCs                   │
+│  → Self-host status list for full independence                  │
 │                                                                  │
 │  WHAT STILL WORKS AFTER LEAVING                                 │
 │  → All issued VCs remain valid (signatures)                     │
 │  → Signature verification (did:key is self-contained)           │
 │  → Your identity (did:key never expires)                        │
-│  → Revocation checking (only if status list hosted/migrated)    │
-│  → ESPR compliance (if DPP URLs remain accessible)              │
+│  ⚠️ Revocation checking (only if status list hosted/migrated)  │
+│  ⚠️ ESPR compliance (only if DPP URLs remain accessible)       │
+│                                                                  │
+│  THE HONEST TRADE-OFF                                           │
+│  ─────────────────────────────────────────────                  │
+│  We minimize TECHNICAL lock-in through open standards.          │
+│  We cannot eliminate OPERATIONAL lock-in: ESPR requires         │
+│  infrastructure, and infrastructure has ongoing costs.          │
+│                                                                  │
+│  You have options: self-host, use Compliance Archive, or use    │
+│  another provider. But "walk away with zero cost" is not        │
+│  compatible with "10-year DPP availability requirement."        │
 │                                                                  │
 │  OUR VALUE PROPOSITION                                          │
 │  → Compliance-First PIM (workspace-based data model)            │
 │  → AI-powered import (any file format)                          │
 │  → Managed hosting (while subscribed)                           │
 │  → Free retailer access layer                                   │
-│  → Simple standards (W3C VC, did:key/did:ebsi, GS1)            │
-│  → NOT lock-in                                                  │
+│  → Open standards (W3C VC, did:key/did:ebsi, GS1)              │
+│  → Minimal lock-in (data portable, hosting required)            │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-*Last Updated: 2026-01-12*
+*Last Updated: 2026-01-14*
