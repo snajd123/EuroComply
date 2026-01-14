@@ -35,7 +35,7 @@ EuroComply implements a comprehensive user management system with role-based acc
 │  │ TRANSACTIONAL PARTNERS                                                  ││
 │  │ One-time or limited access via magic link                               ││
 │  │                                                                          ││
-│  │ • Identity: Ephemeral did:key (generated per session)                   ││
+│  │ • Identity: Persistent did:key (retained for audit trail)               ││
 │  │ • Access: Single product or specific task                               ││
 │  │ • Examples: One-time data entry, quick review requests                  ││
 │  └─────────────────────────────────────────────────────────────────────────┘│
@@ -49,7 +49,7 @@ EuroComply implements a comprehensive user management system with role-based acc
 |--------|---------------|---------------|----------------------|
 | **Authentication** | Email + Password | Magic Link | Magic Link |
 | **Link Expiry** | N/A | Configurable (default: 30 days) | Configurable (default: 7 days) |
-| **DID Storage** | walt.id Custodian | walt.id Custodian | Ephemeral (session only) |
+| **DID Storage** | walt.id Custodian | walt.id Custodian | walt.id Custodian (retained after session) |
 | **Workspace Access** | Per-workspace authority | Limited workspaces + product filters | Single workspace, specific products |
 | **Product Access** | Based on workspace | Filtered by tags/families | Specific products only |
 | **Dashboard** | Full (accessible workspaces) | Scoped | Minimal (task-focused) |
@@ -1818,186 +1818,125 @@ async function verifyHistoricalSignature(
 }
 ```
 
-### TransactionalSignatureLog Model (Non-Repudiation for Ephemeral DIDs)
+### Transactional Partner DIDs: Persistent Keys
 
-Transactional Partners use **ephemeral did:key** generated per session. These keys are deleted after the session, creating a legal audit gap: we have a valid signature but cannot trace it back to a person.
+**Design Decision: Keep Keys, Don't Delete Them**
 
-**The Problem:**
+Transactional Partners (one-time magic link users) get a did:key for signing. The original design proposed deleting these keys after the session, requiring a complex `TransactionalSignatureLog`. This was unnecessarily complex.
+
+**Key Insight:** If we need the identity-to-DID mapping for legal compliance, deleting the key achieves nothing.
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  TRANSACTIONAL IDENTITY BLACK HOLE                                          │
+│                    SIMPLE DESIGN: KEEP THE KEYS                              │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  Year 1: Lab technician signs toxicity test via Magic Link                  │
-│          → Ephemeral did:key:z6Mk... generated for session                  │
-│          → Signs "PASS" attestation                                         │
-│          → Session ends, key deleted from wallet                            │
+│  1. User accesses Magic Link → Generate DID, link to identity               │
+│  2. User signs attestations → Standard signing flow                         │
+│  3. Session ends → Set canSign=false (key remains for verification)         │
+│  4. Years later → Standard DID verification, identity lookup by DID         │
 │                                                                              │
-│  Year 3: Product causes lawsuit, need to prove who signed                   │
-│          → Have signature: ✓                                                │
-│          → Have DID in signature: ✓                                         │
-│          → Can verify signature is valid: ✓                                 │
-│          → Can prove WHICH PERSON held that key: ❌                         │
-│                                                                              │
-│  Without TransactionalSignatureLog, the signature is legally orphaned.      │
+│  No "black hole". No complex logs. Standard verification.                   │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**The Solution:**
+**The Model:**
 
 ```prisma
-model TransactionalSignatureLog {
-  id                String    @id @default(cuid())
+model TransactionalPartnerDID {
+  id              String    @id @default(cuid())
 
-  // The ephemeral DID used for signing (stored permanently even after key deletion)
-  ephemeralDid      String
-  ephemeralKeyId    String?   // Reference to key (may be deleted from wallet)
+  // DID (key NEVER deleted from wallet)
+  did             String    @unique
+  walletKeyId     String
 
-  // Link to the magic link session that created this DID
-  magicLinkId       String
-  magicLink         MagicLink @relation(fields: [magicLinkId], references: [id])
+  // Session link
+  magicLinkId     String
+  magicLink       MagicLink @relation(fields: [magicLinkId], references: [id])
 
-  // Identity snapshot at time of signing (PERMANENT, non-purgeable)
-  signerEmail       String
-  signerName        String?
-  signerCompany     String?
-  signerIpAddress   String
-  signerUserAgent   String
+  // Identity
+  email           String
+  name            String?
+  company         String?
+  ipAddress       String
+  userAgent       String
 
-  // What was signed
-  signedResourceType  String    // "Attestation", "TestResult", "MaterialCertification"
-  signedResourceId    String
-  signaturePayload    String    // Hash of what was signed
-  signature           String    // The actual signature
+  // Session state
+  createdAt       DateTime  @default(now())
+  sessionEndedAt  DateTime? // NULL = active
+  canSign         Boolean   @default(true)
 
-  // Timestamp
-  signedAt          DateTime  @default(now())
+  // Retention (10 years per ESPR)
+  retentionUntil  DateTime
 
-  // Legal retention (NEVER auto-purge)
-  retentionYears    Int       @default(10)  // ESPR requires 10+ years
-  isPurgeable       Boolean   @default(false)  // System flag: false = never auto-delete
-
-  @@index([ephemeralDid])
-  @@index([signerEmail])
-  @@index([signedResourceType, signedResourceId])
-  @@index([magicLinkId])
+  @@index([did])
+  @@index([email])
 }
 ```
 
-**Enforcement Rules:**
-
-1. **Mandatory Logging**: When a Transactional User performs ANY signing action, the system MUST create a TransactionalSignatureLog entry BEFORE the signature is issued
-2. **Non-Purgeable**: These records are exempt from data retention cleanup jobs (`isPurgeable: false`)
-3. **Identity Snapshot**: Email, IP, User-Agent captured at signing time (not just user ID reference)
-4. **Magic Link Association**: Links back to the specific session that granted access
-
-**Verification with Ephemeral DIDs:**
+**Lifecycle:**
 
 ```typescript
-async function verifyTransactionalSignature(
-  signature: string,
-  ephemeralDid: string,
-  signedAt: DateTime,
-  resourceId: string
-): Promise<TransactionalVerificationResult> {
-  // 1. Verify signature is cryptographically valid
-  const cryptoValid = await verifyJws(signature, ephemeralDid);
-  if (!cryptoValid) {
-    return { valid: false, reason: 'Invalid signature' };
-  }
-
-  // 2. Find the identity behind this ephemeral DID
-  const sigLog = await prisma.transactionalSignatureLog.findFirst({
-    where: {
-      ephemeralDid,
-      signedResourceId: resourceId,
-      signedAt: { gte: subMinutes(signedAt, 1), lte: addMinutes(signedAt, 1) }
-    },
-    include: { magicLink: true }
-  });
-
-  if (!sigLog) {
-    return {
-      valid: true,  // Signature is valid
-      identityKnown: false,  // But we don't know who
-      reason: 'No TransactionalSignatureLog found for this DID'
-    };
-  }
-
-  // 3. Return full audit trail
-  return {
-    valid: true,
-    identityKnown: true,
-    signer: {
-      email: sigLog.signerEmail,
-      name: sigLog.signerName,
-      company: sigLog.signerCompany,
-      ip: sigLog.signerIpAddress,
-      sessionId: sigLog.magicLinkId
-    },
-    signedAt: sigLog.signedAt
-  };
-}
-```
-
-**GDPR Article 17 vs. Non-Repudiation:**
-
-The `isPurgeable: false` flag creates a tension with GDPR's Right to Erasure. A user could request deletion of their data, but we legally need the signature audit trail.
-
-**Resolution: Pseudonymization (not Deletion)**
-
-When a GDPR deletion request is received for a signer's email:
-
-```typescript
-async function handleGdprDeletionRequest(
-  email: string,
-  gdprRequestId: string
-): Promise<void> {
-  const placeholder = `REDACTED_GDPR_REQ_${gdprRequestId}`;
-
-  // Pseudonymize PII fields while preserving the audit trail
-  await prisma.transactionalSignatureLog.updateMany({
-    where: { signerEmail: email },
+// Create DID on magic link access
+async function createTransactionalDID(magicLink: MagicLink, req: Request) {
+  const { did, keyId } = await waltIdCustodian.generateKey();
+  return prisma.transactionalPartnerDID.create({
     data: {
-      signerEmail: placeholder,
-      signerName: placeholder,
-      signerCompany: placeholder,
-      signerIpAddress: 'REDACTED',
-      signerUserAgent: 'REDACTED',
-      // PRESERVE: ephemeralDid, signature, signaturePayload, signedAt
-      // These are cryptographic evidence, not PII
+      did, walletKeyId: keyId, magicLinkId: magicLink.id,
+      email: magicLink.email, name: magicLink.recipientName,
+      company: magicLink.recipientCompany,
+      ipAddress: req.ip, userAgent: req.headers['user-agent'],
+      retentionUntil: addYears(new Date(), 10),
     }
   });
+}
 
-  // Log the pseudonymization for compliance
-  await auditLog.create({
-    action: 'gdpr.pseudonymization',
-    resourceType: 'TransactionalSignatureLog',
-    details: {
-      originalEmail: '[REDACTED]',  // Don't log the actual email
-      gdprRequestId,
-      recordsAffected: await prisma.transactionalSignatureLog.count({
-        where: { signerEmail: placeholder }
-      })
+// End session (key stays for verification)
+async function endSession(magicLinkId: string) {
+  await prisma.transactionalPartnerDID.updateMany({
+    where: { magicLinkId, sessionEndedAt: null },
+    data: { canSign: false, sessionEndedAt: new Date() }
+  });
+}
+
+// Sign (only if session active)
+async function sign(didRecord: TransactionalPartnerDID, payload: any) {
+  if (!didRecord.canSign) throw new ForbiddenError('Session ended');
+  return waltIdCustodian.sign(didRecord.walletKeyId, payload);
+}
+
+// Verify (standard flow - key still exists)
+async function verify(signature: string, did: string) {
+  const valid = await waltIdCustodian.verify(signature, did);
+  const identity = await prisma.transactionalPartnerDID.findUnique({ where: { did } });
+  return { valid, signer: identity };
+}
+```
+
+**GDPR Handling:**
+
+```typescript
+async function handleGdprDeletion(email: string, requestId: string) {
+  await prisma.transactionalPartnerDID.updateMany({
+    where: { email },
+    data: {
+      email: `REDACTED_${requestId}`, name: 'REDACTED',
+      company: 'REDACTED', ipAddress: 'REDACTED', userAgent: 'REDACTED'
     }
   });
 }
 ```
 
-**Why Pseudonymization Works:**
+**Why This Works:**
 
-| Requirement | Deletion | Pseudonymization |
-|-------------|----------|------------------|
-| GDPR Article 17 (Right to Erasure) | ✅ Compliant | ✅ Compliant (Recital 26: pseudonymous data not "personal data") |
-| ESPR 10-year retention | ❌ Violated | ✅ Record preserved |
-| Non-repudiation | ❌ Lost forever | ✅ Signature + DID still valid |
-| Audit trail | ❌ Broken | ✅ Intact (we know WHEN and WHAT, just not WHO) |
-
-**Key Legal Basis:**
-- GDPR Recital 26: Data rendered anonymous is no longer "personal data"
-- ESPR Article 9: Requires 10-year data retention for DPPs
-- Pseudonymization satisfies both: user identity is erased, but the cryptographic record proving "someone authorized signed this" remains
+| Concern | Answer |
+|---------|--------|
+| Storage | ~100 bytes/key - negligible |
+| Security | `canSign: false` prevents post-session signing |
+| Verification | Standard DID verification - key exists |
+| Audit | DID → identity always resolvable |
+| GDPR | Pseudonymize PII, keep DID (not PII) |
 
 ---
 
