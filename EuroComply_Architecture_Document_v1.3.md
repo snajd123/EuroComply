@@ -1116,7 +1116,8 @@ The overage pricing provides healthy margins while remaining competitive.
 | Application Load Balancer | Hourly + LCU | $18.43 | €17 |
 | **Security** | | | |
 | KMS | 1 CMK + API requests | $4.00 | €4 |
-| Secrets Manager | 5 secrets | $2.50 | €2 |
+| Secrets Manager (base) | 5 platform secrets | $2.50 | €2 |
+| Secrets Manager (tenants) | Per-tenant DB credentials (~$0.40/tenant) | Variable | See note¹ |
 | **Storage & Queues** | | | |
 | DynamoDB | On-demand | $1-50 | €1-45 |
 | SQS (Events + Bulk) | FIFO queues | $1.00 | €1 |
@@ -1133,6 +1134,15 @@ The overage pricing provides healthy margins while remaining competitive.
 | **With Bulk Processing** | | **$171-350** | **€158-320** |
 
 **Note:** Bulk worker costs scale to zero when not in use. Typical monthly addition: €20-50 for active usage.
+
+**¹ Per-Tenant Secrets Manager Cost:** Each tenant requires a dedicated database credential stored in Secrets Manager for [Cell-Level Hardening](./docs/SECURITY.md#1310-cell-level-hardening). Cost scales with tenant count:
+
+| Tenants per Cell | Secrets Manager Cost | Cost per Tenant |
+|------------------|---------------------|-----------------|
+| 50 (Scale cell) | ~$20/month | $0.40 |
+| 200 (Growth cell) | ~$80/month | $0.40 |
+
+At €129/tenant/month (Growth tier), the $0.40 secrets cost is <0.4% of revenue.
 
 ---
 
@@ -1169,16 +1179,18 @@ The overage pricing provides healthy margins while remaining competitive.
 
 #### Milestone 1: Launch (0-200 Growth Customers)
 
-**Infrastructure:** Base configuration  
-**Cost:** €158/month  
+**Infrastructure:** Base configuration
+**Cost:** €158/month + ~€0.37/tenant (Secrets Manager)
 **Bulk Capacity:** Up to 1M DPPs/batch (auto-scaling workers)
+**Connection Pooling:** PgBouncer with `max_client_conn=2500`, per-tenant database roles
 
 #### Milestone 2: Second Growth Cell (200+ Customers)
 
-**Trigger:** Approaching 200 Growth customers OR database CPU >70%  
-**Action:** Deploy second Growth cell  
-**Cost Impact:** +€53/month  
+**Trigger:** Approaching 200 Growth customers OR database CPU >70%
+**Action:** Deploy second Growth cell
+**Cost Impact:** +€53/month (RDS) + ~€74/month (Secrets Manager for 200 tenants)
 **Deployment:** Zero downtime, new tenants routed to Cell 2
+**PgBouncer:** Deploy dedicated PgBouncer instance per cell; each handles up to 2,000 pooled connections
 
 #### Milestone 3: First Scale Customer
 

@@ -1655,6 +1655,65 @@ class SecureTenantRouter {
 | Cell credential (old) | Attacker can query any schema | ~200 tenants |
 | Per-schema credential (new) | Attacker limited to one schema | 1 tenant |
 
+**Operational Considerations:**
+
+| Concern | Analysis | Mitigation |
+|---------|----------|------------|
+| **PostgreSQL role capacity** | No hard limit; roles stored in `pg_authid` catalog with ~100 bytes each. 200 roles is trivial. | None needed - well within capacity |
+| **Connection pooling** | Each role needs dedicated PgBouncer pool entry. 200 tenants × 10 connections = 2,000 entries. | Configure PgBouncer with `max_client_conn=2500`, `default_pool_size=10` |
+| **Secrets Manager cost** | $0.40/secret/month × 200 tenants = ~$80/cell/month | Factor into cell cost model; still profitable at €129/tenant |
+| **Credential rotation** | 200 rotations per cell could cause thundering herd | Stagger rotations: 7 tenants/day for 30-day cycle |
+
+**PgBouncer Configuration for Per-Tenant Pools:**
+
+```ini
+; /etc/pgbouncer/pgbouncer.ini
+
+[databases]
+; Auto-generated entries per tenant
+org_abc123 = host=cell1.rds.amazonaws.com dbname=eurocomply user=tenant_org_abc123
+org_def456 = host=cell1.rds.amazonaws.com dbname=eurocomply user=tenant_org_def456
+; ... (200 entries per cell)
+
+[pgbouncer]
+listen_addr = 127.0.0.1
+listen_port = 6432
+auth_type = hba
+auth_file = /etc/pgbouncer/userlist.txt
+
+; Pool settings
+pool_mode = transaction
+max_client_conn = 2500
+default_pool_size = 10
+min_pool_size = 1
+reserve_pool_size = 5
+
+; Per-tenant isolation
+server_reset_query = DISCARD ALL
+server_check_query = SELECT 1
+```
+
+**Rotation Scheduling:**
+
+```typescript
+// Stagger credential rotations to avoid thundering herd
+function getRotationSchedule(tenantCount: number, cycleDays: number): Map<string, Date> {
+  const tenantsPerDay = Math.ceil(tenantCount / cycleDays);
+  const schedule = new Map<string, Date>();
+
+  tenants.forEach((tenant, index) => {
+    const dayOffset = Math.floor(index / tenantsPerDay);
+    const rotationDate = addDays(cycleStartDate, dayOffset);
+    schedule.set(tenant.id, rotationDate);
+  });
+
+  return schedule;
+}
+
+// For 200 tenants on 30-day cycle: ~7 rotations/day
+// Spread across off-peak hours (02:00-06:00 UTC)
+```
+
 #### 13.10.2 Resource Quotas
 
 Prevent noisy neighbors from impacting other tenants:
