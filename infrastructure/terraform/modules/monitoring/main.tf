@@ -632,6 +632,37 @@ resource "aws_cloudwatch_metric_alarm" "dynamodb_throttle_warning" {
 }
 
 #------------------------------------------------------------------------------
+# Storage Abuse Detection - S3
+#------------------------------------------------------------------------------
+
+resource "aws_cloudwatch_metric_alarm" "storage_abuse_warning" {
+  count = var.s3_bucket_name != "" ? 1 : 0
+
+  alarm_name          = "${local.name_prefix}-storage-abuse-warning"
+  alarm_description   = "High storage upload detected (>${var.storage_abuse_threshold_gb}GB in 24h) - review for potential abuse. Check S3 access logs to identify tenant."
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "BytesUploaded"
+  namespace           = "AWS/S3"
+  period              = 86400  # 24 hours
+  statistic           = "Sum"
+  threshold           = var.storage_abuse_threshold_gb * 1024 * 1024 * 1024  # Convert GB to bytes
+
+  dimensions = {
+    BucketName = var.s3_bucket_name
+    FilterId   = "AllRequests"
+  }
+
+  alarm_actions = [var.alert_topic_arn]
+  ok_actions    = [var.alert_topic_arn]
+
+  tags = merge(var.tags, {
+    Severity = "warning"
+    Category = "abuse-detection"
+  })
+}
+
+#------------------------------------------------------------------------------
 # Scaling Alerts - Tenant Count (Custom Metric)
 #------------------------------------------------------------------------------
 

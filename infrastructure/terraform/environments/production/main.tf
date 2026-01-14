@@ -1435,6 +1435,10 @@ module "monitoring" {
   # Database secret for tenant count Lambda
   database_secret_arn = module.growth_cell.password_secret_arn
 
+  # S3 bucket for storage abuse detection
+  s3_bucket_name             = aws_s3_bucket.assets.id
+  storage_abuse_threshold_gb = 50  # Alert if >50GB uploaded in 24h
+
   # Scaling thresholds (using defaults)
   # Override if needed:
   # tenant_count_warning  = 150

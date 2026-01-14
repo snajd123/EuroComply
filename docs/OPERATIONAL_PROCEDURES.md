@@ -467,6 +467,13 @@ The monitoring module sends scaling alerts to Slack. Each alert links to the rel
 | `dlq-warning` (1+ messages) | Warning | Check DLQ processor Lambda logs for failure patterns |
 | `dlq-critical` (10+ messages) | Critical | Systematic failure - investigate bulk job data quality |
 | `dynamodb-throttle` (any) | Warning | Unusual - check for hot partitions or runaway queries |
+| `storage-abuse-warning` (50GB+/day) | Warning | High upload volume detected - investigate potential abuse |
+
+**Storage Abuse Response:**
+1. Check S3 access logs to identify which tenant is uploading
+2. Review account: Is this legitimate bulk onboarding or potential abuse?
+3. If abuse: Terminate account under fair use policy, delete uploaded data
+4. If legitimate: Mark tenant as VIP, consider Enterprise upgrade conversation
 
 **Dashboard Access:**
 - CloudWatch Dashboard: `eurocomply-production-scaling`

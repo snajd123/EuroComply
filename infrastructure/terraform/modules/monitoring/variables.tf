@@ -214,6 +214,19 @@ variable "lambda_security_group_id" {
   type        = string
 }
 
+# S3 Storage abuse detection
+variable "s3_bucket_name" {
+  description = "S3 bucket name for storage abuse monitoring"
+  type        = string
+  default     = ""
+}
+
+variable "storage_abuse_threshold_gb" {
+  description = "Storage abuse alert threshold - GB uploaded in 24 hours"
+  type        = number
+  default     = 50
+}
+
 variable "tags" {
   description = "Tags to apply to all resources"
   type        = map(string)
