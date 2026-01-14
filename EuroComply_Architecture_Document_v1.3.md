@@ -1,8 +1,8 @@
 # EuroComply Platform Architecture
 
-**Document Version:** 1.3  
-**Date:** January 2026  
-**Status:** Production Ready
+**Document Version:** 1.4
+**Date:** January 2026
+**Status:** Core MVP Architecture - Additional features in planning (see Appendix D)
 
 ---
 
@@ -110,7 +110,7 @@ User Request → Chunker → Worker Fleet → DynamoDB + R2
 
 READ PATH (High Volume, Low Cost)
 ─────────────────────────────────
-QR Scan → CDN → Static DPP (or Lazy Generation)
+QR Scan → CDN → Static DPP (Pre-Generated)
 • Millions of scans/day potential
 • 99%+ cache hit rate
 • Public, no authentication
@@ -497,7 +497,7 @@ Access Patterns:
 │  ┌─────────────────────────────────────────────────────────────────────┐    │
 │  │                   DPP EDGE SERVICE (Cloudflare Worker)               │    │
 │  │  • Serves static DPPs from R2                                       │    │
-│  │  • Lazy generation for uncached DPPs                               │    │
+│  │  • Static DPP serving from R2 (zero egress)                         │    │
 │  │  • Edge caching (<50ms global)                                     │    │
 │  │  Runs: Cloudflare edge network                                     │    │
 │  └─────────────────────────────────────────────────────────────────────┘    │
@@ -798,26 +798,31 @@ interface BatchGenerateResponse {
 }
 ```
 
-### 7.7 Lazy Generation (Alternative)
+### 7.7 Eager Generation (Pre-Generated DPPs)
 
-For ultra-large batches or when most items may never be scanned:
+All DPPs are pre-generated and stored in Cloudflare R2 to eliminate AWS egress costs:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                          LAZY GENERATION FLOW                                │
+│                          EAGER GENERATION FLOW                               │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  BATCH REQUEST (Fast)                                                       │
-│  ─────────────────────                                                      │
+│  BATCH REQUEST (Upfront Generation)                                         │
+│  ───────────────────────────────────                                        │
 │  1. User submits 1M serial numbers                                          │
-│  2. System creates 1M DynamoDB records only (2 min)                         │
-│  3. No DPP files generated yet                                              │
-│  4. Job completes, items are "registered"                                   │
+│  2. System creates 1M DynamoDB records (2 min)                              │
+│  3. Fan-out to 20 workers to generate DPP HTML files                        │
+│  4. Each worker generates 50K DPPs (8 min total)                            │
+│  5. Upload all 1M DPP files to Cloudflare R2 (parallel)                     │
+│  6. Total time: ~10 minutes for 1M DPPs                                     │
+│  7. Job completes, items are "ready to scan"                                │
 │                                                                              │
-│  CONSUMER SCAN (On-Demand)                                                  │
-│  ─────────────────────────                                                  │
+│  CONSUMER SCAN (Static File Serving)                                        │
+│  ─────────────────────────────────────                                      │
 │  1. Consumer scans QR code                                                  │
-│  2. Request hits Cloudflare edge                                            │
+│     https://dpp.eurocomply.eu/p/{passportId}/{serial}                       │
+│                                                                              │
+│  2. Request hits Cloudflare edge (nearest datacenter)                       │
 │                                                                              │
 │       ┌─────────────┐                                                       │
 │       │ Edge Cache? │                                                       │
@@ -826,29 +831,28 @@ For ultra-large batches or when most items may never be scanned:
 │      ┌───────┴───────┐                                                      │
 │      │               │                                                       │
 │      ▼ HIT           ▼ MISS                                                 │
-│   Return          ┌──────────┐                                              │
-│   cached          │ R2 file? │                                              │
-│   DPP             └────┬─────┘                                              │
-│   <20ms               │                                                      │
-│              ┌────────┴────────┐                                            │
-│              │                 │                                             │
-│              ▼ EXISTS          ▼ NOT EXISTS                                 │
-│           Return           ┌──────────────┐                                 │
-│           file             │ Generate DPP │                                 │
-│           <50ms            │ on-the-fly   │                                 │
-│                            │ (100ms)      │                                 │
-│                            └──────┬───────┘                                 │
-│                                   │                                          │
-│                                   ▼                                          │
-│                            Store in R2                                       │
-│                            (async, for                                       │
-│                             next time)                                       │
+│   Return          Fetch from                                                │
+│   cached          Cloudflare R2                                             │
+│   DPP             (intra-Cloudflare,                                        │
+│   <10ms            zero egress)                                             │
+│                   <30ms                                                      │
+│                       │                                                      │
+│                       ▼                                                      │
+│                   Cache at edge                                              │
+│                   Return DPP                                                 │
+│                                                                              │
+│  PATH: dpps/{passportId}/{serial}.html                                      │
 │                                                                              │
 │  BENEFITS:                                                                  │
-│  • No upfront generation delay                                              │
-│  • Only generate DPPs that are actually scanned                            │
-│  • 90%+ of items may never be scanned (returns, defects, warehouse)        │
-│  • First scan: 100-150ms, subsequent scans: <50ms                          │
+│  • Zero AWS egress cost (all traffic stays within Cloudflare)              │
+│  • Ultra-low latency: <30ms first scan, <10ms cached                       │
+│  • No API calls to AWS during scans                                         │
+│  • Predictable costs: R2 storage + Class A operations only                 │
+│  • Scales to billions of DPPs without bandwidth cost explosion             │
+│                                                                              │
+│  COST COMPARISON (1B scans/month):                                          │
+│  • Lazy generation (AWS egress): ~€2M/month ❌                              │
+│  • Eager generation (R2 static): ~€25/month ✅                              │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -856,60 +860,55 @@ For ultra-large batches or when most items may never be scanned:
 ### 7.8 Cloudflare Worker for DPP Serving
 
 ```typescript
-// Cloudflare Worker - serves DPPs with lazy generation
+// Cloudflare Worker - serves pre-generated static DPPs from R2
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-    const match = url.pathname.match(/\/dpp\/([^/]+)\/([^/]+)/);
-    
+    const match = url.pathname.match(/\/p\/([^/]+)\/([^/]+)/);
+
     if (!match) {
       return new Response('Not Found', { status: 404 });
     }
-    
+
     const [, passportId, serial] = match;
-    const cacheKey = `dpps/${passportId}/${serial}.html`;
-    
-    // 1. Check R2 for pre-generated DPP
-    const cached = await env.R2_BUCKET.get(cacheKey);
-    if (cached) {
-      return new Response(cached.body, {
-        headers: {
-          'Content-Type': 'text/html',
-          'Cache-Control': 'public, max-age=86400',
-          'X-DPP-Source': 'r2-cache',
-        },
+
+    // Construct R2 object key
+    const objectKey = `dpps/${passportId}/${serial}.html`;
+
+    // Fetch from R2 (intra-Cloudflare, zero egress cost)
+    const dppFile = await env.R2_BUCKET.get(objectKey);
+
+    if (!dppFile) {
+      return new Response('DPP Not Found', {
+        status: 404,
+        headers: { 'Content-Type': 'text/html' },
       });
     }
-    
-    // 2. Fetch item from DynamoDB (via API)
-    const item = await env.API.fetch(
-      `${env.API_URL}/internal/items/${passportId}/${serial}`
-    ).then(r => r.json());
-    
-    if (!item) {
-      return new Response('Item Not Found', { status: 404 });
-    }
-    
-    // 3. Fetch passport template (cached heavily)
-    const template = await getPassportTemplate(env, passportId);
-    
-    // 4. Generate DPP on-the-fly
-    const html = renderDPP(template, item);
-    
-    // 5. Store in R2 for next time (don't await)
-    env.R2_BUCKET.put(cacheKey, html);
-    
-    // 6. Return generated DPP
-    return new Response(html, {
+
+    // Return DPP with aggressive caching
+    return new Response(dppFile.body, {
       headers: {
-        'Content-Type': 'text/html',
-        'Cache-Control': 'public, max-age=86400',
-        'X-DPP-Source': 'lazy-generated',
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'public, max-age=2592000, immutable', // 30 days
+        'X-DPP-Source': 'r2-static',
+        'X-Passport-ID': passportId,
+        'X-Serial': serial,
+        // CORS headers for embedding
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, OPTIONS',
       },
     });
   },
 };
 ```
+
+**Key Optimizations:**
+
+1. **No API Calls**: DPP files are static, no database lookups required
+2. **Zero AWS Egress**: All data stays within Cloudflare network
+3. **Immutable Caching**: DPPs never change, cache for 30 days
+4. **Edge Caching**: Cloudflare CDN caches popular DPPs at edge locations
+5. **Scalability**: Can serve billions of scans without cost explosion
 
 ### 7.9 Tier Limits for Bulk Operations
 
@@ -1127,7 +1126,7 @@ The overage pricing provides healthy margins while remaining competitive.
 | CloudWatch | Logs, metrics, alarms | $10.00 | €9 |
 | **External** | | | |
 | Cloudflare Pro | DNS, CDN, WAF, DDoS | $20.00 | €19 |
-| Cloudflare Workers | DPP serving + lazy gen | $5.00 | €5 |
+| Cloudflare Workers | DPP serving (static) | $5.00 | €5 |
 | Cloudflare R2 | DPP file storage | $1-20 | €1-18 |
 | | | | |
 | **Base Total** | | **$171** | **€158** |
@@ -1258,7 +1257,7 @@ Note: The t4g.nano NAT instance works fine for Growth/Scale/Enterprise tiers. Up
 │  │ 3                       │          │ 12,847                  │          │
 │  │ Queue Depth     ███░░░░ │          │ Cache Hit Rate ██████░░ │          │
 │  │ 847 chunks              │          │ 94.2%                   │          │
-│  │ Workers Active  ████░░░ │          │ Lazy Gen Rate  █░░░░░░░ │          │
+│  │ Workers Active  ████░░░ │          │ R2 Cache Hit %  ██████░░ │          │
 │  │ 8/20                    │          │ 5.8%                    │          │
 │  └─────────────────────────┘          └─────────────────────────┘          │
 │                                                                              │
@@ -1278,7 +1277,7 @@ Note: The t4g.nano NAT instance works fine for Growth/Scale/Enterprise tiers. Up
 | RDS High CPU | >80% for 10 min | Warning | Investigate queries |
 | Bulk Queue Depth | >10,000 for 10 min | Warning | Check worker scaling |
 | Bulk Worker Failures | >5% failure rate | Critical | Investigate logs |
-| DPP Lazy Gen Rate | >20% | Warning | Pre-generate more |
+| R2 Cache Hit Rate | <80% | Warning | Check edge cache config |
 | SQS DLQ Messages | >0 | Critical | Investigate immediately |
 | R2 Class A Ops | >10M/day | Warning | Review bulk job sizes |
 | R2 Monthly Cost | >$100 | Warning | Review usage patterns |
@@ -1625,7 +1624,7 @@ eurocomply/
 │   │
 │   └── cloudflare/
 │       ├── workers/
-│       │   └── dpp-server/     # DPP serving + lazy gen
+│       │   └── dpp-server/     # Cloudflare Worker for R2 serving
 │       └── wrangler.toml
 │
 ├── scripts/
@@ -1716,8 +1715,8 @@ This document covers **infrastructure** (how we run the platform). The following
 | 2026-01 | PostgreSQL for products | Complex queries, ACID |
 | 2026-01 | DynamoDB for items | Billions of records, key-value access |
 | 2026-01 | Fan-out for bulk generation | 1M DPPs in 10 min vs 27 hours |
-| 2026-01 | Lazy generation option | Handle 10M+ batches efficiently |
-| 2026-01 | Cloudflare Workers for DPP serving | Edge latency, lazy generation |
+| 2026-01 | Eager generation with R2 storage | Zero AWS egress cost at scale |
+| 2026-01 | Cloudflare Workers for DPP serving | Edge latency, static file serving |
 | 2026-01 | Auto-scaling bulk workers (0-20) | Scale to zero, cost efficiency |
 | 2026-01 | Idempotent chunk processing | Handle worker crashes, SQS redelivery |
 | 2026-01 | DLQ with Lambda analyzer | Detect poison pills, auto-notify |
@@ -1734,7 +1733,7 @@ This document covers **infrastructure** (how we run the platform). The following
 | API response (p50) | <200ms | 50-100ms ✅ |
 | API response (p99) | <500ms | 200-400ms ✅ |
 | DPP scan (cached) | <50ms | 20-50ms ✅ |
-| DPP scan (lazy gen) | <200ms | 100-150ms ✅ |
+| DPP scan (R2 static) | <50ms | 10-30ms ✅ |
 | Bulk generation (1M) | <1 hour | ~10 min ✅ |
 | Bulk generation (10M) | <4 hours | 1-2 hours ✅ |
 
@@ -1749,7 +1748,7 @@ This document covers **infrastructure** (how we run the platform). The following
 | DEK | Data Encryption Key - per-tenant key for encrypting sensitive fields |
 | DPP | Digital Product Passport - EU ESPR compliance document |
 | Fan-out | Parallel processing pattern using message queues |
-| Lazy Generation | Generate DPP on first scan instead of upfront |
+| Eager Generation | Pre-generate all DPPs to R2 for zero-egress serving |
 | RLS | Row-Level Security - PostgreSQL feature for row-level access control |
 
 ---
