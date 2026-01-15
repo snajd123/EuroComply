@@ -2463,6 +2463,247 @@ Response:
 }
 ```
 
+### 7.8 IP Allowlisting
+
+For additional security, you can restrict webhook deliveries to specific IP addresses or verify the source IP.
+
+#### EuroComply Webhook Source IPs
+
+All webhook deliveries originate from these IP ranges:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    WEBHOOK SOURCE IP RANGES                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  PRODUCTION (eu-central-1):                                                 │
+│  ─────────────────────────                                                  │
+│  • 3.120.0.0/16      (AWS eu-central-1 range)                              │
+│  • 18.184.0.0/15     (AWS eu-central-1 range)                              │
+│  • 52.28.0.0/16      (AWS eu-central-1 range)                              │
+│                                                                              │
+│  STATIC EGRESS IPs (recommended for allowlisting):                          │
+│  • 3.120.45.100                                                             │
+│  • 3.120.45.101                                                             │
+│  • 18.184.72.50                                                             │
+│  • 18.184.72.51                                                             │
+│                                                                              │
+│  These static IPs are dedicated NAT gateway addresses for webhook           │
+│  delivery. They will not change without 30-day advance notice.              │
+│                                                                              │
+│  SANDBOX/TESTING:                                                           │
+│  ────────────────                                                           │
+│  • 3.121.0.0/16      (AWS eu-central-1 sandbox)                            │
+│  • Static: 3.121.88.10, 3.121.88.11                                        │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Programmatic IP List
+
+Retrieve current webhook IPs via API:
+
+```http
+GET /api/v1/webhooks/source-ips
+```
+
+Response:
+```json
+{
+  "success": true,
+  "data": {
+    "production": {
+      "static": ["3.120.45.100", "3.120.45.101", "18.184.72.50", "18.184.72.51"],
+      "ranges": ["3.120.0.0/16", "18.184.0.0/15", "52.28.0.0/16"]
+    },
+    "sandbox": {
+      "static": ["3.121.88.10", "3.121.88.11"],
+      "ranges": ["3.121.0.0/16"]
+    },
+    "lastUpdated": "2026-01-01T00:00:00Z",
+    "nextUpdate": null
+  }
+}
+```
+
+#### Configuring IP Restrictions on Your Endpoint
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    RECOMMENDED SECURITY LAYERS                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  LAYER 1: IP Allowlist (network level)                                      │
+│  ─────────────────────────────────────                                      │
+│  Configure your firewall/WAF to only accept requests from EuroComply IPs:  │
+│                                                                              │
+│  # nginx example                                                            │
+│  location /webhooks/eurocomply {                                            │
+│      allow 3.120.45.100;                                                    │
+│      allow 3.120.45.101;                                                    │
+│      allow 18.184.72.50;                                                    │
+│      allow 18.184.72.51;                                                    │
+│      deny all;                                                              │
+│      proxy_pass http://backend;                                             │
+│  }                                                                          │
+│                                                                              │
+│  # Cloudflare WAF rule                                                      │
+│  (ip.src in {3.120.45.100 3.120.45.101 18.184.72.50 18.184.72.51})         │
+│  → Allow                                                                    │
+│                                                                              │
+│  LAYER 2: Signature Verification (application level)                        │
+│  ───────────────────────────────────────────────────                        │
+│  ALWAYS verify HMAC-SHA256 signature regardless of IP filtering.           │
+│  IP allowlisting is defense-in-depth, not a replacement for signatures.    │
+│                                                                              │
+│  LAYER 3: TLS Certificate Pinning (optional, advanced)                      │
+│  ─────────────────────────────────────────────────────                      │
+│  For highest security, pin the EuroComply TLS certificate.                 │
+│  Contact enterprise support for certificate fingerprints.                  │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### IP Change Notifications
+
+When webhook source IPs change:
+
+| Notice Period | Change Type | Notification Method |
+|---------------|-------------|---------------------|
+| 30 days | New IP added | Email to org admins |
+| 30 days | IP deprecated | Email + dashboard banner |
+| 90 days | IP removed | Final removal after deprecation |
+| Immediate | Security incident | Emergency notification |
+
+Subscribe to IP change notifications:
+```http
+POST /api/v1/webhooks/ip-notifications
+{
+  "email": "security@yourcompany.com",
+  "includeRanges": true
+}
+```
+
+### 7.9 Timeout Handling
+
+Understanding timeout behavior helps you design reliable webhook handlers.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    WEBHOOK TIMEOUT BEHAVIOR                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  TIMEOUT THRESHOLDS:                                                        │
+│  ───────────────────                                                        │
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │ Connection timeout: 10 seconds                                      │   │
+│  │ └── Time to establish TCP connection to your server                │   │
+│  │                                                                      │   │
+│  │ Response timeout: 30 seconds                                        │   │
+│  │ └── Time from request sent to full response received               │   │
+│  │                                                                      │   │
+│  │ Total timeout: 30 seconds (includes connection time)               │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                              │
+│  WHAT COUNTS AS SUCCESS:                                                    │
+│  ────────────────────────                                                   │
+│  ✓ HTTP 2xx within 30 seconds                                              │
+│  ✓ Empty 200 response is valid                                             │
+│  ✓ Response body is ignored (only status code matters)                     │
+│                                                                              │
+│  WHAT TRIGGERS RETRY:                                                       │
+│  ────────────────────                                                       │
+│  • Connection timeout (>10s to connect)                                    │
+│  • Response timeout (>30s to respond)                                      │
+│  • HTTP 5xx response                                                        │
+│  • Network error (DNS failure, connection reset)                           │
+│  • TLS handshake failure                                                    │
+│                                                                              │
+│  WHAT DOES NOT RETRY (permanent failure):                                  │
+│  ─────────────────────────────────────────                                  │
+│  • HTTP 4xx response (client error - fix your endpoint)                    │
+│  • Invalid URL (malformed, unreachable domain)                             │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Best Practices for Timeout Handling
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    WEBHOOK HANDLER BEST PRACTICES                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  DO: Acknowledge quickly, process asynchronously                            │
+│  ───────────────────────────────────────────────                            │
+│                                                                              │
+│  // ✓ GOOD: Fast acknowledgment                                            │
+│  app.post('/webhooks/eurocomply', async (req, res) => {                    │
+│    // 1. Verify signature (fast)                                           │
+│    verifySignature(req);                                                    │
+│                                                                              │
+│    // 2. Queue for async processing                                         │
+│    await queue.push({                                                       │
+│      event: req.body,                                                       │
+│      idempotencyKey: req.headers['x-eurocomply-idempotency-key']          │
+│    });                                                                      │
+│                                                                              │
+│    // 3. Return 200 immediately (< 1 second)                               │
+│    res.status(200).json({ received: true });                               │
+│  });                                                                        │
+│                                                                              │
+│  // ✗ BAD: Slow synchronous processing                                     │
+│  app.post('/webhooks/eurocomply', async (req, res) => {                    │
+│    await updateDatabase(req.body);        // 5 seconds                     │
+│    await notifyExternalService(req.body); // 10 seconds                    │
+│    await generateReport(req.body);        // 20 seconds                    │
+│    res.status(200).json({ done: true });  // TIMEOUT! 35 seconds total    │
+│  });                                                                        │
+│                                                                              │
+│  RECOMMENDED ARCHITECTURE:                                                  │
+│  ─────────────────────────                                                  │
+│                                                                              │
+│  EuroComply ──► Your Endpoint ──► Message Queue ──► Worker Process         │
+│       │              │                                    │                 │
+│       │         (< 1 second)                        (async, any duration)  │
+│       │              │                                    │                 │
+│       └──── 200 OK ──┘                                    │                 │
+│                                                           ▼                 │
+│                                                    Database, APIs, etc.    │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Timeout Debugging
+
+If your endpoint is timing out:
+
+```http
+GET /api/v1/webhooks/wh_xyz789/deliveries?status=timeout
+```
+
+Response includes timing details:
+```json
+{
+  "deliveries": [
+    {
+      "id": "del_abc123",
+      "status": "timeout",
+      "timing": {
+        "dnsLookup": 50,
+        "tcpConnect": 120,
+        "tlsHandshake": 200,
+        "firstByte": null,
+        "total": 30000
+      },
+      "error": "Response timeout after 30000ms (first byte never received)",
+      "attemptedAt": "2026-01-14T12:00:00Z"
+    }
+  ]
+}
+```
+
 ---
 
 ## 8. Pagination
