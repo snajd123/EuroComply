@@ -73,6 +73,8 @@ EuroComply is a B2B SaaS platform for EU Digital Product Passport (DPP) complian
 
 ### Realistic Gross Margin by Tier
 
+> Pricing from [BUSINESS_MODEL.md](./docs/BUSINESS_MODEL.md#pricing-tiers). This table shows COGS breakdown and margins.
+
 | Tier | Base Fee | Storage | Infra | Payment (3%) | API/Support | Total COGS | Base Margin | DPP Margin |
 |------|----------|---------|-------|--------------|-------------|------------|-------------|------------|
 | Starter (€149) | €149/mo | 500 GB | €3 | €4.50 | €5 | €12.50 | **92%** | **99%** |
@@ -116,15 +118,16 @@ EuroComply consists of four integrated workspaces:
 
 ### 2.2 Pricing Tiers
 
-| Tier | Base Fee | Storage | DPP Price | Volume Discounts | Target Customer |
-|------|----------|---------|-----------|------------------|-----------------|
-| Starter | €149/month | 500 GB | €0.10/DPP | 10K+: €0.08 | Micro-businesses, testing |
-| Growth | €299/month | 1 TB | €0.05/DPP | 50K+: €0.03, 100K+: €0.02 | Small brands |
-| Scale | €749/month | 2 TB | €0.02/DPP | 500K+: €0.01, 1M+: €0.008 | Mid-market manufacturers |
-| Enterprise | €1,999/month | 5 TB | €0.008/DPP | 5M+: €0.005, 10M+: €0.003 | Large brands |
-| Platform | Custom | Custom | €0.001-0.003 | Negotiated | Fortune 500 |
+> **Canonical Reference:** See [BUSINESS_MODEL.md](./docs/BUSINESS_MODEL.md#pricing-tiers) for
+> the authoritative pricing table with storage allocations and volume discounts.
 
-*Storage is for media files (images, PDFs, videos). Product data and DPP metadata are unlimited.*
+| Tier | Base Fee | Target Customer |
+|------|----------|-----------------|
+| Starter | €149/month | Micro-businesses, testing |
+| Growth | €299/month | Small brands |
+| Scale | €749/month | Mid-market manufacturers |
+| Enterprise | €1,999/month | Large brands |
+| Platform | Custom | Fortune 500 |
 
 All tiers include unlimited products/SKUs, unlimited users, and generous storage. Per-DPP pricing includes EPCIS events and 10-year hosting.
 
@@ -3523,13 +3526,15 @@ simple = { limit = 100, period = 60 }  # 100 req/min per IP
 
 ### 7.9 Tier Limits for Bulk Operations
 
-| Tier | Max Batch Size | API Rate Limit | DPP Price |
-|------|----------------|----------------|-----------|
-| Starter | 1,000 | 100/min | €0.10/DPP |
-| Growth | 10,000 | 500/min | €0.05/DPP |
-| Scale | 100,000 | 2,000/min | €0.02/DPP |
-| Enterprise | 1,000,000 | 10,000/min | €0.008/DPP |
-| Platform | 10,000,000 | Custom | €0.001-0.003/DPP |
+> DPP pricing from [BUSINESS_MODEL.md](./docs/BUSINESS_MODEL.md#pricing-tiers). This table shows operational limits.
+
+| Tier | Max Batch Size | API Rate Limit |
+|------|----------------|----------------|
+| Starter | 1,000 | 100/min |
+| Growth | 10,000 | 500/min |
+| Scale | 100,000 | 2,000/min |
+| Enterprise | 1,000,000 | 10,000/min |
+| Platform | 10,000,000 | Custom |
 
 Note: No monthly item/DPP limits - all tiers can issue unlimited DPPs at their per-DPP rate with volume discounts.
 

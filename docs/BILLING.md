@@ -82,19 +82,20 @@ EuroComply uses a **Base Fee + Per-DPP pricing model** that separates platform a
 
 ## 2. Pricing Tiers
 
+> **Canonical Reference:** See [Pricing Tiers](./BUSINESS_MODEL.md#pricing-tiers) for
+> the authoritative pricing table with storage allocations and volume discounts.
+
 EuroComply offers five pricing tiers. All tiers include full platform access with unlimited products/SKUs and users.
 
-### Tier Comparison
+### Tier Summary with Support Levels
 
-| Plan | Base Fee | Storage | Starting DPP Price | Volume Discounts | Support |
-|------|----------|---------|-------------------|------------------|---------|
-| **Starter** | €149/mo | 500 GB | €0.10/DPP | 10K+: €0.08 | Email |
-| **Growth** | €299/mo | 1 TB | €0.05/DPP | 50K+: €0.03, 100K+: €0.02 | Email |
-| **Scale** | €749/mo | 2 TB | €0.02/DPP | 500K+: €0.01, 1M+: €0.008 | Priority |
-| **Enterprise** | €1,999/mo | 5 TB | €0.008/DPP | 5M+: €0.005, 10M+: €0.003 | Dedicated |
-| **Platform** | Custom | Custom | €0.001-0.003 | Negotiated | SLA |
-
-*Storage is for media files (images, PDFs, videos). Product data records and DPP metadata are unlimited.*
+| Plan | Base Fee | Support Level |
+|------|----------|---------------|
+| **Starter** | €149/mo | Email |
+| **Growth** | €299/mo | Email |
+| **Scale** | €749/mo | Priority |
+| **Enterprise** | €1,999/mo | Dedicated |
+| **Platform** | Custom | SLA |
 
 ### Annual Pricing (20% discount on base fee)
 

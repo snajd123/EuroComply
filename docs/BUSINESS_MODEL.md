@@ -131,6 +131,9 @@ EuroComply uses a **Base Fee + Per-DPP** pricing model that separates platform a
 
 ### Pricing Tiers
 
+> **Canonical Reference:** This is the authoritative pricing table.
+> Other documents (BILLING.md, Architecture Document) reference this section.
+
 | Tier | Base Fee | Storage | Starting DPP Price | Volume Discounts |
 |------|----------|---------|-------------------|------------------|
 | **Starter** | €149/mo | 500 GB | €0.10/DPP | 10K+: €0.08 |
