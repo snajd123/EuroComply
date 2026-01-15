@@ -1305,6 +1305,7 @@ CREATE TABLE batches (
 );
 
 -- EPCIS Events: Supply chain events (immutable)
+-- Size limit: 64KB per event (standard events are 1-5KB; limit prevents DoS/bloat)
 CREATE TABLE epcis_events (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL,
@@ -1319,7 +1320,8 @@ CREATE TABLE epcis_events (
     biz_location TEXT,
     event_time TIMESTAMPTZ NOT NULL,
     event_timezone TEXT,
-    epcis_data JSONB NOT NULL,
+    epcis_data JSONB NOT NULL
+        CONSTRAINT epcis_data_size CHECK (pg_column_size(epcis_data) <= 65536),  -- 64KB max per event
     -- Audit columns (immutable - no updated_by)
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     created_by UUID NOT NULL,
