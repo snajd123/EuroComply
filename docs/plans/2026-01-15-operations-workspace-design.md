@@ -936,7 +936,882 @@ async function dailyExpiryCheck(): Promise<void> {
 
 ---
 
-## 9. API Endpoints
+## 9. Agnostic Order Management (The Execution Kernel)
+
+### 9.1 The SAP-Lite Approach
+
+Every physical movement or transformation of goods starts with an **Order Entity**. Whether you are a producer or an importer, the system tracks the transition from Intent to Evidence using the same schema.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    AGNOSTIC ORDER FLOW                                       │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  UNIFIED CORE STATUS:                                                       │
+│  DRAFT → SUBMITTED → APPROVED → IN_PROGRESS → COMPLETED → CLOSED           │
+│                                                                              │
+│  ORDER TYPE EXTENSIONS:                                                     │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐             │
+│  │ PURCHASE (PO)   │  │ WORK (WO)       │  │ SALES (SO)      │             │
+│  │ Procurement     │  │ Production      │  │ Distribution    │             │
+│  ├─────────────────┤  ├─────────────────┤  ├─────────────────┤             │
+│  │ +SENT_TO_SUPPLIER│ │ +SCHEDULED      │  │ +PICKING        │             │
+│  │ +ACKNOWLEDGED   │  │ +QC_PENDING     │  │ +PACKED         │             │
+│  │ +CUSTOMS_CLEARED│  │ +QC_PASSED      │  │ +SHIPPED        │             │
+│  └─────────────────┘  └─────────────────┘  └─────────────────┘             │
+│                                                                              │
+│  IMPORTER uses: PO → Inbound Logistics → Inventory → SO                    │
+│  PRODUCER uses: PO → Inventory → WO → Batch → SO                           │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 9.2 Order Data Model
+
+```sql
+CREATE TYPE order_type AS ENUM (
+    'PURCHASE',       -- Procurement: Buy from supplier
+    'WORK',           -- Execution: Produce/transform
+    'SALES',          -- Distribution: Sell to customer
+    'TRANSFER'        -- Internal: Move between locations
+);
+
+CREATE TYPE order_status AS ENUM (
+    -- Core lifecycle (all types)
+    'DRAFT',
+    'SUBMITTED',
+    'APPROVED',
+    'IN_PROGRESS',
+    'COMPLETED',
+    'CLOSED',
+    'CANCELLED'
+);
+
+CREATE TABLE operations_order (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id     UUID NOT NULL REFERENCES organization(id),
+
+    -- Order identity
+    order_type          order_type NOT NULL,
+    order_number        VARCHAR(50) NOT NULL,
+
+    -- Core lifecycle
+    status              order_status NOT NULL DEFAULT 'DRAFT',
+    status_changed_at   TIMESTAMPTZ,
+    status_changed_by   UUID REFERENCES users(id),
+
+    -- What (Design link - the "Compliance Contract")
+    product_id          UUID REFERENCES product(id),
+    design_version_id   UUID REFERENCES workspace_version(id),
+
+    -- Quantities
+    quantity_ordered    DECIMAL NOT NULL,
+    quantity_fulfilled  DECIMAL DEFAULT 0,
+    unit                VARCHAR(20) NOT NULL DEFAULT 'units',
+
+    -- Timeline
+    order_date          DATE NOT NULL DEFAULT CURRENT_DATE,
+    required_date       DATE,
+    actual_start        TIMESTAMPTZ,
+    actual_end          TIMESTAMPTZ,
+
+    -- Type-specific extensions (JSONB for flexibility)
+    extensions          JSONB DEFAULT '{}',
+
+    -- Notes & metadata
+    notes               TEXT,
+    created_at          TIMESTAMPTZ DEFAULT now(),
+    updated_at          TIMESTAMPTZ DEFAULT now(),
+    created_by          UUID REFERENCES users(id),
+
+    UNIQUE(organization_id, order_type, order_number)
+);
+
+CREATE INDEX idx_order_org ON operations_order (organization_id);
+CREATE INDEX idx_order_type ON operations_order (order_type);
+CREATE INDEX idx_order_status ON operations_order (status);
+CREATE INDEX idx_order_product ON operations_order (product_id);
+```
+
+### 9.3 Type-Specific Extensions
+
+```typescript
+// Purchase Order extensions
+interface PurchaseOrderExtensions {
+  supplier_id: string;
+  facility_id: string;
+
+  // Procurement states
+  sent_to_supplier_at?: Date;
+  acknowledged_at?: Date;
+
+  // Shipment tracking
+  shipment_ids?: string[];
+  customs_cleared?: boolean;
+
+  // Payment
+  payment_terms?: string;
+  currency?: string;
+  total_amount?: number;
+}
+
+// Work Order extensions
+interface WorkOrderExtensions {
+  facility_id: string;
+
+  // Scheduling
+  scheduled_start?: Date;
+  scheduled_end?: Date;
+
+  // QC
+  qc_status?: 'PENDING' | 'PASSED' | 'FAILED';
+  qc_performed_by?: string;
+  qc_performed_at?: Date;
+  qc_results?: Record<string, any>;
+}
+
+// Sales Order extensions
+interface SalesOrderExtensions {
+  customer_id: string;
+  shipping_address?: Address;
+
+  // Fulfillment states
+  picking_started_at?: Date;
+  packed_at?: Date;
+  shipped_at?: Date;
+  delivered_at?: Date;
+
+  // Carrier
+  carrier?: string;
+  tracking_number?: string;
+}
+```
+
+### 9.4 Risk-Gated Procurement
+
+```typescript
+async function submitPurchaseOrder(orderId: string): Promise<SubmitResult> {
+  const order = await getOrder(orderId);
+  const ext = order.extensions as PurchaseOrderExtensions;
+
+  // 1. Check facility compliance
+  const facility = await getFacility(ext.facility_id);
+  const riskAssessment = await calculateFacilityRisk(facility.id);
+
+  // Block if CRITICAL risk floor
+  if (riskAssessment.riskLevel === 'CRITICAL') {
+    return {
+      success: false,
+      blocked: true,
+      reason: `Facility "${facility.name}" has CRITICAL risk level. PO submission blocked.`
+    };
+  }
+
+  // 2. Check certification status
+  if (facility.certification_status === 'EXPIRED') {
+    return {
+      success: false,
+      blocked: true,
+      reason: `Facility "${facility.name}" has expired certifications.`
+    };
+  }
+
+  // 3. Check design compliance requirements vs facility certs
+  const designRequirements = await getDesignComplianceRequirements(order.design_version_id);
+  const facilityCerts = await getFacilityCertifications(facility.id);
+
+  for (const req of designRequirements) {
+    const hasCert = facilityCerts.some(c =>
+      c.cert_type === req.required_cert && c.status === 'VERIFIED'
+    );
+    if (!hasCert) {
+      return {
+        success: false,
+        blocked: true,
+        reason: `Design requires "${req.required_cert}" but facility lacks certification.`
+      };
+    }
+  }
+
+  // All checks passed - submit
+  await updateOrder(orderId, { status: 'SUBMITTED', status_changed_at: new Date() });
+  return { success: true, blocked: false };
+}
+```
+
+---
+
+## 10. Event Ledger (Digital Notary)
+
+### 10.1 The Evidence Journal
+
+Every physical action is recorded as a **Notary Event** with Who, When, Where, and cryptographic proof.
+
+```sql
+CREATE TYPE event_type AS ENUM (
+    -- Attestations (human declarations)
+    'ATTESTATION_START',
+    'ATTESTATION_COMPLETE',
+    'ATTESTATION_WITNESS',
+
+    -- Material events
+    'MATERIAL_RECEIVED',
+    'MATERIAL_CONSUMED',
+    'MATERIAL_REJECTED',
+
+    -- Quality events
+    'QC_INSPECTION',
+    'QC_SAMPLE_TAKEN',
+    'QC_RESULT_RECORDED',
+
+    -- Logistics events
+    'SHIPMENT_DISPATCHED',
+    'SHIPMENT_IN_TRANSIT',
+    'CUSTOMS_CLEARED',
+    'GOODS_RECEIVED',
+
+    -- Production events
+    'PRODUCTION_STARTED',
+    'PRODUCTION_PAUSED',
+    'PRODUCTION_RESUMED',
+    'PRODUCTION_COMPLETED',
+
+    -- Identity events
+    'BATCH_CREATED',
+    'SERIAL_ASSIGNED',
+    'LABEL_PRINTED',
+
+    -- Document events
+    'DOCUMENT_UPLOADED',
+    'DOCUMENT_VERIFIED'
+);
+
+CREATE TABLE operations_event (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id     UUID NOT NULL REFERENCES organization(id),
+
+    -- Link to order
+    order_id            UUID NOT NULL REFERENCES operations_order(id),
+
+    -- Event identity
+    event_type          event_type NOT NULL,
+    event_number        INT NOT NULL,
+
+    -- When & Where (Spatiotemporal Anchor)
+    occurred_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    latitude            DECIMAL(10, 7),
+    longitude           DECIMAL(10, 7),
+    geo_accuracy_m      DECIMAL,
+    location_name       VARCHAR(255),
+
+    -- Who (The Attester)
+    performed_by        UUID NOT NULL REFERENCES users(id),
+    attester_role       VARCHAR(100),
+
+    -- What (Event payload)
+    payload             JSONB NOT NULL DEFAULT '{}',
+
+    -- Evidence (Photos, Documents)
+    evidence            JSONB DEFAULT '[]',
+
+    -- Content hash (for integrity)
+    content_hash        VARCHAR(64),
+    previous_hash       VARCHAR(64),
+
+    -- DIGITAL SEAL (Non-repudiation)
+    signer_did          VARCHAR(255),
+    signature_jws       TEXT,
+    signature_alg       VARCHAR(20),
+
+    -- Verification
+    is_verified         BOOLEAN DEFAULT false,
+    verified_by         UUID REFERENCES users(id),
+    verified_at         TIMESTAMPTZ,
+
+    created_at          TIMESTAMPTZ DEFAULT now(),
+
+    UNIQUE(order_id, event_number)
+);
+
+CREATE INDEX idx_event_order ON operations_event (order_id);
+CREATE INDEX idx_event_type ON operations_event (event_type);
+CREATE INDEX idx_event_time ON operations_event (occurred_at);
+```
+
+### 10.2 Required Events per Order Type
+
+```sql
+CREATE TABLE order_type_required_events (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id     UUID REFERENCES organization(id),
+
+    order_type          order_type NOT NULL,
+    event_type          event_type NOT NULL,
+    required_for_status order_status NOT NULL,
+
+    requires_geo        BOOLEAN DEFAULT false,
+    requires_photo      BOOLEAN DEFAULT false,
+    requires_document   BOOLEAN DEFAULT false,
+    is_mandatory        BOOLEAN DEFAULT true,
+
+    UNIQUE(organization_id, order_type, event_type, required_for_status)
+);
+
+-- System defaults
+INSERT INTO order_type_required_events
+    (organization_id, order_type, event_type, required_for_status, requires_geo, requires_photo)
+VALUES
+    (NULL, 'PURCHASE', 'GOODS_RECEIVED', 'COMPLETED', true, true),
+    (NULL, 'PURCHASE', 'QC_INSPECTION', 'COMPLETED', false, false),
+    (NULL, 'WORK', 'PRODUCTION_STARTED', 'IN_PROGRESS', false, false),
+    (NULL, 'WORK', 'MATERIAL_CONSUMED', 'COMPLETED', false, false),
+    (NULL, 'WORK', 'PRODUCTION_COMPLETED', 'COMPLETED', false, true),
+    (NULL, 'WORK', 'QC_INSPECTION', 'COMPLETED', false, false),
+    (NULL, 'WORK', 'BATCH_CREATED', 'COMPLETED', false, false),
+    (NULL, 'SALES', 'SHIPMENT_DISPATCHED', 'COMPLETED', false, false);
+```
+
+### 10.3 Digital Seal (JWS Non-Repudiation)
+
+```typescript
+async function createSignedEvent(
+  input: SignedEventInput,
+  userId: string
+): Promise<OperationsEvent> {
+  const user = await getUser(userId);
+
+  // 1. Build the content to sign
+  const content = {
+    order_id: input.orderId,
+    event_type: input.eventType,
+    occurred_at: new Date().toISOString(),
+    payload: input.payload,
+    evidence: input.evidence || [],
+    location: input.location
+  };
+
+  // 2. Hash the content
+  const contentHash = sha256(JSON.stringify(content));
+
+  // 3. Get previous event hash for chain integrity
+  const previousEvent = await getLastEvent(input.orderId);
+  const previousHash = previousEvent?.content_hash || null;
+
+  // 4. Sign with user's private key (DID)
+  const signature = await signWithUserKey(userId, {
+    content_hash: contentHash,
+    previous_hash: previousHash,
+    timestamp: content.occurred_at
+  });
+
+  // 5. Store the event with digital seal
+  return await db.insert('operations_event', {
+    organization_id: user.organization_id,
+    order_id: input.orderId,
+    event_type: input.eventType,
+    event_number: (previousEvent?.event_number || 0) + 1,
+    occurred_at: content.occurred_at,
+    latitude: input.location?.latitude,
+    longitude: input.location?.longitude,
+    performed_by: userId,
+    payload: content.payload,
+    evidence: content.evidence,
+    content_hash: contentHash,
+    previous_hash: previousHash,
+    signer_did: user.did,
+    signature_jws: signature.jws,
+    signature_alg: signature.algorithm
+  });
+}
+```
+
+### 10.4 Evidence-Gated Status Transitions
+
+```typescript
+async function transitionOrderStatus(
+  orderId: string,
+  targetStatus: order_status,
+  userId: string
+): Promise<TransitionResult> {
+  const order = await getOrder(orderId);
+  const recordedEvents = await getOrderEvents(orderId);
+  const requiredEvents = await getRequiredEvents(order.order_type, targetStatus);
+
+  const missingEvents = [];
+
+  for (const required of requiredEvents) {
+    const matching = recordedEvents.find(e => e.event_type === required.event_type);
+
+    if (!matching && required.is_mandatory) {
+      missingEvents.push({
+        eventType: required.event_type,
+        requiresGeo: required.requires_geo,
+        requiresPhoto: required.requires_photo
+      });
+    }
+  }
+
+  if (missingEvents.length > 0) {
+    return {
+      success: false,
+      blocked: true,
+      reason: 'Missing required notary events',
+      missingEvents
+    };
+  }
+
+  await updateOrder(orderId, { status: targetStatus, status_changed_at: new Date() });
+  return { success: true, blocked: false };
+}
+```
+
+---
+
+## 11. Inventory Lots (Incoming Materials)
+
+### 11.1 Lot Data Model
+
+```sql
+CREATE TYPE lot_status AS ENUM (
+    'IN_TRANSIT',
+    'RECEIVED',
+    'QC_PENDING',
+    'AVAILABLE',
+    'QUARANTINED',
+    'DEPLETED',
+    'EXPIRED',
+    'REJECTED'
+);
+
+CREATE TABLE inventory_lot (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id     UUID NOT NULL REFERENCES organization(id),
+
+    -- Source tracking
+    purchase_order_id   UUID REFERENCES operations_order(id),
+    facility_id         UUID NOT NULL REFERENCES facility(id),
+
+    -- Lot identity
+    lot_number          VARCHAR(50) NOT NULL,
+    supplier_lot_number VARCHAR(50),
+
+    -- What is it?
+    product_id          UUID NOT NULL REFERENCES product(id),
+    design_version_id   UUID REFERENCES workspace_version(id),
+
+    -- Quantities
+    quantity_received   DECIMAL NOT NULL,
+    quantity_available  DECIMAL NOT NULL,
+    quantity_consumed   DECIMAL DEFAULT 0,
+    quantity_rejected   DECIMAL DEFAULT 0,
+    unit                VARCHAR(20) NOT NULL,
+
+    -- Dates
+    production_date     DATE,
+    received_date       DATE NOT NULL,
+    expiry_date         DATE,
+
+    -- Status
+    status              lot_status NOT NULL DEFAULT 'RECEIVED',
+
+    -- Storage
+    warehouse_id        UUID,
+    location_code       VARCHAR(50),
+
+    -- Compliance inheritance (snapshot at receipt)
+    facility_risk_level VARCHAR(20),
+    facility_certs      JSONB,
+
+    -- Notary links
+    received_event_id   UUID REFERENCES operations_event(id),
+    qc_event_id         UUID REFERENCES operations_event(id),
+
+    created_at          TIMESTAMPTZ DEFAULT now(),
+
+    UNIQUE(organization_id, lot_number)
+);
+
+CREATE INDEX idx_lot_org ON inventory_lot (organization_id);
+CREATE INDEX idx_lot_product ON inventory_lot (product_id);
+CREATE INDEX idx_lot_facility ON inventory_lot (facility_id);
+CREATE INDEX idx_lot_status ON inventory_lot (status);
+```
+
+---
+
+## 12. Batches & Serial Numbers (Produced Goods)
+
+### 12.1 Batch Data Model
+
+```sql
+CREATE TYPE batch_status AS ENUM (
+    'OPEN',
+    'CLOSED',
+    'QC_PENDING',
+    'QC_PASSED',
+    'QC_FAILED',
+    'RELEASED',
+    'ON_HOLD',
+    'RECALLED'
+);
+
+CREATE TABLE batch (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id     UUID NOT NULL REFERENCES organization(id),
+
+    -- Source tracking
+    work_order_id       UUID NOT NULL REFERENCES operations_order(id),
+    facility_id         UUID NOT NULL REFERENCES facility(id),
+
+    -- Batch identity
+    batch_number        VARCHAR(50) NOT NULL,
+
+    -- What was produced?
+    product_id          UUID NOT NULL REFERENCES product(id),
+    design_version_id   UUID NOT NULL REFERENCES workspace_version(id),
+
+    -- Quantities
+    quantity_produced   INT NOT NULL,
+    quantity_passed_qc  INT DEFAULT 0,
+    quantity_failed_qc  INT DEFAULT 0,
+    quantity_allocated  INT DEFAULT 0,
+    quantity_shipped    INT DEFAULT 0,
+    quantity_available  INT GENERATED ALWAYS AS (
+        quantity_passed_qc - quantity_allocated
+    ) STORED,
+
+    -- Timeline
+    production_start    TIMESTAMPTZ NOT NULL,
+    production_end      TIMESTAMPTZ,
+    release_date        DATE,
+    expiry_date         DATE,
+
+    -- Status
+    status              batch_status NOT NULL DEFAULT 'OPEN',
+
+    -- Traceability: which lots went into this batch?
+    consumed_lots       JSONB NOT NULL DEFAULT '[]',
+
+    -- Notary links
+    created_event_id    UUID REFERENCES operations_event(id),
+    qc_event_id         UUID REFERENCES operations_event(id),
+    released_event_id   UUID REFERENCES operations_event(id),
+
+    created_at          TIMESTAMPTZ DEFAULT now(),
+
+    UNIQUE(organization_id, batch_number)
+);
+
+CREATE INDEX idx_batch_org ON batch (organization_id);
+CREATE INDEX idx_batch_product ON batch (product_id);
+CREATE INDEX idx_batch_wo ON batch (work_order_id);
+CREATE INDEX idx_batch_status ON batch (status);
+```
+
+### 12.2 Serial Number Data Model
+
+```sql
+CREATE TYPE serial_status AS ENUM (
+    'GENERATED',
+    'LABELED',
+    'IN_STOCK',
+    'ALLOCATED',
+    'SHIPPED',
+    'DELIVERED',
+    'RETURNED',
+    'SCRAPPED'
+);
+
+CREATE TABLE serial_number (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id     UUID NOT NULL REFERENCES organization(id),
+
+    -- Parent batch
+    batch_id            UUID NOT NULL REFERENCES batch(id),
+
+    -- Serial identity
+    serial_number       VARCHAR(100) NOT NULL,
+
+    -- Inherited
+    product_id          UUID NOT NULL REFERENCES product(id),
+    design_version_id   UUID NOT NULL REFERENCES workspace_version(id),
+
+    -- Status
+    status              serial_status NOT NULL DEFAULT 'GENERATED',
+
+    -- DPP link
+    dpp_id              UUID,
+    dpp_uri             VARCHAR(500),
+
+    -- Sales tracking
+    sales_order_id      UUID REFERENCES operations_order(id),
+    shipped_at          TIMESTAMPTZ,
+    customer_id         UUID,
+    last_known_location VARCHAR(255),
+
+    -- Notary links
+    generated_event_id  UUID REFERENCES operations_event(id),
+    shipped_event_id    UUID REFERENCES operations_event(id),
+
+    created_at          TIMESTAMPTZ DEFAULT now(),
+
+    UNIQUE(organization_id, serial_number)
+);
+
+CREATE INDEX idx_serial_batch ON serial_number (batch_id);
+CREATE INDEX idx_serial_dpp ON serial_number (dpp_uri);
+CREATE INDEX idx_serial_status ON serial_number (status);
+```
+
+### 12.3 Traceability Chain
+
+```
+LOT (Input)           BATCH (Output)         SERIAL (Unit)         DPP
+───────────           ─────────────          ─────────────         ───
+┌─────────┐           ┌─────────┐            ┌─────────┐          ┌─────────┐
+│ LOT-001 │──┐        │ BATCH-  │──────┬────►│ SN-0001 │─────────►│ DPP-001 │
+│ Cotton  │  │        │ 2026-   │      │     └─────────┘          └─────────┘
+└─────────┘  │        │ 0042    │      │     ┌─────────┐          ┌─────────┐
+┌─────────┐  ├───────►│         │      ├────►│ SN-0002 │─────────►│ DPP-002 │
+│ LOT-002 │──┤        │ 500 pcs │      │     └─────────┘          └─────────┘
+│ Polyester  │        └─────────┘      │          ...                  ...
+└─────────┘  │                         │     ┌─────────┐          ┌─────────┐
+┌─────────┐  │                         └────►│ SN-0500 │─────────►│ DPP-500 │
+│ LOT-003 │──┘                               └─────────┘          └─────────┘
+│ Buttons │
+└─────────┘
+```
+
+---
+
+## 13. Consumption Tracking & Mass Balance
+
+### 13.1 Consumption Log
+
+```sql
+CREATE TABLE consumption_log (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id     UUID NOT NULL REFERENCES organization(id),
+
+    -- What order/batch consumed this?
+    work_order_id       UUID NOT NULL REFERENCES operations_order(id),
+    batch_id            UUID REFERENCES batch(id),
+
+    -- What was consumed?
+    lot_id              UUID NOT NULL REFERENCES inventory_lot(id),
+    material_product_id UUID NOT NULL REFERENCES product(id),
+    material_name       VARCHAR(255) NOT NULL,
+
+    -- Quantities
+    quantity_consumed   DECIMAL NOT NULL,
+    unit                VARCHAR(20) NOT NULL,
+
+    -- BOM reference (Actual vs Planned)
+    bom_entry_id        UUID,
+    bom_quantity        DECIMAL,
+    bom_unit            VARCHAR(20),
+
+    -- Variance
+    variance_qty        DECIMAL GENERATED ALWAYS AS (
+        quantity_consumed - COALESCE(bom_quantity, 0)
+    ) STORED,
+    variance_pct        DECIMAL,
+    variance_reason     TEXT,
+
+    -- Notary link
+    consumption_event_id UUID NOT NULL REFERENCES operations_event(id),
+
+    consumed_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    consumed_by         UUID NOT NULL REFERENCES users(id)
+);
+
+CREATE INDEX idx_consumption_wo ON consumption_log (work_order_id);
+CREATE INDEX idx_consumption_lot ON consumption_log (lot_id);
+```
+
+### 13.2 Mass Balance Ledger
+
+Prevents "compliance leakage" - claiming more certified material than available.
+
+```sql
+CREATE TABLE mass_balance_ledger (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id     UUID NOT NULL REFERENCES organization(id),
+
+    cert_type           VARCHAR(100) NOT NULL,
+    material_product_id UUID NOT NULL REFERENCES product(id),
+
+    balance_in          DECIMAL NOT NULL DEFAULT 0,
+    balance_out         DECIMAL NOT NULL DEFAULT 0,
+    balance_available   DECIMAL GENERATED ALWAYS AS (
+        balance_in - balance_out
+    ) STORED,
+
+    period_start        DATE NOT NULL,
+    period_end          DATE NOT NULL,
+    last_updated        TIMESTAMPTZ DEFAULT now(),
+
+    UNIQUE(organization_id, cert_type, material_product_id, period_start)
+);
+
+CREATE TABLE mass_balance_entry (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    ledger_id           UUID NOT NULL REFERENCES mass_balance_ledger(id),
+
+    entry_type          VARCHAR(20) NOT NULL,  -- 'IN' or 'OUT'
+    quantity            DECIMAL NOT NULL,
+    unit                VARCHAR(20) NOT NULL,
+
+    lot_id              UUID REFERENCES inventory_lot(id),
+    batch_id            UUID REFERENCES batch(id),
+    event_id            UUID REFERENCES operations_event(id),
+
+    running_balance     DECIMAL NOT NULL,
+    entry_date          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+```
+
+### 13.3 Variance Report Service
+
+```typescript
+interface VarianceReport {
+  workOrderId: string;
+  productName: string;
+  quantityProduced: number;
+  materials: MaterialVariance[];
+  overallVariance: 'WITHIN_TOLERANCE' | 'WARNING' | 'EXCEEDED';
+}
+
+async function generateVarianceReport(workOrderId: string): Promise<VarianceReport> {
+  const workOrder = await getOrder(workOrderId);
+  const consumptions = await getConsumptionsByWorkOrder(workOrderId);
+  const bomEntries = await getBomEntries(workOrder.design_version_id);
+
+  const materials: MaterialVariance[] = [];
+  const byMaterial = groupBy(consumptions, 'material_product_id');
+
+  for (const [materialId, logs] of Object.entries(byMaterial)) {
+    const bomEntry = bomEntries.find(b => b.child_product_id === materialId);
+    const totalConsumed = logs.reduce((sum, l) => sum + l.quantity_consumed, 0);
+    const bomExpected = bomEntry ? bomEntry.quantity * workOrder.quantity_ordered : 0;
+
+    const varianceQty = totalConsumed - bomExpected;
+    const variancePct = bomExpected > 0 ? (varianceQty / bomExpected) * 100 : null;
+
+    let status: 'OK' | 'WARNING' | 'EXCEEDED' = 'OK';
+    if (Math.abs(variancePct || 0) > 10) status = 'EXCEEDED';
+    else if (Math.abs(variancePct || 0) > 5) status = 'WARNING';
+
+    materials.push({
+      materialName: logs[0].material_name,
+      bomQuantity: bomExpected,
+      actualQuantity: totalConsumed,
+      varianceQty,
+      variancePct: variancePct || 0,
+      status,
+      lots: logs.map(l => ({ lotNumber: l.lot_number, quantity: l.quantity_consumed }))
+    });
+  }
+
+  return {
+    workOrderId,
+    productName: workOrder.product_name,
+    quantityProduced: workOrder.quantity_fulfilled,
+    materials,
+    overallVariance: materials.some(m => m.status === 'EXCEEDED') ? 'EXCEEDED' :
+                     materials.some(m => m.status === 'WARNING') ? 'WARNING' : 'WITHIN_TOLERANCE'
+  };
+}
+```
+
+---
+
+## 14. UI: Mobile-First Execution
+
+### 14.1 Work Order Event Recording
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    WORK ORDER #WO-2026-0042                                  │
+│                    Status: IN_PROGRESS                                       │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  REQUIRED TO COMPLETE:                                                      │
+│  ┌─────────────────────────────────────────────────────────────────────────┐│
+│  │ ✓ PRODUCTION_STARTED        Recorded 2 hrs ago by Maria S.             ││
+│  │ ✓ MATERIAL_CONSUMED         Lot #COT-2026-089 consumed                 ││
+│  │ ○ PRODUCTION_COMPLETED      📷 Photo required                          ││
+│  │ ○ QC_INSPECTION             Pending                                    ││
+│  │ ○ BATCH_CREATED             Pending                                    ││
+│  └─────────────────────────────────────────────────────────────────────────┘│
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────────┐│
+│  │              [📷 RECORD PRODUCTION COMPLETE]                            ││
+│  │         Tap to take photo and record completion                         ││
+│  └─────────────────────────────────────────────────────────────────────────┘│
+│                                                                              │
+│  [Mark Complete]  ← Blocked until all required events recorded             │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 14.2 Signed Event Display
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ EVENT #5: GOODS_RECEIVED                                     🔐 SEALED      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  📦 LOT-2026-089 received                                                   │
+│  Qty: 450 kg Organic Cotton                                                 │
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────────┐│
+│  │ DIGITAL SEAL                                                 ✓ VALID   ││
+│  ├─────────────────────────────────────────────────────────────────────────┤│
+│  │ Signer:    Maria Santos                                                 ││
+│  │ DID:       did:key:z6MkhaXgBZDvot...                                   ││
+│  │ Signed:    2026-01-15 09:32:15 UTC                                      ││
+│  │ Algorithm: EdDSA                                                        ││
+│  │                                                                          ││
+│  │ 📍 21.1702°N, 72.8311°E (ACME Plant A, Vietnam)                        ││
+│  │ 📷 3 photos attached                                                    ││
+│  └─────────────────────────────────────────────────────────────────────────┘│
+│                                                                              │
+│  This event cannot be modified. Maria's signature provides legal proof.    │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 14.3 Variance Report
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    VARIANCE REPORT: WO-2026-0042                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Quantity Produced: 500 units          Overall: ⚠️ WARNING                  │
+│                                                                              │
+│  MATERIAL CONSUMPTION vs BOM                                                │
+│  ┌─────────────────────────────────────────────────────────────────────────┐│
+│  │ Material         │ BOM      │ Actual   │ Variance │ Status             ││
+│  │──────────────────│──────────│──────────│──────────│────────────────────││
+│  │ Organic Cotton   │ 450.0 kg │ 463.2 kg │ +2.9%    │ ✓ OK               ││
+│  │ Recycled Poly    │ 25.0 kg  │ 27.1 kg  │ +8.4%    │ ⚠️ WARNING         ││
+│  │ Metal Buttons    │ 500 pcs  │ 512 pcs  │ +2.4%    │ ✓ OK               ││
+│  └─────────────────────────────────────────────────────────────────────────┘│
+│                                                                              │
+│  MASS BALANCE CHECK                                                         │
+│  ┌─────────────────────────────────────────────────────────────────────────┐│
+│  │ GOTS (Organic Cotton):  ✓ 463.2 kg consumed / 892.5 kg available       ││
+│  │ GRS (Recycled Poly):    ✓ 27.1 kg consumed / 156.0 kg available        ││
+│  └─────────────────────────────────────────────────────────────────────────┘│
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 15. API Endpoints
 
 ### Suppliers
 
@@ -980,17 +1855,81 @@ GET    /api/v1/operations/dashboard/pending            # Get pending verificatio
 GET    /api/v1/operations/dashboard/stats              # Get compliance stats
 ```
 
+### Orders
+
+```
+GET    /api/v1/operations/orders                       # List orders (filter by type)
+GET    /api/v1/operations/orders/:id                   # Get order with events
+POST   /api/v1/operations/orders                       # Create order
+PUT    /api/v1/operations/orders/:id                   # Update order
+POST   /api/v1/operations/orders/:id/submit            # Submit for approval
+POST   /api/v1/operations/orders/:id/approve           # Approve order
+POST   /api/v1/operations/orders/:id/transition        # Transition status
+```
+
+### Events
+
+```
+GET    /api/v1/operations/orders/:id/events            # List order events
+POST   /api/v1/operations/orders/:id/events            # Record new event (signed)
+GET    /api/v1/operations/events/:id                   # Get event detail
+POST   /api/v1/operations/events/:id/verify            # Verify event signature
+```
+
+### Inventory Lots
+
+```
+GET    /api/v1/operations/lots                         # List lots
+GET    /api/v1/operations/lots/:id                     # Get lot detail
+POST   /api/v1/operations/lots                         # Create lot (with receipt event)
+PUT    /api/v1/operations/lots/:id                     # Update lot
+POST   /api/v1/operations/lots/:id/qc                  # Record QC result
+```
+
+### Batches
+
+```
+GET    /api/v1/operations/batches                      # List batches
+GET    /api/v1/operations/batches/:id                  # Get batch with traceability
+POST   /api/v1/operations/batches                      # Create batch
+PUT    /api/v1/operations/batches/:id                  # Update batch
+POST   /api/v1/operations/batches/:id/close            # Close batch
+POST   /api/v1/operations/batches/:id/release          # Release batch
+GET    /api/v1/operations/batches/:id/serials          # List batch serials
+```
+
+### Serial Numbers
+
+```
+GET    /api/v1/operations/serials                      # List serials
+GET    /api/v1/operations/serials/:id                  # Get serial detail
+POST   /api/v1/operations/batches/:id/serials          # Generate serials for batch
+PUT    /api/v1/operations/serials/:id                  # Update serial status
+GET    /api/v1/operations/serials/by-dpp/:uri          # Lookup by DPP URI
+```
+
+### Consumption & Reports
+
+```
+GET    /api/v1/operations/orders/:id/consumption       # List consumption for order
+POST   /api/v1/operations/orders/:id/consume           # Record consumption (with event)
+GET    /api/v1/operations/orders/:id/variance          # Get variance report
+GET    /api/v1/operations/mass-balance                 # Get mass balance summary
+GET    /api/v1/operations/mass-balance/:certType       # Get cert-specific balance
+```
+
 ---
 
-## 10. Changelog
+## 16. Changelog
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 0.1 | 2026-01-15 | Initial draft from brainstorming session |
+| 0.2 | 2026-01-15 | Added Execution Engine: Orders, Events, Lots, Batches, Serials, Consumption |
+| 0.1 | 2026-01-15 | Initial draft: Suppliers, Facilities, Certifications |
 
 ---
 
-## 11. Related Documents
+## 17. Related Documents
 
 - [Design Workspace Design](./2026-01-15-design-workspace-design.md) - BOM facility links
 - [Taxonomy Engine Design](./2026-01-15-taxonomy-engine-design.md) - Shared data model
