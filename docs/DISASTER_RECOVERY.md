@@ -327,16 +327,372 @@ curl -I https://dpp.eurocomply.eu/health
 
 ## Testing Procedures
 
+### Testing Schedule
+
+> **"Untested backups are not backups."** - All restore procedures must be tested quarterly.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         ANNUAL TESTING CALENDAR                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Q1 (January):   Full database PITR restore test                            │
+│  Q2 (April):     Single-tenant restore + DynamoDB recovery                  │
+│  Q3 (July):      Region failover exercise                                   │
+│  Q4 (October):   Full DR exercise (all systems)                             │
+│                                                                              │
+│  MONTHLY:        Automated restore verification job (see below)             │
+│                                                                              │
+│  Testing environment: dr-test.eurocomply.internal (isolated VPC)            │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
 ### Quarterly DR Tests
 
 | Test | Frequency | Duration | Success Criteria |
 |------|-----------|----------|------------------|
 | RDS PITR restore | Quarterly | 2 hours | Data matches within RPO |
+| Single-tenant restore | Quarterly | 1 hour | Tenant data complete, isolated |
 | DynamoDB restore | Quarterly | 1 hour | Item counts match |
 | Region failover | Annually | 4 hours | Services functional in DR region |
 | Full DR exercise | Annually | 8 hours | RTO/RPO targets met |
 
-### Test Runbook
+---
+
+## Restore Runbooks
+
+### Runbook 1: Point-in-Time Recovery (Full Database)
+
+**When to use:** Database corruption, bad migration, need to recover to specific point in time.
+
+```bash
+#!/bin/bash
+# PITR Restore Runbook
+# Estimated time: 30-45 minutes
+
+# === 1. PREPARE ===
+RECOVERY_TIME="2026-01-14T10:00:00Z"  # Set to target recovery point
+RECOVERY_INSTANCE="eurocomply-prod-pitr-$(date +%s)"
+SOURCE_INSTANCE="eurocomply-prod"
+
+echo "Starting PITR restore to $RECOVERY_TIME"
+echo "Recovery instance: $RECOVERY_INSTANCE"
+
+# === 2. INITIATE RESTORE ===
+aws rds restore-db-instance-to-point-in-time \
+  --source-db-instance-identifier $SOURCE_INSTANCE \
+  --target-db-instance-identifier $RECOVERY_INSTANCE \
+  --restore-time $RECOVERY_TIME \
+  --db-instance-class db.t3.medium \
+  --vpc-security-group-ids sg-xxx \
+  --db-subnet-group-name eurocomply-prod \
+  --no-publicly-accessible
+
+# === 3. WAIT FOR AVAILABILITY ===
+echo "Waiting for instance availability (typically 15-25 minutes)..."
+aws rds wait db-instance-available \
+  --db-instance-identifier $RECOVERY_INSTANCE
+
+# === 4. GET ENDPOINT ===
+ENDPOINT=$(aws rds describe-db-instances \
+  --db-instance-identifier $RECOVERY_INSTANCE \
+  --query 'DBInstances[0].Endpoint.Address' \
+  --output text)
+echo "Recovery endpoint: $ENDPOINT"
+
+# === 5. VERIFY DATA INTEGRITY ===
+echo "Verifying data integrity..."
+psql -h $ENDPOINT -U eurocomply -d eurocomply -c "
+  -- Check row counts for critical tables
+  SELECT 'organizations' as table_name, COUNT(*) as count FROM organizations
+  UNION ALL SELECT 'products', COUNT(*) FROM products
+  UNION ALL SELECT 'passports', COUNT(*) FROM passports
+  UNION ALL SELECT 'users', COUNT(*) FROM users;
+
+  -- Check latest timestamps (should be before RECOVERY_TIME)
+  SELECT 'Latest product update' as check_name, MAX(updated_at) as value FROM products
+  UNION ALL SELECT 'Latest passport', MAX(created_at) FROM passports;
+"
+
+# === 6. VERIFICATION CHECKLIST ===
+echo "
+┌─────────────────────────────────────────────────────────────────┐
+│                   MANUAL VERIFICATION CHECKLIST                  │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  [ ] Row counts match expected (compare to monitoring metrics)  │
+│  [ ] Latest timestamps are before recovery point                │
+│  [ ] Sample 5 random products and verify data                   │
+│  [ ] Verify tenant isolation (query with wrong tenant fails)    │
+│  [ ] Test login with known user credentials                     │
+│  [ ] Generate test DPP from recovered data                      │
+│                                                                  │
+│  If all checks pass:                                            │
+│  1. Update ECS task definition with new endpoint                │
+│  2. Deploy updated task definition                              │
+│  3. Verify API health                                           │
+│  4. Delete old instance after 24h observation                   │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+"
+```
+
+### Runbook 2: Single-Tenant Data Restore
+
+**When to use:** Customer requests data recovery, accidental deletion, tenant-specific corruption.
+
+```bash
+#!/bin/bash
+# Single-Tenant Restore Runbook
+# Estimated time: 45-60 minutes
+
+# === 1. IDENTIFY TENANT ===
+ORG_ID="org_01h8x9y2z3a4b5c6d7e8f9g0h1"  # Target organization
+RECOVERY_TIME="2026-01-14T10:00:00Z"      # Recovery point
+TENANT_SCHEMA="tenant_${ORG_ID}"
+
+echo "Restoring tenant: $ORG_ID"
+echo "Schema: $TENANT_SCHEMA"
+echo "Recovery point: $RECOVERY_TIME"
+
+# === 2. CREATE PITR INSTANCE (same as full restore) ===
+RECOVERY_INSTANCE="eurocomply-tenant-restore-$(date +%s)"
+
+aws rds restore-db-instance-to-point-in-time \
+  --source-db-instance-identifier eurocomply-prod \
+  --target-db-instance-identifier $RECOVERY_INSTANCE \
+  --restore-time $RECOVERY_TIME \
+  --db-instance-class db.t3.small \
+  --vpc-security-group-ids sg-xxx \
+  --db-subnet-group-name eurocomply-prod
+
+aws rds wait db-instance-available \
+  --db-instance-identifier $RECOVERY_INSTANCE
+
+RECOVERY_ENDPOINT=$(aws rds describe-db-instances \
+  --db-instance-identifier $RECOVERY_INSTANCE \
+  --query 'DBInstances[0].Endpoint.Address' --output text)
+
+# === 3. EXPORT TENANT DATA FROM RECOVERED INSTANCE ===
+echo "Exporting tenant data from recovered instance..."
+
+# Export tenant schema to SQL file
+pg_dump -h $RECOVERY_ENDPOINT -U eurocomply -d eurocomply \
+  --schema=$TENANT_SCHEMA \
+  --no-owner \
+  --no-privileges \
+  -f /tmp/tenant_restore_${ORG_ID}.sql
+
+# === 4. VERIFY EXPORT ===
+echo "Verifying export..."
+grep -c "INSERT INTO" /tmp/tenant_restore_${ORG_ID}.sql
+ls -lh /tmp/tenant_restore_${ORG_ID}.sql
+
+# === 5. RESTORE TO PRODUCTION (CAREFUL!) ===
+echo "
+┌─────────────────────────────────────────────────────────────────┐
+│                    ⚠️  PRODUCTION RESTORE ⚠️                      │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  BEFORE RESTORING TO PRODUCTION:                                │
+│                                                                  │
+│  [ ] Notify customer of planned restore window                  │
+│  [ ] Take fresh snapshot of current production                  │
+│  [ ] Verify export file integrity                               │
+│  [ ] Confirm customer approval                                  │
+│                                                                  │
+│  RESTORE STEPS:                                                 │
+│  1. Drop current tenant schema (or rename to _backup)           │
+│  2. Import restored schema                                      │
+│  3. Verify data integrity                                       │
+│  4. Notify customer                                             │
+│                                                                  │
+│  COMMANDS:                                                      │
+│  psql -h prod-db -c \"ALTER SCHEMA $TENANT_SCHEMA                │
+│                       RENAME TO ${TENANT_SCHEMA}_backup\"        │
+│  psql -h prod-db -f /tmp/tenant_restore_${ORG_ID}.sql           │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+"
+
+# === 6. RESTORE DYNAMODB ITEMS FOR TENANT ===
+echo "Restoring DynamoDB items for tenant..."
+
+# Use DynamoDB PITR to restore to temp table
+aws dynamodb restore-table-to-point-in-time \
+  --source-table-name eurocomply-items-prod \
+  --target-table-name eurocomply-items-restore-${ORG_ID} \
+  --restore-date-time $RECOVERY_TIME
+
+# Wait for restore
+aws dynamodb wait table-exists \
+  --table-name eurocomply-items-restore-${ORG_ID}
+
+# Scan and copy items for specific org (using GSI)
+# Note: In production, use a script that:
+# 1. Queries GSI1 for all items with pk starting with "ORG#${ORG_ID}"
+# 2. Batch-writes to production table
+# 3. Verifies counts
+
+# === 7. CLEANUP ===
+echo "
+Cleanup steps (after verification):
+1. Delete recovery RDS instance:
+   aws rds delete-db-instance --db-instance-identifier $RECOVERY_INSTANCE --skip-final-snapshot
+2. Delete DynamoDB restore table:
+   aws dynamodb delete-table --table-name eurocomply-items-restore-${ORG_ID}
+3. Delete backup schema from production (after 7 days):
+   psql -h prod-db -c \"DROP SCHEMA ${TENANT_SCHEMA}_backup CASCADE\"
+"
+```
+
+### Runbook 3: DynamoDB Point-in-Time Recovery
+
+**When to use:** Item data corruption, need to recover DPP item records.
+
+```bash
+#!/bin/bash
+# DynamoDB PITR Runbook
+# Estimated time: 15-30 minutes
+
+RECOVERY_TIME="2026-01-14T10:00:00Z"
+SOURCE_TABLE="eurocomply-items-prod"
+RESTORE_TABLE="eurocomply-items-pitr-$(date +%s)"
+
+# === 1. INITIATE RESTORE ===
+aws dynamodb restore-table-to-point-in-time \
+  --source-table-name $SOURCE_TABLE \
+  --target-table-name $RESTORE_TABLE \
+  --restore-date-time $RECOVERY_TIME
+
+# === 2. WAIT FOR RESTORE ===
+echo "Waiting for table restore..."
+aws dynamodb wait table-exists --table-name $RESTORE_TABLE
+
+# === 3. VERIFY COUNTS ===
+ORIGINAL_COUNT=$(aws dynamodb scan \
+  --table-name $SOURCE_TABLE \
+  --select COUNT \
+  --query 'Count' --output text)
+
+RESTORED_COUNT=$(aws dynamodb scan \
+  --table-name $RESTORE_TABLE \
+  --select COUNT \
+  --query 'Count' --output text)
+
+echo "Original table count: $ORIGINAL_COUNT"
+echo "Restored table count: $RESTORED_COUNT"
+
+# === 4. SAMPLE VERIFICATION ===
+echo "Sampling 10 random items..."
+aws dynamodb scan \
+  --table-name $RESTORE_TABLE \
+  --limit 10 \
+  --projection-expression "pk,sk,serialNumber,createdAt"
+
+# === 5. SWAP TABLES (if full replacement needed) ===
+echo "
+To swap tables:
+1. Update application config to use $RESTORE_TABLE
+2. Deploy updated configuration
+3. Verify application functionality
+4. Rename or delete original table after 24h observation
+"
+```
+
+---
+
+## Automated Restore Verification
+
+Monthly automated job verifies backup restorability:
+
+```yaml
+# .github/workflows/backup-verification.yml
+name: Monthly Backup Verification
+
+on:
+  schedule:
+    - cron: '0 3 1 * *'  # First day of each month, 3 AM UTC
+
+jobs:
+  verify-rds-backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Restore from latest snapshot
+        run: |
+          SNAPSHOT=$(aws rds describe-db-snapshots \
+            --db-instance-identifier eurocomply-prod \
+            --query 'DBSnapshots | sort_by(@, &SnapshotCreateTime) | [-1].DBSnapshotIdentifier' \
+            --output text)
+
+          aws rds restore-db-instance-from-db-snapshot \
+            --db-instance-identifier backup-verify-${{ github.run_id }} \
+            --db-snapshot-identifier $SNAPSHOT \
+            --db-instance-class db.t3.micro
+
+          aws rds wait db-instance-available \
+            --db-instance-identifier backup-verify-${{ github.run_id }}
+
+      - name: Run integrity checks
+        run: |
+          ENDPOINT=$(aws rds describe-db-instances \
+            --db-instance-identifier backup-verify-${{ github.run_id }} \
+            --query 'DBInstances[0].Endpoint.Address' --output text)
+
+          # Run test suite against restored database
+          DATABASE_URL="postgresql://verify:${{ secrets.VERIFY_PASSWORD }}@$ENDPOINT/eurocomply" \
+            npm run test:db-integrity
+
+      - name: Cleanup
+        if: always()
+        run: |
+          aws rds delete-db-instance \
+            --db-instance-identifier backup-verify-${{ github.run_id }} \
+            --skip-final-snapshot
+
+      - name: Report results
+        run: |
+          # Send Slack notification with results
+          curl -X POST ${{ secrets.SLACK_WEBHOOK }} \
+            -d '{"text": "✅ Monthly backup verification passed"}'
+
+  verify-dynamodb-backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Restore DynamoDB table
+        run: |
+          aws dynamodb restore-table-to-point-in-time \
+            --source-table-name eurocomply-items-prod \
+            --target-table-name backup-verify-${{ github.run_id }} \
+            --use-latest-restorable-time
+
+          aws dynamodb wait table-exists \
+            --table-name backup-verify-${{ github.run_id }}
+
+      - name: Verify item count
+        run: |
+          COUNT=$(aws dynamodb scan \
+            --table-name backup-verify-${{ github.run_id }} \
+            --select COUNT \
+            --query 'Count' --output text)
+
+          if [ "$COUNT" -lt 1000 ]; then
+            echo "ERROR: Unexpected low item count: $COUNT"
+            exit 1
+          fi
+          echo "Item count verified: $COUNT"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          aws dynamodb delete-table \
+            --table-name backup-verify-${{ github.run_id }}
+```
+
+---
+
+## Test Execution Runbook
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -348,6 +704,7 @@ curl -I https://dpp.eurocomply.eu/health
 │  • Notify team of scheduled test                                │
 │  • Verify backup status                                         │
 │  • Prepare isolated test environment                            │
+│  • Identify test tenant (use internal test org)                 │
 │                                                                  │
 │  TEST EXECUTION:                                                │
 │  ───────────────                                                │
@@ -356,7 +713,8 @@ curl -I https://dpp.eurocomply.eu/health
 │  3. Measure time to service availability                        │
 │  4. Verify data integrity                                       │
 │  5. Run integration tests against recovered environment         │
-│  6. Record test completion time                                 │
+│  6. Test single-tenant restore for test org                     │
+│  7. Record test completion time                                 │
 │                                                                  │
 │  POST-TEST:                                                     │
 │  ──────────                                                     │
@@ -364,9 +722,47 @@ curl -I https://dpp.eurocomply.eu/health
 │  • Document any data loss (RPO)                                 │
 │  • Clean up test resources                                      │
 │  • Update runbooks if issues found                              │
-│  • File test report                                             │
+│  • File test report (template below)                            │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
+```
+
+### DR Test Report Template
+
+```markdown
+# DR Test Report - Q[X] 2026
+
+**Test Date:** YYYY-MM-DD
+**Test Lead:** [Name]
+**Test Type:** [PITR / Single-Tenant / Region Failover / Full DR]
+
+## Summary
+- **Overall Result:** PASS / FAIL
+- **RTO Target:** X minutes | **RTO Achieved:** Y minutes
+- **RPO Target:** X minutes | **RPO Achieved:** Y minutes
+
+## Tests Performed
+| Test | Target | Actual | Result |
+|------|--------|--------|--------|
+| RDS PITR restore | 30 min | XX min | ✅/❌ |
+| Data integrity check | 100% | XX% | ✅/❌ |
+| Single-tenant restore | 60 min | XX min | ✅/❌ |
+| DynamoDB restore | 15 min | XX min | ✅/❌ |
+| Application functionality | Pass | Pass/Fail | ✅/❌ |
+
+## Issues Found
+1. [Issue description]
+   - Impact: [Description]
+   - Resolution: [How it was fixed]
+   - Runbook updated: Yes/No
+
+## Action Items
+- [ ] [Action item 1]
+- [ ] [Action item 2]
+
+## Approvals
+- [ ] Test Lead: [Name] - Date
+- [ ] Platform Lead: [Name] - Date
 ```
 
 ---
