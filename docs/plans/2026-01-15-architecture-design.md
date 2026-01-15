@@ -292,7 +292,7 @@ Tenant → Cell routing stored in:
 
 ### Version States
 
-Design and Marketing workspaces use formal versioning with the following states:
+Design and Marketing workspaces use formal versioning. Once RELEASED, a version can be referenced **forever** by Operations.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -306,18 +306,15 @@ Design and Marketing workspaces use formal versioning with the following states:
 │                                   ▼                                          │
 │  ┌───────┐    ┌────────────────┐    ┌───────────┐    ┌──────────┐          │
 │  │ DRAFT │───►│ PENDING_REVIEW │───►│ IN_REVIEW │───►│ RELEASED │          │
-│  └───────┘    └────────────────┘    └───────────┘    └────┬─────┘          │
+│  └───────┘    └────────────────┘    └───────────┘    └──────────┘          │
 │      │         (Contributor          (Claimed by          │                 │
 │      │          submits)              reviewer)           │                 │
-│      │                                                    ▼                 │
-│      │        ┌──────────────────────────────────►  ┌──────────┐          │
-│      │        │  (Editor/Manager direct release)    │  ACTIVE  │          │
-│      │        │                                     └────┬─────┘          │
-│      │                                                   │                 │
-│      │                                                   ▼                 │
-│      │                                             ┌──────────┐           │
-│      │                                             │ ARCHIVED │           │
-│      │                                             └──────────┘           │
+│      │                                                    │                 │
+│      └────────────────────────────────────────────────────┘                 │
+│                    (Editor/Manager direct release)                          │
+│                                                                              │
+│  RELEASED = Final. Can be referenced by Operations forever.                 │
+│  No automatic archiving. No ACTIVE state.                                   │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -328,9 +325,7 @@ Design and Marketing workspaces use formal versioning with the following states:
 | **PENDING_REVIEW** | Submitted, awaiting reviewer claim | No | No |
 | **IN_REVIEW** | Claimed by a specific reviewer | No | No |
 | **REJECTED** | Reviewer rejected, author can revise | Yes (new draft) | No |
-| **RELEASED** | Current version, ready for use | No | Yes |
-| **ACTIVE** | Referenced by Operations/Compliance | No (immutable) | Yes (has refs) |
-| **ARCHIVED** | Superseded, no active references | No | No |
+| **RELEASED** | Done. Immutable. Can be referenced forever. | No | Yes |
 
 ### State Transitions
 
@@ -341,24 +336,33 @@ Design and Marketing workspaces use formal versioning with the following states:
 | PENDING_REVIEW → IN_REVIEW | Reviewer claims | EDITOR/MANAGER |
 | IN_REVIEW → RELEASED | Reviewer approves | EDITOR/MANAGER |
 | IN_REVIEW → REJECTED | Reviewer rejects | EDITOR/MANAGER |
-| RELEASED → ACTIVE | Referenced by batch/DPP | Automatic |
-| ACTIVE → RELEASED | All references cleared | Automatic (hourly check) |
-| RELEASED → ARCHIVED | Newer version released | Automatic |
+| REJECTED → DRAFT | Author revises | CONTRIBUTOR |
 
-### ACTIVE State (Reference Tracking)
+**No automatic state changes.** RELEASED is the terminal state for versions.
 
-When Operations creates a batch or Compliance issues a DPP referencing a version:
-- Version automatically becomes ACTIVE
-- ACTIVE versions are **immutable** - cannot be modified
-- System tracks reference counts: `activeBatchCount`, `activeDppCount`
-- Version returns to RELEASED when all references are cleared
+### Product-Level Archiving
+
+Archiving happens at the **product level**, not version level:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  Design v2 (ACTIVE)                                             │
-│  ├── activeBatchCount: 2 (Batch #100, #101 in production)       │
-│  ├── activeDppCount: 1 (DPP #500 issued)                        │
-│  └── Cannot archive until: all batches complete + DPP superseded│
+│                    PRODUCT ARCHIVING                             │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Product States:                                                │
+│  • ACTIVE   - Normal product, can create batches/DPPs           │
+│  • ARCHIVED - Discontinued (soft delete)                        │
+│                                                                  │
+│  When product is ARCHIVED:                                      │
+│  • All versions remain (for audit/history)                      │
+│  • Cannot create new batches referencing it                     │
+│  • Cannot issue new DPPs                                        │
+│  • Existing DPPs remain valid                                   │
+│  • Can be restored to ACTIVE if needed                          │
+│                                                                  │
+│  Archiving is MANUAL - user decides to discontinue a product.   │
+│  This is NOT automatic based on batch completion.               │
+│                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -373,23 +377,27 @@ When Operations creates a batch or Compliance issues a DPP referencing a version
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  Product: Organic Cotton T-Shirt (TSH-001)                      │
+│  Product: Organic Cotton T-Shirt (TSH-001)   Status: ACTIVE     │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  DESIGN VERSIONS                                                │
+│  DESIGN VERSIONS (all RELEASED, all can be referenced)          │
 │  ───────────────                                                 │
-│  v3 (RELEASED) ◄── Current, available for new batches           │
-│  v2 (ACTIVE)   ◄── Referenced by Batch #12345, #12346           │
-│  v1 (ARCHIVED)     No active references, historical             │
+│  v3 (RELEASED) ◄── Latest version                               │
+│  v2 (RELEASED) ◄── Still valid, older batches use this          │
+│  v1 (RELEASED)     Original version, still referenceable        │
 │                                                                  │
 │  OPERATIONS REFERENCES                                          │
 │  ────────────────────                                            │
 │  Batch #12345 → design_version_id = v2 (locked at commit)       │
-│  Batch #12350 → design_version_id = v3 (locked at commit)       │
+│  Batch #12346 → design_version_id = v2 (same version, months later)│
+│  Batch #12350 → design_version_id = v3 (newer batches use v3)   │
 │                                                                  │
 │  COMPLIANCE REFERENCES                                          │
 │  ────────────────────                                            │
 │  DPP #001 → snapshot of Design v3 + Marketing v4                │
+│                                                                  │
+│  All versions remain RELEASED forever.                          │
+│  Operations can use v1, v2, or v3 for any batch.                │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -929,7 +937,8 @@ AWS KMS Master Key (per-cell)
 Resolved in this session:
 - [x] Authentication provider → Clerk
 - [x] Event architecture → PostgreSQL outbox (not Kafka)
-- [x] Version states → Full state machine (DRAFT → PENDING_REVIEW → IN_REVIEW → RELEASED → ACTIVE → ARCHIVED)
+- [x] Version states → Simplified (DRAFT → PENDING_REVIEW → IN_REVIEW → RELEASED). No ACTIVE/ARCHIVED on versions.
+- [x] Product archiving → Manual, at product level (not version level)
 - [x] Status List → Include in design
 - [x] Hub model → Product as shared entity, explicit versions
 - [x] Clerk ↔ walt.id integration → Clerk for auth, walt.id for signing, linked via user ID
@@ -962,3 +971,4 @@ Still to resolve (in subsequent doc reviews):
 |---------|------|---------|
 | 0.1 | 2026-01-15 | Initial draft from Architecture Doc review |
 | 0.2 | 2026-01-15 | Updated version states to full state machine, added Clerk ↔ walt.id integration |
+| 0.3 | 2026-01-15 | Simplified version states (no ACTIVE/ARCHIVED), added product-level archiving |

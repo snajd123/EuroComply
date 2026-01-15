@@ -364,11 +364,12 @@ Operations uses PENDING → COMMITTED workflow:
 │  2. Can immediately commit OR let auto-commit handle it                     │
 │                                                                              │
 │  COMMIT (by EDITOR/MANAGER):                                                │
-│  1. Validates design version still valid (not ARCHIVED)                     │
-│  2. Validates material lot availability                                     │
-│  3. Deducts inventory (transactional)                                       │
-│  4. Status: PENDING → COMMITTED                                             │
-│  5. Record becomes IMMUTABLE                                                │
+│  1. Validates product is ACTIVE (not archived)                              │
+│  2. Validates design version is RELEASED                                    │
+│  3. Validates material lot availability                                     │
+│  4. Deducts inventory (transactional)                                       │
+│  5. Status: PENDING → COMMITTED                                             │
+│  6. Record becomes IMMUTABLE                                                │
 │                                                                              │
 │  After COMMITTED:                                                           │
 │  • Only status can change (PLANNED → IN_PRODUCTION → COMPLETED)            │
@@ -379,7 +380,41 @@ Operations uses PENDING → COMMITTED workflow:
 
 ---
 
-## 9. Data Model
+## 9. Product Archiving
+
+Archiving happens at the **product level**, not version level:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         PRODUCT ARCHIVING                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Product States:                                                            │
+│  • ACTIVE   - Normal product, can create batches/DPPs                       │
+│  • ARCHIVED - Discontinued (soft delete)                                    │
+│                                                                              │
+│  When product is ARCHIVED:                                                  │
+│  • All versions remain (for audit/history)                                  │
+│  • Cannot create new batches referencing it                                 │
+│  • Cannot issue new DPPs                                                    │
+│  • Existing DPPs remain valid                                               │
+│  • Can be restored to ACTIVE if needed                                      │
+│                                                                              │
+│  VERSION STATES (unchanged by archiving):                                   │
+│  • DRAFT, PENDING_REVIEW, IN_REVIEW, REJECTED, RELEASED                    │
+│  • Once RELEASED, a version stays RELEASED forever                          │
+│  • No automatic archiving of versions                                       │
+│                                                                              │
+│  WHO CAN ARCHIVE:                                                           │
+│  • MANAGER in any workspace with access to the product                     │
+│  • Admin users                                                              │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 10. Data Model
 
 ### Core Tables
 
@@ -468,7 +503,7 @@ See `2026-01-15-architecture-design.md` Section 8 for full schema including:
 
 ---
 
-## 10. Security
+## 11. Security
 
 ### Access Control Enforcement
 
@@ -523,7 +558,7 @@ async function getProducts(userId: string): Promise<Product[]> {
 
 ---
 
-## 11. Simplifications from Original Design
+## 12. Simplifications from Original Design
 
 | Original Feature | Simplification | Rationale |
 |------------------|----------------|-----------|
@@ -535,7 +570,7 @@ async function getProducts(userId: string): Promise<Product[]> {
 
 ---
 
-## 12. Cross-Workspace Notifications
+## 13. Cross-Workspace Notifications
 
 When upstream workspaces update, downstream workspaces are notified:
 
@@ -548,7 +583,7 @@ When upstream workspaces update, downstream workspaces are notified:
 
 ---
 
-## 13. Related Documents
+## 14. Related Documents
 
 | Document | Purpose |
 |----------|---------|
@@ -562,3 +597,4 @@ When upstream workspaces update, downstream workspaces are notified:
 | Version | Date | Changes |
 |---------|------|---------|
 | 0.1 | 2026-01-15 | Initial draft from USER_MANAGEMENT.md review |
+| 0.2 | 2026-01-15 | Simplified version states (no ACTIVE/ARCHIVED on versions), added product-level archiving |
