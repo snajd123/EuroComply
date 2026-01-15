@@ -1920,18 +1920,1652 @@ GET    /api/v1/operations/mass-balance/:certType       # Get cert-specific balan
 
 ---
 
-## 16. Changelog
+## 16. Shipping & Logistics Module
+
+### 16.1 Strategic Overview
+
+EuroComply acts as a **Logistics Broker** - we don't just record that a product is compliant; we notarize the movement of goods across borders. The shipping label becomes the **"Seal of Compliance"**.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    THE "COMPLIANT HIGHWAY" MODEL                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  TRADITIONAL SHIPPING                   EUROCOMPLY SHIPPING                 │
+│  ────────────────────                   ────────────────────                │
+│  Ship first, prove later                Prove first, then ship             │
+│  Compliance is paperwork                Compliance is built-in             │
+│  Labels are just logistics              Labels are "Sealed Evidence"       │
+│                                                                              │
+│  THE COMPLIANCE GATE:                                                       │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  1. STAGE    │ User selects Batch/Serials to ship                   │   │
+│  │  2. VERIFY   │ System runs Compliance Scan (notary events, certs)   │   │
+│  │  3. BUY      │ User selects carrier, sees rate + Compliance Fee     │   │
+│  │  4. SEAL     │ Label generated, EPCIS AggregationEvent minted       │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                              │
+│  KEY INSIGHT: If we don't control the label, we can't guarantee that       │
+│  the physical goods match the digital notary chain.                        │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 16.2 Carrier Integration (Aggregator Model)
+
+We use **EasyPost** (or similar aggregator) as our single integration point. This provides access to 100+ carriers while focusing engineering on our differentiator: the Compliance Gate.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    CARRIER INTEGRATION ARCHITECTURE                          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐       │
+│  │   EuroComply    │     │    EasyPost     │     │    Carriers     │       │
+│  │  Compliance     │────►│   Aggregator    │────►│  DHL, UPS, etc  │       │
+│  │     Gate        │     │                 │     │                 │       │
+│  └─────────────────┘     └─────────────────┘     └─────────────────┘       │
+│          │                       │                       │                  │
+│          │                       │                       │                  │
+│   Verify serials          Get rates             Generate label             │
+│   Check certs             Create shipment       Track package              │
+│   Mint EPCIS event        Void label            Delivery webhook           │
+│                                                                              │
+│  COST MODEL:                                                                │
+│  ─────────────                                                              │
+│  EasyPost fee:        ~€0.05/label                                         │
+│  Carrier rate:        €15.00 (passed through)                              │
+│  Our markup:          €1.50 (10%)                                          │
+│  Compliance Unlock:   €15.00 (Evidence Package)                            │
+│  EPCIS Events:        €0.03 × 500 EPCs = €15.00                           │
+│  ──────────────────────────────────────                                    │
+│  Customer pays:       €46.55                                               │
+│  Our revenue:         €31.45                                               │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 16.3 Shipping Consignment Data Model
+
+```sql
+CREATE TYPE consignment_status AS ENUM (
+    'STAGED',           -- Serials selected, not yet verified
+    'VERIFIED',         -- Compliance scan passed
+    'PAID',             -- Payment collected
+    'LABEL_GENERATED',  -- Label created, EPCIS minted
+    'IN_TRANSIT',       -- Carrier has package
+    'DELIVERED',        -- Confirmed delivery
+    'CANCELLED',        -- Cancelled before shipment
+    'EXCEPTION'         -- Delivery exception
+);
+
+CREATE TYPE consignment_direction AS ENUM (
+    'INBOUND',          -- Procurement (PO receiving)
+    'OUTBOUND'          -- Distribution (SO fulfillment)
+);
+
+CREATE TABLE shipping_consignment (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id     UUID NOT NULL REFERENCES organization(id),
+
+    -- Link to order
+    order_id            UUID REFERENCES operations_order(id),
+    direction           consignment_direction NOT NULL,
+
+    -- Consignment identity
+    consignment_number  VARCHAR(50) NOT NULL,
+
+    -- What's being shipped (EPC binding)
+    serial_ids          UUID[] NOT NULL,
+    epc_list            TEXT[] NOT NULL,
+    epc_merkle_root     VARCHAR(64) NOT NULL,   -- Cryptographic binding
+    unit_count          INT NOT NULL,
+
+    -- Origin (with EUDR/ESPR spatiotemporal proof)
+    origin_facility_id  UUID REFERENCES facility(id),
+    origin_gln          VARCHAR(20),
+    origin_latitude     DECIMAL(10, 7),
+    origin_longitude    DECIMAL(10, 7),
+    origin_captured_at  TIMESTAMPTZ,
+    origin_event_id     UUID REFERENCES operations_event(id),
+
+    -- Destination
+    destination_name    VARCHAR(255) NOT NULL,
+    destination_address TEXT NOT NULL,
+    destination_city    VARCHAR(100),
+    destination_country CHAR(2) NOT NULL,
+    destination_postal  VARCHAR(20),
+
+    -- Carrier/Aggregator data
+    aggregator          VARCHAR(50) DEFAULT 'EASYPOST',
+    aggregator_shipment_id VARCHAR(255),
+    carrier_code        VARCHAR(50),
+    carrier_name        VARCHAR(100),
+    service_level       VARCHAR(100),
+    tracking_number     VARCHAR(255),
+    label_url           TEXT,
+    label_format        VARCHAR(20) DEFAULT 'PDF',
+
+    -- GS1 / EPCIS data
+    sscc                VARCHAR(30),            -- Serial Shipping Container Code
+    epcis_event_id      UUID REFERENCES epcis_event(id),
+
+    -- Compliance verification
+    compliance_status   VARCHAR(20),            -- PASSED, FAILED, PENDING
+    compliance_checked_at TIMESTAMPTZ,
+    compliance_issues   JSONB DEFAULT '[]',
+
+    -- Evidence Package
+    evidence_package_id UUID,
+    evidence_generated_at TIMESTAMPTZ,
+
+    -- Costs & Monetization
+    carrier_rate        DECIMAL(10, 2),
+    carrier_currency    CHAR(3) DEFAULT 'EUR',
+    logistics_markup    DECIMAL(10, 2),
+    compliance_fee      DECIMAL(10, 2),
+    epcis_fee           DECIMAL(10, 2),
+    total_charged       DECIMAL(10, 2),
+
+    -- Status tracking
+    status              consignment_status NOT NULL DEFAULT 'STAGED',
+    status_changed_at   TIMESTAMPTZ,
+
+    -- Timestamps
+    estimated_delivery  DATE,
+    shipped_at          TIMESTAMPTZ,
+    delivered_at        TIMESTAMPTZ,
+
+    created_at          TIMESTAMPTZ DEFAULT now(),
+    created_by          UUID REFERENCES users(id),
+
+    UNIQUE(organization_id, consignment_number)
+);
+
+CREATE INDEX idx_consignment_org ON shipping_consignment (organization_id);
+CREATE INDEX idx_consignment_order ON shipping_consignment (order_id);
+CREATE INDEX idx_consignment_status ON shipping_consignment (status);
+CREATE INDEX idx_consignment_tracking ON shipping_consignment (tracking_number);
+CREATE INDEX idx_consignment_sscc ON shipping_consignment (sscc);
+```
+
+### 16.4 Compliance Gate Service
+
+```typescript
+interface ComplianceGateResult {
+  passed: boolean;
+  canShip: boolean;
+  issues: ComplianceIssue[];
+  evidencePackageReady: boolean;
+}
+
+interface ComplianceIssue {
+  severity: 'BLOCKER' | 'WARNING' | 'INFO';
+  code: string;
+  message: string;
+  serialId?: string;
+  facilityId?: string;
+}
+
+async function runComplianceGate(
+  consignmentId: string
+): Promise<ComplianceGateResult> {
+  const consignment = await getConsignment(consignmentId);
+  const issues: ComplianceIssue[] = [];
+
+  // 1. Verify all serials have signed notary events
+  for (const serialId of consignment.serial_ids) {
+    const serial = await getSerial(serialId);
+    const batch = await getBatch(serial.batch_id);
+    const events = await getOrderEvents(batch.work_order_id);
+
+    // Check required events are signed
+    const requiredTypes = ['PRODUCTION_COMPLETED', 'QC_INSPECTION', 'BATCH_CREATED'];
+    for (const type of requiredTypes) {
+      const event = events.find(e => e.event_type === type);
+      if (!event) {
+        issues.push({
+          severity: 'BLOCKER',
+          code: 'MISSING_NOTARY_EVENT',
+          message: `Serial ${serial.serial_number} missing ${type} event`,
+          serialId,
+        });
+      } else if (!event.signature_jws) {
+        issues.push({
+          severity: 'BLOCKER',
+          code: 'UNSIGNED_EVENT',
+          message: `Event ${type} for serial ${serial.serial_number} is not signed`,
+          serialId,
+        });
+      }
+    }
+  }
+
+  // 2. Check facility risk levels
+  const facilityId = consignment.origin_facility_id;
+  const riskAssessment = await calculateFacilityRisk(facilityId);
+
+  if (riskAssessment.riskLevel === 'CRITICAL') {
+    issues.push({
+      severity: 'BLOCKER',
+      code: 'FACILITY_CRITICAL_RISK',
+      message: `Origin facility has CRITICAL risk level`,
+      facilityId,
+    });
+  } else if (riskAssessment.riskLevel === 'HIGH') {
+    issues.push({
+      severity: 'WARNING',
+      code: 'FACILITY_HIGH_RISK',
+      message: `Origin facility has HIGH risk level - additional scrutiny may apply`,
+      facilityId,
+    });
+  }
+
+  // 3. Check facility certifications
+  const facility = await getFacility(facilityId);
+  if (facility.certification_status === 'EXPIRED') {
+    issues.push({
+      severity: 'BLOCKER',
+      code: 'FACILITY_CERTS_EXPIRED',
+      message: `Origin facility has expired certifications`,
+      facilityId,
+    });
+  }
+
+  // 4. Verify mass balance (no compliance leakage)
+  const massBalanceOk = await checkMassBalance(consignment.serial_ids);
+  if (!massBalanceOk) {
+    issues.push({
+      severity: 'BLOCKER',
+      code: 'MASS_BALANCE_VIOLATION',
+      message: 'Mass balance check failed - certified material insufficient',
+    });
+  }
+
+  // 5. Verify EPC Merkle root matches serials
+  const computedRoot = computeMerkleRoot(consignment.epc_list);
+  if (computedRoot !== consignment.epc_merkle_root) {
+    issues.push({
+      severity: 'BLOCKER',
+      code: 'EPC_INTEGRITY_FAILED',
+      message: 'EPC list has been tampered with',
+    });
+  }
+
+  const blockers = issues.filter(i => i.severity === 'BLOCKER');
+  const passed = blockers.length === 0;
+
+  // Update consignment
+  await updateConsignment(consignmentId, {
+    compliance_status: passed ? 'PASSED' : 'FAILED',
+    compliance_checked_at: new Date(),
+    compliance_issues: issues,
+    status: passed ? 'VERIFIED' : 'STAGED',
+  });
+
+  return {
+    passed,
+    canShip: passed,
+    issues,
+    evidencePackageReady: passed,
+  };
+}
+```
+
+### 16.5 Label Generation Flow
+
+```typescript
+async function generateShippingLabel(
+  consignmentId: string,
+  carrierSelection: CarrierSelection,
+  paymentMethodId: string
+): Promise<LabelGenerationResult> {
+  const consignment = await getConsignment(consignmentId);
+  const org = await getOrganization(consignment.organization_id);
+
+  // 1. Verify compliance gate passed
+  if (consignment.compliance_status !== 'PASSED') {
+    throw new Error('Compliance gate must pass before label generation');
+  }
+
+  // 2. Calculate costs
+  const carrierRate = carrierSelection.rate;
+  const logisticsMarkup = carrierRate * 0.10;  // 10% markup
+  const complianceFee = getComplianceFee(org.plan);
+  const epcisRate = getEpcisRate(org.plan);
+  const epcisFee = consignment.unit_count * epcisRate;
+  const totalCharged = carrierRate + logisticsMarkup + complianceFee + epcisFee;
+
+  // 3. Charge payment
+  const payment = await stripe.paymentIntents.create({
+    amount: Math.round(totalCharged * 100),
+    currency: 'eur',
+    customer: org.stripeCustomerId,
+    payment_method: paymentMethodId,
+    confirm: true,
+    metadata: {
+      consignment_id: consignmentId,
+      type: 'SHIPPING_LABEL',
+    },
+  });
+
+  if (payment.status !== 'succeeded') {
+    throw new Error('Payment failed');
+  }
+
+  // 4. Update consignment with costs
+  await updateConsignment(consignmentId, {
+    status: 'PAID',
+    carrier_rate: carrierRate,
+    logistics_markup: logisticsMarkup,
+    compliance_fee: complianceFee,
+    epcis_fee: epcisFee,
+    total_charged: totalCharged,
+  });
+
+  // 5. Generate SSCC (Serial Shipping Container Code)
+  const sscc = generateSSCC(org.gs1_company_prefix, consignment.consignment_number);
+
+  // 6. Create shipment with aggregator
+  const easypostShipment = await easypost.Shipment.create({
+    from_address: await getFromAddress(consignment),
+    to_address: {
+      name: consignment.destination_name,
+      street1: consignment.destination_address,
+      city: consignment.destination_city,
+      country: consignment.destination_country,
+      zip: consignment.destination_postal,
+    },
+    parcel: carrierSelection.parcel,
+    carrier_accounts: [carrierSelection.carrier_account_id],
+    service: carrierSelection.service,
+  });
+
+  // 7. Buy the label
+  const boughtShipment = await easypost.Shipment.buy(
+    easypostShipment.id,
+    { rate: carrierSelection.rate_id }
+  );
+
+  // 8. Mint EPCIS AggregationEvent (THE SEAL)
+  const epcisEvent = await mintEpcisAggregationEvent({
+    parentId: sscc,
+    childEpcs: consignment.epc_list,
+    bizStep: 'urn:epcglobal:cbv:bizstep:packing',
+    disposition: 'urn:epcglobal:cbv:disp:in_progress',
+    readPoint: consignment.origin_gln,
+    bizLocation: consignment.origin_gln,
+  });
+
+  // 9. Generate Evidence Package
+  const evidencePackage = await generateEvidencePackage(consignmentId);
+
+  // 10. Update consignment with label data
+  await updateConsignment(consignmentId, {
+    status: 'LABEL_GENERATED',
+    sscc,
+    aggregator_shipment_id: boughtShipment.id,
+    carrier_code: boughtShipment.selected_rate.carrier,
+    carrier_name: boughtShipment.selected_rate.carrier,
+    service_level: boughtShipment.selected_rate.service,
+    tracking_number: boughtShipment.tracking_code,
+    label_url: boughtShipment.postage_label.label_url,
+    epcis_event_id: epcisEvent.id,
+    evidence_package_id: evidencePackage.package_id,
+    evidence_generated_at: new Date(),
+    shipped_at: new Date(),
+  });
+
+  // 11. Record billing
+  await recordShippingTransaction({
+    organizationId: org.id,
+    consignmentId,
+    carrierCost: carrierRate,
+    epcCount: consignment.unit_count,
+  });
+
+  // 12. Update serial statuses
+  for (const serialId of consignment.serial_ids) {
+    await updateSerial(serialId, {
+      status: 'SHIPPED',
+      shipped_at: new Date(),
+      shipped_event_id: epcisEvent.operations_event_id,
+    });
+  }
+
+  return {
+    success: true,
+    consignmentId,
+    sscc,
+    trackingNumber: boughtShipment.tracking_code,
+    labelUrl: boughtShipment.postage_label.label_url,
+    evidencePackageId: evidencePackage.package_id,
+    totalCharged,
+  };
+}
+```
+
+### 16.6 UI: Shipping Console
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    SHIPPING CONSOLE                                          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  CREATE SHIPMENT                                           [+ New Shipment]  │
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────────┐│
+│  │ Step 1: SELECT ITEMS                                     [COMPLETED ✓] ││
+│  │                                                                          ││
+│  │ Batch: BATCH-2026-0042 (500 units)                                      ││
+│  │ Serials selected: 500 of 500                                            ││
+│  │ EPC Merkle Root: 8f3a2b1c...                                           ││
+│  └─────────────────────────────────────────────────────────────────────────┘│
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────────┐│
+│  │ Step 2: COMPLIANCE GATE                                  [PASSED ✓]    ││
+│  │                                                                          ││
+│  │ ✓ All 500 serials have signed notary events                            ││
+│  │ ✓ Origin facility: ACME Plant A (Vietnam) - VERIFIED                   ││
+│  │ ✓ Facility risk: MEDIUM (acceptable)                                   ││
+│  │ ✓ Certifications: GOTS 6.0 (valid), ISO 14001 (valid)                 ││
+│  │ ✓ Mass balance: GOTS cotton sufficient (463kg available)              ││
+│  │ ✓ EPC integrity verified                                               ││
+│  │                                                                          ││
+│  │ ⚠️ 1 Warning: Facility ISO 14001 expires in 45 days                    ││
+│  └─────────────────────────────────────────────────────────────────────────┘│
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────────┐│
+│  │ Step 3: SELECT CARRIER                                   [IN PROGRESS] ││
+│  │                                                                          ││
+│  │ Destination: Zalando GmbH, Berlin, Germany                             ││
+│  │                                                                          ││
+│  │ Available Rates:                                                        ││
+│  │ ┌─────────────────────────────────────────────────────────────────────┐││
+│  │ │ ○ DHL Express     │ 2-3 days │ €24.50          │ [Select]          │││
+│  │ │ ● DHL Economy     │ 5-7 days │ €15.00          │ [Selected]        │││
+│  │ │ ○ UPS Standard    │ 4-5 days │ €18.00          │ [Select]          │││
+│  │ └─────────────────────────────────────────────────────────────────────┘││
+│  └─────────────────────────────────────────────────────────────────────────┘│
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────────┐│
+│  │ Step 4: PAYMENT SUMMARY                                                 ││
+│  │                                                                          ││
+│  │ ┌─────────────────────────────────────────────────────────────────────┐││
+│  │ │ Carrier Rate (DHL Economy)              €15.00                      │││
+│  │ │ Logistics Markup (10%)                  €1.50                       │││
+│  │ │ Compliance Unlock                       €15.00                      │││
+│  │ │ EPCIS Events (500 EPCs × €0.03)         €15.00                      │││
+│  │ │ ─────────────────────────────────────────────────                   │││
+│  │ │ Subtotal                                €46.50                      │││
+│  │ │ VAT (19%)                               €8.84                       │││
+│  │ │ ─────────────────────────────────────────────────                   │││
+│  │ │ TOTAL                                   €55.34                      │││
+│  │ └─────────────────────────────────────────────────────────────────────┘││
+│  │                                                                          ││
+│  │ Payment Method: Visa •••• 4242                          [Change]        ││
+│  │                                                                          ││
+│  │ ┌─────────────────────────────────────────────────────────────────────┐││
+│  │ │           [GENERATE LABEL & EVIDENCE PACKAGE]                       │││
+│  │ │                                                                      │││
+│  │ │   This will:                                                        │││
+│  │ │   • Charge €55.34 to your payment method                            │││
+│  │ │   • Generate a shipping label with SSCC barcode                     │││
+│  │ │   • Mint an EPCIS AggregationEvent (permanent record)               │││
+│  │ │   • Create a signed Evidence Package for customs                    │││
+│  │ └─────────────────────────────────────────────────────────────────────┘││
+│  └─────────────────────────────────────────────────────────────────────────┘│
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 17. EPCIS 2.0 Integration
+
+### 17.1 Overview
+
+EPCIS (Electronic Product Code Information Services) is the GS1 standard for supply chain visibility. EuroComply acts as an **EPCIS Repository**, bridging our internal "Human Truth" (Notary Events) to the "Global Standard" (EPCIS machine-readable data).
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    EPCIS 2.0 BRIDGE ARCHITECTURE                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  INTERNAL (Human Truth)              EXTERNAL (Global Standard)             │
+│  ──────────────────────              ──────────────────────────             │
+│                                                                              │
+│  ┌─────────────────────┐            ┌─────────────────────┐                 │
+│  │  operations_event   │───────────►│   epcis_event       │                 │
+│  │  (Notary Ledger)    │  BRIDGE    │   (GS1 Format)      │                 │
+│  │                     │            │                     │                 │
+│  │  • Who did it       │            │  • What (EPC list)  │                 │
+│  │  • When (timestamp) │            │  • When (eventTime) │                 │
+│  │  • Where (GPS)      │            │  • Where (GLN)      │                 │
+│  │  • Why (attestation)│            │  • Why (bizStep)    │                 │
+│  │  • Digital seal     │            │  • JSON-LD payload  │                 │
+│  └─────────────────────┘            └─────────────────────┘                 │
+│                                              │                               │
+│                                              ▼                               │
+│                              ┌───────────────────────────┐                  │
+│                              │  EPCIS Repository API      │                  │
+│                              │  (Standards-Compliant)     │                  │
+│                              │                           │                  │
+│                              │  • Retailers (Zalando)    │                  │
+│                              │  • Customs (EU Single Win)│                  │
+│                              │  • ERPs (SAP, Oracle)     │                  │
+│                              └───────────────────────────┘                  │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 17.2 EPCIS Event Data Model
+
+```sql
+CREATE TYPE epcis_event_type AS ENUM (
+    'ObjectEvent',       -- State change of objects
+    'AggregationEvent',  -- Packing/unpacking
+    'TransactionEvent',  -- Business transaction linkage
+    'TransformationEvent' -- Input→Output transformation
+);
+
+CREATE TYPE epcis_action AS ENUM (
+    'ADD',      -- Add to parent (aggregation)
+    'OBSERVE',  -- Record observation
+    'DELETE'    -- Remove from parent
+);
+
+CREATE TABLE epcis_event (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id     UUID NOT NULL REFERENCES organization(id),
+
+    -- Bridge to internal notary
+    operations_event_id UUID REFERENCES operations_event(id),
+
+    -- GS1 EPCIS 2.0 Core
+    event_type          epcis_event_type NOT NULL,
+    event_time          TIMESTAMPTZ NOT NULL,
+    event_timezone      VARCHAR(10) DEFAULT '+00:00',
+    record_time         TIMESTAMPTZ DEFAULT now(),
+
+    -- Action (for Aggregation/Transaction events)
+    action              epcis_action,
+
+    -- Business Context (CBV - Core Business Vocabulary)
+    biz_step            VARCHAR(255),     -- urn:epcglobal:cbv:bizstep:shipping
+    disposition         VARCHAR(255),     -- urn:epcglobal:cbv:disp:in_transit
+
+    -- Location (GS1 GLN - Global Location Number)
+    read_point_gln      VARCHAR(20),
+    biz_location_gln    VARCHAR(20),
+
+    -- Source/Destination (for TransactionEvent)
+    source_list         JSONB DEFAULT '[]',
+    destination_list    JSONB DEFAULT '[]',
+
+    -- The "What" - EPC identifiers
+    epc_list            JSONB NOT NULL DEFAULT '[]',   -- Array of EPCs (SGTINs)
+    parent_id           VARCHAR(255),                   -- SSCC for aggregation
+    child_epc_list      JSONB DEFAULT '[]',            -- For aggregation events
+
+    -- Quantity list (for class-level visibility)
+    quantity_list       JSONB DEFAULT '[]',
+
+    -- Business Transaction Links
+    biz_transaction_list JSONB DEFAULT '[]',
+
+    -- ILMD (Instance/Lot Master Data)
+    ilmd                JSONB DEFAULT '{}',
+
+    -- Extensions
+    extensions          JSONB DEFAULT '{}',
+
+    -- Full JSON-LD payload (for external consumption)
+    json_ld_payload     JSONB NOT NULL,
+
+    -- Signature (mirrors operations_event seal)
+    content_hash        VARCHAR(64),
+    signer_did          VARCHAR(255),
+    signature_jws       TEXT,
+
+    created_at          TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX idx_epcis_org ON epcis_event (organization_id);
+CREATE INDEX idx_epcis_type ON epcis_event (event_type);
+CREATE INDEX idx_epcis_time ON epcis_event (event_time);
+CREATE INDEX idx_epcis_bizstep ON epcis_event (biz_step);
+CREATE INDEX idx_epcis_parent ON epcis_event (parent_id);
+CREATE INDEX idx_epcis_ops_event ON epcis_event (operations_event_id);
+-- GIN index for EPC list searches
+CREATE INDEX idx_epcis_epcs ON epcis_event USING gin (epc_list);
+```
+
+### 17.3 EPCIS Event Generator
+
+```typescript
+interface EpcisEventInput {
+  eventType: 'ObjectEvent' | 'AggregationEvent' | 'TransactionEvent' | 'TransformationEvent';
+  action?: 'ADD' | 'OBSERVE' | 'DELETE';
+  bizStep: string;
+  disposition: string;
+  readPoint: string;       // GLN
+  bizLocation: string;     // GLN
+  epcList?: string[];      // For ObjectEvent
+  parentId?: string;       // SSCC for AggregationEvent
+  childEpcList?: string[]; // For AggregationEvent
+  operationsEventId?: string;
+}
+
+async function mintEpcisAggregationEvent(input: {
+  parentId: string;       // SSCC
+  childEpcs: string[];    // Individual EPCs
+  bizStep: string;
+  disposition: string;
+  readPoint: string;
+  bizLocation: string;
+  operationsEventId?: string;
+}): Promise<EpcisEvent> {
+  const org = await getCurrentOrganization();
+  const eventTime = new Date();
+
+  // Build EPCIS 2.0 JSON-LD payload
+  const jsonLdPayload = {
+    '@context': [
+      'https://ref.gs1.org/standards/epcis/2.0.0/epcis-context.jsonld',
+      { 'eurocomply': 'https://eurocomply.io/ns/' }
+    ],
+    'type': 'AggregationEvent',
+    'eventTime': eventTime.toISOString(),
+    'eventTimeZoneOffset': '+00:00',
+    'action': 'ADD',
+    'parentID': input.parentId,
+    'childEPCs': input.childEpcs,
+    'bizStep': input.bizStep,
+    'disposition': input.disposition,
+    'readPoint': { 'id': `urn:epc:id:sgln:${input.readPoint}` },
+    'bizLocation': { 'id': `urn:epc:id:sgln:${input.bizLocation}` },
+    // EuroComply extension: link to our notary event
+    'eurocomply:operationsEventId': input.operationsEventId,
+    'eurocomply:organizationId': org.id,
+  };
+
+  // Hash and sign
+  const contentHash = sha256(JSON.stringify(jsonLdPayload));
+  const signature = await signWithOrganizationKey(org.id, contentHash);
+
+  // Store EPCIS event
+  const epcisEvent = await db.insert('epcis_event', {
+    organization_id: org.id,
+    operations_event_id: input.operationsEventId,
+    event_type: 'AggregationEvent',
+    event_time: eventTime,
+    action: 'ADD',
+    biz_step: input.bizStep,
+    disposition: input.disposition,
+    read_point_gln: input.readPoint,
+    biz_location_gln: input.bizLocation,
+    parent_id: input.parentId,
+    child_epc_list: input.childEpcs,
+    json_ld_payload: jsonLdPayload,
+    content_hash: contentHash,
+    signer_did: org.did,
+    signature_jws: signature.jws,
+  });
+
+  return epcisEvent;
+}
+```
+
+### 17.4 EPCIS CBV (Core Business Vocabulary) Mapping
+
+```typescript
+// Map internal event types to GS1 CBV
+const BIZSTEP_MAPPING: Record<string, string> = {
+  // Receiving
+  'GOODS_RECEIVED': 'urn:epcglobal:cbv:bizstep:receiving',
+  'MATERIAL_RECEIVED': 'urn:epcglobal:cbv:bizstep:receiving',
+
+  // Production
+  'PRODUCTION_STARTED': 'urn:epcglobal:cbv:bizstep:commissioning',
+  'PRODUCTION_COMPLETED': 'urn:epcglobal:cbv:bizstep:commissioning',
+  'BATCH_CREATED': 'urn:epcglobal:cbv:bizstep:commissioning',
+
+  // Quality
+  'QC_INSPECTION': 'urn:epcglobal:cbv:bizstep:inspecting',
+  'QC_RESULT_RECORDED': 'urn:epcglobal:cbv:bizstep:inspecting',
+
+  // Shipping
+  'SHIPMENT_DISPATCHED': 'urn:epcglobal:cbv:bizstep:shipping',
+  'SHIPMENT_IN_TRANSIT': 'urn:epcglobal:cbv:bizstep:shipping',
+  'LABEL_PRINTED': 'urn:epcglobal:cbv:bizstep:packing',
+
+  // Customs
+  'CUSTOMS_CLEARED': 'urn:epcglobal:cbv:bizstep:customs_cleared',
+};
+
+const DISPOSITION_MAPPING: Record<string, string> = {
+  'AVAILABLE': 'urn:epcglobal:cbv:disp:available',
+  'IN_TRANSIT': 'urn:epcglobal:cbv:disp:in_transit',
+  'SELLABLE': 'urn:epcglobal:cbv:disp:sellable_accessible',
+  'QC_PASSED': 'urn:epcglobal:cbv:disp:conformant',
+  'QC_FAILED': 'urn:epcglobal:cbv:disp:non_conformant',
+  'SHIPPED': 'urn:epcglobal:cbv:disp:in_transit',
+  'DELIVERED': 'urn:epcglobal:cbv:disp:retail_sold',
+};
+```
+
+---
+
+## 18. Evidence Package (Customs Green Lane)
+
+### 18.1 Overview
+
+The Evidence Package is a **cryptographically sealed, self-contained document** that proves a shipment is compliant. It's the payload that justifies the Compliance Unlock fee and enables the "Customs Green Lane" premium service.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    EVIDENCE PACKAGE STRUCTURE                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │                       EVIDENCE PACKAGE v1.1                           │  │
+│  │                                                                        │  │
+│  │  ┌─────────────┐   ┌─────────────┐   ┌─────────────┐   ┌───────────┐ │  │
+│  │  │ CONSIGNMENT │   │   ORIGIN    │   │    FOUR     │   │ INTEGRITY │ │  │
+│  │  │   + EPCs    │   │ (EUDR GPS)  │   │   PILLARS   │   │   SEAL    │ │  │
+│  │  │ + Merkle    │   │   + GLN     │   │   OF PROOF  │   │   (JWS)   │ │  │
+│  │  └─────────────┘   └─────────────┘   └─────────────┘   └───────────┘ │  │
+│  │                                              │                        │  │
+│  │                                              ▼                        │  │
+│  │  ┌─────────────────────────────────────────────────────────────────┐ │  │
+│  │  │                    THE FOUR PILLARS                              │ │  │
+│  │  │                                                                  │ │  │
+│  │  │  1. DESIGN COMPLIANCE                                           │ │  │
+│  │  │     └─ BOM snapshot, regulatory declarations, version           │ │  │
+│  │  │                                                                  │ │  │
+│  │  │  2. SUPPLY CHAIN INTEGRITY                                      │ │  │
+│  │  │     └─ Facility snapshots, certifications, risk at production   │ │  │
+│  │  │                                                                  │ │  │
+│  │  │  3. PRODUCTION EVIDENCE                                         │ │  │
+│  │  │     └─ Notary chain, consumption, mass balance, variance        │ │  │
+│  │  │                                                                  │ │  │
+│  │  │  4. IDENTITY CHAIN                                              │ │  │
+│  │  │     └─ Lot → Batch → Serial → DPP traceability                  │ │  │
+│  │  └─────────────────────────────────────────────────────────────────┘ │  │
+│  │                                                                        │  │
+│  │  SECURITY BINDING:                                                    │  │
+│  │  binding_hash = SHA-256(pillars_hash + epc_merkle_root)              │  │
+│  │  signature_jws = sign(binding_hash, organization_did)                 │  │
+│  │                                                                        │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 18.2 Evidence Package Schema
+
+```typescript
+interface EvidencePackage {
+  // Identity
+  package_id: string;
+  package_version: '1.1';
+  generated_at: string;
+
+  // What's being shipped (with cryptographic binding)
+  consignment: {
+    consignment_id: string;
+    sscc: string;
+    carrier: string;
+    tracking_number: string;
+    unit_count: number;
+    epc_list: string[];
+    epc_merkle_root: string;    // SHA-256 Merkle root of sorted EPCs
+  };
+
+  // Spatiotemporal Origin (EUDR/ESPR compliant)
+  origin: {
+    facility_id: string;
+    facility_name: string;
+    gln: string;                         // GS1 Global Location Number
+    coordinates: {
+      latitude: number;
+      longitude: number;
+      accuracy_meters: number;
+      capture_method: 'GPS' | 'VERIFIED_ADDRESS' | 'MANUAL';
+    };
+    captured_at: string;                 // When GPS was recorded
+    captured_event_id: string;           // Link to GOODS_RECEIVED event
+    country_code: string;
+    address: string;
+  };
+
+  destination: {
+    name: string;
+    address: string;
+    city: string;
+    country_code: string;
+    postal_code: string;
+  };
+
+  // The Four Pillars of Proof
+  pillars: {
+    design_compliance: DesignProof;
+    supply_chain_integrity: ChainProof;
+    production_evidence: ProductionProof;
+    identity_chain: IdentityProof;
+  };
+
+  // The Seal (with EPC binding)
+  integrity: {
+    // What we're signing
+    pillars_hash: string;           // SHA-256 of pillars JSON
+    epc_merkle_root: string;        // Duplicate for verification
+    binding_hash: string;           // SHA-256(pillars_hash + epc_merkle_root)
+
+    // The signature
+    signer_did: string;
+    signature_jws: string;          // Signs the binding_hash
+    signature_alg: 'EdDSA';
+
+    // Timestamp authority (optional but recommended)
+    timestamp_proof?: {
+      tsa_url: string;
+      rfc3161_token: string;
+    };
+  };
+
+  // Standards Export
+  epcis_events: EpcisEventSummary[];
+}
+
+interface DesignProof {
+  // What product
+  product_id: string;
+  product_name: string;
+  product_sku: string;
+
+  // Which design version (frozen at production)
+  design_version_id: string;
+  design_version_number: string;
+  design_released_at: string;
+  design_released_by: string;
+
+  // Regulatory requirements declared at design time
+  declared_regulations: {
+    regulation_code: string;        // 'ESPR', 'EUDR', 'REACH'
+    requirement_ids: string[];      // Specific articles/annexes
+    compliance_declared_at: string;
+    declared_by: string;
+  }[];
+
+  // BOM snapshot (what SHOULD go into this product)
+  bom_snapshot: {
+    entry_id: string;
+    material_name: string;
+    material_product_id: string;
+    quantity_per_unit: number;
+    unit: string;
+    required_certifications: string[];  // ['GOTS', 'GRS']
+    facility_id: string;
+    facility_name: string;
+  }[];
+
+  // Design document hash (proves BOM wasn't altered)
+  bom_content_hash: string;
+}
+
+interface ChainProof {
+  // All facilities in the supply chain for this shipment
+  facilities: {
+    facility_id: string;
+    facility_name: string;
+    facility_type: 'EXTRACTION' | 'PROCESSING' | 'MANUFACTURING' | 'ASSEMBLY';
+
+    // Location (EUDR requirement)
+    gln: string;
+    coordinates: {
+      latitude: number;
+      longitude: number;
+    };
+    country_code: string;
+
+    // Supplier
+    supplier_id: string;
+    supplier_name: string;
+
+    // Verification status AT TIME OF PRODUCTION
+    verification_snapshot: {
+      status: 'VERIFIED';
+      verified_at: string;
+      verified_by: string;
+      risk_level: 'LOW' | 'MEDIUM' | 'HIGH';
+      risk_score: number;
+      country_floor_applied: boolean;
+    };
+
+    // Active certifications AT TIME OF PRODUCTION
+    certifications_snapshot: {
+      cert_type: string;          // 'GOTS 6.0'
+      cert_number: string;
+      issuing_body: string;
+      valid_from: string;
+      valid_until: string;
+      status: 'VERIFIED' | 'AUTO_VERIFIED';
+      days_until_expiry: number;  // Calculated at snapshot time
+    }[];
+  }[];
+
+  // Country risk assessment
+  country_risk_snapshot: {
+    country_code: string;
+    composite_risk: number;
+    min_risk_level: string | null;
+    source_year: number;
+  }[];
+}
+
+interface ProductionProof {
+  // The work order that produced this batch
+  work_order: {
+    order_id: string;
+    order_number: string;
+    order_type: 'WORK';
+    status: 'COMPLETED';
+    quantity_ordered: number;
+    quantity_produced: number;
+    started_at: string;
+    completed_at: string;
+  };
+
+  // The batch these serials came from
+  batch: {
+    batch_id: string;
+    batch_number: string;
+    production_start: string;
+    production_end: string;
+    quantity_produced: number;
+    status: 'RELEASED';
+    release_date: string;
+  };
+
+  // Actual material consumption (vs BOM)
+  consumption: {
+    material_name: string;
+    lot_id: string;
+    lot_number: string;
+    source_facility_id: string;
+    source_facility_name: string;
+
+    // Quantities
+    bom_expected: number;
+    actual_consumed: number;
+    variance_pct: number;
+    variance_status: 'OK' | 'WARNING' | 'EXCEEDED';
+
+    // Lot certifications (inherited)
+    lot_certifications: string[];
+  }[];
+
+  // Mass balance proof (anti-leakage)
+  mass_balance: {
+    cert_type: string;
+    material: string;
+    balance_before: number;
+    consumed: number;
+    balance_after: number;
+    sufficient: boolean;
+  }[];
+
+  // The notary chain (digitally sealed events)
+  notary_events: {
+    event_id: string;
+    event_type: string;
+    event_number: number;
+    occurred_at: string;
+
+    // Who
+    performed_by_name: string;
+    performed_by_did: string;
+
+    // Where
+    location: {
+      latitude: number;
+      longitude: number;
+      facility_name: string;
+    } | null;
+
+    // Evidence
+    evidence_count: number;
+    photo_hashes: string[];
+
+    // Digital seal
+    content_hash: string;
+    previous_hash: string;
+    signature_jws: string;
+    signature_valid: boolean;
+  }[];
+
+  // Chain integrity
+  chain_integrity: {
+    total_events: number;
+    all_signatures_valid: boolean;
+    hash_chain_intact: boolean;
+    first_event_hash: string;
+    last_event_hash: string;
+  };
+}
+
+interface IdentityProof {
+  // Lot → Batch → Serial chain for each unit
+  traceability: {
+    serial_number: string;
+    serial_epc: string;           // GS1 SGTIN
+
+    // Parent batch
+    batch_id: string;
+    batch_number: string;
+
+    // Source lots (what went into the batch)
+    source_lots: {
+      lot_id: string;
+      lot_number: string;
+      material_name: string;
+      facility_id: string;
+      facility_name: string;
+      facility_gln: string;
+      purchase_order_number: string;
+    }[];
+
+    // DPP linkage
+    dpp_id: string;
+    dpp_uri: string;
+    dpp_status: 'PENDING' | 'ACTIVE';
+  }[];
+
+  // Merkle proof (for selective disclosure)
+  merkle_tree: {
+    root: string;
+    leaf_count: number;
+    tree_depth: number;
+  };
+}
+```
+
+### 18.3 Evidence Package Generator
+
+```typescript
+async function generateEvidencePackage(
+  consignmentId: string
+): Promise<EvidencePackage> {
+  const consignment = await getConsignment(consignmentId);
+  const org = await getOrganization(consignment.organization_id);
+
+  // 1. Build consignment section
+  const consignmentSection = {
+    consignment_id: consignment.id,
+    sscc: consignment.sscc,
+    carrier: consignment.carrier_name,
+    tracking_number: consignment.tracking_number,
+    unit_count: consignment.unit_count,
+    epc_list: consignment.epc_list,
+    epc_merkle_root: consignment.epc_merkle_root,
+  };
+
+  // 2. Build origin section (EUDR/ESPR spatiotemporal)
+  const originSection = await buildOriginSection(consignment);
+
+  // 3. Build the four pillars
+  const pillars = {
+    design_compliance: await buildDesignProof(consignment),
+    supply_chain_integrity: await buildChainProof(consignment),
+    production_evidence: await buildProductionProof(consignment),
+    identity_chain: await buildIdentityProof(consignment),
+  };
+
+  // 4. Compute hashes
+  const pillarsHash = sha256(JSON.stringify(pillars));
+  const bindingHash = sha256(pillarsHash + consignment.epc_merkle_root);
+
+  // 5. Sign with organization key
+  const signature = await signWithOrganizationKey(org.id, bindingHash);
+
+  // 6. Optional: Get timestamp proof from TSA
+  let timestampProof = undefined;
+  if (org.features.includes('TIMESTAMP_AUTHORITY')) {
+    timestampProof = await getTimestampProof(bindingHash);
+  }
+
+  // 7. Build integrity section
+  const integrity = {
+    pillars_hash: pillarsHash,
+    epc_merkle_root: consignment.epc_merkle_root,
+    binding_hash: bindingHash,
+    signer_did: org.did,
+    signature_jws: signature.jws,
+    signature_alg: 'EdDSA' as const,
+    timestamp_proof: timestampProof,
+  };
+
+  // 8. Get EPCIS events
+  const epcisEvents = await getEpcisEventsForConsignment(consignmentId);
+
+  const evidencePackage: EvidencePackage = {
+    package_id: generateUUID(),
+    package_version: '1.1',
+    generated_at: new Date().toISOString(),
+    consignment: consignmentSection,
+    origin: originSection,
+    destination: {
+      name: consignment.destination_name,
+      address: consignment.destination_address,
+      city: consignment.destination_city,
+      country_code: consignment.destination_country,
+      postal_code: consignment.destination_postal,
+    },
+    pillars,
+    integrity,
+    epcis_events: epcisEvents.map(summarizeEpcisEvent),
+  };
+
+  // 9. Store the package
+  await storeEvidencePackage(evidencePackage);
+
+  return evidencePackage;
+}
+
+// Merkle tree utilities for EPC binding
+function computeMerkleRoot(epcList: string[]): string {
+  const sortedEpcs = [...epcList].sort();
+  const leaves = sortedEpcs.map(epc => sha256(epc));
+  return buildMerkleTree(leaves).root;
+}
+
+function buildMerkleTree(leaves: string[]): { root: string; depth: number } {
+  if (leaves.length === 0) {
+    return { root: sha256(''), depth: 0 };
+  }
+
+  if (leaves.length === 1) {
+    return { root: leaves[0], depth: 0 };
+  }
+
+  const nextLevel: string[] = [];
+  for (let i = 0; i < leaves.length; i += 2) {
+    const left = leaves[i];
+    const right = leaves[i + 1] || left; // Duplicate last if odd
+    nextLevel.push(sha256(left + right));
+  }
+
+  const result = buildMerkleTree(nextLevel);
+  return { root: result.root, depth: result.depth + 1 };
+}
+```
+
+### 18.4 Evidence Package Verification
+
+```typescript
+async function verifyEvidencePackage(
+  pkg: EvidencePackage
+): Promise<VerificationResult> {
+  const issues: VerificationIssue[] = [];
+
+  // 1. Verify EPC Merkle root
+  const computedRoot = computeMerkleRoot(pkg.consignment.epc_list);
+  if (computedRoot !== pkg.consignment.epc_merkle_root) {
+    issues.push({
+      severity: 'CRITICAL',
+      code: 'EPC_MERKLE_MISMATCH',
+      message: 'EPC list has been tampered with',
+    });
+  }
+
+  // 2. Verify pillars hash
+  const computedPillarsHash = sha256(JSON.stringify(pkg.pillars));
+  if (computedPillarsHash !== pkg.integrity.pillars_hash) {
+    issues.push({
+      severity: 'CRITICAL',
+      code: 'PILLARS_HASH_MISMATCH',
+      message: 'Evidence pillars have been tampered with',
+    });
+  }
+
+  // 3. Verify binding hash
+  const computedBindingHash = sha256(
+    pkg.integrity.pillars_hash + pkg.integrity.epc_merkle_root
+  );
+  if (computedBindingHash !== pkg.integrity.binding_hash) {
+    issues.push({
+      severity: 'CRITICAL',
+      code: 'BINDING_HASH_MISMATCH',
+      message: 'Integrity binding has been tampered with',
+    });
+  }
+
+  // 4. Verify JWS signature
+  const signatureValid = await verifyJWS(
+    pkg.integrity.signature_jws,
+    pkg.integrity.binding_hash,
+    pkg.integrity.signer_did
+  );
+  if (!signatureValid) {
+    issues.push({
+      severity: 'CRITICAL',
+      code: 'SIGNATURE_INVALID',
+      message: 'Digital signature verification failed',
+    });
+  }
+
+  // 5. Verify notary chain integrity
+  const chainIntegrity = pkg.pillars.production_evidence.chain_integrity;
+  if (!chainIntegrity.all_signatures_valid) {
+    issues.push({
+      severity: 'CRITICAL',
+      code: 'NOTARY_SIGNATURES_INVALID',
+      message: 'One or more notary event signatures are invalid',
+    });
+  }
+  if (!chainIntegrity.hash_chain_intact) {
+    issues.push({
+      severity: 'CRITICAL',
+      code: 'NOTARY_CHAIN_BROKEN',
+      message: 'Notary event hash chain is broken',
+    });
+  }
+
+  // 6. Verify timestamp proof (if present)
+  if (pkg.integrity.timestamp_proof) {
+    const tsValid = await verifyRFC3161Timestamp(
+      pkg.integrity.timestamp_proof.rfc3161_token,
+      pkg.integrity.binding_hash
+    );
+    if (!tsValid) {
+      issues.push({
+        severity: 'WARNING',
+        code: 'TIMESTAMP_INVALID',
+        message: 'Timestamp proof verification failed',
+      });
+    }
+  }
+
+  const criticalIssues = issues.filter(i => i.severity === 'CRITICAL');
+
+  return {
+    valid: criticalIssues.length === 0,
+    issues,
+    verified_at: new Date().toISOString(),
+    package_id: pkg.package_id,
+  };
+}
+```
+
+---
+
+## 19. Shipping Billing Integration
+
+### 19.1 Overview
+
+Shipping revenue integrates with the existing Base + Per-DPP billing model as additional metered line items on the same invoice.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    SHIPPING BILLING ARCHITECTURE                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  EXISTING MODEL                        NEW SHIPPING ITEMS                   │
+│  ──────────────                        ────────────────────                 │
+│  • Base Subscription                   • Label Markup (% of carrier)        │
+│  • Per-DPP Usage                       • Compliance Unlock (per shipment)   │
+│                                        • EPCIS Events (per EPC)             │
+│                                        • Customs Green Lane (per filing)    │
+│                                                                              │
+│  ONE INVOICE:                                                               │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │ Base fee (Scale):              €749.00                               │   │
+│  │ DPP usage (750K):              €12,500.00                            │   │
+│  │ Shipping & Logistics:          €5,775.00                             │   │
+│  │ Premium Services:              €105.00                               │   │
+│  │ ─────────────────────────────────────────────                        │   │
+│  │ Subtotal:                      €19,129.00                            │   │
+│  │ VAT (19%):                     €3,634.51                             │   │
+│  │ TOTAL:                         €22,763.51                            │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 19.2 Shipping Pricing by Tier
+
+```typescript
+const SHIPPING_PRICING = {
+  // Compliance Unlock - per shipment
+  COMPLIANCE_UNLOCK: {
+    STARTER: 25.00,      // €25 per shipment
+    GROWTH: 20.00,       // €20 per shipment
+    SCALE: 15.00,        // €15 per shipment
+    ENTERPRISE: 10.00,   // €10 per shipment
+    PLATFORM: 5.00,      // €5 per shipment (negotiable)
+  },
+
+  // EPCIS Event Hosting - per EPC in aggregation
+  EPCIS_EVENT: {
+    STARTER: 0.05,       // €0.05 per EPC
+    GROWTH: 0.04,        // €0.04 per EPC
+    SCALE: 0.03,         // €0.03 per EPC
+    ENTERPRISE: 0.02,    // €0.02 per EPC
+    PLATFORM: 0.01,      // €0.01 per EPC (negotiable)
+  },
+
+  // Customs Green Lane - per filing
+  CUSTOMS_FILING: {
+    STARTER: 50.00,      // €50 per filing
+    GROWTH: 40.00,       // €40 per filing
+    SCALE: 35.00,        // €35 per filing
+    ENTERPRISE: 25.00,   // €25 per filing
+    PLATFORM: 15.00,     // €15 per filing (negotiable)
+  },
+
+  // Label Markup - percentage on carrier rate (not tiered)
+  LABEL_MARKUP_PERCENT: 0.10,  // 10% markup on all tiers
+};
+```
+
+### 19.3 Usage Tracking Schema
+
+```sql
+-- Shipping usage tracking (extends existing billing model)
+CREATE TABLE shipping_usage (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id     UUID NOT NULL REFERENCES organization(id),
+
+    -- Billing period
+    period_start        DATE NOT NULL,
+    period_end          DATE NOT NULL,
+
+    -- Compliance Unlock (per shipment)
+    shipments_count     INT DEFAULT 0,
+    compliance_fee_rate DECIMAL(10,2),
+    compliance_total    DECIMAL(10,2) GENERATED ALWAYS AS (
+        shipments_count * compliance_fee_rate
+    ) STORED,
+
+    -- Label Markup (carrier pass-through + margin)
+    carrier_costs       DECIMAL(10,2) DEFAULT 0,
+    label_markup_rate   DECIMAL(5,4) DEFAULT 0.10,
+    label_markup_total  DECIMAL(10,2) GENERATED ALWAYS AS (
+        carrier_costs * label_markup_rate
+    ) STORED,
+
+    -- EPCIS Events (per EPC aggregated)
+    epcis_epc_count     INT DEFAULT 0,
+    epcis_fee_rate      DECIMAL(10,4),
+    epcis_total         DECIMAL(10,2) GENERATED ALWAYS AS (
+        epcis_epc_count * epcis_fee_rate
+    ) STORED,
+
+    -- Customs Filings
+    customs_filings     INT DEFAULT 0,
+    customs_fee_rate    DECIMAL(10,2),
+    customs_total       DECIMAL(10,2) GENERATED ALWAYS AS (
+        customs_filings * customs_fee_rate
+    ) STORED,
+
+    -- Grand total for shipping
+    shipping_total      DECIMAL(10,2) GENERATED ALWAYS AS (
+        COALESCE(compliance_total, 0) +
+        COALESCE(label_markup_total, 0) +
+        COALESCE(epcis_total, 0) +
+        COALESCE(customs_total, 0)
+    ) STORED,
+
+    -- Stripe reporting
+    reported_to_stripe  BOOLEAN DEFAULT false,
+    reported_at         TIMESTAMPTZ,
+
+    created_at          TIMESTAMPTZ DEFAULT now(),
+
+    UNIQUE(organization_id, period_start)
+);
+
+-- Individual shipping transaction log (for audit)
+CREATE TABLE shipping_transaction (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id     UUID NOT NULL REFERENCES organization(id),
+    consignment_id      UUID NOT NULL REFERENCES shipping_consignment(id),
+
+    -- Transaction details
+    transaction_type    VARCHAR(50) NOT NULL,  -- 'COMPLIANCE_UNLOCK', 'LABEL', 'EPCIS', 'CUSTOMS'
+
+    -- Amounts
+    carrier_cost        DECIMAL(10,2),         -- For labels
+    markup_amount       DECIMAL(10,2),         -- Our margin
+    fee_amount          DECIMAL(10,2),         -- Fixed fees
+    epc_count           INT,                   -- For EPCIS events
+
+    -- Totals
+    total_charged       DECIMAL(10,2) NOT NULL,
+
+    -- Timestamps
+    transaction_at      TIMESTAMPTZ DEFAULT now(),
+
+    -- Link to billing period
+    billing_period      DATE NOT NULL
+);
+
+CREATE INDEX idx_shipping_usage_org ON shipping_usage (organization_id);
+CREATE INDEX idx_shipping_tx_org ON shipping_transaction (organization_id);
+CREATE INDEX idx_shipping_tx_period ON shipping_transaction (billing_period);
+CREATE INDEX idx_shipping_tx_consignment ON shipping_transaction (consignment_id);
+```
+
+### 19.4 Stripe Metered Billing Integration
+
+```typescript
+// Report shipping usage to Stripe (called at month-end alongside DPP reporting)
+async function reportShippingUsageToStripe(orgId: string): Promise<void> {
+  const org = await getOrganization(orgId);
+  const periodStart = getCurrentBillingPeriodStart();
+
+  const usage = await db.query(`
+    SELECT * FROM shipping_usage
+    WHERE organization_id = $1 AND period_start = $2
+  `, [orgId, periodStart]);
+
+  if (!usage || usage.reported_to_stripe) return;
+
+  const subscription = await stripe.subscriptions.retrieve(org.subscriptionId);
+
+  // Report each metered component
+  const components = [
+    {
+      priceId: getShippingPriceId('COMPLIANCE_UNLOCK', org.plan),
+      quantity: usage.shipments_count,
+    },
+    {
+      priceId: getShippingPriceId('LABEL_MARKUP', org.plan),
+      quantity: Math.round(usage.label_markup_total * 100), // cents
+    },
+    {
+      priceId: getShippingPriceId('EPCIS_EVENT', org.plan),
+      quantity: usage.epcis_epc_count,
+    },
+    {
+      priceId: getShippingPriceId('CUSTOMS_FILING', org.plan),
+      quantity: usage.customs_filings,
+    },
+  ];
+
+  for (const component of components) {
+    if (component.quantity === 0) continue;
+
+    const item = subscription.items.data.find(
+      i => i.price.id === component.priceId
+    );
+
+    if (item) {
+      await stripe.subscriptionItems.createUsageRecord(item.id, {
+        quantity: component.quantity,
+        timestamp: Math.floor(Date.now() / 1000),
+        action: 'set',
+      });
+    }
+  }
+
+  // Mark as reported
+  await db.update('shipping_usage',
+    { reported_to_stripe: true, reported_at: new Date() },
+    { where: { id: usage.id } }
+  );
+}
+
+// Record shipping transaction when label is generated
+async function recordShippingTransaction(input: {
+  organizationId: string;
+  consignmentId: string;
+  carrierCost: number;
+  epcCount: number;
+}): Promise<void> {
+  const org = await getOrganization(input.organizationId);
+  const pricing = SHIPPING_PRICING;
+  const tier = org.plan;
+  const billingPeriod = getCurrentBillingPeriodStart();
+
+  // Calculate charges
+  const labelMarkup = input.carrierCost * pricing.LABEL_MARKUP_PERCENT;
+  const complianceFee = pricing.COMPLIANCE_UNLOCK[tier];
+  const epcisFee = input.epcCount * pricing.EPCIS_EVENT[tier];
+
+  await db.transaction(async (tx) => {
+    // 1. Record individual transactions
+    await tx.insert('shipping_transaction', {
+      organization_id: input.organizationId,
+      consignment_id: input.consignmentId,
+      transaction_type: 'COMPLIANCE_UNLOCK',
+      fee_amount: complianceFee,
+      total_charged: complianceFee,
+      billing_period: billingPeriod,
+    });
+
+    await tx.insert('shipping_transaction', {
+      organization_id: input.organizationId,
+      consignment_id: input.consignmentId,
+      transaction_type: 'LABEL',
+      carrier_cost: input.carrierCost,
+      markup_amount: labelMarkup,
+      total_charged: labelMarkup,
+      billing_period: billingPeriod,
+    });
+
+    await tx.insert('shipping_transaction', {
+      organization_id: input.organizationId,
+      consignment_id: input.consignmentId,
+      transaction_type: 'EPCIS',
+      epc_count: input.epcCount,
+      total_charged: epcisFee,
+      billing_period: billingPeriod,
+    });
+
+    // 2. Update or create period usage
+    await tx.upsert('shipping_usage', {
+      organization_id: input.organizationId,
+      period_start: billingPeriod,
+      period_end: getEndOfBillingPeriod(billingPeriod),
+      compliance_fee_rate: complianceFee,
+      epcis_fee_rate: pricing.EPCIS_EVENT[tier],
+      customs_fee_rate: pricing.CUSTOMS_FILING[tier],
+    }, {
+      shipments_count: { increment: 1 },
+      carrier_costs: { increment: input.carrierCost },
+      epcis_epc_count: { increment: input.epcCount },
+    });
+  });
+}
+```
+
+---
+
+## 20. Shipping API Endpoints
+
+### Consignments
+
+```
+GET    /api/v1/operations/shipping/consignments              # List consignments
+GET    /api/v1/operations/shipping/consignments/:id          # Get consignment detail
+POST   /api/v1/operations/shipping/consignments              # Create consignment (stage serials)
+PUT    /api/v1/operations/shipping/consignments/:id          # Update consignment
+DELETE /api/v1/operations/shipping/consignments/:id          # Cancel consignment
+```
+
+### Compliance Gate
+
+```
+POST   /api/v1/operations/shipping/consignments/:id/verify   # Run compliance gate
+GET    /api/v1/operations/shipping/consignments/:id/issues   # Get compliance issues
+```
+
+### Carrier & Rates
+
+```
+POST   /api/v1/operations/shipping/rates                     # Get carrier rates
+GET    /api/v1/operations/shipping/carriers                  # List available carriers
+```
+
+### Label Generation
+
+```
+POST   /api/v1/operations/shipping/consignments/:id/label    # Generate label (charges, mints EPCIS)
+GET    /api/v1/operations/shipping/consignments/:id/label    # Get label URL
+POST   /api/v1/operations/shipping/consignments/:id/void     # Void label
+```
+
+### Evidence Package
+
+```
+GET    /api/v1/operations/shipping/consignments/:id/evidence # Get evidence package
+POST   /api/v1/operations/shipping/evidence/:id/verify       # Verify evidence package
+GET    /api/v1/operations/shipping/evidence/:id/download     # Download as PDF/JSON
+```
+
+### EPCIS
+
+```
+GET    /api/v1/operations/epcis/events                       # List EPCIS events
+GET    /api/v1/operations/epcis/events/:id                   # Get EPCIS event (JSON-LD)
+GET    /api/v1/operations/epcis/events/by-epc/:epc           # Query by EPC
+GET    /api/v1/operations/epcis/events/by-sscc/:sscc         # Query by SSCC
+```
+
+### Tracking
+
+```
+GET    /api/v1/operations/shipping/consignments/:id/tracking # Get tracking status
+POST   /api/v1/operations/shipping/webhooks/carrier          # Carrier webhook (delivery updates)
+```
+
+### Customs Green Lane
+
+```
+POST   /api/v1/operations/shipping/consignments/:id/customs  # Submit customs filing
+GET    /api/v1/operations/shipping/customs/:id               # Get filing status
+```
+
+---
+
+## 21. Changelog
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 0.3 | 2026-01-15 | Added Shipping & Logistics: Consignments, EPCIS, Evidence Package, Billing |
 | 0.2 | 2026-01-15 | Added Execution Engine: Orders, Events, Lots, Batches, Serials, Consumption |
 | 0.1 | 2026-01-15 | Initial draft: Suppliers, Facilities, Certifications |
 
 ---
 
-## 17. Related Documents
+## 22. Related Documents
 
 - [Design Workspace Design](./2026-01-15-design-workspace-design.md) - BOM facility links
 - [Taxonomy Engine Design](./2026-01-15-taxonomy-engine-design.md) - Shared data model
 - [User Management Design](./2026-01-15-user-management-design.md) - Authority model
 - [Architecture Design](./2026-01-15-architecture-design.md) - System architecture
+- [Billing Design](../BILLING.md) - Payment processing
+- [Business Model](../BUSINESS_MODEL.md) - Pricing strategy

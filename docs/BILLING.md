@@ -13,13 +13,14 @@
 3. [Payment Processing](#3-payment-processing)
 4. [Billing Cycles](#4-billing-cycles)
 5. [Per-DPP Billing](#5-per-dpp-billing)
-6. [Plan Changes](#6-plan-changes)
-7. [Invoice Generation](#7-invoice-generation)
-8. [Failed Payment Handling](#8-failed-payment-handling)
-9. [Tax Calculation](#9-tax-calculation)
-10. [Payment Methods](#10-payment-methods)
-11. [Billing Admin](#11-billing-admin)
-12. [Implementation Guide](#12-implementation-guide)
+6. [Shipping & Logistics Billing](#6-shipping--logistics-billing)
+7. [Plan Changes](#7-plan-changes)
+8. [Invoice Generation](#8-invoice-generation)
+9. [Failed Payment Handling](#9-failed-payment-handling)
+10. [Tax Calculation](#10-tax-calculation)
+11. [Payment Methods](#11-payment-methods)
+12. [Billing Admin](#12-billing-admin)
+13. [Implementation Guide](#13-implementation-guide)
 
 ---
 
@@ -445,7 +446,129 @@ function calculateDppCost(plan: Plan, dppCount: number): number {
 
 ---
 
-## 6. Plan Changes
+## 6. Shipping & Logistics Billing
+
+> **Full Details:** See [Operations Workspace Design](./plans/2026-01-15-operations-workspace-design.md#19-shipping-billing-integration)
+> for complete shipping billing implementation details.
+
+EuroComply's shipping module ("Compliant Highway") generates transaction-based revenue through logistics services. These fees appear as additional line items on the same invoice as base fees and DPP usage.
+
+### Shipping Revenue Streams
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    SHIPPING REVENUE MODEL                        │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  LABEL MARKUP (% on carrier rates)                              │
+│  ─────────────────────────────────                              │
+│  • Carrier rate: Passed through from EasyPost aggregator        │
+│  • EuroComply markup: 5-15% depending on tier                   │
+│  • Example: €10 carrier rate → €11.50 charged (15% markup)      │
+│                                                                  │
+│  COMPLIANCE UNLOCK FEE (per consignment)                        │
+│  ────────────────────────────────────────                        │
+│  • Charged when compliance verification passes                   │
+│  • Validates all serials in consignment have valid DPPs          │
+│  • Price: €0.50-€2.00 per consignment by tier                   │
+│                                                                  │
+│  EPCIS EVENT FEE (per EPC tracked)                              │
+│  ─────────────────────────────────                              │
+│  • Charged per EPC in shipping/aggregation events               │
+│  • Covers: GS1 EPCIS 2.0 event generation and signing           │
+│  • Price: €0.001-€0.01 per EPC by tier                          │
+│                                                                  │
+│  CUSTOMS FILING FEE (per evidence package)                      │
+│  ──────────────────────────────────────────                      │
+│  • Charged when Evidence Package generated for customs           │
+│  • Four-pillar cryptographic proof bundle                        │
+│  • Price: €5.00-€25.00 per filing by tier                       │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Shipping Pricing by Tier
+
+| Fee Type | Starter | Growth | Scale | Enterprise | Platform |
+|----------|---------|--------|-------|------------|----------|
+| Label Markup | 15% | 12% | 10% | 7% | 5% |
+| Compliance Unlock | €2.00 | €1.50 | €1.00 | €0.75 | €0.50 |
+| EPCIS Event (per EPC) | €0.01 | €0.008 | €0.005 | €0.002 | €0.001 |
+| Customs Filing | €25.00 | €20.00 | €15.00 | €10.00 | €5.00 |
+
+### Invoice Line Items (with Shipping)
+
+When an organization uses shipping services, their invoice includes additional line items:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                          INVOICE                                 │
+│                                                                  │
+│  EuroComply GmbH                        Invoice #: INV-2026-0087 │
+│  Frankfurt, Germany                     Date: January 31, 2026   │
+│                                                                  │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  DESCRIPTION                            QTY      PRICE   AMOUNT  │
+│  ──────────────────────────────────────────────────────────────│
+│  Scale Plan (Monthly Base Fee)           1    €749.00   €749.00 │
+│                                                                  │
+│  DPP Usage (750,000 DPPs)                              €12,500.00│
+│                                                                  │
+│  SHIPPING & LOGISTICS                                           │
+│  ──────────────────────────────────────────────────────────────│
+│   - Carrier Costs (pass-through)       450   varies   €4,500.00 │
+│   - Label Markup (10%)                 450     10%      €450.00 │
+│   - Compliance Unlock                  450    €1.00     €450.00 │
+│   - EPCIS Events (125,000 EPCs)    125,000   €0.005    €625.00 │
+│   - Customs Filings                     12   €15.00     €180.00 │
+│  ──────────────────────────────────────────────────────────────│
+│  Shipping Subtotal:                                   €6,205.00 │
+│                                                                  │
+│                                         Subtotal:    €19,454.00 │
+│                                         VAT (19%):    €3,696.26 │
+│                                         ───────────────────────│
+│                                         Total:       €23,150.26 │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Stripe Integration for Shipping
+
+Shipping fees use the same **Single Metered Product** approach as DPP billing:
+
+```typescript
+// Additional Stripe metered prices for shipping
+const SHIPPING_PRICES = {
+  LABEL_MARKUP: process.env.STRIPE_SHIPPING_LABEL_MARKUP!,     // Variable %
+  COMPLIANCE_UNLOCK: process.env.STRIPE_SHIPPING_COMPLIANCE!,  // Per consignment
+  EPCIS_EVENT: process.env.STRIPE_SHIPPING_EPCIS!,            // Per EPC
+  CUSTOMS_FILING: process.env.STRIPE_SHIPPING_CUSTOMS!,        // Per filing
+};
+
+// Report shipping usage to Stripe (called at month-end)
+async function reportShippingUsageToStripe(orgId: string) {
+  const usage = await prisma.shippingUsage.findFirst({
+    where: { organizationId: orgId, periodStart: getCurrentPeriodStart() },
+  });
+
+  if (!usage) return;
+
+  const subscription = await stripe.subscriptions.retrieve(org.subscriptionId!);
+
+  // Report each shipping metric
+  await Promise.all([
+    reportUsage(subscription, 'LABEL_MARKUP', usage.carrierCosts * getLabelMarkupRate(org.plan)),
+    reportUsage(subscription, 'COMPLIANCE_UNLOCK', usage.shipmentsCount),
+    reportUsage(subscription, 'EPCIS_EVENT', usage.epcisEpcCount),
+    reportUsage(subscription, 'CUSTOMS_FILING', usage.customsFilings),
+  ]);
+}
+```
+
+---
+
+## 7. Plan Changes
 
 ### Upgrade Flow
 
@@ -543,7 +666,7 @@ function calculateDppCost(plan: Plan, dppCount: number): number {
 
 ---
 
-## 7. Invoice Generation
+## 8. Invoice Generation
 
 ### Invoice Structure
 
@@ -606,7 +729,7 @@ function calculateDppCost(plan: Plan, dppCount: number): number {
 
 ---
 
-## 8. Failed Payment Handling (Dunning)
+## 9. Failed Payment Handling (Dunning)
 
 ### Dunning Process
 
@@ -688,7 +811,7 @@ function calculateDppCost(plan: Plan, dppCount: number): number {
 
 ---
 
-## 8.1 Billing Edge Cases
+## 9.1 Billing Edge Cases
 
 This section covers additional billing scenarios and edge cases not covered in the standard flows.
 
@@ -955,7 +1078,7 @@ This section covers additional billing scenarios and edge cases not covered in t
 
 ---
 
-## 9. Tax Calculation
+## 10. Tax Calculation
 
 EuroComply uses **Stripe Tax** for automatic VAT calculation and collection.
 
@@ -1020,7 +1143,7 @@ EuroComply uses **Stripe Tax** for automatic VAT calculation and collection.
 
 ---
 
-## 10. Payment Methods
+## 11. Payment Methods
 
 ### Supported Payment Methods
 
@@ -1087,7 +1210,7 @@ EuroComply uses **Stripe Tax** for automatic VAT calculation and collection.
 
 ---
 
-## 11. Billing Admin
+## 12. Billing Admin
 
 ### Admin Capabilities
 
@@ -1157,9 +1280,9 @@ Billing management is restricted to users with **Organization Admin** status (`i
 
 ---
 
-## 12. Implementation Guide
+## 13. Implementation Guide
 
-### 12.1 Stripe Setup
+### 13.1 Stripe Setup
 
 ```typescript
 // Initialize Stripe
@@ -1307,7 +1430,7 @@ function getPlanLimits(plan: Plan) {
 }
 ```
 
-### 12.2 Webhook Handler
+### 13.2 Webhook Handler
 
 ```typescript
 // Stripe webhook endpoint
@@ -1396,7 +1519,7 @@ async function handlePaymentFailed(invoice: Stripe.Invoice) {
 }
 ```
 
-### 12.3 DPP Usage Reporting
+### 13.3 DPP Usage Reporting
 
 ```typescript
 // Report DPP usage to Stripe (called at month-end)
@@ -1516,6 +1639,7 @@ function getCurrentRate(plan: Plan, dppCount: number): number {
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.2 | 2026-01-15 | Added Shipping & Logistics Billing section (Compliant Highway revenue streams) |
 | 2.1 | 2026-01-15 | Updated pricing (€149/€299/€749/€1,999) and added storage limits (500GB-5TB) |
 | 2.0 | 2026-01-14 | Major update: Base Fee + Per-DPP pricing model |
 | 1.0 | 2026-01-14 | Initial specification |

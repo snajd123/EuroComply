@@ -968,14 +968,20 @@ Brands and manufacturers pay for DPP creation. Retailers access DPPs for free be
 │                    REVENUE COMPOSITION (Year 5)                  │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  31% Base Subscription Revenue                                  │
+│  28% Base Subscription Revenue                                  │
 │  ├── Monthly/Annual platform fees                               │
 │  └── Predictable, recurring foundation                          │
 │                                                                  │
-│  67% Per-DPP Revenue                                            │
+│  58% Per-DPP Revenue                                            │
 │  ├── Volume-based DPP issuance fees                            │
 │  ├── Scales with customer compliance output                     │
 │  └── Primary growth driver                                      │
+│                                                                  │
+│  12% Shipping & Logistics Revenue (NEW)                         │
+│  ├── Label markup (5-15% on carrier rates)                      │
+│  ├── Compliance unlock fees (per consignment)                   │
+│  ├── EPCIS event fees (per EPC tracked)                        │
+│  └── Customs filing fees (Evidence Package generation)          │
 │                                                                  │
 │  2% Services Revenue                                            │
 │  ├── Enterprise onboarding                                      │
@@ -984,6 +990,45 @@ Brands and manufacturers pay for DPP creation. Retailers access DPPs for free be
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+### Shipping Revenue ("Compliant Highway")
+
+> **Full Details:** See [Operations Workspace Design](./plans/2026-01-15-operations-workspace-design.md#16-shipping--logistics-module)
+> for complete shipping architecture and billing integration.
+
+EuroComply's "Compliant Highway" integrates shipping with compliance verification. The key insight: **ship only after proving compliance, not the reverse**.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    COMPLIANT HIGHWAY MODEL                       │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  STAGE → VERIFY → SEAL → SHIP                                   │
+│                                                                  │
+│  1. STAGE: Aggregate serials into consignment                   │
+│  2. VERIFY: Automated compliance check (all DPPs valid)         │
+│  3. SEAL: Generate EPCIS aggregation event + Evidence Package   │
+│  4. SHIP: Label generated only after compliance verified        │
+│                                                                  │
+│  KEY INSIGHT: Control the label, control the highway.           │
+│  No label without passing compliance verification.              │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Revenue Model by Tier:**
+
+| Fee Type | Starter | Growth | Scale | Enterprise | Platform |
+|----------|---------|--------|-------|------------|----------|
+| Label Markup | 15% | 12% | 10% | 7% | 5% |
+| Compliance Unlock | €2.00 | €1.50 | €1.00 | €0.75 | €0.50 |
+| EPCIS Event (per EPC) | €0.01 | €0.008 | €0.005 | €0.002 | €0.001 |
+| Customs Filing | €25.00 | €20.00 | €15.00 | €10.00 | €5.00 |
+
+**Year 5 Shipping Revenue Projection:**
+- 6,000 customers × 20% using shipping = 1,200 active shipping customers
+- Average 500 shipments/month × €5 blended shipping fee = €3M/month
+- **Shipping ARR (Year 5): ~€36M** (12% of total revenue)
 
 ### The "Money Machine" Economics
 
@@ -1347,9 +1392,10 @@ The 10-year hosting commitment may seem to conflict with GDPR Article 17 (Right 
 │  • Primary cost driver: personnel (support, development)       │
 │                                                                  │
 │  REVENUE POTENTIAL                                              │
-│  • Year 5 ARR (Expected): €139M                                │
-│  • Revenue mix: 31% base fees, 67% DPP revenue, 2% services    │
+│  • Year 5 ARR (Expected): €175M                                │
+│  • Revenue mix: 28% base, 58% DPP, 12% shipping, 2% services  │
 │  • High-volume customers drive majority of DPP revenue         │
+│  • Shipping ("Compliant Highway") adds €36M ARR               │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
