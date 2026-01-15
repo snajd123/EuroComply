@@ -215,3 +215,9 @@ output "connection_string" {
   value     = "postgresql://${var.username}:${random_password.master.result}@${aws_db_instance.main.endpoint}/${var.db_name}"
   sensitive = true
 }
+
+output "password" {
+  description = "Database master password (sensitive)"
+  value       = random_password.master.result
+  sensitive   = true
+}

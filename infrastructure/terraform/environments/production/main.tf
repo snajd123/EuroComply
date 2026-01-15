@@ -181,6 +181,58 @@ module "growth_cell" {
 }
 
 # ==============================================================================
+# PGBOUNCER - Connection Pooling
+# ==============================================================================
+
+module "pgbouncer" {
+  source = "../../modules/pgbouncer"
+
+  name        = var.app_name
+  environment = var.environment
+
+  vpc_id             = module.vpc.vpc_id
+  private_subnet_ids = module.vpc.private_subnet_ids
+
+  ecs_cluster_id   = aws_ecs_cluster.main.id
+  ecs_cluster_name = aws_ecs_cluster.main.name
+  execution_role_arn = aws_iam_role.ecs_execution.arn
+  task_role_arn      = aws_iam_role.ecs_task.arn
+
+  # RDS connection details
+  rds_endpoint    = module.growth_cell.endpoint
+  rds_host        = module.growth_cell.address
+  rds_port        = module.growth_cell.port
+  database_name   = "eurocomply"
+  database_username = "eurocomply_admin"
+  database_password_secret_arn = module.growth_cell.password_secret_arn
+
+  kms_key_arn = aws_kms_key.main.arn
+
+  # Security groups
+  app_security_group_id      = module.vpc.app_security_group_id
+  database_security_group_id = module.vpc.database_security_group_id
+
+  # PgBouncer configuration (transaction mode for Prisma)
+  pool_mode          = "transaction"
+  default_pool_size  = 20
+  min_pool_size      = 5
+  reserve_pool_size  = 5
+  max_client_conn    = 1000
+  max_db_connections = 50  # Per-database limit (leaves headroom for direct RDS access)
+
+  # Scaling
+  desired_count = var.pgbouncer_desired_count
+  cpu           = 256
+  memory        = 512
+
+  log_retention_days = var.log_retention_days
+
+  tags = local.common_tags
+
+  depends_on = [aws_ecs_cluster.main, module.growth_cell]
+}
+
+# ==============================================================================
 # ELASTICACHE - Redis (with encryption)
 # ==============================================================================
 
@@ -220,6 +272,24 @@ resource "aws_secretsmanager_secret" "redis_auth" {
 resource "aws_secretsmanager_secret_version" "redis_auth" {
   secret_id     = aws_secretsmanager_secret.redis_auth.id
   secret_string = random_password.redis_auth.result
+}
+
+# PgBouncer connection URL (constructed from RDS credentials + PgBouncer host)
+# This secret is populated after PgBouncer module is created
+resource "aws_secretsmanager_secret" "pgbouncer_url" {
+  name        = "${var.app_name}/pgbouncer-url-${var.environment}"
+  description = "PgBouncer connection URL for ${var.app_name} ${var.environment}"
+  kms_key_id  = aws_kms_key.main.arn
+
+  tags = local.security_tags
+}
+
+resource "aws_secretsmanager_secret_version" "pgbouncer_url" {
+  secret_id = aws_secretsmanager_secret.pgbouncer_url.id
+  # Connection string pointing to PgBouncer with pgbouncer=true to disable prepared statements
+  secret_string = "postgresql://eurocomply_admin:${module.growth_cell.password}@${module.pgbouncer.host}:${module.pgbouncer.port}/eurocomply?pgbouncer=true&connection_limit=10"
+
+  depends_on = [module.pgbouncer, module.growth_cell]
 }
 
 resource "aws_elasticache_cluster" "main" {
@@ -1000,11 +1070,22 @@ resource "aws_ecs_task_definition" "api" {
         { name = "REDIS_PORT", value = "6379" },
         { name = "REDIS_TLS", value = "true" },  # TLS encryption enabled
         { name = "S3_BUCKET", value = aws_s3_bucket.assets.id },
+        # PgBouncer connection (used by Prisma)
+        { name = "DATABASE_HOST", value = module.pgbouncer.host },
+        { name = "DATABASE_PORT", value = tostring(module.pgbouncer.port) },
+        { name = "DATABASE_NAME", value = "eurocomply" },
+        { name = "DATABASE_PGBOUNCER", value = "true" },  # Disables prepared statements
       ]
 
       secrets = [
         {
+          # DATABASE_URL via PgBouncer (runtime queries)
           name      = "DATABASE_URL"
+          valueFrom = aws_secretsmanager_secret.pgbouncer_url.arn
+        },
+        {
+          # Direct RDS connection (migrations only)
+          name      = "DIRECT_DATABASE_URL"
           valueFrom = "${module.growth_cell.password_secret_arn}:connection_string::"
         },
         {
@@ -1060,11 +1141,22 @@ resource "aws_ecs_task_definition" "worker" {
         { name = "REDIS_HOST", value = aws_elasticache_cluster.main.cache_nodes[0].address },
         { name = "REDIS_PORT", value = "6379" },
         { name = "REDIS_TLS", value = "true" },  # TLS encryption enabled
+        # PgBouncer connection (used by Prisma)
+        { name = "DATABASE_HOST", value = module.pgbouncer.host },
+        { name = "DATABASE_PORT", value = tostring(module.pgbouncer.port) },
+        { name = "DATABASE_NAME", value = "eurocomply" },
+        { name = "DATABASE_PGBOUNCER", value = "true" },  # Disables prepared statements
       ]
 
       secrets = [
         {
+          # DATABASE_URL via PgBouncer (runtime queries)
           name      = "DATABASE_URL"
+          valueFrom = aws_secretsmanager_secret.pgbouncer_url.arn
+        },
+        {
+          # Direct RDS connection (migrations only)
+          name      = "DIRECT_DATABASE_URL"
           valueFrom = "${module.growth_cell.password_secret_arn}:connection_string::"
         },
         {
@@ -1516,5 +1608,21 @@ output "certificate_validation_records" {
 output "redis_auth_secret_arn" {
   description = "ARN of the Redis AUTH token secret"
   value       = aws_secretsmanager_secret.redis_auth.arn
+  sensitive   = true
+}
+
+output "pgbouncer_endpoint" {
+  description = "PgBouncer endpoint for database connections"
+  value       = module.pgbouncer.endpoint
+}
+
+output "pgbouncer_connection_string" {
+  description = "PgBouncer connection string (without password)"
+  value       = module.pgbouncer.connection_string
+}
+
+output "database_direct_endpoint" {
+  description = "Direct RDS endpoint (for migrations only, bypasses PgBouncer)"
+  value       = module.growth_cell.endpoint
   sensitive   = true
 }

@@ -235,6 +235,12 @@ variable "worker_max_count" {
   default     = 20
 }
 
+variable "pgbouncer_desired_count" {
+  description = "Number of PgBouncer instances for connection pooling"
+  type        = number
+  default     = 2  # HA: 2 instances across AZs
+}
+
 # ==============================================================================
 # AUTOSCALING
 # ==============================================================================
