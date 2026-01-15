@@ -17,6 +17,15 @@
 
 The API uses URL versioning (`/api/v1/`). Breaking changes will be introduced in new versions (`/api/v2/`). Deprecation notices will be provided 6 months before version sunset.
 
+> **Terminology Note:**
+> - **API version**: Compatibility level for the API itself (`/api/v1/`, `/api/v2/`)
+> - **Product revision**: Data iterations within Design/Marketing workspaces (r1, r2, r3)
+> - **DPP edition**: Published, immutable Digital Product Passport
+>
+> Legacy API responses use `version` and `versionNumber` for product revisions. This will be
+> migrated to `revision` and `revisionNumber` in API v2. See
+> [Architecture Document - Terminology](../EuroComply_Architecture_Document_v1.3.md#terminology-version-vs-revision-vs-edition).
+
 ### Request Format
 
 - All request bodies must be JSON (`Content-Type: application/json`)

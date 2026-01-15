@@ -26,6 +26,27 @@
 
 ---
 
+## Terminology: Version vs Revision vs Edition
+
+This document uses precise terminology to avoid semantic overloading of "version":
+
+| Term | Meaning | Context | Example |
+|------|---------|---------|---------|
+| **Revision** | Editable product data iteration | Design/Marketing workspaces | "Design revision 3" |
+| **Version** | API compatibility level | API endpoints | `/api/v1/` |
+| **Edition** | Published, immutable DPP | Compliance workspace | "DPP edition 2026-01-15" |
+| **Sequence** | Database optimistic lock counter | Concurrency control | `seq: 47` for conflict detection |
+| **Release** | Document publication level | Documentation | "AUTHENTICATION.md release 1.0" |
+
+**Why this matters:**
+- "Version" is overloaded across software (API versions, document versions, data versions)
+- Clear terminology prevents confusion in multi-workspace coordination
+- ESPR compliance requires precise audit trails—ambiguous terms create compliance risk
+
+**Legacy note:** Some code and API responses still use `version` for product revisions (e.g., `versionNumber`). This will be migrated to `revisionNumber` in API v2.
+
+---
+
 ## 1. Executive Summary
 
 EuroComply is a B2B SaaS platform for EU Digital Product Passport (DPP) compliance under the ESPR regulation. The platform uses a Base Fee + Per-DPP pricing model, with tiers from €149/month (Starter) to custom Enterprise/Platform pricing.

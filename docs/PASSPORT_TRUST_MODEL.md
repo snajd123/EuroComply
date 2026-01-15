@@ -1,5 +1,10 @@
 # Digital Product Passport Trust Model
 
+> **Terminology Note:** This document uses "revision" for product data iterations (Design revision 3),
+> "version" for API compatibility (/api/v1/), and "edition" for published DPPs. See
+> [Architecture Document - Terminology](../EuroComply_Architecture_Document_v1.3.md#terminology-version-vs-revision-vs-edition)
+> for the full glossary. Legacy code may still use `version` where `revision` is meant.
+
 ## Overview
 
 EuroComply uses an **organization-only model** for passport creation. Only registered brands, manufacturers, and distributors can create DPPs. This eliminates fraud by design.
@@ -123,13 +128,16 @@ Multiple team members may edit product data simultaneously:
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Version Management for Products
+### Revision Management for Products
+
+Product data iterations are called **revisions** (not "versions" to avoid confusion with API versions).
 
 ```typescript
 // Each product record in the Hub
-interface ProductVersion {
+// Note: Code uses `version` field name (legacy); conceptually these are "revisions"
+interface ProductVersion {  // TODO: Rename to ProductRevision in v2
   id: string;
-  version: number;           // Auto-incremented on check-in
+  version: number;           // Auto-incremented on check-in (revision number)
   createdAt: Date;
   createdBy: string;         // User ID who checked in
   workspace: 'design' | 'operations' | 'marketing';
@@ -711,22 +719,22 @@ Different workspaces have distinct versioning and release models that coordinate
 ```
 
 **Key Principles:**
-- **Design**: Versions can be released independently; multiple versions can be released simultaneously
-- **Operations**: Batches are immediately immutable at creation; no versions, just states
+- **Design**: Revisions can be released independently; multiple revisions can be released simultaneously
+- **Operations**: Batches are immediately immutable at creation; no revisions, just states
 - **Marketing**: Same checkout/checkin model as Design; releases content for DPP
 - **DPP Scope**: One batch = one DPP (per-batch issuance)
 
 ---
 
-### Design Version Release
+### Design Revision Release
 
-Design versions follow a checkout/checkin model with an additional release gate for Operations.
+Design revisions follow a checkout/checkin model with an additional release gate for Operations.
 
-#### Version States
+#### Revision States
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                    DESIGN VERSION STATE MACHINE                              │
+│                    DESIGN REVISION STATE MACHINE                             │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │   ┌────────┐     ┌─────────────┐     ┌─────────────┐     ┌───────────────┐  │
@@ -746,22 +754,22 @@ Design versions follow a checkout/checkin model with an additional release gate 
 
 | State | Description | Who Can Transition |
 |-------|-------------|-------------------|
-| **DRAFT** | Initial state for new versions | System (on create) |
+| **DRAFT** | Initial state for new revisions | System (on create) |
 | **CHECKED_OUT** | User is actively editing | User with EDITOR role |
-| **CHECKED_IN** | Editing complete, version frozen | User who checked out |
+| **CHECKED_IN** | Editing complete, revision frozen | User who checked out |
 | **RELEASED_TO_OPS** | Frozen forever; available for Operations batch selection | Design MANAGER |
 
-**Key Principle:** Once a version is released, it is **frozen forever**. No edits can be made to that version. New work must be done in a new version.
+**Key Principle:** Once a revision is released, it is **frozen forever**. No edits can be made to that revision. New work must be done in a new revision.
 
 #### Release Rules
 
-- **Multiple Releases**: Multiple versions can be released simultaneously (e.g., v2 and v3 both released)
-- **Independence**: Releasing v3 does not affect v2's release status
-- **Immutability**: Released versions are frozen forever - no edits allowed
-- **Multiple References**: Multiple batches can reference the same released Design version
-- **Continuation**: Editing can continue on new versions (v4, v5...) regardless of released versions
+- **Multiple Releases**: Multiple revisions can be released simultaneously (e.g., r2 and r3 both released)
+- **Independence**: Releasing r3 does not affect r2's release status
+- **Immutability**: Released revisions are frozen forever - no edits allowed
+- **Multiple References**: Multiple batches can reference the same released Design revision
+- **Continuation**: Editing can continue on new revisions (r4, r5...) regardless of released revisions
 
-#### Design Version Interface
+#### Design Revision Interface
 
 ```typescript
 interface DesignVersion {
@@ -1030,15 +1038,15 @@ async function deleteVersion(versionId: string): Promise<void> {
 
 ---
 
-### Marketing Version Release
+### Marketing Revision Release
 
 Marketing follows the same checkout/checkin model as Design, with a release gate for DPP inclusion.
 
-#### Version States
+#### Revision States
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                    MARKETING VERSION STATE MACHINE                           │
+│                    MARKETING REVISION STATE MACHINE                          │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │   ┌────────┐     ┌─────────────┐     ┌─────────────┐     ┌───────────────┐  │
@@ -1051,28 +1059,26 @@ Marketing follows the same checkout/checkin model as Design, with a release gate
 │        │                                                  can reference      │
 │        │                                                                     │
 │        └──────────────────────────────────────────────────────────────────▶  │
-│                     (new edits always create new versions)                   │
+│                     (new edits always create new revisions)                  │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Key Principle:** Once a Marketing version is released, it is **frozen forever**. No edits can be made to that version. New work must be done in a new version.
+**Key Principle:** Once a Marketing revision is released, it is **frozen forever**. No edits can be made to that revision. New work must be done in a new revision.
 
 | State | Description | Who Can Transition |
 |-------|-------------|-------------------|
-| **DRAFT** | Initial state for new versions | System (on create) |
+| **DRAFT** | Initial state for new revisions | System (on create) |
 | **CHECKED_OUT** | User is actively editing | User with EDITOR role |
-| **CHECKED_IN** | Editing complete, version frozen | User who checked out |
+| **CHECKED_IN** | Editing complete, revision frozen | User who checked out |
 | **RELEASED_FOR_DPP** | Frozen forever; available for DPP snapshot inclusion | Marketing MANAGER |
-
-**Key Principle:** Once a version is released, it is **frozen forever**. No edits can be made to that version. New work must be done in a new version.
 
 #### Marketing Release Rules
 
-- **Multiple Releases**: Multiple Marketing versions can be released simultaneously (e.g., v2 for US market, v3 for EU market)
-- **Independence**: Releasing v3 does not affect v2's release status
-- **Explicit Selection**: When creating a DPP snapshot, user explicitly selects which released Marketing version to include
-- **Continuation**: Editing can continue on new versions regardless of released versions
+- **Multiple Releases**: Multiple Marketing revisions can be released simultaneously (e.g., r2 for US market, r3 for EU market)
+- **Independence**: Releasing r3 does not affect r2's release status
+- **Explicit Selection**: When creating a DPP snapshot, user explicitly selects which released Marketing revision to include
+- **Continuation**: Editing can continue on new revisions regardless of released revisions
 
 #### Marketing Content in DPP (ESPR Guidance)
 

@@ -2,6 +2,13 @@
 
 ## How EuroComply Uses walt.id for Portable, Verifiable DPPs
 
+> **Terminology Note:**
+> - **Product revision**: Editable data iteration in Design/Marketing workspaces (r1, r2, r3)
+> - **DPP edition**: A published, immutable Digital Product Passport issued as a Verifiable Credential
+>
+> A DPP edition is created from specific product revisions and becomes immutable once issued.
+> See [Architecture Document - Terminology](../EuroComply_Architecture_Document_v1.3.md#terminology-version-vs-revision-vs-edition).
+
 ---
 
 ## 1. The Problem with Traditional DPPs
