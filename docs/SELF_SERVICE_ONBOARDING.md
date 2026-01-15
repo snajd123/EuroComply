@@ -85,7 +85,7 @@ See [USER_MANAGEMENT.md](./USER_MANAGEMENT.md) for workspace access, role templa
 │  │ │+€0.10/DPP ││+€0.05/DPP ││+€0.02/DPP ││+€0.008/DPP││ Contact   │││
 │  │ │ [Select]  ││ [Select]  ││ [Select]  ││ [Select]  ││ [Contact] │││
 │  │ └───────────┘└───────────┘└───────────┘└───────────┘└───────────┘││
-│  │ All plans: Unlimited products, users + generous storage          ││
+│  │ All plans: Unlimited products, user limits vary by tier          ││
 │  │ → Stripe Checkout redirect                                      ││
 │  └─────────────────────────────────────────────────────────────────┘│
 │                              │                                      │
@@ -154,12 +154,12 @@ import Stripe from 'stripe';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-// Pricing tiers (all plans include unlimited users, ALL features)
+// Pricing tiers (user limits vary by tier: 20/50/100/200, €10/user overage)
 const PLANS = {
-  growth: { priceId: 'price_growth_monthly', productLimit: 500, itemLimit: 10000, price: 129 },
-  scale: { priceId: 'price_scale_monthly', productLimit: 5000, itemLimit: 1000000, price: 399 },
-  enterprise: { priceId: 'price_enterprise_monthly', productLimit: -1, itemLimit: 100000000, price: 999 },
-  mega: { priceId: 'price_mega_monthly', productLimit: -1, itemLimit: -1, price: 4999 },
+  starter: { priceId: 'price_starter_monthly', userLimit: 20, price: 149 },
+  growth: { priceId: 'price_growth_monthly', userLimit: 50, price: 299 },
+  scale: { priceId: 'price_scale_monthly', userLimit: 100, price: 749 },
+  enterprise: { priceId: 'price_enterprise_monthly', userLimit: 200, price: 1999 },
 };
 
 // Create checkout session
@@ -323,7 +323,7 @@ model Organization {
 
   // QR Lifecycle Configuration (selected at signup, ESPR compliance)
   // Determines what happens to DPP URLs if subscription is cancelled
-  qrLifecycleOption     QRLifecycleOption  @default(DORMANT_HOSTING)
+  qrLifecycleOption     QRLifecycleOption  @default(INCLUDED_HOSTING)
 
   // Enabled modules (backend capabilities)
   enabledModules        String[]  @default(["core", "compliance", "pim", "dam", "import", "syndication", "item_tracking", "attestation"])
@@ -398,7 +398,7 @@ enum SubscriptionStatus {
 // QR Lifecycle Option - Selected at signup, determines ESPR compliance strategy
 // See ARCHITECTURE_PORTABILITY.md for full documentation
 enum QRLifecycleOption {
-  DORMANT_HOSTING      // Default: €99/year to keep DPPs accessible after cancel
+  INCLUDED_HOSTING     // Default: 10-year hosting included in DPP price
   GS1_RESOLVER         // Customer uses GS1 resolver to redirect to self-hosted
   SELF_MANAGED         // Customer manages own domain and redirects
 }

@@ -165,12 +165,12 @@ Customer signs up → Payment processed → Account created → Welcome email
 │  • Issued DPPs: RETAINED for 10 years (ESPR requirement)        │
 │  • Audit logs: Retained per retention policy                    │
 │                                                                  │
-│  COMPLIANCE ARCHIVE (Optional):                                 │
-│  ─────────────────────────────                                  │
-│  Customer can purchase Compliance Archive (€99/year) to:        │
-│  • Keep DPPs accessible via QR codes                            │
-│  • Maintain revocation capability                               │
-│  • Receive ESPR updates affecting their products                │
+│  10-YEAR HOSTING (Included):                                    │
+│  ────────────────────────────                                   │
+│  All DPPs include 10-year hosting in the per-DPP price:        │
+│  • DPP pages remain accessible via QR codes                     │
+│  • Status lists remain available (frozen, no new revocations)   │
+│  • No separate archive fee required                             │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```

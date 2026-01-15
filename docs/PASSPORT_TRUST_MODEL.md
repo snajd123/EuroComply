@@ -2126,7 +2126,7 @@ EU law requires DPP data to be accessible **"free of charge"** to all economic o
 
 | Who | Access | Cost |
 |-----|--------|------|
-| Brands, Manufacturers | Create DPPs | €129-399/month subscription |
+| Brands, Manufacturers | Create DPPs | €149-1,999/month subscription |
 | Retailers | View & display DPPs | **Free** |
 | Consumers | Verify DPPs | **Free** |
 | Regulators | Audit DPPs | **Free** |

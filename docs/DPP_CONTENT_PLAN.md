@@ -66,7 +66,7 @@ Creating ESPR-compliant Digital Product Passports requires **category-specific, 
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                      │
 │  1. ORGANIZATION ONBOARDING                                         │
-│     ├─ Sign up for plan (€129/€399/Custom - unlimited users)        │
+│     ├─ Sign up for plan (€149-€1,999/mo, user limits per tier)      │
 │     └─ Immediate access after registration and payment              │
 │                                                                      │
 │  2. IDENTITY CREATION                                               │

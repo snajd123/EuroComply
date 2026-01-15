@@ -85,7 +85,7 @@ EuroComply uses a **Base Fee + Per-DPP pricing model** that separates platform a
 > **Canonical Reference:** See [Pricing Tiers](./BUSINESS_MODEL.md#pricing-tiers) for
 > the authoritative pricing table with storage allocations and volume discounts.
 
-EuroComply offers five pricing tiers. All tiers include full platform access with unlimited products/SKUs and users.
+EuroComply offers five pricing tiers. All tiers include full platform access with unlimited products/SKUs. User limits vary by tier (20/50/100/200) with €10/user/month overage.
 
 ### Tier Summary with Support Levels
 
@@ -112,7 +112,7 @@ EuroComply offers five pricing tiers. All tiers include full platform access wit
 
 - All four workspaces (Design, Operations, Marketing, Compliance)
 - Unlimited products/SKUs (no catalog size limits)
-- Unlimited users within organization
+- User limits by tier (20/50/100/200, €10/user/month overage)
 - **Generous storage** (500GB to 5TB depending on tier for media files)
 - Full API access and webhooks
 - Shopify integration
@@ -1091,9 +1091,9 @@ EuroComply uses **Stripe Tax** for automatic VAT calculation and collection.
 
 ### Admin Capabilities
 
-Billing management is restricted to users with **ADMIN** role.
+Billing management is restricted to users with **Organization Admin** status (`isOrganizationAdmin: true`).
 
-| Action | ADMIN | Non-Admin |
+| Action | Org Admin | Non-Admin |
 |--------|:-----:|:---------:|
 | View current plan | ✅ | ❌ |
 | View invoices | ✅ | ❌ |

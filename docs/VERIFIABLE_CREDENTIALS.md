@@ -1664,14 +1664,14 @@ The status list itself is a signed VC:
 | Mode | Status List URL | Who Updates |
 |------|-----------------|-------------|
 | **Active Subscription** | `https://api.eurocomply.eu/v1/status/{statusListId}` | EuroComply |
-| **Dormant Hosting** | Same URL (preserved) | EuroComply (read-only) |
+| **10-Year Hosting** | Same URL (preserved for 10 years) | EuroComply (read-only after cancel) |
 | **Self-Managed** | Customer's domain | Customer |
 | **GS1 Resolver** | Redirects to customer's hosted list | Customer |
 
 **Security Note:** Status list URLs use opaque identifiers (`sl_a1b2c3d4`) rather than organization IDs to prevent enumeration attacks and competitive intelligence gathering.
 
 **Important:** After subscription cancellation:
-- **Dormant Hosting**: Status list remains frozen (no new revocations possible, existing revocations preserved)
+- **10-Year Hosting (included)**: Status list remains frozen (no new revocations possible, existing revocations preserved)
 - **Self-Managed/GS1**: Customer exports status list and hosts it themselves
 
 ### Portability vs. Revocation: Architectural Tradeoff
@@ -1684,7 +1684,7 @@ The status list itself is a signed VC:
 
 | Option | Revocation Control | Complexity | Cost |
 |--------|-------------------|------------|------|
-| **Compliance Archive** | Frozen (no new revocations) | None | €99/year |
+| **10-Year Hosting (included)** | Frozen (no new revocations) | None | Included in DPP price |
 | **Self-Hosted Status List** | Full control | Medium | Your hosting costs |
 | **GS1 Resolver Redirect** | Full control + domain portability | Medium | GS1 membership |
 | **No Revocation** | N/A (signature-only verification) | None | Free |
@@ -1723,11 +1723,11 @@ const exportPackage = await exportOrganizationData({
 │  OPTIONS FOR EXISTING VCs                                                    │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  1. DORMANT HOSTING (recommended for most)                                  │
-│     • EuroComply continues hosting status list                              │
+│  1. 10-YEAR HOSTING (recommended for most - INCLUDED)                       │
+│     • EuroComply continues hosting status list for 10 years                 │
 │     • Existing revocations preserved                                        │
 │     • No new revocations possible                                           │
-│     • €19/month                                                              │
+│     • Included in DPP price (no additional cost)                             │
 │                                                                              │
 │  2. RE-ISSUE WITH NEW URL                                                   │
 │     • Issue new VCs with your status list URL                               │
@@ -2192,7 +2192,7 @@ async function verifyCredential(credentialId: string): Promise<VerificationResul
 │  VERIFICATION                                                   │
 │  → Signatures verifiable without EuroComply                    │
 │  → Revocation check needs status list host (see Section 14)    │
-│  → Options: self-host, dormant hosting, or signature-only      │
+│  → Options: self-host, 10-year hosting (incl), or signature-only│
 │                                                                  │
 │  THE VALUE WE PROVIDE                                           │
 │  → Easy product management (workspace-based data model)        │

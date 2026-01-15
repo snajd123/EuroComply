@@ -1517,7 +1517,7 @@ interface FullExportResponse {
 │                              │ Custom storage    │ ✅ Custom integrations      │
 └──────────────────────────────┴───────────────────┴─────────────────────────────┘
 
-**All tiers include unlimited products/SKUs, unlimited users, and full data sovereignty guarantees.**
+**All tiers include unlimited products/SKUs, user limits vary by tier (20/50/100/200, €10/user overage), and full data sovereignty guarantees.**
 ```
 
 All customers receive full platform access. Tier differentiation is based on storage (for media files), support level, and per-DPP pricing.
@@ -1551,7 +1551,7 @@ All customers receive full platform access. Tier differentiation is based on sto
 > 1. **Revocation checking** - Status List 2021 requires the status list URL to be accessible
 > 2. **New revocations** - Cannot revoke credentials without status list server
 >
-> **Recommendation:** Export your status list and either self-host it or use Compliance Archive (€99/year) to maintain full verification capability. See [ARCHITECTURE_PORTABILITY.md](./ARCHITECTURE_PORTABILITY.md#status-list-migration-guide) for migration guide.
+> **Recommendation:** 10-year hosting is included in DPP pricing. If you need active revocation control after cancellation, export your status list and self-host it. See [ARCHITECTURE_PORTABILITY.md](./ARCHITECTURE_PORTABILITY.md#status-list-migration-guide) for migration guide.
 
 ### Trust Badges
 

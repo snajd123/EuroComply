@@ -134,7 +134,7 @@ See [DATA_SOVEREIGNTY.md](./DATA_SOVEREIGNTY.md) for detailed architecture and r
 |----------|------------------|----------------------|---------------------------|
 | Active subscription | ✅ Yes | ✅ Yes | ✅ Yes |
 | **Customer domain + self-host** | ✅ Yes | ✅ Yes | ✅ Yes |
-| Compliance Archive (€99/yr) | ✅ Yes | ✅ Yes (frozen) | ❌ No |
+| 10-year hosting (included) | ✅ Yes | ✅ Yes (frozen) | ❌ No |
 | Self-hosted status list | ✅ Yes | ✅ Yes | ✅ Yes |
 | Export without hosting | ✅ Yes | ❌ No (URL dead) | ❌ No |
 | EuroComply shuts down | ✅ Yes | ❌ No (unless migrated) | ❌ No |
@@ -151,9 +151,9 @@ See [DATA_SOVEREIGNTY.md](./DATA_SOVEREIGNTY.md) for detailed architecture and r
 4. Full control over revocations
 ```
 
-**Option 2: Compliance Archive (Recommended for non-technical users)**
+**Option 2: 10-Year Hosting (Included in DPP price)**
 ```
-1. Subscribe to Compliance Archive (€99/year)
+1. Cancel subscription - 10-year hosting is automatic
 2. Status list remains accessible at original URL
 3. No new revocations possible (frozen state)
 4. Existing revocations preserved
@@ -177,12 +177,12 @@ See [Status List Migration Guide](#status-list-migration-guide) below for detail
 
 ### The Problem with Platform-Owned URLs
 
-When status list URLs use our domain (`api.eurocomply.eu`), customers face difficult choices when leaving:
-- **Option A:** Pay for Compliance Archive (€99/year minimum) indefinitely
-- **Option B:** Set up complex DNS redirects that depend on our cooperation
-- **Option C:** Lose revocation capability entirely
+When status list URLs use our domain (`api.eurocomply.eu`), customers who want full control after leaving have options:
+- **Option A:** Use included 10-year hosting (frozen status list)
+- **Option B:** Self-host status list with DNS redirects
+- **Option C:** Export and accept signature-only verification
 
-This creates soft lock-in even though we use open standards.
+To eliminate this dependency entirely, customers can configure their own domain from day 1.
 
 ### The Solution: Customer Domain from Day 1
 
@@ -266,10 +266,10 @@ Customer adds these DNS records:
 | Scenario | EuroComply Domain | Customer Domain |
 |----------|-------------------|-----------------|
 | **URL in VCs** | `api.eurocomply.eu/...` | `status.customer.com/...` |
-| **Migration complexity** | High (DNS redirects or Compliance Archive) | Low (point CNAME elsewhere) |
-| **Reprinting required** | No (if using redirects) | No |
-| **Full independence** | Requires cooperation | Yes |
-| **Cost to leave** | €99/year minimum | Free |
+| **Migration complexity** | Low (10-year hosting included) | None (point CNAME elsewhere) |
+| **Reprinting required** | No | No |
+| **Full independence** | After 10 years | Yes |
+| **Cost to leave** | Free (10-year hosting included) | Free |
 
 ### Default Recommendation
 
@@ -292,7 +292,7 @@ Customer adds these DNS records:
 
 For customers who don't want to manage DNS:
 - Default to `api.eurocomply.eu/v1/status/{org_id}`
-- Compliance Archive available as exit path
+- 10-year hosting included as exit path
 - Can configure custom domain later (but existing VCs won't change)
 
 ---
@@ -312,27 +312,24 @@ ESPR requires DPP availability for product lifetime (typically 10+ years). Here'
 │                                                                              │
 │  SCENARIO A: Active Subscription (Full Platform)                            │
 │  ───────────────────────────────────────────────                            │
-│  Year 1-10: €129-999/month depending on tier                                │
-│  10-Year Total: €15,480 - €119,880                                          │
+│  Year 1-10: €149-1,999/month depending on tier                              │
+│  10-Year Total: €17,880 - €239,880                                          │
+│  (10-year DPP hosting included in price)                                    │
 │                                                                              │
-│  SCENARIO B: Active → Compliance Archive                                    │
+│  SCENARIO B: Active → Cancel (10-Year Hosting)                              │
 │  ───────────────────────────────────────────────                            │
-│  Year 1-3: Active subscription (€129-999/month)                             │
-│  Year 4-10: Compliance Archive (€99-299/year)                               │
+│  Year 1-3: Active subscription (€149-1,999/month)                           │
+│  Year 4-10: 10-year hosting (included, no additional cost)                  │
 │                                                                              │
-│  Example (Scale tier → Archive):                                            │
-│  Years 1-3: €399 × 36 months = €14,364                                      │
-│  Years 4-10: €99 × 7 years = €693                                           │
-│  10-Year Total: €15,057                                                     │
+│  Example (Scale tier → Cancel):                                             │
+│  Years 1-3: €749 × 36 months = €26,964                                      │
+│  Years 4-10: €0 (10-year hosting included in DPP price)                     │
+│  10-Year Total: €26,964                                                     │
 │                                                                              │
-│  SCENARIO C: Compliance Archive Only (From Day 1)                           │
-│  ───────────────────────────────────────────────                            │
-│  Not available - must have active subscription to create DPPs               │
-│                                                                              │
-│  SCENARIO D: Self-Host After Export                                         │
+│  SCENARIO C: Self-Host After Export                                         │
 │  ───────────────────────────────────────────────                            │
 │  Year 1-3: Active subscription                                              │
-│  Year 4-10: Self-hosting costs (varies widely)                              │
+│  Year 4-10: Self-hosting costs (if you want revocation control)             │
 │                                                                              │
 │  Minimum self-hosting costs:                                                │
 │  • Domain: ~€15/year                                                        │
@@ -344,13 +341,13 @@ ESPR requires DPP availability for product lifetime (typically 10+ years). Here'
 │                                                                              │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  MINIMUM COMMITMENT (Compliance Archive, smallest tier):                    │
-│  €99/year × 10 years = €990 MINIMUM for URL preservation                    │
+│  10-YEAR HOSTING (INCLUDED IN DPP PRICE):                                   │
+│  No additional cost - URL preservation included with every DPP              │
 │                                                                              │
-│  This is NOT optional if:                                                   │
-│  • You have products in market with printed QR codes                        │
-│  • You're subject to ESPR enforcement                                       │
-│  • You don't have technical capability to self-host                         │
+│  This ensures ESPR compliance without ongoing fees:                         │
+│  • Products with printed QR codes remain accessible                         │
+│  • No technical expertise required                                          │
+│  • Automatic - no action needed at cancellation                             │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -405,7 +402,7 @@ This is a legitimate concern. Here's our honest assessment and mitigation plan:
 │  1. 12 months advance notice to all customers                               │
 │  2. Data export assistance (bulk export tools)                              │
 │  3. Status list migration support                                           │
-│  4. Option to transfer Compliance Archive to successor entity               │
+│  4. Option to transfer 10-year hosting to successor entity                  │
 │  5. Open-source core resolver code for self-hosting                         │
 │                                                                              │
 │  Customer impact:                                                           │
@@ -460,7 +457,7 @@ To address business continuity concerns, EuroComply commits to:
 1. **Data Escrow**: Quarterly encrypted backups to independent escrow service
 2. **Open Standards**: All data formats are W3C/GS1 standards (no proprietary formats)
 3. **Export Always Available**: Full data export at no additional cost
-4. **Successor Planning**: Legal framework for Compliance Archive transfer
+4. **Successor Planning**: Legal framework for 10-year hosting transfer
 5. **Source Code Escrow**: Core resolver code in escrow for customer access if needed
 
 ### Regulatory Risk Acknowledgment
@@ -563,24 +560,18 @@ export/
 │                    CANCELLATION OPTIONS                          │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  OPTION A: COMPLIANCE ARCHIVE (Recommended)                     │
+│  OPTION A: 10-YEAR HOSTING (INCLUDED - Recommended)             │
 │  ─────────────────────────────────────────────────────────────  │
-│  Annual subscription for long-term DPP hosting:                 │
+│  Automatic 10-year hosting included with every DPP:             │
 │                                                                  │
-│  │ SKU Tier        │ Annual Fee │                               │
-│  │─────────────────│────────────│                               │
-│  │ 0 - 10,000      │ €99/year   │                               │
-│  │ 10,001 - 50,000 │ €299/year  │                               │
-│  │ 50,000+         │ Custom     │                               │
-│                                                                  │
+│  • No additional cost - included in per-DPP pricing             │
 │  • Published DPPs remain accessible via original URLs           │
 │  • QR codes continue working (no reprinting needed)             │
 │  • No dashboard access, no new DPP issuance                     │
 │  • 10-year retention guaranteed (ESPR requirement)              │
 │  • Includes: SSL, domain, security patches, resolver updates    │
 │                                                                  │
-│  ⚠️  No one-time fee option. 10-year maintenance costs          │
-│      (security, SSL, domain renewals) cannot be predicted.      │
+│  ✅  This is automatic at cancellation. No action required.     │
 │                                                                  │
 │  OPTION B: GS1 RESOLVER REDIRECT                                │
 │  ─────────────────────────────────────────────────────────────  │
@@ -625,13 +616,13 @@ export/
 │         → Reminder emails sent                                  │
 │                                                                  │
 │  Day 30: Subscription ends                                      │
-│         → If Option A: Transition to Compliance Archive         │
+│         → If Option A: Transition to 10-year hosting            │
 │         → If Option B/C: Final redirect configured              │
 │         → If Option D: Waiver signed, DPPs taken offline        │
 │         → Dashboard access removed                              │
 │                                                                  │
 │  After Day 30:                                                  │
-│         → Option A: DPPs served from Compliance Archive         │
+│         → Option A: DPPs served from 10-year hosting            │
 │         → Option B: GS1 resolver redirects to new host          │
 │         → Option C: EuroComply 301 redirects to customer domain │
 │         → Option D: DPPs return 410 Gone (waiver on file)       │
@@ -650,7 +641,7 @@ export/
 |----------|-----------------|--------------|
 | Customer cancels, no action | QR codes break → ESPR violation | Blocked until option selected |
 | Products in market after cancel | Consumers scan dead links | DPPs remain accessible |
-| Business failure | Data lost | Compliance Archive preserves compliance |
+| Business failure | Data lost | 10-year hosting preserves compliance |
 | Migration to competitor | Break existing QR codes | Redirect maintains continuity |
 
 ### Legal Responsibility Clarification
@@ -808,17 +799,14 @@ export/
 
 ## Hosting Options After Export
 
-### Option 0: Compliance Archive (Stay with EuroComply)
+### Option 0: 10-Year Hosting (Included - Stay with EuroComply)
 
 If you cancel your active subscription but want QR codes to keep working without managing your own hosting:
 
 ```
-Compliance Archive Plan (Annual):
-  │ SKU Tier        │ Annual Fee │
-  │─────────────────│────────────│
-  │ 0 - 10,000      │ €99/year   │
-  │ 10,001 - 50,000 │ €299/year  │
-  │ 50,000+         │ Custom     │
+10-Year Hosting (Included in DPP price):
+  • No additional cost - included with every DPP
+  • Automatic at cancellation
 
 Includes:
   • Static DPP pages remain accessible
@@ -826,12 +814,12 @@ Includes:
   • SSL certificate renewals
   • Security patches and resolver updates
   • No editing, no new DPPs, no imports
-  • 10+ year retention (ESPR compliant)
+  • 10-year retention (ESPR compliant)
 ```
 
-This is optional - you can always export and self-host instead. Compliance Archive is for organizations that want a "set and forget" solution for products already in market.
+This is automatic at cancellation - no action required. You can also export and self-host if you want full control over revocations.
 
-**Why no one-time fee?** Supporting URL resolution for 10+ years involves ongoing costs: SSL renewals, domain management, security patches, and potential W3C/GS1 standard updates. A one-time fee cannot reliably cover these unpredictable long-term costs.
+**Why included in price?** DPP pricing factors in 10-year hosting costs (SSL renewals, domain management, security patches). This ensures ESPR compliance without surprise fees at cancellation.
 
 ### Option 1: Static File Hosting
 
@@ -1053,7 +1041,7 @@ app.post('/v1/status/:orgId/revoke', authenticate, async (req, res) => {
 
 Your issued VCs contain `https://api.eurocomply.eu/v1/status/org_abc123`. You have three options:
 
-1. **EuroComply Redirect** (Compliance Archive customers):
+1. **EuroComply Redirect** (10-year hosting customers):
    - We configure 301 redirect to your server
    - Original URL → Your server
 
@@ -1065,13 +1053,13 @@ Your issued VCs contain `https://api.eurocomply.eu/v1/status/org_abc123`. You ha
    - Would require EuroComply to transfer subdomain control
    - Complex and rarely practical
 
-### Option B: Compliance Archive (Frozen Status List)
+### Option B: 10-Year Hosting (Frozen Status List - Included)
 
-If you don't want to self-host, the Compliance Archive preserves your status list:
+If you don't want to self-host, 10-year hosting preserves your status list automatically:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  COMPLIANCE ARCHIVE - STATUS LIST HANDLING                       │
+│  10-YEAR HOSTING - STATUS LIST HANDLING (INCLUDED)              │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
 │  What happens:                                                  │
@@ -1085,8 +1073,7 @@ If you don't want to self-host, the Compliance Archive preserves your status lis
 │  • Cannot un-revoke credentials                                 │
 │  • If you need to revoke a product (e.g., recall), you cannot   │
 │                                                                  │
-│  Cost: €99/year (0-10,000 SKUs)                                 │
-│        €299/year (10,001-50,000 SKUs)                           │
+│  Cost: Included in DPP pricing (no additional fee)              │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -1185,19 +1172,16 @@ Requirements:
 Recommended for: Organizations with IT capability
 ```
 
-**Strategy 3: EuroComply URLs with Compliance Archive**
+**Strategy 3: EuroComply URLs with 10-Year Hosting (Included)**
 
 ```
 QR code contains EuroComply URL:
   https://eurocomply.eu/dpp/prod_123
 
-If you cancel, choose Compliance Archive:
-  → URLs continue working (read-only)
-  → €99/year for URL preservation
-
-If you cancel without Compliance Archive:
-  → URLs return 410 Gone after grace period
-  → Printed QR codes become dead links
+When you cancel:
+  → URLs continue working for 10 years (read-only)
+  → No additional cost (included in DPP price)
+  → Automatic - no action required
 
 Recommended for: Organizations without IT resources
 ```
@@ -1238,7 +1222,7 @@ Not acceptable for:
 │  TIER 3 (Vendor-dependent):                                     │
 │  Use vendor URL: https://eurocomply.eu/dpp/{id}                 │
 │  • Simplest setup                                               │
-│  • Requires Compliance Archive or migration if you leave        │
+│  • 10-year hosting included, or migrate if you prefer           │
 │                                                                  │
 │  ⚠️  NEVER print QR codes without a URL migration plan          │
 │                                                                  │
@@ -1375,8 +1359,8 @@ ESPR requires DPP data to remain accessible for the product's lifetime.
 │  → Status List URLs must remain accessible (hosting cost)       │
 │  → QR code URLs must resolve (hosting or redirect)              │
 │  → ESPR compliance requires 10+ year URL availability           │
-│  → Minimum €990 over 10 years (Compliance Archive)              │
-│    OR self-hosting capability required                          │
+│  → 10-year hosting included in DPP price (no extra cost)       │
+│    OR self-hosting capability if you want revocation control    │
 │                                                                  │
 │  WHAT YOU CAN DO                                                │
 │  → Export everything at any time (no extra cost)                │
@@ -1398,9 +1382,9 @@ ESPR requires DPP data to remain accessible for the product's lifetime.
 │  We cannot eliminate OPERATIONAL lock-in: ESPR requires         │
 │  infrastructure, and infrastructure has ongoing costs.          │
 │                                                                  │
-│  You have options: self-host, use Compliance Archive, or use    │
-│  another provider. But "walk away with zero cost" is not        │
-│  compatible with "10-year DPP availability requirement."        │
+│  You have options: 10-year hosting (included), self-host, or    │
+│  another provider. Hosting cost is factored into DPP pricing    │
+│  to meet "10-year DPP availability requirement."                │
 │                                                                  │
 │  OUR VALUE PROPOSITION                                          │
 │  → Compliance-First PIM (workspace-based data model)            │

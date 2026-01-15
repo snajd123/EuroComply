@@ -17,7 +17,7 @@ EuroComply is a **Unified Product Lifecycle & Compliance Platform** combining Pr
 │  • Operations Workspace (ERP-lite): Item tracking, inventory    │
 │  • Marketing Workspace (PIM): Product content, DAM, syndication │
 │  • Compliance Workspace (DPP): Passport issuance, attestation   │
-│  • Full platform access at all tiers (unlimited users/SKUs)     │
+│  • Full platform access at all tiers (user limits vary by tier) │
 │  • Per-DPP pricing scales with your actual compliance output    │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
@@ -113,7 +113,7 @@ EuroComply uses a **Base Fee + Per-DPP** pricing model that separates platform a
 │  WHAT THE BASE FEE COVERS:                                      │
 │  ├── Full platform access (all 4 workspaces)                    │
 │  ├── Unlimited products/SKUs (no catalog size limits)           │
-│  ├── Unlimited users                                            │
+│  ├── User limit by tier (20/50/100/200, €10/user overage)       │
 │  ├── Generous storage (500GB-5TB depending on tier)             │
 │  ├── API access and webhooks                                    │
 │  └── Support level (varies by tier)                             │
@@ -1155,27 +1155,27 @@ Awareness → Trial → Conversion → Expansion
    - Self-host the data
    - Move to another provider
    - Upload to decentralized storage
-   - **Opt for Dormant Hosting** (see below)
+   - **10-year hosting (automatic, included)** - DPPs remain accessible
 4. **VCs still verify** - did:key is self-contained, no EuroComply dependency
 
-### Dormant Hosting (Optional)
+### 10-Year Hosting (Included)
 
-When an organization cancels their subscription but wants to keep their DPP QR codes working, they can opt for Dormant Hosting:
+When an organization cancels their subscription, 10-year hosting is automatically included:
 
 | Feature | Description |
 |---------|-------------|
 | **Purpose** | Keep QR codes working after subscription ends |
-| **Cost** | €99/year or €500 one-time (per 10,000 DPPs) |
+| **Cost** | Included in DPP price (no additional fee) |
 | **What's Included** | Static DPP pages remain accessible, QR codes continue working |
 | **What's Disabled** | PIM editing, new DPP issuance, AI import, Shopify sync |
-| **Data Retention** | 10+ years (ESPR compliance requirement) |
+| **Data Retention** | 10 years (ESPR compliance requirement) |
 
-**This is optional.** Organizations can also:
+**This is automatic.** Organizations who want full control can also:
 - Export all data and self-host (free)
 - Move to another VC-compatible provider
 - Use the 30-day grace period to migrate
 
-Dormant Hosting addresses the ESPR requirement for 10-year data availability while providing a low-cost option for organizations that no longer need active product management but want to maintain compliance for products already in market.
+10-year hosting is factored into DPP pricing, ensuring ESPR compliance without surprise fees at cancellation. Organizations can maintain compliance for products already in market without managing their own infrastructure.
 
 ### GDPR Compatibility with 10-Year Hosting
 
@@ -1315,7 +1315,7 @@ The 10-year hosting commitment may seem to conflict with GDPR Article 17 (Right 
 │  • Enterprise: €1,999/mo base + €0.008/DPP (5 TB storage)      │
 │  • Platform: Custom base + €0.001-0.003/DPP (custom storage)   │
 │                                                                  │
-│  All tiers: Unlimited products/SKUs, unlimited users           │
+│  All tiers: Unlimited products/SKUs, user limits by tier       │
 │  Volume discounts unlock at tier-specific thresholds           │
 │                                                                  │
 │  FOUR WORKSPACES (ALL INCLUDED)                                │

@@ -2104,7 +2104,7 @@ class SecureTenantRouter {
 |---------|----------|------------|
 | **PostgreSQL role capacity** | No hard limit; roles stored in `pg_authid` catalog with ~100 bytes each. 200 roles is trivial. | None needed - well within capacity |
 | **Connection pooling** | Each role needs dedicated PgBouncer pool entry. 200 tenants × 10 connections = 2,000 entries. | Configure PgBouncer with `max_client_conn=2500`, `default_pool_size=10` |
-| **Secrets Manager cost** | $0.40/secret/month × 200 tenants = ~$80/cell/month | Factor into cell cost model; still profitable at €129/tenant |
+| **Secrets Manager cost** | $0.40/secret/month × 200 tenants = ~$80/cell/month | Factor into cell cost model; still profitable at €149/tenant |
 | **Credential rotation** | 200 rotations per cell could cause thundering herd | Stagger rotations: 7 tenants/day for 30-day cycle |
 
 **PgBouncer Configuration for Per-Tenant Pools:**
@@ -2970,9 +2970,9 @@ All security features described in this document are **planned**. This section t
 |-----------|---------|--------|
 | Launch | Day 1 | Deploy Growth Cell 1 |
 | 200 Growth customers | Cell 1 at capacity | Deploy Growth Cell 2 |
-| First Scale customer | €399 signup | Deploy Scale Cell |
-| First Enterprise customer | €999 signup | Deploy dedicated RDS |
-| First Mega customer | €4,999 signup | Deploy dedicated cluster |
+| First Scale customer | €749 signup | Deploy Scale Cell |
+| First Enterprise customer | €1,999 signup | Deploy dedicated RDS |
+| First Platform customer | Custom pricing | Deploy dedicated cluster |
 
 ### 14.3 What This Architecture Provides
 

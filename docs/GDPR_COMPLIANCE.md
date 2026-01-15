@@ -285,9 +285,9 @@ The EU Ecodesign for Sustainable Products Regulation (ESPR) mandates DPP data re
 │                                                                  │
 │  HOW WE HANDLE IT                                               │
 │  ─────────────────                                              │
-│  1. Subscription cancelled → Data enters "dormant" state       │
-│  2. Dormant data: DPP accessible, no new edits                 │
-│  3. After 10 years from last product placed on market → Delete │
+│  1. Subscription cancelled → DPPs hosted for 10 years (included)│
+│  2. Status lists frozen (no new revocations)                   │
+│  3. After 10 years from issuance → Eligible for deletion       │
 │  4. Customer notified at each stage                            │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
