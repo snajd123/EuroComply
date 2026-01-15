@@ -3199,6 +3199,509 @@ async function verifyEvidencePackage(
 }
 ```
 
+### 18.5 Selective Disclosure Resolver
+
+The same DPP Digital Link (QR code URL) must serve different audiences with different views. A consumer should see the "Story" (sustainability narrative); a Customs Officer should see the full "Evidence Package."
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    SELECTIVE DISCLOSURE RESOLVER                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  SAME QR CODE → DIFFERENT VIEWS BY AUDIENCE                                 │
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────────┐│
+│  │  URL: https://dpp.eurocomply.eu/01/04012345678901/21/ABC123             ││
+│  │                                                                          ││
+│  │  Consumer Scan (no auth):                                               ││
+│  │  ┌─────────────────────────────────────────────────────────────────┐   ││
+│  │  │  🌿 THE STORY                                                    │   ││
+│  │  │  ├── Brand name, product name, hero image                        │   ││
+│  │  │  ├── Sustainability score, carbon footprint                      │   ││
+│  │  │  ├── "Made in Italy from organic cotton"                         │   ││
+│  │  │  ├── Care instructions, recyclability                            │   ││
+│  │  │  └── Repair/return/resale options                                │   ││
+│  │  └─────────────────────────────────────────────────────────────────┘   ││
+│  │                                                                          ││
+│  │  Customs Officer (authenticated via eIDAS/EORI):                        ││
+│  │  ┌─────────────────────────────────────────────────────────────────┐   ││
+│  │  │  📋 FULL EVIDENCE PACKAGE                                        │   ││
+│  │  │  ├── Consignment details + SSCC                                  │   ││
+│  │  │  ├── All Four Pillars (Design, Supply Chain, Production, ID)     │   ││
+│  │  │  ├── EPCIS event history                                         │   ││
+│  │  │  ├── Facility GPS coordinates (EUDR)                             │   ││
+│  │  │  ├── Certificate snapshots + validity                            │   ││
+│  │  │  ├── Cryptographic proof verification                            │   ││
+│  │  │  └── [Download Official PDF] button                              │   ││
+│  │  └─────────────────────────────────────────────────────────────────┘   ││
+│  │                                                                          ││
+│  │  Supply Chain Partner (authenticated via shared link/API):              ││
+│  │  ┌─────────────────────────────────────────────────────────────────┐   ││
+│  │  │  🔗 PARTNER VIEW                                                 │   ││
+│  │  │  ├── EPCIS events (ObjectEvent, AggregationEvent)                │   ││
+│  │  │  ├── Product specifications + BOM (read-only)                    │   ││
+│  │  │  ├── Their facility's certification status                       │   ││
+│  │  │  └── [Export EPCIS JSON-LD] button                               │   ││
+│  │  └─────────────────────────────────────────────────────────────────┘   ││
+│  └─────────────────────────────────────────────────────────────────────────┘│
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Authentication for Customs Access
+
+```typescript
+// DPP Resolver request handler
+async function resolveDPP(
+  digitalLink: GS1DigitalLink,
+  authContext: AuthContext | null
+): Promise<DPPView> {
+  const { gtin, serial } = parseDigitalLink(digitalLink);
+  const dpp = await getDPP(gtin, serial);
+
+  // No auth → Consumer Story view
+  if (!authContext) {
+    return renderConsumerStory(dpp);
+  }
+
+  // Check auth type
+  switch (authContext.type) {
+    case 'CUSTOMS_EIDAS':
+      // EU Customs using eIDAS certificate or EORI verification
+      await validateEidasCertificate(authContext.certificate);
+      return renderFullEvidencePackage(dpp, {
+        includeGPS: true,
+        includeAllPillars: true,
+        includePDFDownload: true,
+      });
+
+    case 'SUPPLY_CHAIN_TOKEN':
+      // Partner with shared access token
+      const partner = await validatePartnerToken(authContext.token);
+      return renderPartnerView(dpp, partner.permissions);
+
+    case 'ORGANIZATION_API_KEY':
+      // Organization accessing their own DPPs
+      return renderFullEvidencePackage(dpp, { includePDFDownload: true });
+
+    default:
+      return renderConsumerStory(dpp);
+  }
+}
+
+interface AuthContext {
+  type: 'CUSTOMS_EIDAS' | 'SUPPLY_CHAIN_TOKEN' | 'ORGANIZATION_API_KEY';
+  certificate?: X509Certificate;  // For eIDAS
+  token?: string;                 // For partner access
+  apiKey?: string;                // For organization API
+  eoriNumber?: string;            // EU Economic Operator Registration
+}
+```
+
+#### Digital Link with View Parameter
+
+```
+# Consumer view (default)
+https://dpp.eurocomply.eu/01/04012345678901/21/ABC123
+
+# Request full evidence (requires auth header)
+https://dpp.eurocomply.eu/01/04012345678901/21/ABC123?view=evidence
+Authorization: Bearer <customs_token>
+
+# EPCIS export for supply chain systems
+https://dpp.eurocomply.eu/01/04012345678901/21/ABC123?view=epcis
+Accept: application/ld+json
+```
+
+### 18.6 RFC 3161 Timestamp Authority Integration
+
+A database timestamp can be altered by an admin; an RFC 3161 timestamp from a third-party Timestamp Authority (TSA) is **legally undeniable in EU court**. This is essential for Enterprise+ tiers.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    TIMESTAMP AUTHORITY ARCHITECTURE                          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  WHY RFC 3161?                                                              │
+│  ─────────────                                                               │
+│  • Database timestamps: Mutable (admin can change)                          │
+│  • Blockchain timestamps: Slow, expensive, overkill                         │
+│  • RFC 3161 TSA: Legally binding, fast, affordable, EU-recognized          │
+│                                                                              │
+│  LEGAL BASIS:                                                               │
+│  • eIDAS Regulation (EU 910/2014) recognizes qualified timestamps           │
+│  • An RFC 3161 timestamp from a qualified TSA is legal evidence             │
+│  • "The timestamp SHALL be presumed accurate" (eIDAS Article 41)            │
+│                                                                              │
+│  WHEN TO TIMESTAMP:                                                         │
+│  ┌─────────────────────────────────────────────────────────────────────────┐│
+│  │  Event Type                    │ Starter/Growth │ Scale │ Enterprise+ ││
+│  │────────────────────────────────┼────────────────┼───────┼─────────────││
+│  │  Evidence Package generation   │      ❌        │  ❌   │     ✅      ││
+│  │  DPP Issuance                  │      ❌        │  ❌   │     ✅      ││
+│  │  Critical compliance events    │      ❌        │  ❌   │     ✅      ││
+│  │  Customs filing submission     │      ❌        │  ❌   │     ✅      ││
+│  └─────────────────────────────────────────────────────────────────────────┘│
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### TSA Integration Implementation
+
+```typescript
+// RFC 3161 Timestamp Authority service
+interface TimestampService {
+  // Request timestamp from qualified TSA
+  requestTimestamp(hash: Buffer): Promise<TimestampToken>;
+
+  // Verify a timestamp token
+  verifyTimestamp(token: TimestampToken, originalHash: Buffer): Promise<boolean>;
+}
+
+interface TimestampToken {
+  // The RFC 3161 response
+  rfc3161_response: Buffer;
+
+  // Parsed metadata
+  timestamp: Date;
+  tsa_name: string;
+  tsa_certificate: string;
+  hash_algorithm: 'SHA-256' | 'SHA-384' | 'SHA-512';
+  serial_number: string;
+
+  // eIDAS qualification
+  qualified: boolean;
+  trust_service_provider: string;
+}
+
+// Qualified TSA providers (EU Trusted List)
+const QUALIFIED_TSA_PROVIDERS = [
+  {
+    name: 'DigiCert Timestamp Authority',
+    url: 'http://timestamp.digicert.com',
+    qualified: true,
+    region: 'EU',
+  },
+  {
+    name: 'Sectigo Timestamp Authority',
+    url: 'http://timestamp.sectigo.com',
+    qualified: true,
+    region: 'EU',
+  },
+  {
+    name: 'GlobalSign TSA',
+    url: 'http://timestamp.globalsign.com/tsa/r6advanced1',
+    qualified: true,
+    region: 'EU',
+  },
+];
+
+// Request RFC 3161 timestamp for Evidence Package
+async function timestampEvidencePackage(
+  pkg: EvidencePackage,
+  tier: PricingTier
+): Promise<EvidencePackage> {
+  // Only Enterprise+ gets qualified timestamps
+  if (tier !== 'ENTERPRISE' && tier !== 'PLATFORM') {
+    return pkg;
+  }
+
+  const hashToTimestamp = Buffer.from(pkg.integrity.binding_hash, 'hex');
+
+  // Build RFC 3161 TimeStampReq
+  const tsRequest = createTimeStampRequest(hashToTimestamp, {
+    hashAlgorithm: 'SHA-256',
+    certReq: true,  // Request TSA certificate in response
+    nonce: crypto.randomBytes(8),
+  });
+
+  // Send to qualified TSA
+  const tsa = QUALIFIED_TSA_PROVIDERS[0];
+  const response = await fetch(tsa.url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/timestamp-query' },
+    body: tsRequest,
+  });
+
+  const tsResponse = await response.arrayBuffer();
+  const token = parseTimeStampResponse(Buffer.from(tsResponse));
+
+  // Verify the timestamp is valid
+  if (!await verifyTimestampToken(token, hashToTimestamp)) {
+    throw new Error('TSA returned invalid timestamp');
+  }
+
+  // Add to Evidence Package
+  return {
+    ...pkg,
+    integrity: {
+      ...pkg.integrity,
+      timestamp_proof: {
+        tsa_url: tsa.url,
+        tsa_name: tsa.name,
+        rfc3161_token: token.rfc3161_response.toString('base64'),
+        timestamp: token.timestamp.toISOString(),
+        qualified: token.qualified,
+        trust_service_provider: tsa.name,
+      },
+    },
+  };
+}
+
+// Verify timestamp in court-admissible manner
+async function verifyTimestampForCourt(
+  pkg: EvidencePackage
+): Promise<TimestampVerification> {
+  if (!pkg.integrity.timestamp_proof) {
+    return {
+      verified: false,
+      court_admissible: false,
+      reason: 'No timestamp proof present',
+    };
+  }
+
+  const token = Buffer.from(pkg.integrity.timestamp_proof.rfc3161_token, 'base64');
+  const originalHash = Buffer.from(pkg.integrity.binding_hash, 'hex');
+
+  // 1. Verify cryptographic integrity
+  const cryptoValid = await verifyTimestampToken(
+    parseTimeStampResponse(token),
+    originalHash
+  );
+
+  // 2. Verify TSA is on EU Trusted List (for qualified status)
+  const tsaOnTrustedList = await checkEUTrustedList(
+    pkg.integrity.timestamp_proof.tsa_url
+  );
+
+  return {
+    verified: cryptoValid,
+    court_admissible: cryptoValid && tsaOnTrustedList,
+    timestamp: pkg.integrity.timestamp_proof.timestamp,
+    tsa_qualified: pkg.integrity.timestamp_proof.qualified,
+    trust_service_provider: pkg.integrity.timestamp_proof.trust_service_provider,
+    legal_basis: 'eIDAS Regulation (EU) 910/2014, Article 41',
+  };
+}
+```
+
+#### Pricing: TSA Timestamps
+
+| Tier | TSA Timestamps | Cost per Timestamp |
+|------|----------------|-------------------|
+| Starter | Not available | - |
+| Growth | Not available | - |
+| Scale | Not available | - |
+| Enterprise | Included | ~€0.01 (bundled) |
+| Platform | Included | ~€0.005 (volume) |
+
+*TSA costs are bundled into Evidence Package generation fee for Enterprise+ tiers.*
+
+### 18.7 Customs Evidence PDF Template
+
+Importers will pay premium for the **"Download as PDF"** button. The PDF must look official, be verifiable offline, and withstand customs agent scrutiny.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    CUSTOMS EVIDENCE PDF SPECIFICATION                        │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────────┐│
+│  │  ╔═══════════════════════════════════════════════════════════════════╗ ││
+│  │  ║           COMPLIANCE EVIDENCE CERTIFICATE                         ║ ││
+│  │  ║                     EuroComply GmbH                               ║ ││
+│  │  ╠═══════════════════════════════════════════════════════════════════╣ ││
+│  │  ║                                                                   ║ ││
+│  │  ║  Certificate ID: EVD-2026-0001234                                 ║ ││
+│  │  ║  Generated: 2026-01-15T14:32:00Z                                  ║ ││
+│  │  ║  Valid Until: Perpetual (ESPR 10-year retention)                  ║ ││
+│  │  ║                                                                   ║ ││
+│  │  ║  ┌─────────────┐    CONSIGNMENT DETAILS                          ║ ││
+│  │  ║  │ [QR CODE 1] │    SSCC: 340123456789012345                      ║ ││
+│  │  ║  │  VERIFY     │    Carrier: DHL Express                         ║ ││
+│  │  ║  │  PACKAGE    │    Tracking: 1234567890                          ║ ││
+│  │  ║  └─────────────┘    Units: 500                                   ║ ││
+│  │  ║                      EPCs: 500 serialized items                   ║ ││
+│  │  ║                                                                   ║ ││
+│  │  ║  ─────────────────────────────────────────────────────────────   ║ ││
+│  │  ║                                                                   ║ ││
+│  │  ║  ORIGIN VERIFICATION (EUDR/ESPR Compliant)                       ║ ││
+│  │  ║  Facility: Organic Cotton Mill, Bergamo                          ║ ││
+│  │  ║  GLN: 4012345000015                                              ║ ││
+│  │  ║  GPS: 45.6983° N, 9.6773° E                                      ║ ││
+│  │  ║  Country: IT (Italy)                                             ║ ││
+│  │  ║                                                                   ║ ││
+│  │  ║  ─────────────────────────────────────────────────────────────   ║ ││
+│  │  ║                                                                   ║ ││
+│  │  ║  COMPLIANCE SUMMARY                                              ║ ││
+│  │  ║  ☑ Design Compliance: ESPR, REACH verified                      ║ ││
+│  │  ║  ☑ Supply Chain: All facilities verified, certs valid           ║ ││
+│  │  ║  ☑ Production Evidence: 47 notarized events, chain intact       ║ ││
+│  │  ║  ☑ Identity Chain: Lot → Batch → Serial → DPP complete          ║ ││
+│  │  ║                                                                   ║ ││
+│  │  ║  ─────────────────────────────────────────────────────────────   ║ ││
+│  │  ║                                                                   ║ ││
+│  │  ║  ┌─────────────┐    CRYPTOGRAPHIC VERIFICATION                   ║ ││
+│  │  ║  │ [QR CODE 2] │                                                 ║ ││
+│  │  ║  │  VERIFY     │    Binding Hash: 7a3f2c1b...                    ║ ││
+│  │  ║  │  SIGNATURE  │    Signer DID: did:key:z6Mkh...                 ║ ││
+│  │  ║  └─────────────┘    Algorithm: EdDSA (Ed25519)                   ║ ││
+│  │  ║                                                                   ║ ││
+│  │  ║                      RFC 3161 TIMESTAMP                          ║ ││
+│  │  ║                      TSA: DigiCert (Qualified)                   ║ ││
+│  │  ║                      Time: 2026-01-15T14:32:01Z                  ║ ││
+│  │  ║                      Legal: eIDAS Art. 41 compliant              ║ ││
+│  │  ║                                                                   ║ ││
+│  │  ║  ─────────────────────────────────────────────────────────────   ║ ││
+│  │  ║                                                                   ║ ││
+│  │  ║           SCAN QR CODES TO VERIFY THIS CERTIFICATE               ║ ││
+│  │  ║                                                                   ║ ││
+│  │  ║  QR Code 1: Full Evidence Package (Digital Link)                 ║ ││
+│  │  ║  QR Code 2: Signature Verification (cryptographic proof)         ║ ││
+│  │  ║                                                                   ║ ││
+│  │  ╠═══════════════════════════════════════════════════════════════════╣ ││
+│  │  ║  Page 1 of 5                           EuroComply Evidence v1.0  ║ ││
+│  │  ╚═══════════════════════════════════════════════════════════════════╝ ││
+│  └─────────────────────────────────────────────────────────────────────────┘│
+│                                                                              │
+│  SUBSEQUENT PAGES:                                                          │
+│  • Page 2: Detailed Design Compliance (BOM snapshot, regulations)           │
+│  • Page 3: Supply Chain Facilities (with GPS, certs, risk scores)           │
+│  • Page 4: Production Evidence (notary chain summary)                       │
+│  • Page 5: Full EPC List + Merkle Tree visualization                        │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### PDF Template Requirements
+
+```typescript
+interface EvidencePDFConfig {
+  // Official branding
+  header: {
+    logo: 'eurocomply_seal.png';     // Official seal
+    title: 'COMPLIANCE EVIDENCE CERTIFICATE';
+    document_id: string;              // EVD-YYYY-XXXXXXX
+  };
+
+  // QR Codes for verification
+  qr_codes: {
+    // QR 1: Digital Link to full Evidence Package
+    package_verification: {
+      url: string;                    // https://dpp.eurocomply.eu/evidence/EVD-2026-...
+      label: 'VERIFY PACKAGE';
+      purpose: 'Customs agent scans to see full digital evidence';
+    };
+    // QR 2: Cryptographic signature verification
+    signature_verification: {
+      url: string;                    // https://verify.eurocomply.eu/sig/...
+      label: 'VERIFY SIGNATURE';
+      purpose: 'Proves PDF hasn\'t been tampered with';
+      embedded_data: {
+        binding_hash: string;
+        signature_jws: string;
+        signer_did: string;
+      };
+    };
+  };
+
+  // Visual compliance indicators
+  compliance_badges: {
+    espr: boolean;
+    eudr: boolean;
+    reach: boolean;
+    custom: string[];
+  };
+
+  // Timestamp authority seal (Enterprise+ only)
+  tsa_seal?: {
+    provider: string;
+    timestamp: string;
+    qualified: boolean;
+    legal_reference: 'eIDAS Regulation (EU) 910/2014, Article 41';
+  };
+
+  // Multi-language support
+  language: 'en' | 'de' | 'fr' | 'it' | 'es';
+}
+
+// Generate official PDF
+async function generateEvidencePDF(
+  pkg: EvidencePackage,
+  config: EvidencePDFConfig
+): Promise<Buffer> {
+  const doc = new PDFDocument({ size: 'A4', margin: 50 });
+
+  // Page 1: Summary + QR Codes
+  await renderCoverPage(doc, pkg, config);
+
+  // Page 2: Design Compliance details
+  doc.addPage();
+  await renderDesignCompliancePage(doc, pkg.pillars.design_compliance);
+
+  // Page 3: Supply Chain Facilities
+  doc.addPage();
+  await renderSupplyChainPage(doc, pkg.pillars.supply_chain_integrity);
+
+  // Page 4: Production Evidence
+  doc.addPage();
+  await renderProductionEvidencePage(doc, pkg.pillars.production_evidence);
+
+  // Page 5: EPC List + Merkle Proof
+  doc.addPage();
+  await renderEPCListPage(doc, pkg.consignment.epc_list, pkg.consignment.epc_merkle_root);
+
+  doc.end();
+  return doc.buffer;
+}
+
+// QR Code 2: Embedded signature for offline verification
+function generateSignatureQR(pkg: EvidencePackage): string {
+  // Compact payload for QR code (fits in ~500 bytes)
+  const payload = {
+    v: 1,                                    // Version
+    h: pkg.integrity.binding_hash.slice(0, 16), // Truncated hash (verifiable)
+    s: pkg.integrity.signature_jws.split('.')[2].slice(0, 64), // Signature excerpt
+    d: pkg.integrity.signer_did.slice(-20),  // DID suffix
+    t: pkg.integrity.timestamp_proof?.timestamp || null,
+    u: `https://verify.eurocomply.eu/pkg/${pkg.package_id}`,
+  };
+
+  return `eurocomply://verify?data=${base64url(JSON.stringify(payload))}`;
+}
+```
+
+#### Customs Agent Verification Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    CUSTOMS VERIFICATION FLOW                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  1. AGENT RECEIVES PDF (email, printed, or forwarding system)               │
+│                                                                              │
+│  2. SCAN QR CODE 1 (Package Verification)                                   │
+│     └─► Opens EuroComply Evidence Page (authenticated view)                 │
+│     └─► Full digital evidence, EPCIS events, facility details               │
+│     └─► Real-time verification: "This package is VALID"                     │
+│                                                                              │
+│  3. SCAN QR CODE 2 (Signature Verification)                                 │
+│     └─► Opens signature verifier                                            │
+│     └─► Cryptographically proves PDF hasn't been altered                    │
+│     └─► Shows: "Signature valid, signed by [Organization] on [Date]"        │
+│                                                                              │
+│  4. CHECK TIMESTAMP (Enterprise+ PDF)                                       │
+│     └─► TSA seal visible: "DigiCert Qualified Timestamp"                    │
+│     └─► Legal reference: eIDAS Article 41                                   │
+│     └─► Court-admissible proof of when evidence was sealed                  │
+│                                                                              │
+│  5. DECISION                                                                │
+│     └─► GREEN LANE: All verifications pass → expedited clearance            │
+│     └─► HOLD: Any verification fails → manual inspection                    │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
 ---
 
 ## 19. Shipping Billing Integration
@@ -3555,6 +4058,7 @@ GET    /api/v1/operations/shipping/customs/:id               # Get filing status
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 0.4 | 2026-01-15 | Added Selective Disclosure Resolver, RFC 3161 TSA Integration, Customs PDF Template |
 | 0.3 | 2026-01-15 | Added Shipping & Logistics: Consignments, EPCIS, Evidence Package, Billing |
 | 0.2 | 2026-01-15 | Added Execution Engine: Orders, Events, Lots, Batches, Serials, Consumption |
 | 0.1 | 2026-01-15 | Initial draft: Suppliers, Facilities, Certifications |
