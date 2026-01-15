@@ -417,29 +417,45 @@ const ENCRYPTED_FIELDS = [
 
 ### 5.1 Rate Limiting
 
+Rate limits are **tier-based** - higher tiers get higher limits. The limit applies to all API requests combined (POST and GET).
+
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    RATE LIMITS                                   │
+│                    TIER-BASED RATE LIMITS                        │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  ENDPOINT               │ LIMIT           │ WINDOW              │
-│  ───────────────────────┼─────────────────┼─────────────────────│
-│  POST /auth/login       │ 5 requests      │ per email per hour  │
-│  POST /api/*            │ 100 requests    │ per minute          │
-│  GET /api/*             │ 1000 requests   │ per minute          │
-│  POST /api/ai/import    │ 10 requests     │ per hour            │
-│  GET /public/dpp/:id    │ 10000 requests  │ per minute (CDN)    │
+│  TIER         │ API RATE LIMIT    │ NOTES                       │
+│  ─────────────┼───────────────────┼─────────────────────────────│
+│  Starter      │ 100 req/min       │ Suitable for small catalogs │
+│  Growth       │ 500 req/min       │ Standard integrations       │
+│  Scale        │ 2,000 req/min     │ High-volume sync            │
+│  Enterprise   │ 10,000 req/min    │ Real-time integrations      │
+│  Platform     │ Custom            │ Negotiated per contract     │
 │                                                                  │
-│  Rate limit headers returned:                                   │
-│  X-RateLimit-Limit: 100                                        │
-│  X-RateLimit-Remaining: 45                                     │
-│  X-RateLimit-Reset: 1704722400                                 │
+│  SPECIAL ENDPOINTS (tier-independent):                          │
+│  ─────────────┼───────────────────┼─────────────────────────────│
+│  POST /auth/* │ 5 req/hour        │ Per email (brute force)     │
+│  POST /ai/*   │ 10 req/hour       │ AI import (expensive)       │
+│  GET /dpp/:id │ Unlimited         │ Public DPP access (CDN)     │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
+│                    RATE LIMIT RESPONSE                           │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Headers returned on every request:                             │
+│  X-RateLimit-Limit: 10000          (your tier's limit)         │
+│  X-RateLimit-Remaining: 9542       (requests left this window) │
+│  X-RateLimit-Reset: 1704722400     (window reset timestamp)    │
 │                                                                  │
 │  On limit exceeded: 429 Too Many Requests                      │
-│  Retry-After: 30                                               │
+│  Retry-After: 30                   (seconds until reset)       │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+> **Note:** Rate limits are tracked per organization, not per API key. Multiple API keys share the same limit pool.
 
 ### 5.2 Input Validation
 
