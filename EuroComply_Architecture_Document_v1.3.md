@@ -2911,6 +2911,332 @@ function formatDate(dateStr: string): string {
 5. **Fresh Item Data**: Item records fetched from DynamoDB (always current)
 6. **EPCIS Lazy Loading**: Events loaded on-demand via separate API call
 
+#### 7.8.1 Edge Service Error Handling and Operations
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    CLOUDFLARE WORKER ERROR HANDLING                          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ERROR RESPONSE FORMAT                                                       │
+│  ─────────────────────                                                       │
+│  All errors return structured JSON (not plain text) for programmatic use:   │
+│                                                                              │
+│  {                                                                           │
+│    "error": {                                                                │
+│      "code": "DPP_NOT_FOUND",                                               │
+│      "message": "Digital Product Passport not found",                       │
+│      "details": {                                                           │
+│        "passportId": "abc123",                                              │
+│        "serialNumber": "SN-001"                                             │
+│      },                                                                      │
+│      "requestId": "cf-ray-xxxxx"                                            │
+│    }                                                                         │
+│  }                                                                           │
+│                                                                              │
+│  ERROR CODES:                                                                │
+│  ┌─────────────────────┬──────┬───────────────────────────────────────────┐ │
+│  │ Code                │ HTTP │ Description                               │ │
+│  ├─────────────────────┼──────┼───────────────────────────────────────────┤ │
+│  │ DPP_NOT_FOUND       │ 404  │ Template or item doesn't exist            │ │
+│  │ TEMPLATE_NOT_FOUND  │ 404  │ R2 template missing (never published)     │ │
+│  │ ITEM_NOT_FOUND      │ 404  │ Serial number not in DynamoDB             │ │
+│  │ R2_UNAVAILABLE      │ 503  │ R2 service temporarily unavailable        │ │
+│  │ API_UNAVAILABLE     │ 503  │ Backend API unreachable                   │ │
+│  │ RENDER_FAILED       │ 500  │ Template rendering error                  │ │
+│  │ RATE_LIMITED        │ 429  │ Too many requests (per-IP rate limit)     │ │
+│  └─────────────────────┴──────┴───────────────────────────────────────────┘ │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Error Response Implementation:**
+
+```typescript
+// Standardized error response helper
+function errorResponse(
+  code: string,
+  message: string,
+  status: number,
+  details?: Record<string, unknown>,
+  requestId?: string
+): Response {
+  return new Response(
+    JSON.stringify({
+      error: {
+        code,
+        message,
+        details,
+        requestId: requestId || crypto.randomUUID(),
+      },
+    }),
+    {
+      status,
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-store',  // Never cache errors
+        'X-Error-Code': code,
+      },
+    }
+  );
+}
+
+// Updated fetch handler with proper error handling
+async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const requestId = request.headers.get('cf-ray') || crypto.randomUUID();
+
+  try {
+    // ... existing logic ...
+
+    // R2 fetch with fallback
+    const templateObject = await env.R2_BUCKET.get(templateKey);
+    if (!templateObject) {
+      return errorResponse('TEMPLATE_NOT_FOUND', 'DPP template not found', 404,
+        { passportId }, requestId);
+    }
+
+    // API fetch with timeout
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);  // 5s timeout
+
+    try {
+      const itemResponse = await fetch(itemUrl, {
+        signal: controller.signal,
+        headers: { 'X-Internal-Request': 'dpp-worker' }
+      });
+      clearTimeout(timeout);
+
+      if (itemResponse.status === 404) {
+        return errorResponse('ITEM_NOT_FOUND', 'Item not found', 404,
+          { passportId, serialNumber }, requestId);
+      }
+      if (!itemResponse.ok) {
+        throw new Error(`API returned ${itemResponse.status}`);
+      }
+    } catch (e) {
+      if (e.name === 'AbortError') {
+        return errorResponse('API_UNAVAILABLE', 'Backend API timeout', 503,
+          { timeout: '5000ms' }, requestId);
+      }
+      throw e;
+    }
+
+  } catch (error) {
+    console.error('Worker error:', error, { requestId });
+    return errorResponse('RENDER_FAILED', 'Internal rendering error', 500,
+      undefined, requestId);
+  }
+}
+```
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    R2 FALLBACK BEHAVIOR                                      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  FALLBACK CHAIN:                                                             │
+│  ───────────────                                                             │
+│                                                                              │
+│  1. Primary: R2 in nearest region (automatic via Cloudflare)                │
+│  2. Fallback: R2 cross-region (Cloudflare handles automatically)            │
+│  3. Graceful degradation: Return cached stale version if available          │
+│  4. Final: Return 503 with retry-after header                               │
+│                                                                              │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │                                                                         │ │
+│  │  Request ──► Edge Cache ──► R2 Primary ──► R2 Replica ──► 503          │ │
+│  │     │          HIT?            OK?            OK?           │           │ │
+│  │     │           │               │              │            │           │ │
+│  │     │     ┌─────┴─────┐   ┌────┴────┐   ┌────┴────┐       │           │ │
+│  │     │     │   YES     │   │   YES   │   │   YES   │       │           │ │
+│  │     │     │  Return   │   │ Return  │   │ Return  │       │           │ │
+│  │     │     │  cached   │   │ fresh   │   │ replica │       │           │ │
+│  │     │     └───────────┘   └─────────┘   └─────────┘       │           │ │
+│  │     │                                                       │           │ │
+│  │     └──────────────────────────────────────────────────────┘           │ │
+│  │                                                                         │ │
+│  └────────────────────────────────────────────────────────────────────────┘ │
+│                                                                              │
+│  STALE-WHILE-REVALIDATE:                                                    │
+│  ────────────────────────                                                   │
+│  Templates use: Cache-Control: public, max-age=2592000, stale-if-error=86400│
+│  This allows serving stale cached content for 24h if R2 is completely down │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    CACHE INVALIDATION PROCEDURE                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  WHEN TO INVALIDATE:                                                         │
+│  ───────────────────                                                         │
+│  • Template republished (design change)                                      │
+│  • Credential revoked (immediate purge required)                            │
+│  • Legal/compliance takedown request                                        │
+│                                                                              │
+│  INVALIDATION METHODS:                                                       │
+│  ─────────────────────                                                       │
+│                                                                              │
+│  1. SINGLE DPP PURGE (via API):                                             │
+│     ┌─────────────────────────────────────────────────────────────────────┐ │
+│     │  POST /v1/admin/cache/purge                                         │ │
+│     │  {                                                                   │ │
+│     │    "urls": [                                                         │ │
+│     │      "https://dpp.eurocomply.eu/dpp/{passportId}",                  │ │
+│     │      "https://dpp.eurocomply.eu/dpp/{passportId}/*"                 │ │
+│     │    ]                                                                 │ │
+│     │  }                                                                   │ │
+│     └─────────────────────────────────────────────────────────────────────┘ │
+│                                                                              │
+│  2. ORGANIZATION-WIDE PURGE (via Cloudflare API):                          │
+│     ┌─────────────────────────────────────────────────────────────────────┐ │
+│     │  curl -X POST "https://api.cloudflare.com/client/v4/zones/{zone}/  │ │
+│     │    purge_cache" \                                                   │ │
+│     │    -H "Authorization: Bearer $CF_TOKEN" \                           │ │
+│     │    -d '{"prefixes": ["dpp.eurocomply.eu/dpp/{orgPrefix}"]}'         │ │
+│     └─────────────────────────────────────────────────────────────────────┘ │
+│                                                                              │
+│  3. AUTOMATIC PURGE ON REVOCATION:                                          │
+│     ┌─────────────────────────────────────────────────────────────────────┐ │
+│     │  // In credential revocation handler                                │ │
+│     │  async function revokeCredential(credentialId: string) {            │ │
+│     │    // 1. Update status list                                         │ │
+│     │    await updateStatusList(credentialId, 'revoked');                 │ │
+│     │                                                                      │ │
+│     │    // 2. Purge edge cache immediately                               │ │
+│     │    const dppUrl = `https://dpp.eurocomply.eu/dpp/${passportId}`;   │ │
+│     │    await cloudflare.purgeCache([dppUrl, `${dppUrl}/*`]);           │ │
+│     │                                                                      │ │
+│     │    // 3. Log for audit trail                                        │ │
+│     │    await auditLog('cache.purged', { credentialId, reason: 'revoked' });│
+│     │  }                                                                   │ │
+│     └─────────────────────────────────────────────────────────────────────┘ │
+│                                                                              │
+│  PURGE LATENCY:                                                             │
+│  ─────────────                                                              │
+│  • Single URL: <30 seconds globally                                         │
+│  • Prefix purge: <2 minutes globally                                        │
+│  • Full zone purge: <5 minutes (avoid except for emergencies)               │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    WORKER VERSION DEPLOYMENT STRATEGY                        │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  DEPLOYMENT MODEL: Gradual Rollout                                           │
+│  ─────────────────────────────────                                           │
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                                                                      │    │
+│  │   Commit ──► Build ──► Stage ──► Canary ──► Gradual ──► Full       │    │
+│  │     │         │         │         (1%)      (10→50%)    (100%)     │    │
+│  │     │         │         │          │           │           │        │    │
+│  │     │      Wrangler   Manual    5 min      30 min     Complete     │    │
+│  │     │       build     smoke     health     health                  │    │
+│  │     │                  test     check      check                   │    │
+│  │                                                                      │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                                                              │
+│  WRANGLER DEPLOYMENT COMMANDS:                                              │
+│  ─────────────────────────────                                               │
+│                                                                              │
+│  # Deploy to staging environment                                            │
+│  wrangler deploy --env staging                                              │
+│                                                                              │
+│  # Deploy canary (1% traffic)                                               │
+│  wrangler versions upload                                                   │
+│  wrangler versions deploy $VERSION_ID@1%                                    │
+│                                                                              │
+│  # Gradual rollout                                                          │
+│  wrangler versions deploy $VERSION_ID@10%                                   │
+│  wrangler versions deploy $VERSION_ID@50%                                   │
+│  wrangler versions deploy $VERSION_ID@100%                                  │
+│                                                                              │
+│  # Emergency rollback (instant)                                             │
+│  wrangler rollback                                                          │
+│                                                                              │
+│  HEALTH CHECKS:                                                              │
+│  ─────────────                                                               │
+│  Monitor these metrics during rollout (Cloudflare Analytics + custom):      │
+│                                                                              │
+│  │ Metric              │ Healthy Threshold │ Rollback Trigger │            │
+│  ├─────────────────────┼───────────────────┼──────────────────┤            │
+│  │ Error rate (5xx)    │ <0.1%             │ >1%              │            │
+│  │ P99 latency         │ <100ms            │ >500ms           │            │
+│  │ CPU time per req    │ <5ms              │ >20ms            │            │
+│  │ Subrequest failures │ <0.5%             │ >2%              │            │
+│                                                                              │
+│  ROLLBACK PROCEDURE:                                                         │
+│  ──────────────────                                                          │
+│  1. Detect: Alert fires on error rate or latency threshold                  │
+│  2. Execute: `wrangler rollback` (instant, <10 seconds global)              │
+│  3. Verify: Check metrics return to baseline                                │
+│  4. Investigate: Review logs in Cloudflare dashboard                        │
+│  5. Fix: Patch code, re-deploy through full pipeline                        │
+│                                                                              │
+│  VERSION TAGGING:                                                            │
+│  ────────────────                                                            │
+│  All deployments tagged with:                                                │
+│  • Git commit SHA                                                           │
+│  • Deployment timestamp                                                      │
+│  • Deployer identity                                                         │
+│                                                                              │
+│  # In wrangler.toml                                                          │
+│  [vars]                                                                      │
+│  WORKER_VERSION = "v1.2.3-abc1234"                                          │
+│  DEPLOY_TIME = "2026-01-15T10:30:00Z"                                       │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**wrangler.toml Configuration:**
+
+```toml
+name = "eurocomply-dpp-worker"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+# Production environment
+[env.production]
+routes = [
+  { pattern = "dpp.eurocomply.eu/*", zone_name = "eurocomply.eu" }
+]
+
+[env.production.vars]
+API_ENDPOINT = "https://api.eurocomply.eu"
+ENVIRONMENT = "production"
+
+[[env.production.r2_buckets]]
+binding = "R2_BUCKET"
+bucket_name = "eurocomply-dpp-templates"
+
+# Staging environment (for pre-deploy testing)
+[env.staging]
+routes = [
+  { pattern = "dpp-staging.eurocomply.eu/*", zone_name = "eurocomply.eu" }
+]
+
+[env.staging.vars]
+API_ENDPOINT = "https://api-staging.eurocomply.eu"
+ENVIRONMENT = "staging"
+
+[[env.staging.r2_buckets]]
+binding = "R2_BUCKET"
+bucket_name = "eurocomply-dpp-templates-staging"
+
+# Rate limiting
+[[env.production.unsafe.bindings]]
+name = "RATE_LIMITER"
+type = "ratelimit"
+namespace_id = "dpp-rate-limit"
+simple = { limit = 100, period = 60 }  # 100 req/min per IP
+```
+
 ### 7.9 Tier Limits for Bulk Operations
 
 | Tier | Max Batch Size | API Rate Limit | DPP Price |
