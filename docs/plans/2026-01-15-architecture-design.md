@@ -155,6 +155,43 @@ Selected for:
 | Token lifetime | 1 hour (refresh via Clerk SDK) |
 | API key lifetime | Until revoked |
 
+### Clerk ↔ walt.id Integration
+
+Clerk handles authentication; walt.id handles cryptographic signing.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                CLERK + WALT.ID INTEGRATION                       │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  AUTHENTICATION (Clerk)          SIGNING (walt.id)              │
+│  ─────────────────────           ──────────────────              │
+│  • User login/sessions           • DID generation               │
+│  • Organization management       • Key storage (Custodian)      │
+│  • SSO/SAML                      • VC signing                   │
+│  • JWT issuance                  • Signature verification       │
+│                                                                  │
+│  INTEGRATION FLOW                                               │
+│  ────────────────                                                │
+│  1. User logs in via Clerk → clerk_user_id assigned             │
+│  2. First action requiring signature:                           │
+│     └── Generate Ed25519 keypair in walt.id                     │
+│     └── Derive did:key from public key                          │
+│     └── Store mapping: clerk_user_id → walt_id_key_id → did     │
+│  3. Subsequent signatures:                                      │
+│     └── Look up walt_id_key_id from clerk_user_id               │
+│     └── Sign via walt.id Custodian API                          │
+│                                                                  │
+│  USER TABLE                                                     │
+│  ──────────                                                      │
+│  id              UUID                                           │
+│  clerk_user_id   VARCHAR(255)  -- From Clerk                    │
+│  walt_id_key_id  VARCHAR(255)  -- Reference in walt.id          │
+│  did             VARCHAR(255)  -- did:key:z6Mk...               │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
 ---
 
 ## 4. Multi-Tenancy
@@ -255,31 +292,84 @@ Tenant → Cell routing stored in:
 
 ### Version States
 
+Design and Marketing workspaces use formal versioning with the following states:
+
 ```
-DRAFT ──────→ APPROVAL_REQUESTED ──────→ APPROVED ──────→ RELEASED
-  │                  │                       │               │
-  │             Contributor              Editor/          FROZEN
-  │              submits                 Manager          FOREVER
-  │                                     approves            │
-  │                                                         │
-  └── Editable ──────────────────────────────────→ Immutable
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         VERSION STATE MACHINE                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│                              ┌──────────┐                                   │
+│                              │ REJECTED │ ◄──── Reviewer rejects            │
+│                              └────┬─────┘       (author can revise)         │
+│                                   │                                          │
+│                                   ▼                                          │
+│  ┌───────┐    ┌────────────────┐    ┌───────────┐    ┌──────────┐          │
+│  │ DRAFT │───►│ PENDING_REVIEW │───►│ IN_REVIEW │───►│ RELEASED │          │
+│  └───────┘    └────────────────┘    └───────────┘    └────┬─────┘          │
+│      │         (Contributor          (Claimed by          │                 │
+│      │          submits)              reviewer)           │                 │
+│      │                                                    ▼                 │
+│      │        ┌──────────────────────────────────►  ┌──────────┐          │
+│      │        │  (Editor/Manager direct release)    │  ACTIVE  │          │
+│      │        │                                     └────┬─────┘          │
+│      │                                                   │                 │
+│      │                                                   ▼                 │
+│      │                                             ┌──────────┐           │
+│      │                                             │ ARCHIVED │           │
+│      │                                             └──────────┘           │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-| State | Who Can Transition | What Happens |
-|-------|-------------------|--------------|
-| **DRAFT** | Anyone with edit access | Work in progress, freely editable |
-| **APPROVAL_REQUESTED** | Contributor submits | Awaiting review, read-only |
-| **APPROVED** | Editor/Manager approves | Ready for release |
-| **RELEASED** | Editor/Manager releases | Frozen forever, can be referenced |
+| State | Description | Can Edit? | Can Reference? |
+|-------|-------------|-----------|----------------|
+| **DRAFT** | Being edited, not yet submitted | Yes | No |
+| **PENDING_REVIEW** | Submitted, awaiting reviewer claim | No | No |
+| **IN_REVIEW** | Claimed by a specific reviewer | No | No |
+| **REJECTED** | Reviewer rejected, author can revise | Yes (new draft) | No |
+| **RELEASED** | Current version, ready for use | No | Yes |
+| **ACTIVE** | Referenced by Operations/Compliance | No (immutable) | Yes (has refs) |
+| **ARCHIVED** | Superseded, no active references | No | No |
 
-### Key Rules
+### State Transitions
 
-1. **RELEASED = Immutable forever** - No edits, no going back
-2. **Need changes? Create new version** - v1 → v2 → v3
-3. **Checkout locks** - Only one person can create a draft at a time (per workspace)
-4. **72-hour timeout** - Abandoned checkouts auto-release, draft preserved
+| Transition | Trigger | Who |
+|------------|---------|-----|
+| DRAFT → PENDING_REVIEW | Contributor submits for review | CONTRIBUTOR |
+| DRAFT → RELEASED | Direct release | EDITOR/MANAGER |
+| PENDING_REVIEW → IN_REVIEW | Reviewer claims | EDITOR/MANAGER |
+| IN_REVIEW → RELEASED | Reviewer approves | EDITOR/MANAGER |
+| IN_REVIEW → REJECTED | Reviewer rejects | EDITOR/MANAGER |
+| RELEASED → ACTIVE | Referenced by batch/DPP | Automatic |
+| ACTIVE → RELEASED | All references cleared | Automatic (hourly check) |
+| RELEASED → ARCHIVED | Newer version released | Automatic |
 
-### Version References
+### ACTIVE State (Reference Tracking)
+
+When Operations creates a batch or Compliance issues a DPP referencing a version:
+- Version automatically becomes ACTIVE
+- ACTIVE versions are **immutable** - cannot be modified
+- System tracks reference counts: `activeBatchCount`, `activeDppCount`
+- Version returns to RELEASED when all references are cleared
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Design v2 (ACTIVE)                                             │
+│  ├── activeBatchCount: 2 (Batch #100, #101 in production)       │
+│  ├── activeDppCount: 1 (DPP #500 issued)                        │
+│  └── Cannot archive until: all batches complete + DPP superseded│
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Checkout Locks
+
+- **Per-workspace**: Design and Marketing locks are independent
+- **72-hour timeout**: Abandoned checkouts auto-release
+- **Draft preserved**: Timeout releases lock but keeps draft
+- **Admin override**: Can force-release if user unavailable
+
+### Version References Example
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -288,14 +378,14 @@ DRAFT ──────→ APPROVAL_REQUESTED ──────→ APPROVED �
 │                                                                  │
 │  DESIGN VERSIONS                                                │
 │  ───────────────                                                 │
-│  v3 (RELEASED) ◄── Current, can be referenced                   │
-│  v2 (RELEASED) ◄── Still valid, older batches reference this    │
-│  v1 (RELEASED)     Historical                                   │
+│  v3 (RELEASED) ◄── Current, available for new batches           │
+│  v2 (ACTIVE)   ◄── Referenced by Batch #12345, #12346           │
+│  v1 (ARCHIVED)     No active references, historical             │
 │                                                                  │
 │  OPERATIONS REFERENCES                                          │
 │  ────────────────────                                            │
-│  Batch #12345 → design_version_id = v2 (locked at creation)     │
-│  Batch #12350 → design_version_id = v3 (locked at creation)     │
+│  Batch #12345 → design_version_id = v2 (locked at commit)       │
+│  Batch #12350 → design_version_id = v3 (locked at commit)       │
 │                                                                  │
 │  COMPLIANCE REFERENCES                                          │
 │  ────────────────────                                            │
@@ -839,16 +929,17 @@ AWS KMS Master Key (per-cell)
 Resolved in this session:
 - [x] Authentication provider → Clerk
 - [x] Event architecture → PostgreSQL outbox (not Kafka)
-- [x] Version states → DRAFT → APPROVAL_REQUESTED → APPROVED → RELEASED
+- [x] Version states → Full state machine (DRAFT → PENDING_REVIEW → IN_REVIEW → RELEASED → ACTIVE → ARCHIVED)
 - [x] Status List → Include in design
 - [x] Hub model → Product as shared entity, explicit versions
+- [x] Clerk ↔ walt.id integration → Clerk for auth, walt.id for signing, linked via user ID
+- [x] RBAC model → 4 authorities (VIEWER, CONTRIBUTOR, EDITOR, MANAGER) per workspace
 
 Still to resolve (in subsequent doc reviews):
 - [ ] EPCIS event schema (what events, what format?)
 - [ ] Attestation flow details
 - [ ] Shopify sync specifics
 - [ ] AI import implementation
-- [ ] Detailed RBAC permissions
 
 ---
 
@@ -856,7 +947,7 @@ Still to resolve (in subsequent doc reviews):
 
 | Document | Status | Purpose |
 |----------|--------|---------|
-| USER_MANAGEMENT.md | To review | RBAC, permissions, checkout flow |
+| USER_MANAGEMENT.md | Reviewed | RBAC, permissions, checkout flow |
 | BUSINESS_MODEL.md | To review | Pricing, tiers, unit economics |
 | BILLING.md | To review | Stripe integration, invoicing |
 | VERIFIABLE_CREDENTIALS.md | To review | VC format, signing details |
@@ -870,3 +961,4 @@ Still to resolve (in subsequent doc reviews):
 | Version | Date | Changes |
 |---------|------|---------|
 | 0.1 | 2026-01-15 | Initial draft from Architecture Doc review |
+| 0.2 | 2026-01-15 | Updated version states to full state machine, added Clerk ↔ walt.id integration |
