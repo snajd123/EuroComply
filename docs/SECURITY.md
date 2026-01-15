@@ -18,9 +18,21 @@
 
 ## 2. Authentication
 
-### 2.1 User Authentication (Magic Links)
+### 2.1 User Authentication (Magic Links + Password)
 
-EuroComply uses passwordless authentication via magic links with enhanced security:
+EuroComply supports two authentication methods for users:
+
+| Method | Recommended | Use Case |
+|--------|-------------|----------|
+| **Magic Links** | Yes | Primary authentication - no password to steal |
+| **Password** | Alternative | For users who prefer traditional login |
+| **SSO (SAML/OIDC)** | Enterprise | Delegated to identity provider |
+
+Both methods produce identical JWT tokens. See [AUTHENTICATION.md](./AUTHENTICATION.md) for complete details.
+
+#### Magic Link Authentication (Primary)
+
+Magic links are the recommended authentication method:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -94,6 +106,43 @@ if (window.history && window.history.replaceState) {
   url.searchParams.delete('token');
   window.history.replaceState({}, document.title, url.pathname);
 }
+```
+
+#### Password Authentication (Alternative)
+
+For users who prefer traditional login, password authentication is available:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    PASSWORD SECURITY                             │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  REQUIREMENTS                                                   │
+│  ────────────                                                   │
+│  • Minimum 12 characters                                        │
+│  • At least: 1 uppercase, 1 lowercase, 1 number, 1 special     │
+│  • Not in breached password lists (Have I Been Pwned API)      │
+│                                                                  │
+│  STORAGE                                                        │
+│  ───────                                                        │
+│  • Bcrypt with minimum 12 rounds (adaptive)                    │
+│  • Never stored in plaintext                                   │
+│  • Never logged                                                 │
+│                                                                  │
+│  BRUTE FORCE PROTECTION                                         │
+│  ──────────────────────                                         │
+│  • Rate limit: 5 attempts per 15 minutes per email             │
+│  • Account lockout after 10 failed attempts (30 min)           │
+│  • IP-based rate limiting: 20 attempts per 15 minutes          │
+│  • Exponential backoff on failures                             │
+│                                                                  │
+│  PASSWORD RESET                                                 │
+│  ──────────────                                                 │
+│  • Uses magic link mechanism (same security properties)        │
+│  • 1-hour expiry                                               │
+│  • Invalidates all existing sessions on reset                  │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ### 2.2 API Key Authentication

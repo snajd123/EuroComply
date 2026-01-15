@@ -71,11 +71,20 @@ EuroComply implements a comprehensive authentication and authorization system wi
 
 ## 2. Authentication Methods
 
-EuroComply supports three authentication methods:
+EuroComply supports multiple authentication methods:
 
-### 2.1 JWT (User Sessions)
+| Method | Use Case | Security Level |
+|--------|----------|----------------|
+| **Magic Links** | Primary user login (recommended) | High - no password to steal |
+| **Password** | Alternative for users who prefer it | Standard - requires strong password |
+| **SSO (SAML/OIDC)** | Enterprise customers | Highest - delegated to IdP |
+| **API Keys** | Machine-to-machine integrations | High - scoped, rotatable |
+
+### 2.1 User Authentication (Magic Links + Password)
 
 **Used for:** Dashboard users (designers, managers, compliance officers)
+
+Users can authenticate via **magic link** (recommended) or **password** - both methods produce the same JWT tokens.
 
 | Property | Value |
 |----------|-------|
@@ -85,11 +94,61 @@ EuroComply supports three authentication methods:
 | Issuer | `https://api.eurocomply.eu` |
 | Storage | HttpOnly cookie (web), secure storage (mobile) |
 
-**Authentication Flow:**
+#### Option A: Magic Link Authentication (Recommended)
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        JWT AUTHENTICATION                        │
+│                    MAGIC LINK AUTHENTICATION                     │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  1. USER REQUESTS MAGIC LINK                                    │
+│     POST /api/v1/auth/magic-link                                │
+│     { email }                                                    │
+│                                                                  │
+│  2. SERVER GENERATES                                            │
+│     • Random token (32 bytes, crypto-secure)                   │
+│     • Token hash (SHA-256, stored in DB)                       │
+│     • Expiry (15 minutes)                                      │
+│                                                                  │
+│  3. EMAIL SENT                                                  │
+│     Link: https://app.eurocomply.eu/auth/verify?token=...      │
+│                                                                  │
+│  4. USER CLICKS LINK                                            │
+│     • Landing page extracts token from URL                     │
+│     • URL immediately cleared (history.replaceState)           │
+│     • Client POSTs token to /api/v1/auth/verify                │
+│                                                                  │
+│  5. SERVER VALIDATES                                            │
+│     • Hash incoming token, compare to stored hash              │
+│     • Check expiry (15 min)                                    │
+│     • One-time use (delete after verification)                 │
+│     • Check account status (active, suspended, locked)         │
+│                                                                  │
+│  6. GENERATE JWT TOKENS (same as password flow)                │
+│     → Access token (1 hour)                                    │
+│     → Refresh token (30 days)                                  │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Why Magic Links are Recommended:**
+- No password to steal via phishing or data breach
+- No password reset flow needed
+- Works across all devices (email is universal)
+- Simpler UX for occasional users
+
+**Magic Link Security:**
+- Tokens are 32 bytes (256-bit entropy)
+- Single-use (deleted after verification)
+- 15-minute expiry
+- POST-based verification (not GET) to prevent leakage
+- URL cleared immediately to prevent history/referrer leaks
+
+#### Option B: Password Authentication
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     PASSWORD AUTHENTICATION                      │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
 │  1. USER LOGIN                                                  │
@@ -98,37 +157,69 @@ EuroComply supports three authentication methods:
 │                                                                  │
 │  2. SERVER VALIDATES                                            │
 │     • Lookup user by email                                      │
-│     • Verify password (bcrypt, min 10 rounds)                   │
+│     • Verify password (bcrypt, min 12 rounds)                   │
 │     • Check account status (active, suspended, locked)          │
+│     • Rate limit: 5 attempts per 15 minutes per email          │
 │                                                                  │
-│  3. GENERATE TOKENS                                             │
-│     Access Token (1 hour):                                      │
-│     {                                                            │
-│       sub: user.id,                                             │
-│       org: user.organizationId,                                 │
-│       workspaces: { design: "EDITOR", compliance: "VIEWER" },   │
-│       admin: true/false,                                        │
-│       exp: now + 1 hour                                         │
-│     }                                                            │
+│  3. GENERATE JWT TOKENS (same as magic link flow)              │
+│     → Access token (1 hour)                                    │
+│     → Refresh token (30 days)                                  │
 │                                                                  │
-│     Refresh Token (30 days):                                    │
-│     {                                                            │
-│       sub: user.id,                                             │
-│       jti: unique_token_id,                                     │
-│       exp: now + 30 days                                        │
-│     }                                                            │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Password Requirements:**
+- Minimum 12 characters
+- At least one uppercase, lowercase, number, and special character
+- Not in common password lists (Have I Been Pwned check)
+- Bcrypt with minimum 12 rounds (adaptive)
+
+**Password Reset Flow:**
+```
+POST /api/v1/auth/forgot-password  { email }
+→ Sends reset link (same mechanism as magic link)
+→ Reset link expires in 1 hour
+
+POST /api/v1/auth/reset-password   { token, newPassword }
+→ Validates token, updates password
+→ Invalidates all existing sessions
+```
+
+#### JWT Token Structure (Both Methods)
+
+Both magic link and password authentication produce identical JWT tokens:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        JWT TOKENS                                │
+├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  4. RETURN TOKENS                                               │
-│     Set-Cookie: access_token=...; HttpOnly; Secure; SameSite    │
-│     Set-Cookie: refresh_token=...; HttpOnly; Secure; SameSite   │
+│  Access Token (1 hour):                                         │
+│  {                                                               │
+│    sub: user.id,                                                │
+│    org: user.organizationId,                                    │
+│    workspaces: { design: "EDITOR", compliance: "VIEWER" },      │
+│    admin: true/false,                                           │
+│    authMethod: "magic_link" | "password" | "sso",               │
+│    exp: now + 1 hour                                            │
+│  }                                                               │
 │                                                                  │
-│  5. SUBSEQUENT REQUESTS                                         │
-│     All requests include cookies automatically                  │
-│     Authorization middleware verifies JWT signature + expiry    │
+│  Refresh Token (30 days):                                       │
+│  {                                                               │
+│    sub: user.id,                                                │
+│    jti: unique_token_id,                                        │
+│    exp: now + 30 days                                           │
+│  }                                                               │
 │                                                                  │
-│  6. TOKEN REFRESH (before expiry)                               │
-│     POST /api/v1/auth/refresh                                   │
-│     Uses refresh_token cookie → issues new access_token        │
+│  DELIVERY                                                       │
+│  ────────                                                       │
+│  Set-Cookie: access_token=...; HttpOnly; Secure; SameSite=Lax  │
+│  Set-Cookie: refresh_token=...; HttpOnly; Secure; SameSite=Lax │
+│                                                                  │
+│  REFRESH                                                        │
+│  ───────                                                        │
+│  POST /api/v1/auth/refresh                                      │
+│  Uses refresh_token cookie → issues new access_token           │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
