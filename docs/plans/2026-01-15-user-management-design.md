@@ -65,20 +65,58 @@ EuroComply implements workspace-based access control with cryptographic chain of
 
 ---
 
-## 3. Authority Levels
+## 3. Authority Model
 
-Four authority levels per workspace:
+EuroComply has **two levels of authority**: Organization-level and Workspace-level.
+
+### Organization Admin
+
+Organization Admin is a **separate flag** from workspace authorities:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                         AUTHORITY HIERARCHY                                  │
+│                       ORGANIZATION ADMIN                                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  WHO:                                                                       │
+│  • First user (creator) is automatically Org Admin                          │
+│  • Org Admins can grant Org Admin to others                                 │
+│  • Independent of workspace authorities                                     │
+│                                                                              │
+│  CAPABILITIES:                                                              │
+│  • Invite/remove users from organization                                    │
+│  • Assign workspace authorities to users                                    │
+│  • Manage billing, payment methods, invoices                                │
+│  • Organization settings (name, logo, VAT ID)                               │
+│  • API key management                                                       │
+│  • View audit logs                                                          │
+│  • Delete organization                                                      │
+│  • Grant/revoke Org Admin to others                                         │
+│                                                                              │
+│  IMPORTANT:                                                                 │
+│  • Org Admin does NOT grant workspace access                                │
+│  • A finance person can be Org Admin with only VIEWER in Compliance        │
+│  • To edit products, user needs both Org membership AND workspace authority│
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Workspace Authority Levels
+
+Four authority levels per workspace (independent of Org Admin):
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                     WORKSPACE AUTHORITY HIERARCHY                            │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │  MANAGER                                                                    │
+│  │ • Full CRUD on all data in workspace                                    │
+│  │ • Workspace-specific settings                                           │
 │  │ • Self-sign product versions (direct release)                           │
 │  │ • Approve changes from Contributors                                     │
 │  │ • Issue DPPs (Compliance workspace only)                                │
-│  │ • Full workspace control                                                │
+│  │ • CANNOT invite users (that's Org Admin)                                │
 │  │                                                                          │
 │  EDITOR                                                                     │
 │  │ • Self-sign product versions (direct release)                           │
@@ -96,6 +134,19 @@ Four authority levels per workspace:
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+### Org Admin vs Workspace Admin Distinction
+
+| Capability | Org Admin | Workspace MANAGER |
+|------------|:---------:|:-----------------:|
+| Invite users to organization | ✅ | ❌ |
+| Assign workspace authorities | ✅ | ❌ |
+| Manage billing | ✅ | ❌ |
+| Organization settings | ✅ | ❌ |
+| Full CRUD in workspace | Only if also MANAGER | ✅ |
+| Workspace settings | Only if also MANAGER | ✅ |
+| Delete products/versions | Only if also MANAGER | ✅ |
+| Issue DPPs | Only if MANAGER in Compliance | Only if in Compliance |
 
 ### Authority Matrix
 
@@ -154,29 +205,29 @@ Users have **separate authority per workspace**:
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Admin Access
-
-Admin access is **separate from workspace authority**:
-
-| Access Type | Controls |
-|-------------|----------|
-| **Workspace** | What user can do in each workspace |
-| **Admin** | User management, billing, API keys, org settings |
-
-A user can be VIEWER in all workspaces but still be an Admin.
-
 ### Role Templates
 
-Pre-defined templates for common roles:
+Pre-defined templates for common user configurations:
 
-| Template | Design | Operations | Marketing | Compliance | Admin |
-|----------|:------:|:----------:|:---------:|:----------:|:-----:|
-| **Full Admin** | MANAGER | MANAGER | MANAGER | MANAGER | ✓ |
-| **Product Designer** | EDITOR | VIEWER | - | - | - |
-| **Operations Manager** | VIEWER | MANAGER | - | - | - |
-| **Marketing Manager** | - | - | MANAGER | VIEWER | - |
-| **Compliance Officer** | VIEWER | VIEWER | VIEWER | MANAGER | - |
-| **External Contributor** | - | - | CONTRIBUTOR | - | - |
+| Template | Org Admin | Design | Operations | Marketing | Compliance |
+|----------|:---------:|:------:|:----------:|:---------:|:----------:|
+| **Owner** | ✅ | MANAGER | MANAGER | MANAGER | MANAGER |
+| **Finance Admin** | ✅ | - | - | - | VIEWER |
+| **Product Designer** | ❌ | EDITOR | VIEWER | - | - |
+| **Operations Manager** | ❌ | VIEWER | MANAGER | - | - |
+| **Marketing Manager** | ❌ | - | - | MANAGER | VIEWER |
+| **Compliance Officer** | ❌ | VIEWER | VIEWER | VIEWER | MANAGER |
+| **External Contributor** | ❌ | - | - | CONTRIBUTOR | - |
+
+### Typical User Examples
+
+| User | Org Admin | Design | Operations | Marketing | Compliance | Can Do |
+|------|:---------:|:------:|:----------:|:---------:|:----------:|--------|
+| **CEO/Founder** | ✅ | MANAGER | MANAGER | MANAGER | MANAGER | Everything |
+| **CFO** | ✅ | - | - | - | VIEWER | Billing + view compliance costs |
+| **Lead Designer** | ❌ | MANAGER | VIEWER | VIEWER | - | Design products, view ops |
+| **Factory Manager** | ❌ | VIEWER | MANAGER | - | VIEWER | Manage batches |
+| **Junior Designer** | ❌ | CONTRIBUTOR | - | - | - | Edit, submit for review |
 
 ---
 
@@ -437,8 +488,10 @@ CREATE TABLE users (
     user_type VARCHAR(30) NOT NULL DEFAULT 'INTERNAL',
     -- INTERNAL, GUEST_PARTNER, TRANSACTIONAL_PARTNER
 
-    -- Admin access (separate from workspace)
-    is_admin BOOLEAN NOT NULL DEFAULT FALSE,
+    -- Organization Admin (separate from workspace authorities)
+    -- Can: invite users, manage billing, org settings, assign workspace authorities
+    -- First user (org creator) is automatically Org Admin
+    is_organization_admin BOOLEAN NOT NULL DEFAULT FALSE,
 
     -- Guest restrictions
     allowed_product_tags TEXT[],
@@ -598,3 +651,4 @@ When upstream workspaces update, downstream workspaces are notified:
 |---------|------|---------|
 | 0.1 | 2026-01-15 | Initial draft from USER_MANAGEMENT.md review |
 | 0.2 | 2026-01-15 | Simplified version states (no ACTIVE/ARCHIVED on versions), added product-level archiving |
+| 0.3 | 2026-01-15 | Added Organization Admin concept (separate from Workspace authority), clarified Org Admin vs Workspace MANAGER distinction |
