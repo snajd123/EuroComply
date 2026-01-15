@@ -589,7 +589,7 @@ The per-DPP model creates a significant shift in revenue composition:
 **Why 1.5%/month may be optimistic:**
 - SMB customers typically churn 3-5% monthly
 - Early-stage products see higher churn
-- €79-199/month tiers have lower switching costs
+- €149-299/month tiers have lower switching costs
 
 **Sensitivity Analysis:**
 

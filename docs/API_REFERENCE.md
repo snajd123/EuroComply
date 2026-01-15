@@ -498,6 +498,45 @@ X-RateLimit-Retry-After: 45
 }
 ```
 
+### 4.4 Storage Limit Error Response
+
+When uploading files (images, PDFs, videos), the API returns this error if storage limit is reached:
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "STORAGE_LIMIT_EXCEEDED",
+    "message": "Storage limit reached for your plan",
+    "details": {
+      "currentUsage": "512 GB",
+      "planLimit": "500 GB",
+      "tier": "Starter",
+      "upgradeUrl": "https://app.eurocomply.eu/settings/billing/upgrade"
+    }
+  },
+  "meta": {
+    "requestId": "req_abc123",
+    "timestamp": "2026-01-15T10:30:00Z"
+  }
+}
+```
+
+**Storage limits by tier:**
+| Tier | Limit |
+|------|-------|
+| Starter | 500 GB |
+| Growth | 1 TB |
+| Scale | 2 TB |
+| Enterprise | 5 TB |
+| Platform | Custom |
+
+**Notes:**
+- Storage counts media files only (images, PDFs, videos)
+- Product data records and DPP metadata are unlimited
+- Existing data is never deleted - only new uploads are blocked
+- Upgrade immediately unlocks additional storage
+
 ---
 
 ## 5. Error Codes

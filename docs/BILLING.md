@@ -2,7 +2,7 @@
 
 **Version:** 2.0
 **Status:** Active
-**Last Updated:** 2026-01-14
+**Last Updated:** 2026-01-15
 
 ---
 
@@ -991,18 +991,18 @@ EuroComply uses **Stripe Tax** for automatic VAT calculation and collection.
 │  INVOICE DISPLAY                                                │
 │  ───────────────                                                │
 │  B2C Invoice:                                                   │
-│    Base fee: €599.00                                            │
+│    Base fee: €749.00                                            │
 │    DPP usage: €12,500.00                                        │
-│    Subtotal: €13,099.00                                         │
-│    VAT (19%): €2,488.81                                         │
-│    Total: €15,587.81                                            │
+│    Subtotal: €13,249.00                                         │
+│    VAT (19%): €2,517.31                                         │
+│    Total: €15,766.31                                            │
 │                                                                  │
 │  B2B Invoice (reverse charge):                                  │
-│    Base fee: €599.00                                            │
+│    Base fee: €749.00                                            │
 │    DPP usage: €12,500.00                                        │
-│    Subtotal: €13,099.00                                         │
+│    Subtotal: €13,249.00                                         │
 │    VAT: €0.00 (reverse charge)                                  │
-│    Total: €13,099.00                                            │
+│    Total: €13,249.00                                            │
 │    Note: "VAT reverse charge - Customer VAT: DE123456789"       │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
@@ -1115,7 +1115,7 @@ Billing management is restricted to users with **ADMIN** role.
 │                                                                  │
 │  CURRENT PLAN                                                   │
 │  ─────────────                                                  │
-│  Scale (€599/month base + €0.02/DPP)    [Upgrade] [Downgrade]   │
+│  Scale (€749/month base + €0.02/DPP)    [Upgrade] [Downgrade]   │
 │  Next billing: February 1, 2026                                 │
 │  Payment method: Visa •••• 4242                  [Update]       │
 │                                                                  │
@@ -1138,9 +1138,9 @@ Billing management is restricted to users with **ADMIN** role.
 │                                                                  │
 │  INVOICE HISTORY                                                │
 │  ────────────────                                               │
-│  Jan 2026  Base: €599 + DPPs: €12,500 = €15,587.81  PAID  [PDF]│
-│  Dec 2025  Base: €599 + DPPs: €8,200 = €10,471.81   PAID  [PDF]│
-│  Nov 2025  Base: €599 + DPPs: €5,100 = €6,782.81    PAID  [PDF]│
+│  Jan 2026  Base: €749 + DPPs: €12,500 = €15,766.31  PAID  [PDF]│
+│  Dec 2025  Base: €749 + DPPs: €8,200 = €10,650.31   PAID  [PDF]│
+│  Nov 2025  Base: €749 + DPPs: €5,100 = €6,961.31    PAID  [PDF]│
 │                                                                  │
 │  BILLING INFORMATION                                            │
 │  ────────────────────                                           │
@@ -1270,7 +1270,7 @@ function getUsagePriceId(plan: Plan): string {
 }
 
 function getPlanLimits(plan: Plan) {
-  // Note: Storage is unlimited for all plans - no storage limits tracked
+  // Note: Storage limits vary by plan (500GB to 5TB for media files)
   const limits = {
     STARTER: {
       dppPrice: 10, // €0.10 in cents
@@ -1482,7 +1482,7 @@ async function getCurrentUsage(orgId: string) {
       price: nextDiscount.price,
       dppsUntil: nextDiscount.threshold - org.dppCountThisMonth,
     } : null,
-    storage: 'unlimited',  // All plans include unlimited storage
+    storage: getStorageLimit(org.plan),  // Storage varies by plan
   };
 }
 
@@ -1516,5 +1516,6 @@ function getCurrentRate(plan: Plan, dppCount: number): number {
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.1 | 2026-01-15 | Updated pricing (€149/€299/€749/€1,999) and added storage limits (500GB-5TB) |
 | 2.0 | 2026-01-14 | Major update: Base Fee + Per-DPP pricing model |
 | 1.0 | 2026-01-14 | Initial specification |

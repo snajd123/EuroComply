@@ -67,9 +67,9 @@ EuroComply is a B2B SaaS platform for EU Digital Product Passport (DPP) complian
 
 | Stage | Customers | Infrastructure | Base Revenue | Est. DPP Revenue | Gross Margin |
 |-------|-----------|----------------|--------------|------------------|--------------|
-| Launch | 0-10 | €158/month | €1,990 | €500 | 85-90% |
-| Growth | 50-200 | €200-400/month | €9,950-39,800 | €5,000-50,000 | 88-92% |
-| Scale | 200-500 | €600-1,200/month | €79,600-199,000 | €100K-500K | 89-92% |
+| Launch | 0-10 | €158/month | €1,490-2,990 | €500 | 85-90% |
+| Growth | 50-200 | €200-400/month | €12,450-59,800 | €5,000-50,000 | 88-92% |
+| Scale | 200-500 | €600-1,200/month | €99,800-374,500 | €100K-500K | 89-92% |
 
 ### Realistic Gross Margin by Tier
 

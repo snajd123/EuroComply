@@ -541,10 +541,10 @@ The AI import feature uses Anthropic Claude and incurs per-token costs. Beyond r
 │                                                                              │
 │  │ Tier       │ Monthly Cost │ AI Budget Value* │ Effective AI Cost │      │
 │  │────────────│──────────────│──────────────────│───────────────────│      │
-│  │ Starter    │ €99/month    │ ~€1.50           │ Included          │      │
+│  │ Starter    │ €149/month   │ ~€1.50           │ Included          │      │
 │  │ Growth     │ €299/month   │ ~€7.50           │ Included          │      │
-│  │ Scale      │ €799/month   │ ~€30.00          │ Included          │      │
-│  │ Enterprise │ €2,499/month │ ~€150.00         │ Included          │      │
+│  │ Scale      │ €749/month   │ ~€30.00          │ Included          │      │
+│  │ Enterprise │ €1,999/month │ ~€150.00         │ Included          │      │
 │                                                                              │
 │  *Based on Claude Haiku pricing: $0.25/M input, $1.25/M output             │
 │                                                                              │
@@ -1781,10 +1781,10 @@ EuroComply uses a **schema-per-tenant** model with seven layers of defense. Secu
 
 | Tier | Isolation Model | Max Breach Impact |
 |------|-----------------|-------------------|
-| Starter (€79) | Schema + Per-Tenant Credentials | 1 tenant |
-| Growth (€199) | Schema + Per-Tenant Credentials | 1 tenant |
-| Scale (€599) | Schema + Per-Tenant Credentials | 1 tenant |
-| Enterprise (€1,499) | Schema + Per-Tenant Credentials | 1 tenant |
+| Starter (€149) | Schema + Per-Tenant Credentials | 1 tenant |
+| Growth (€299) | Schema + Per-Tenant Credentials | 1 tenant |
+| Scale (€749) | Schema + Per-Tenant Credentials | 1 tenant |
+| Enterprise (€1,999) | Schema + Per-Tenant Credentials | 1 tenant |
 | Platform (Custom) | Dedicated Instance | 1 tenant |
 
 ### 13.2 Seven Layers of Security

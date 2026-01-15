@@ -977,7 +977,7 @@ Customer pays → We spin up container → Customer owns infrastructure
 - €50-110/month infrastructure + customer labor
 - Defeats "no IT team needed" promise
 
-**Verdict**: Only for Enterprise tier (€1,499+/month)
+**Verdict**: Only for Enterprise tier (€1,999+/month)
 
 ---
 
