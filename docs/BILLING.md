@@ -571,6 +571,60 @@ async function reportShippingUsageToStripe(orgId: string) {
 }
 ```
 
+### Shipping Storage Costs (10-Year TCO)
+
+Unlike DPPs where we deduplicate (30KB template shared across 1,000 items), shipping artifacts are **unique per consignment** and cannot be templated.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    SHIPPING ARTIFACT STORAGE COSTS                           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ARTIFACT SIZES (per consignment):                                          │
+│  ─────────────────────────────────                                          │
+│  • Evidence Package JSON:     ~150KB (Four Pillars, EPCs, signatures)       │
+│  • Customs PDF (5 pages):     ~1MB (official template with QR codes)        │
+│  • EPCIS Events:              ~3KB each × 5 avg = 15KB per consignment      │
+│  • Shipping Label:            ~100KB (carrier PDF/PNG, 90-day retention)    │
+│  • RFC 3161 Timestamp Token:  ~2KB (Enterprise+ only)                       │
+│  ──────────────────────────────────────────────────────────────────────────│
+│  TOTAL PER CONSIGNMENT:       ~1.3MB (without customs PDF: ~270KB)          │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 10-Year TCO Breakdown
+
+| Component | Calculation | Cost |
+|-----------|-------------|------|
+| Evidence Package JSON (R2) | 150KB × 120mo × $0.015/GB | €0.00025 |
+| Customs PDF (R2) | 1MB × 120mo × $0.015/GB | €0.0017 |
+| EPCIS Events (DynamoDB) | 15KB × 120mo × $0.25/GB | €0.0004 |
+| Shipping Label (R2, 90-day) | 100KB × 3mo × $0.015/GB | €0.000004 |
+| RFC 3161 Token (R2) | 2KB × 120mo × $0.015/GB | €0.00004 |
+| **Storage Subtotal** | | **€0.0024** |
+| Generation compute | PDF rendering, signing, QR codes | €0.0022 |
+| TSA API call (Enterprise+) | RFC 3161 timestamp request | €0.01 |
+| Operational reserves | Format migration, inflation buffer | €0.0015 |
+
+**Total 10-Year TCO:**
+- Without Customs PDF: **€0.01** (with 3x buffer)
+- With Customs PDF: **€0.02** (with 3x buffer)
+- With TSA (Enterprise+): **€0.05** (with 3x buffer)
+
+#### Gross Margin by Tier
+
+| Fee Type | Tier | Price | 10-Year TCO | Gross Margin |
+|----------|------|-------|-------------|--------------|
+| Compliance Unlock | Starter | €25.00 | €0.01 | 99.96% |
+| Compliance Unlock | Platform | €5.00 | €0.01 | **99.80%** |
+| Customs Filing | Starter | €50.00 | €0.02 | 99.96% |
+| Customs Filing + TSA | Platform | €15.00 | €0.05 | **99.67%** |
+| EPCIS Event (per EPC) | Starter | €0.05 | €0.0001 | 99.80% |
+| EPCIS Event (per EPC) | Platform | €0.01 | €0.0001 | **99.00%** |
+
+**Key Insight:** Even at Platform floor pricing, all shipping artifacts maintain 99%+ gross margins. Storage costs are negligible relative to the value delivered (compliance proof, customs clearance, legal defense).
+
 ---
 
 ## 7. Plan Changes
@@ -1644,6 +1698,7 @@ function getCurrentRate(plan: Plan, dppCount: number): number {
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.4 | 2026-01-15 | Added Shipping Storage Costs section (10-year TCO breakdown, gross margin by tier) |
 | 2.3 | 2026-01-15 | Updated shipping pricing to match canonical source (Operations Workspace TCO analysis) |
 | 2.2 | 2026-01-15 | Added Shipping & Logistics Billing section (Compliant Highway revenue streams) |
 | 2.1 | 2026-01-15 | Updated pricing (€149/€299/€749/€1,999) and added storage limits (500GB-5TB) |

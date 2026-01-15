@@ -528,6 +528,23 @@ The per-DPP model creates a significant shift in revenue composition:
 
 **Key Insight**: With full 10-year TCO modeling (including status list hosting, format migration reserves, and inflation buffer), even the Platform floor price of €0.001/DPP maintains 65% gross margin. The €0.001 floor is sustainable, not break-even.
 
+### DPP vs Evidence Package Economics
+
+Evidence Packages (shipping compliance bundles) have different economics than DPPs:
+
+| Metric | DPP | Evidence Package | Notes |
+|--------|-----|------------------|-------|
+| Storage architecture | Deduplicated | Unique per consignment | EPkg can't share templates |
+| Average size | ~500 bytes + shared template | ~1.3MB full package | 2,600x larger |
+| 10-year TCO | €0.00035 | €0.02 (with PDF) | 57x more expensive |
+| Floor price | €0.001/DPP | €5.00/consignment | 5,000x higher revenue |
+| Gross margin (floor) | 65% | **99.7%** | EPkg margins are healthier |
+| Volume (Year 5) | 12B DPPs | ~7M consignments | DPPs drive volume, EPkg drives margin |
+
+> **Full TCO breakdown:** See [BILLING.md](./BILLING.md#shipping-storage-costs-10-year-tco) for detailed storage cost calculations.
+
+**Key Insight**: Evidence Package storage is more expensive than DPPs (no deduplication possible), but the pricing easily covers costs with 99%+ margins. The "Download PDF" button alone justifies the Customs Filing fee many times over. DPPs drive volume; Evidence Packages drive high-margin revenue.
+
 ### Overall Unit Economics
 
 | Metric | Value | Benchmark Context |
