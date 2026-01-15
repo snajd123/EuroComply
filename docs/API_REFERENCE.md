@@ -532,6 +532,92 @@ X-RateLimit-Retry-After: 45
 | `INTERNAL_ERROR` | 500 | Unexpected server error |
 | `SERVICE_UNAVAILABLE` | 503 | System temporarily unavailable |
 
+### 5.3 Version Control Error Codes
+
+Errors specific to checkout, checkin, and release workflows:
+
+| Code | HTTP Status | Description | Resolution |
+|------|-------------|-------------|------------|
+| `CHECKOUT_CONFLICT` | 409 | Product is already checked out by another user | Wait for release or request checkout |
+| `CHECKOUT_EXPIRED` | 409 | Your checkout has expired | Checkout again and restore from auto-save |
+| `CHECKOUT_NOT_FOUND` | 404 | No active checkout for this product | Checkout the product first |
+| `CHECKIN_NO_CHANGES` | 400 | No changes detected since checkout | Make changes or discard checkout |
+| `VERSION_NOT_FOUND` | 404 | Specified version does not exist | Check version number |
+| `VERSION_NOT_RELEASED` | 400 | Version must be released before use | Release the version first |
+| `INVALID_STATE_TRANSITION` | 400 | Cannot transition from current state | Check state machine rules |
+| `RELEASE_REQUIRES_CHECKIN` | 400 | Cannot release a checked-out version | Checkin first, then release |
+
+### 5.4 Cross-Workspace Error Codes
+
+Errors related to cross-workspace operations and dependencies:
+
+| Code | HTTP Status | Description | Resolution |
+|------|-------------|-------------|------------|
+| `DESIGN_NOT_RELEASED` | 400 | Referenced Design version is not released | Release the Design version first |
+| `MARKETING_DESIGN_MISMATCH` | 400 | Marketing version references different Design | Select correct Marketing version |
+| `BATCH_DESIGN_NOT_FOUND` | 404 | Batch's referenced Design version not found | Check Design version exists |
+| `CROSS_WORKSPACE_EDIT_DENIED` | 403 | Cannot edit content in another workspace | Use appropriate workspace |
+
+### 5.5 Snapshot & DPP Error Codes
+
+Errors during DPP snapshot creation and issuance:
+
+| Code | HTTP Status | Description | Resolution |
+|------|-------------|-------------|------------|
+| `SNAPSHOT_MISSING_DESIGN` | 400 | No released Design version available | Release a Design version |
+| `SNAPSHOT_MISSING_OPERATIONS` | 400 | No released batch available | Release a batch |
+| `SNAPSHOT_MISSING_MARKETING` | 400 | No Marketing version selected | Select a Marketing version |
+| `SNAPSHOT_BATCH_NOT_RELEASED` | 400 | Selected batch is not released for DPP | Release the batch first |
+| `SNAPSHOT_VALIDATION_FAILED` | 422 | Snapshot content failed compliance validation | See `validationErrors` in response |
+| `DPP_ALREADY_ISSUED` | 409 | DPP already issued for this batch | Use existing DPP or create new batch |
+| `APPROVER_REQUIRED` | 403 | DPP issuance requires APPROVER role | Request APPROVER access |
+| `SNAPSHOT_EXPIRED` | 400 | Snapshot too old for issuance (>30 days) | Create new snapshot |
+
+#### Snapshot Validation Error Details
+
+When `SNAPSHOT_VALIDATION_FAILED` occurs, the response includes detailed validation errors:
+
+```json
+{
+  "error": "SNAPSHOT_VALIDATION_FAILED",
+  "message": "Snapshot content failed compliance validation",
+  "validationErrors": [
+    {
+      "field": "design.materials.primary.composition",
+      "code": "COMPOSITION_INCOMPLETE",
+      "message": "Material composition percentages must sum to 100%",
+      "actual": 95,
+      "expected": 100
+    },
+    {
+      "field": "design.certifications",
+      "code": "CERTIFICATION_EXPIRED",
+      "message": "GOTS certification has expired",
+      "expirationDate": "2025-12-31"
+    },
+    {
+      "field": "marketing.description",
+      "code": "CLAIM_UNSUPPORTED",
+      "message": "Marketing claim 'carbon neutral' not supported by certifications",
+      "claim": "carbon neutral"
+    }
+  ]
+}
+```
+
+#### Validation Error Codes
+
+| Code | Description |
+|------|-------------|
+| `REQUIRED_FIELD_MISSING` | Mandatory ESPR field not provided |
+| `COMPOSITION_INCOMPLETE` | Material percentages don't sum to 100% |
+| `CERTIFICATION_EXPIRED` | Referenced certification has expired |
+| `CERTIFICATION_NOT_FOUND` | Referenced certification doesn't exist |
+| `CLAIM_UNSUPPORTED` | Marketing claim lacks supporting evidence |
+| `GTIN_MISMATCH` | GTIN doesn't match product record |
+| `DATE_INVALID` | Date field in invalid format or future date |
+| `QUANTITY_MISMATCH` | Batch quantity exceeds production capacity |
+
 ---
 
 ## 6. Common Endpoints
@@ -653,6 +739,113 @@ Release the checkout lock without saving changes.
 DELETE /api/v1/products/{productId}/checkout
 ```
 
+#### Request Checkout (Queue)
+
+Request a checkout for a product that is currently checked out by another user. You will be notified when the checkout becomes available.
+
+```http
+POST /api/v1/products/{productId}/checkout/request
+Content-Type: application/json
+
+{
+  "workspace": "design",
+  "priority": "normal",
+  "note": "Need to update material specs for compliance review"
+}
+```
+
+Response (when product is checked out by another):
+```json
+{
+  "requestId": "req_abc123",
+  "status": "queued",
+  "position": 2,
+  "currentCheckout": {
+    "userId": "user_456",
+    "userName": "John Smith",
+    "expiresAt": "2026-01-14T14:00:00Z"
+  },
+  "estimatedWaitMinutes": 35
+}
+```
+
+Response (when product is available - immediate checkout):
+```json
+{
+  "requestId": "req_abc123",
+  "status": "granted",
+  "checkout": {
+    "checkoutId": "co_xyz789",
+    "expiresAt": "2026-01-14T13:30:00Z",
+    "baseVersion": 3
+  }
+}
+```
+
+**Priority Levels:**
+| Priority | Description | Queue Behavior |
+|----------|-------------|----------------|
+| `low` | Non-urgent changes | Added to end of queue |
+| `normal` | Standard priority | Added to end of queue (default) |
+| `high` | Urgent updates | Added after other high-priority requests |
+
+**Notifications:**
+- User receives email when their request is next in queue
+- User receives in-app notification when checkout becomes available
+- Request expires after 24 hours if not fulfilled
+
+#### Cancel Checkout Request
+
+Cancel a pending checkout request.
+
+```http
+DELETE /api/v1/products/{productId}/checkout/request/{requestId}
+```
+
+Response:
+```json
+{
+  "requestId": "req_abc123",
+  "status": "cancelled"
+}
+```
+
+#### Get Checkout Queue
+
+View the current checkout queue for a product.
+
+```http
+GET /api/v1/products/{productId}/checkout/queue?workspace=design
+```
+
+Response:
+```json
+{
+  "currentCheckout": {
+    "userId": "user_456",
+    "userName": "John Smith",
+    "checkedOutAt": "2026-01-14T12:00:00Z",
+    "expiresAt": "2026-01-14T14:00:00Z"
+  },
+  "queue": [
+    {
+      "requestId": "req_111",
+      "userId": "user_789",
+      "userName": "Jane Doe",
+      "requestedAt": "2026-01-14T12:30:00Z",
+      "priority": "high"
+    },
+    {
+      "requestId": "req_222",
+      "userId": "user_012",
+      "userName": "Bob Wilson",
+      "requestedAt": "2026-01-14T12:45:00Z",
+      "priority": "normal"
+    }
+  ]
+}
+```
+
 #### Release Design Version to Operations
 
 Release a Design version for use by Operations batches. Released versions are frozen forever.
@@ -724,6 +917,88 @@ Response:
 ```http
 GET /api/v1/products/{productId}/marketing/released
 ```
+
+#### Compare Version Diff
+
+Compare two versions of a product (Design or Marketing) to see what changed.
+
+```http
+GET /api/v1/products/{productId}/{workspace}/versions/{v1}/diff/{v2}
+```
+
+**Path Parameters:**
+| Parameter | Description |
+|-----------|-------------|
+| `productId` | Product identifier |
+| `workspace` | `design` or `marketing` |
+| `v1` | First version number (older) |
+| `v2` | Second version number (newer) |
+
+**Example:**
+```http
+GET /api/v1/products/prod_abc123/design/versions/2/diff/3
+```
+
+Response:
+```json
+{
+  "productId": "prod_abc123",
+  "workspace": "design",
+  "fromVersion": 2,
+  "toVersion": 3,
+  "comparedAt": "2026-01-14T15:00:00Z",
+  "summary": {
+    "fieldsAdded": 1,
+    "fieldsModified": 3,
+    "fieldsRemoved": 0
+  },
+  "changes": [
+    {
+      "field": "materials.primary.composition",
+      "type": "modified",
+      "from": "90% organic cotton, 10% elastane",
+      "to": "95% organic cotton, 5% elastane"
+    },
+    {
+      "field": "materials.primary.weight",
+      "type": "modified",
+      "from": "180 gsm",
+      "to": "175 gsm"
+    },
+    {
+      "field": "certifications",
+      "type": "modified",
+      "from": ["GOTS"],
+      "to": ["GOTS", "OEKO-TEX"]
+    },
+    {
+      "field": "recycledContentPercentage",
+      "type": "added",
+      "to": 15
+    }
+  ],
+  "metadata": {
+    "v2ReleasedBy": "user_456",
+    "v2ReleasedAt": "2026-01-10T09:00:00Z",
+    "v3ReleasedBy": "user_789",
+    "v3ReleasedAt": "2026-01-14T10:30:00Z"
+  }
+}
+```
+
+**Change Types:**
+| Type | Description |
+|------|-------------|
+| `added` | Field exists in v2 but not in v1 |
+| `modified` | Field exists in both but value changed |
+| `removed` | Field exists in v1 but not in v2 |
+
+**Error Responses:**
+| Status | Error | Description |
+|--------|-------|-------------|
+| 404 | `VERSION_NOT_FOUND` | One or both versions don't exist |
+| 400 | `INVALID_VERSION_ORDER` | v1 must be less than v2 |
+| 400 | `SAME_VERSION` | Cannot compare a version to itself |
 
 ### 6.1.1 Batches
 

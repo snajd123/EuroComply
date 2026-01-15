@@ -55,6 +55,78 @@ EuroComply implements a comprehensive user management system with role-based acc
 | **Dashboard** | Full (accessible workspaces) | Scoped | Minimal (task-focused) |
 | **Can Invite Others** | If Admin | No | No |
 
+### Guest Partner Lifecycle
+
+Guest Partners have a defined lifecycle with automatic expiration management. Default access period is **90 days**.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        GUEST PARTNER LIFECYCLE                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  INVITED ──► ACTIVE ──► EXPIRING ──► EXPIRED ──► REMOVED                   │
+│     │           │           │            │           │                      │
+│     │           │           │            │           └── Data cleanup       │
+│     │           │           │            └── Access disabled                │
+│     │           │           └── 7-day warning, 1-day final notice           │
+│     │           └── Full access per permissions                             │
+│     └── Email sent with magic link                                          │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+| State | Duration | Actions Available | Notifications |
+|-------|----------|-------------------|---------------|
+| **INVITED** | Until first login | Pending acceptance | Invite email sent |
+| **ACTIVE** | Up to 90 days (configurable) | Full workspace access per permissions | - |
+| **EXPIRING** | Last 7 days | Full access, renewal available | Day 7 + Day 1 warnings |
+| **EXPIRED** | 30-day grace period | No access, can be renewed | Expiry notice |
+| **REMOVED** | Final | Account deleted | Removal confirmation |
+
+**Lifecycle Actions:**
+
+| Action | Who Can Perform | When |
+|--------|-----------------|------|
+| Invite guest | Admin | Anytime |
+| Extend access | Admin | ACTIVE, EXPIRING, or EXPIRED state |
+| Revoke early | Admin | ACTIVE or EXPIRING state |
+| Renew | Admin | EXPIRED state (within 30-day grace) |
+| Delete | System (automatic) | After 30-day grace period |
+
+**Expiration Notifications:**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  NOTIFICATION SCHEDULE                                                       │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Day 83 (7 days before expiry):                                             │
+│  └── Email to Guest: "Your access expires in 7 days"                        │
+│  └── Email to Admin: "Guest access expiring soon: [name]"                   │
+│                                                                              │
+│  Day 89 (1 day before expiry):                                              │
+│  └── Email to Guest: "Final notice: Access expires tomorrow"                │
+│  └── In-app notification banner                                             │
+│                                                                              │
+│  Day 90 (expiry):                                                           │
+│  └── Access disabled                                                        │
+│  └── Email to Guest: "Your access has expired"                              │
+│  └── Admin dashboard shows expired guests                                   │
+│                                                                              │
+│  Day 120 (30 days after expiry):                                            │
+│  └── Automatic removal from system                                          │
+│  └── Audit log preserved, user record anonymized                            │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Custom Expiration:**
+
+Admins can set custom expiration periods per invitation:
+- Minimum: 1 day
+- Maximum: 365 days
+- Default: 90 days
+
 ---
 
 ## 2. Authority Levels
@@ -3506,6 +3578,129 @@ Organizations receive a weekly email summarizing:
 - Users with elevated permissions
 
 This creates an audit trail for compliance and enables peer review of admin actions.
+
+---
+
+## 13. User Offboarding Procedures
+
+When a user leaves the organization or their access needs to be revoked, follow this procedure to ensure security, compliance, and data continuity.
+
+### Offboarding Process
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         USER OFFBOARDING WORKFLOW                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  STEP 1: PRE-OFFBOARDING CHECK                                              │
+│  ────────────────────────────                                               │
+│  Admin initiates offboarding → System checks:                               │
+│  □ Does user have any checked-out items?                                    │
+│  □ Does user have pending approvals in queue?                               │
+│  □ Does user own any unreleased drafts?                                     │
+│                                                                              │
+│  STEP 2: AUTO-CHECKIN (if applicable)                                       │
+│  ────────────────────────────────────                                       │
+│  All checked-out items are automatically checked in:                        │
+│  • State changes: CHECKED_OUT → CHECKED_IN                                  │
+│  • Lock released, item available for others                                 │
+│  • Audit log: "auto_checkin_offboarding"                                    │
+│                                                                              │
+│  STEP 3: TRANSFER TO MANAGER                                                │
+│  ───────────────────────────                                                │
+│  Ownership of work-in-progress transfers to user's manager:                 │
+│  • Unreleased drafts → Manager becomes owner                                │
+│  • Pending approvals → Reassigned to manager                                │
+│  • Manager notified via email                                               │
+│                                                                              │
+│  STEP 4: ACCESS REVOCATION (Immediate)                                      │
+│  ─────────────────────────────────────                                      │
+│  • All JWT tokens invalidated                                               │
+│  • All API keys revoked                                                     │
+│  • All active sessions terminated                                           │
+│  • Magic links deactivated                                                  │
+│                                                                              │
+│  STEP 5: AUDIT TRAIL PRESERVATION                                           │
+│  ────────────────────────────────                                           │
+│  User's historical actions are PRESERVED:                                   │
+│  • All audit log entries retained                                           │
+│  • DID signatures remain valid for verification                             │
+│  • User record marked as "DEACTIVATED" (not deleted)                        │
+│  • Required for: compliance, legal holds, DPP verification                  │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Offboarding Checklist
+
+| Step | Action | Automated | Manual Review |
+|------|--------|:---------:|:-------------:|
+| 1 | Check for checked-out items | ✓ | - |
+| 2 | Auto-checkin all items | ✓ | - |
+| 3 | Transfer drafts to manager | ✓ | Manager notified |
+| 4 | Invalidate all tokens | ✓ | - |
+| 5 | Revoke API keys | ✓ | - |
+| 6 | Terminate sessions | ✓ | - |
+| 7 | Deactivate magic links | ✓ | - |
+| 8 | Mark user as DEACTIVATED | ✓ | - |
+| 9 | Send confirmation to admin | ✓ | Admin reviews |
+| 10 | Preserve audit trail | ✓ | - |
+
+### Audit Log Entry
+
+```typescript
+interface OffboardingAuditEntry {
+  action: 'user.offboarded';
+  userId: string;
+  performedBy: string;
+  timestamp: Date;
+  metadata: {
+    reason: 'resignation' | 'termination' | 'contract_end' | 'security_concern';
+    itemsAutoCheckedIn: number;
+    draftsTransferredTo: string;  // Manager's userId
+    apiKeysRevoked: number;
+    sessionsTerminated: number;
+  };
+}
+```
+
+### Data Retention
+
+| Data Type | Retention | Reason |
+|-----------|-----------|--------|
+| Audit log entries | Permanent | Compliance, legal |
+| DID signatures | Permanent | DPP verification |
+| User profile | Permanent (deactivated) | Reference integrity |
+| Checked-in content | Permanent | Part of product history |
+| API keys | Deleted | Security |
+| Session tokens | Deleted | Security |
+
+### Emergency Offboarding
+
+For security incidents (compromised account, immediate termination):
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  EMERGENCY OFFBOARDING                                                       │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Triggered by: Admin selects "Emergency Offboard" option                    │
+│                                                                              │
+│  Immediate actions (all simultaneous):                                      │
+│  • All sessions killed                                                      │
+│  • All tokens blacklisted                                                   │
+│  • Account locked                                                           │
+│  • Security alert sent to all admins                                        │
+│                                                                              │
+│  Deferred actions (within 1 hour):                                          │
+│  • Auto-checkin of items                                                    │
+│  • Transfer to manager                                                      │
+│  • Full audit report generated                                              │
+│                                                                              │
+│  All emergency offboardings are flagged in the weekly admin report.         │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 

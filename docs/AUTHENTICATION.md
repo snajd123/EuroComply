@@ -939,11 +939,146 @@ When a user loses access to their MFA device:
 5. MFA reset executed
 6. All sessions invalidated, user must re-authenticate
 
-### 10.3 Session Invalidation
+### 10.3 Magic Link Security
+
+Magic links provide passwordless authentication for Guest Partners and Transactional Partners. This section documents security measures.
+
+#### 10.3.1 Magic Link Properties
+
+| Property | Value | Rationale |
+|----------|-------|-----------|
+| **Token Length** | 256-bit (32 bytes) | Sufficient entropy to prevent brute force |
+| **Token Format** | URL-safe base64 | Safe for email links |
+| **Validity Period** | 15 minutes | Short window limits exposure |
+| **Single Use** | Yes | Prevents replay attacks |
+| **Hash Storage** | SHA-256 | Token never stored in plaintext |
+
+#### 10.3.2 Token Generation
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      MAGIC LINK TOKEN GENERATION                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  1. Generate cryptographically random token                                 │
+│     token = crypto.randomBytes(32)                                          │
+│                                                                              │
+│  2. Create URL-safe encoding                                                │
+│     urlToken = base64url.encode(token)                                      │
+│                                                                              │
+│  3. Store hash in database                                                  │
+│     tokenHash = sha256(token)                                               │
+│     INSERT INTO magic_links (                                               │
+│       hash, userId, expiresAt, used                                         │
+│     ) VALUES (                                                               │
+│       tokenHash, :userId, NOW() + 15min, false                              │
+│     )                                                                        │
+│                                                                              │
+│  4. Construct magic link                                                    │
+│     link = `https://app.eurocomply.eu/auth/magic/${urlToken}`              │
+│                                                                              │
+│  5. Send via email                                                          │
+│     Email template includes:                                                │
+│     • Link                                                                  │
+│     • Expiration warning                                                    │
+│     • Security notice if not requested by user                              │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 10.3.3 Rate Limiting
+
+To prevent abuse, magic link requests are rate-limited:
+
+| Limit | Value | Window | Action on Exceed |
+|-------|-------|--------|------------------|
+| Per email address | 3 requests | 1 hour | 429 Too Many Requests |
+| Per IP address | 10 requests | 1 hour | 429 + CAPTCHA required |
+| Per organization | 50 requests | 1 hour | Alert to admins |
+
+**Rate Limit Response:**
+```json
+{
+  "error": "RATE_LIMIT_EXCEEDED",
+  "message": "Too many magic link requests. Please try again in 45 minutes.",
+  "retryAfter": 2700
+}
+```
+
+#### 10.3.4 Token Validation
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      MAGIC LINK VALIDATION FLOW                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  1. User clicks magic link                                                  │
+│     GET /auth/magic/{urlToken}                                              │
+│                                                                              │
+│  2. Decode and hash token                                                   │
+│     token = base64url.decode(urlToken)                                      │
+│     tokenHash = sha256(token)                                               │
+│                                                                              │
+│  3. Lookup in database                                                      │
+│     SELECT * FROM magic_links WHERE hash = :tokenHash                       │
+│                                                                              │
+│  4. Validate                                                                │
+│     ✓ Token exists                                                          │
+│     ✓ Token not expired (expiresAt > NOW())                                │
+│     ✓ Token not used (used = false)                                        │
+│     ✓ User account active                                                  │
+│                                                                              │
+│  5. Mark as used (IMMEDIATELY, before session creation)                     │
+│     UPDATE magic_links SET used = true WHERE hash = :tokenHash             │
+│                                                                              │
+│  6. Create session                                                          │
+│     Issue JWT tokens, set cookies                                           │
+│                                                                              │
+│  7. Log authentication event                                                │
+│     { action: 'auth.magic_link', userId, ip, userAgent, success: true }    │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 10.3.5 Security Measures
+
+| Measure | Implementation | Purpose |
+|---------|----------------|---------|
+| **Single-use enforcement** | Atomic mark-as-used before session | Prevents replay attacks |
+| **Short expiry** | 15-minute validity | Limits exposure window |
+| **Hash storage** | SHA-256 of token | Token never in plaintext |
+| **Rate limiting** | 3/email/hour | Prevents enumeration |
+| **Audit logging** | All requests logged | Forensic analysis |
+| **Secure transport** | HTTPS only | Prevents interception |
+| **Email verification** | Token tied to specific email | Prevents forwarding abuse |
+
+#### 10.3.6 Audit Logging
+
+All magic link events are logged:
+
+```typescript
+interface MagicLinkAuditEntry {
+  action: 'auth.magic_link.requested' | 'auth.magic_link.used' | 'auth.magic_link.expired' | 'auth.magic_link.invalid';
+  email: string;
+  userId?: string;
+  ipAddress: string;
+  userAgent: string;
+  timestamp: Date;
+  success: boolean;
+  failureReason?: 'expired' | 'already_used' | 'invalid_token' | 'user_disabled' | 'rate_limited';
+}
+```
+
+**Failed attempt alerts:**
+- 3+ failed attempts for same email → Alert to user
+- 10+ failed attempts from same IP → Alert to security team
+- Pattern anomaly detection → Automated investigation
+
+### 10.4 Session Invalidation
 
 Sessions must be invalidated when security-relevant changes occur.
 
-#### 10.3.1 Invalidation Triggers
+#### 10.4.1 Invalidation Triggers
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -981,7 +1116,7 @@ Sessions must be invalidated when security-relevant changes occur.
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-#### 10.3.2 Implementation
+#### 10.4.2 Implementation
 
 ```typescript
 // Session invalidation service
@@ -1025,7 +1160,7 @@ class SessionInvalidator {
 }
 ```
 
-### 10.4 IP Allowlisting
+### 10.5 IP Allowlisting
 
 Enterprise tier organizations can restrict access to specific IP ranges.
 
@@ -1124,11 +1259,11 @@ Enterprise tier organizations can restrict access to specific IP ranges.
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 10.5 OAuth Scope Matrix
+### 10.6 OAuth Scope Matrix
 
 Complete API scope definitions for OAuth and API key authorization.
 
-#### 10.5.1 Scope Definitions
+#### 10.6.1 Scope Definitions
 
 | Scope | Description | Endpoints |
 |-------|-------------|-----------|
@@ -1164,7 +1299,7 @@ Complete API scope definitions for OAuth and API key authorization.
 | **Audit** | | |
 | `read:audit` | View audit logs | `GET /audit/*` |
 
-#### 10.5.2 Scope Hierarchy
+#### 10.6.2 Scope Hierarchy
 
 Some scopes imply others:
 
@@ -1189,7 +1324,7 @@ bulk:export
 └── read:credentials
 ```
 
-#### 10.5.3 Minimum Scopes by Operation
+#### 10.6.3 Minimum Scopes by Operation
 
 | Operation | Minimum Scopes Required |
 |-----------|------------------------|
@@ -1202,7 +1337,7 @@ bulk:export
 | Configure webhooks | `write:webhooks` |
 | View audit trail | `read:audit` |
 
-#### 10.5.4 API Key Scope Templates
+#### 10.6.4 API Key Scope Templates
 
 Pre-defined scope bundles for common use cases:
 
@@ -1214,7 +1349,7 @@ Pre-defined scope bundles for common use cases:
 | **full-access** | All scopes except `admin:*` | Full API access |
 | **admin** | All scopes | Administrative access |
 
-### 10.6 Rate Limiting
+### 10.7 Rate Limiting
 
 | Authentication Type | Limit | Window |
 |---------------------|-------|--------|
@@ -1232,7 +1367,7 @@ Pre-defined scope bundles for common use cases:
 | Enterprise | 1,200 | 60,000 | 1,000,000 |
 | Mega | 6,000 | 300,000 | Unlimited |
 
-### 10.4 Security Event Logging
+### 10.8 Security Event Logging
 
 All authentication events are logged to audit trail:
 

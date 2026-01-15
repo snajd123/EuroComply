@@ -229,6 +229,81 @@ Request: { message?: string }
 // Sends notification to current holder
 ```
 
+### Draft Recovery & Data Loss Prevention
+
+Understanding what happens to unsaved changes during checkout:
+
+#### Auto-Save Behavior
+
+The system implements client-side auto-save to minimize data loss:
+
+| Feature | Behavior |
+|---------|----------|
+| **Auto-save interval** | Every 60 seconds while editing |
+| **Storage location** | Browser localStorage (per user, per product, per workspace) |
+| **Retention** | Until checkin or explicit discard |
+| **Cross-device** | Not synced - local to device only |
+
+#### Timeout Scenarios
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      TIMEOUT & DATA RECOVERY                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  SCENARIO 1: User is active, extends checkout                               │
+│  ─────────────────────────────────────────────                              │
+│  • 5-minute warning shown                                                   │
+│  • User clicks "Extend" → checkout extended 30 more minutes                 │
+│  • No data loss                                                             │
+│                                                                              │
+│  SCENARIO 2: User inactive, checkout times out                              │
+│  ───────────────────────────────────────────────                            │
+│  • System attempts auto-save to localStorage before releasing lock          │
+│  • Lock released, other users can now checkout                              │
+│  • When original user returns:                                              │
+│    - If they checkout again → offered to restore from auto-save             │
+│    - If another user checked in new version → merge conflict possible       │
+│                                                                              │
+│  SCENARIO 3: Browser crash / network failure                                │
+│  ──────────────────────────────────────────────                             │
+│  • Last auto-save in localStorage preserved                                 │
+│  • Server-side checkout times out after 30 minutes                          │
+│  • When user returns → offered to restore from localStorage                 │
+│                                                                              │
+│  SCENARIO 4: Deliberate discard                                             │
+│  ──────────────────────────────────────────                                 │
+│  • User clicks "Discard Changes"                                            │
+│  • localStorage cleared for this product                                    │
+│  • Lock released                                                            │
+│  • NO recovery possible (by design)                                         │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Recovery Limitations
+
+**What IS recoverable:**
+- ✓ Changes auto-saved to localStorage (last 60 seconds of work may be lost)
+- ✓ Previous checked-in versions (always in version history)
+
+**What is NOT recoverable:**
+- ✗ Changes since last auto-save (up to 60 seconds)
+- ✗ Explicitly discarded changes
+- ✗ localStorage cleared by user/browser
+- ✗ Changes overwritten by another user's checkin
+
+#### Design Rationale
+
+We deliberately do NOT implement server-side draft storage because:
+
+1. **Simplicity**: Reduces system complexity and potential data conflicts
+2. **Clear versioning**: Only checked-in versions are "real" - no ambiguous draft states
+3. **Compliance**: ESPR requires clear version history - drafts would complicate this
+4. **Performance**: No server round-trips during editing
+
+**Recommendation for users**: Check in frequently with descriptive change notes. This creates clear version history and ensures work is never lost.
+
 ---
 
 ## Cross-Workspace Release Workflow
@@ -753,6 +828,122 @@ Response: {
   "linkedDesignVersion": 3
 }
 ```
+
+---
+
+### Design ↔ Marketing Coordination
+
+Marketing versions are **linked to Design versions**, not independent. Each Marketing version references a specific released Design version.
+
+#### Relationship Model
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                  DESIGN ↔ MARKETING RELATIONSHIP                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Marketing versions LINK TO Design versions:                                │
+│                                                                              │
+│  Design v1 (Released Jan 10)                                                │
+│    └── Marketing v1 (Released Jan 12) → linked to Design v1                 │
+│    └── Marketing v2 (Released Jan 15) → linked to Design v1                 │
+│                                                                              │
+│  Design v2 (Released Jan 20)                                                │
+│    └── Marketing v3 (Released Jan 22) → linked to Design v2                 │
+│    └── Marketing v4 (Released Jan 25) → linked to Design v2                 │
+│                                                                              │
+│  KEY CONSTRAINTS:                                                           │
+│  • Marketing version MUST reference a released Design version               │
+│  • Multiple Marketing versions can reference the same Design version        │
+│  • Marketing cannot be released until linked Design is released             │
+│  • Design changes don't auto-propagate to existing Marketing versions       │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Why This Model?
+
+| Reason | Explanation |
+|--------|-------------|
+| **Consistency** | Marketing content describes a specific product design - if Design changes, Marketing may need updates |
+| **Traceability** | Every Marketing version explicitly states which Design it describes |
+| **Flexibility** | Multiple Marketing versions can exist for the same Design (regional variations, A/B testing) |
+| **Compliance** | ESPR requires Marketing claims to accurately reflect actual product composition |
+
+#### Marketing Version Creation
+
+When creating a new Marketing version:
+
+1. **Select Design Version**: User must choose which released Design version this Marketing describes
+2. **Inherit Product Data**: Marketing can auto-populate fields from selected Design (materials, composition, etc.)
+3. **Add Marketing Content**: User adds descriptions, images, marketing claims
+4. **Link Validation**: System ensures linked Design is still released (not archived)
+
+```typescript
+interface MarketingVersion {
+  id: string;
+  productId: string;
+  version: number;
+  linkedDesignVersion: number;  // Required: which Design version this describes
+  state: 'DRAFT' | 'CHECKED_OUT' | 'CHECKED_IN' | 'RELEASED_FOR_DPP';
+  content: MarketingContent;
+  releasedBy?: string;
+  releasedAt?: Date;
+}
+```
+
+#### Design Updates Impact
+
+When a new Design version is released:
+
+| Scenario | Impact on Marketing |
+|----------|---------------------|
+| Minor Design change | Existing Marketing versions remain valid (still linked to old Design) |
+| Major Design change | New Marketing version may be needed to describe new Design |
+| Design archived | Marketing versions linked to it remain valid (frozen reference) |
+
+**No automatic propagation**: Design changes don't cascade to Marketing. This is intentional - Marketing content may be different across regions even for the same Design.
+
+---
+
+### Operations ↔ Marketing Visibility
+
+Operations users can view Marketing content that is linked to their Batch's Design version.
+
+#### Visibility Rules
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                  OPERATIONS ↔ MARKETING VISIBILITY                           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Operations creates Batch #12345 → references Design v2                     │
+│                                                                              │
+│  Operations can SEE:                                                        │
+│  ✓ Marketing v3 (linked to Design v2) - read-only view                     │
+│  ✓ Marketing v4 (linked to Design v2) - read-only view                     │
+│                                                                              │
+│  Operations CANNOT see:                                                     │
+│  ✗ Marketing v1 (linked to Design v1) - different Design                   │
+│  ✗ Marketing v2 (linked to Design v1) - different Design                   │
+│                                                                              │
+│  Operations CANNOT do:                                                      │
+│  ✗ Edit any Marketing content                                              │
+│  ✗ Create Marketing versions                                               │
+│  ✗ Release Marketing versions                                              │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Cross-Workspace View
+
+| Workspace | Can View | Can Edit | Can Release |
+|-----------|----------|----------|-------------|
+| **Design viewing Marketing** | ✓ (own Design's Marketing) | ✗ | ✗ |
+| **Marketing viewing Design** | ✓ (linked Design only) | ✗ | ✗ |
+| **Operations viewing Design** | ✓ (Batch's linked Design) | ✗ | ✗ |
+| **Operations viewing Marketing** | ✓ (Batch's Design's Marketing) | ✗ | ✗ |
+| **Compliance viewing all** | ✓ (all released versions) | ✗ | ✗ |
 
 ---
 
@@ -1290,33 +1481,120 @@ Trust is built progressively through four workspaces, all connected to the Hub:
 
 ### Workspace Roles
 
-Each workspace has role-based access control:
+Each workspace has role-based access control. **This is the single source of truth for workspace permissions** - other documents reference this matrix.
 
-| Workspace | Role | Capabilities |
-|-----------|------|--------------|
-| **Design** | VIEWER | View product data, versions, release history |
-| | EDITOR | Checkout, edit, checkin versions |
-| | MANAGER | All EDITOR capabilities + Release versions to Operations |
-| **Operations** | VIEWER | View batches, EPCIS events |
-| | EDITOR | Create batches |
-| | MANAGER | All EDITOR capabilities + Commit batches, Release for DPP |
-| **Marketing** | VIEWER | View marketing content, versions |
-| | EDITOR | Checkout, edit, checkin versions |
-| | MANAGER | All EDITOR capabilities + Release versions for DPP |
-| **Compliance** | VIEWER | View DPP readiness status, snapshot history |
-| | REVIEWER | All VIEWER capabilities + Review snapshots, add comments |
-| | APPROVER | All REVIEWER capabilities + Approve/reject snapshots, issue DPPs |
+#### Role Hierarchy
 
-**Compliance Workflow Authorization:**
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                     WORKSPACE ROLE HIERARCHY                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  DESIGN, MARKETING, OPERATIONS:              COMPLIANCE:                    │
+│                                                                              │
+│  MANAGER ← Has all EDITOR permissions        APPROVER ← Has all REVIEWER    │
+│    │                                           │          permissions        │
+│  EDITOR ← Has all VIEWER permissions         REVIEWER ← Has all VIEWER      │
+│    │                                           │          permissions        │
+│  VIEWER ← Base read-only access              VIEWER ← Base read-only access │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
-| Action | Required Role |
-|--------|---------------|
-| View DPP readiness dashboard | Compliance VIEWER |
-| Create compliance snapshot | Compliance REVIEWER |
-| Add review comments | Compliance REVIEWER |
-| Approve snapshot | Compliance APPROVER |
-| Reject snapshot | Compliance APPROVER |
-| Issue DPP credential | Compliance APPROVER |
+#### Comprehensive Permissions Matrix
+
+**Design Workspace:**
+
+| Action | VIEWER | EDITOR | MANAGER |
+|--------|:------:|:------:|:-------:|
+| View product data | ✓ | ✓ | ✓ |
+| View version history | ✓ | ✓ | ✓ |
+| View audit log | ✓ | ✓ | ✓ |
+| Checkout version | - | ✓ | ✓ |
+| Edit checked-out version | - | ✓ | ✓ |
+| Checkin version | - | ✓ | ✓ |
+| Cancel checkout | - | ✓ (own) | ✓ (any) |
+| Request checkout (queued) | - | ✓ | ✓ |
+| Extend checkout timeout | - | ✓ | ✓ |
+| Release version to Operations | - | - | ✓ |
+| View cross-workspace Marketing | ✓ | ✓ | ✓ |
+
+**Operations Workspace:**
+
+| Action | VIEWER | EDITOR | MANAGER |
+|--------|:------:|:------:|:-------:|
+| View batches | ✓ | ✓ | ✓ |
+| View EPCIS events | ✓ | ✓ | ✓ |
+| View audit log | ✓ | ✓ | ✓ |
+| Create batch | - | ✓ | ✓ |
+| Edit batch (before commit) | - | ✓ | ✓ |
+| Add EPCIS events | - | ✓ | ✓ |
+| Commit batch | - | - | ✓ |
+| Release batch for DPP | - | - | ✓ |
+| View linked Design version | ✓ | ✓ | ✓ |
+| View linked Marketing versions | ✓ | ✓ | ✓ |
+
+**Marketing Workspace:**
+
+| Action | VIEWER | EDITOR | MANAGER |
+|--------|:------:|:------:|:-------:|
+| View marketing content | ✓ | ✓ | ✓ |
+| View version history | ✓ | ✓ | ✓ |
+| View audit log | ✓ | ✓ | ✓ |
+| Checkout version | - | ✓ | ✓ |
+| Edit checked-out version | - | ✓ | ✓ |
+| Checkin version | - | ✓ | ✓ |
+| Cancel checkout | - | ✓ (own) | ✓ (any) |
+| Select linked Design version | - | ✓ | ✓ |
+| Release version for DPP | - | - | ✓ |
+| View linked Design data | ✓ | ✓ | ✓ |
+
+**Compliance Workspace:**
+
+| Action | VIEWER | REVIEWER | APPROVER |
+|--------|:------:|:--------:|:--------:|
+| View DPP readiness dashboard | ✓ | ✓ | ✓ |
+| View snapshot history | ✓ | ✓ | ✓ |
+| View audit log | ✓ | ✓ | ✓ |
+| View Design/Ops/Marketing data | ✓ | ✓ | ✓ |
+| Create compliance snapshot | - | ✓ | ✓ |
+| Select batch for snapshot | - | ✓ | ✓ |
+| Select Marketing version(s) | - | ✓ | ✓ |
+| Add review comments | - | ✓ | ✓ |
+| Request changes | - | ✓ | ✓ |
+| Approve snapshot | - | - | ✓ |
+| Reject snapshot | - | - | ✓ |
+| Issue DPP credential | - | - | ✓ |
+| Revoke DPP credential | - | - | ✓ |
+
+#### Cross-Workspace Permissions
+
+| Action | Design | Operations | Marketing | Compliance |
+|--------|--------|------------|-----------|------------|
+| View own workspace data | ✓ (VIEWER+) | ✓ (VIEWER+) | ✓ (VIEWER+) | ✓ (VIEWER+) |
+| View Design data | - | ✓ (read-only) | ✓ (linked only) | ✓ (read-only) |
+| View Operations data | - | - | - | ✓ (read-only) |
+| View Marketing data | ✓ (read-only) | ✓ (linked only) | - | ✓ (read-only) |
+| Edit other workspace | ✗ | ✗ | ✗ | ✗ |
+| Release in other workspace | ✗ | ✗ | ✗ | ✗ |
+
+> **Note:** Cross-workspace viewing is read-only. Users cannot edit or release content in workspaces they don't have direct access to.
+
+#### Admin Permissions (Separate from Workspace)
+
+Admin access is organization-level, separate from workspace roles:
+
+| Action | Requires Admin |
+|--------|:--------------:|
+| Invite users | ✓ |
+| Remove users | ✓ |
+| Modify user roles | ✓ |
+| Manage billing | ✓ |
+| API key management | ✓ |
+| Organization settings | ✓ |
+| View all audit logs | ✓ |
+
+> **Reference:** For complete details on Admin permissions and security, see [USER_MANAGEMENT.md](./USER_MANAGEMENT.md) Section 12-13.
 
 ---
 
