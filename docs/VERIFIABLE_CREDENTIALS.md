@@ -1676,39 +1676,9 @@ The status list itself is a signed VC:
 
 ### Portability vs. Revocation: Architectural Tradeoff
 
-> 📖 **Detailed Migration Guide**: For step-by-step instructions on status list migration and self-hosting, see [ARCHITECTURE_PORTABILITY.md - Status List Migration Guide](./ARCHITECTURE_PORTABILITY.md#status-list-migration-guide) and [Portability Limitations](./ARCHITECTURE_PORTABILITY.md#portability-limitations-honest-assessment).
+> 📖 **Canonical Reference**: See [ARCHITECTURE_PORTABILITY.md - The did:key vs Status List 2021 Tension](./ARCHITECTURE_PORTABILITY.md#the-didkey-vs-status-list-2021-tension) for the complete explanation of portability tradeoffs, including detailed diagrams and migration scenarios.
 
-**The Tension:**
-
-did:key provides offline signature verification, but Status List 2021 requires network access for revocation checks. This creates a dependency that limits true portability:
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│            PORTABILITY vs. REVOCATION TRADEOFF                               │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  WHAT did:key PROVIDES (fully portable):                                    │
-│  ✓ Signature verification - works offline, forever                          │
-│  ✓ Issuer identity - embedded in the key itself                             │
-│  ✓ Tamper detection - cryptographic proof                                   │
-│                                                                              │
-│  WHAT Status List 2021 REQUIRES (creates dependency):                       │
-│  ✗ Network access to fetch status list                                      │
-│  ✗ Status list URL hardcoded in issued VCs                                  │
-│  ✗ Cannot change URL without re-issuing all VCs                             │
-│                                                                              │
-│  ISSUED VC CONTAINS:                                                        │
-│  "statusListCredential": "https://api.eurocomply.eu/v1/status/sl_a1b2c3d4"   │
-│                          ─────────────────────────────────────────────────  │
-│                          This URL is IMMUTABLE after issuance               │
-│                                                                              │
-│  AFTER EXPORT, ORGANIZATIONS CANNOT:                                        │
-│  • Revoke credentials (unless they maintain the hosted URL)                 │
-│  • Change where the status list is hosted                                   │
-│  • Update already-issued VCs to point elsewhere                             │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+**Summary:** did:key provides fully offline signature verification, but Status List 2021 requires network access for revocation checks. Status list URLs are immutable once embedded in issued VCs, creating a dependency that requires planning for true portability.
 
 ### Options for True Independence
 

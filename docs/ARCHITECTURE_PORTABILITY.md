@@ -90,6 +90,9 @@ See [DATA_SOVEREIGNTY.md](./DATA_SOVEREIGNTY.md) for detailed architecture and r
 
 ### The did:key vs Status List 2021 Tension
 
+> **Canonical Reference:** This is the authoritative explanation of did:key vs Status List 2021 portability tradeoffs.
+> Other documents (VERIFIABLE_CREDENTIALS.md) reference this section.
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                    PORTABILITY REALITY CHECK                                 │
