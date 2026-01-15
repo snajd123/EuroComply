@@ -446,12 +446,12 @@ When a product reaches 100% DPP completeness, it appears in the **DPP Ready list
 │                                                                  │
 │  3. The cryptographic signature (proof)                         │
 │     • Proves data wasn't tampered                               │
-│     • Works offline, forever                                    │
+│     • Signature verification works without network              │
 │                                                                  │
 │  This means:                                                    │
 │  • The VC IS the DPP (not a pointer to it)                     │
-│  • Can be verified by ANYONE, ANYWHERE, OFFLINE                │
-│  • Works FOREVER without any server                            │
+│  • Signature can be verified ANYWHERE                          │
+│  • Revocation checking requires network (status list)          │
 │  • Supplier truly OWNS their data                              │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
@@ -532,7 +532,7 @@ dpp-export-{supplier-id}.zip
             │  • Issuer: did:key:z6Mkh...  │                         │
             │  • Issued: 2026-01-08        │                         │
             │  • Not tampered              │                         │
-            │  • Works offline!            │                         │
+            │  • Signature valid!          │                         │
 ```
 
 ### Public Verification Endpoint
@@ -582,7 +582,7 @@ Response:
 |---------|-------------|
 | **Trust** | Cryptographic proof, not just a database entry |
 | **Independence** | Can verify without contacting the brand |
-| **Offline** | Verification works without internet |
+| **Signature Proof** | Cryptographic signature verification |
 | **Standards** | W3C format works with any compliant tool |
 | **Free access** | Public API, widget, and Shopify app at no cost |
 
@@ -674,6 +674,273 @@ Response:
   "credentials": [...]
 }
 ```
+
+### Key Backup with AWS KMS/CloudHSM
+
+Organization signing keys are backed up using AWS Key Management Service with CloudHSM for FIPS 140-2 Level 3 compliance.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    KEY BACKUP ARCHITECTURE                                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Organization Key Generation:                                               │
+│                                                                              │
+│  ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐         │
+│  │  Generate       │───▶│  Store in       │───▶│  Backup to      │         │
+│  │  Ed25519 Key    │    │  walt.id        │    │  AWS KMS        │         │
+│  └─────────────────┘    │  Custodian      │    │  (encrypted)    │         │
+│                         └─────────────────┘    └─────────────────┘         │
+│                                                        │                    │
+│                                                        ▼                    │
+│                                                 ┌─────────────────┐         │
+│                                                 │  CloudHSM       │         │
+│                                                 │  (FIPS 140-2    │         │
+│                                                 │   Level 3)      │         │
+│                                                 └─────────────────┘         │
+│                                                                              │
+│  Backup Encryption:                                                         │
+│  • Organization key encrypted with KMS Customer Managed Key (CMK)          │
+│  • CMK stored in CloudHSM cluster                                          │
+│  • Cross-region replication for disaster recovery                          │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**KMS Configuration:**
+
+```typescript
+interface KeyBackupConfig {
+  // AWS KMS settings
+  kms: {
+    keyId: string;              // KMS CMK for encrypting org keys
+    region: 'eu-central-1';     // Primary region
+    backupRegion: 'eu-west-1';  // DR region
+    keySpec: 'SYMMETRIC_DEFAULT';
+    keyUsage: 'ENCRYPT_DECRYPT';
+  };
+
+  // CloudHSM cluster
+  hsm: {
+    clusterId: string;
+    availabilityZones: ['eu-central-1a', 'eu-central-1b'];
+    hsmType: 'hsm1.medium';
+  };
+
+  // Backup schedule
+  backup: {
+    frequency: 'daily';
+    retentionDays: 365;
+    crossRegionReplication: true;
+  };
+}
+```
+
+### Key Rotation
+
+Key rotation creates a new signing key while maintaining the ability to verify credentials signed with previous keys.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    KEY ROTATION WORKFLOW                                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  WHY ROTATE?                                                                │
+│  • Scheduled rotation (annual best practice)                                │
+│  • Key compromise (emergency rotation)                                      │
+│  • Algorithm upgrade (e.g., Ed25519 → future standard)                     │
+│  • Employee departure (key was accessible to departed admin)               │
+│                                                                              │
+│  ROTATION PROCESS:                                                          │
+│                                                                              │
+│  Step 1: Generate New Key                                                   │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │ • Create new Ed25519 keypair                                         │   │
+│  │ • New did:key generated (different from old)                         │   │
+│  │ • Store in Custodian + backup to KMS                                 │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                              │
+│  Step 2: Mark Old Key as Rotated                                            │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │ • Old key status: ACTIVE → ROTATED                                   │   │
+│  │ • Rotation timestamp recorded                                        │   │
+│  │ • Old key retained for verification (read-only)                      │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                              │
+│  Step 3: Update Organization Record                                         │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │ • Current DID updated to new did:key                                 │   │
+│  │ • Key history preserved                                              │   │
+│  │ • All new credentials use new key                                    │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                              │
+│  CREDENTIAL HANDLING:                                                       │
+│  • Existing credentials remain valid (old key still verifies signatures)   │
+│  • New credentials issued with new key                                      │
+│  • Optional: Re-issue critical credentials with new key                    │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Key History Schema:**
+
+```typescript
+interface OrganizationKeyHistory {
+  organizationId: string;
+
+  // Current active key
+  currentKey: {
+    did: string;           // did:key:z6Mk...
+    publicKeyJwk: JsonWebKey;
+    createdAt: Date;
+    status: 'ACTIVE';
+  };
+
+  // Previous keys (for verification only)
+  rotatedKeys: Array<{
+    did: string;
+    publicKeyJwk: JsonWebKey;
+    createdAt: Date;
+    rotatedAt: Date;
+    rotationReason: 'SCHEDULED' | 'COMPROMISE' | 'ALGORITHM_UPGRADE' | 'ADMIN_CHANGE';
+    status: 'ROTATED';
+    // Credentials signed with this key are still verifiable
+    credentialCount: number;
+  }>;
+
+  // Compromised keys (credentials should be treated with caution)
+  revokedKeys: Array<{
+    did: string;
+    publicKeyJwk: JsonWebKey;
+    createdAt: Date;
+    revokedAt: Date;
+    revocationReason: string;
+    status: 'REVOKED';
+  }>;
+}
+```
+
+### Key Compromise Response
+
+If an organization's signing key is compromised, immediate action is required.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    KEY COMPROMISE RESPONSE PROCEDURE                         │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  SEVERITY: CRITICAL                                                         │
+│  RESPONSE TIME: Immediate (< 1 hour)                                        │
+│                                                                              │
+│  STEP 1: IMMEDIATE CONTAINMENT (< 15 minutes)                              │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━                              │
+│  □ Disable compromised key in Custodian (prevent new signatures)            │
+│  □ Mark key status as REVOKED in database                                   │
+│  □ Trigger security alert to platform team                                  │
+│  □ Log incident with timestamp and suspected scope                          │
+│                                                                              │
+│  STEP 2: CREDENTIAL REVOCATION (< 30 minutes)                              │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━                              │
+│  □ Identify ALL credentials signed with compromised key                     │
+│  □ Bulk-revoke all identified credentials via Status List update            │
+│  □ Invalidate CDN cache for status list (CRITICAL priority)                │
+│  □ Verify revocations are live (test verification)                          │
+│                                                                              │
+│  STEP 3: NOTIFICATION (< 1 hour)                                            │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━                                             │
+│  □ Notify affected organization (email + dashboard alert)                   │
+│  □ Notify downstream verifiers if known (retailers using affected DPPs)    │
+│  □ Prepare incident report for compliance team                              │
+│                                                                              │
+│  STEP 4: KEY ROTATION (< 2 hours)                                           │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━                                             │
+│  □ Generate new keypair for organization                                    │
+│  □ Update organization's current DID                                        │
+│  □ Backup new key to KMS                                                    │
+│                                                                              │
+│  STEP 5: CREDENTIAL RE-ISSUANCE (< 24 hours)                               │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━                                 │
+│  □ Re-issue all revoked credentials with new key                            │
+│  □ Link new credentials to old (supersedes relationship)                    │
+│  □ Update QR codes if physically printed (coordinate with customer)         │
+│  □ Notify customer of new credential IDs                                    │
+│                                                                              │
+│  STEP 6: POST-INCIDENT (< 72 hours)                                         │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━                                           │
+│  □ Root cause analysis                                                      │
+│  □ Update security procedures if needed                                     │
+│  □ Customer incident report                                                 │
+│  □ Regulatory notification if required (GDPR breach assessment)             │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Compromise Response API:**
+
+```typescript
+// Emergency key revocation (admin only)
+POST /api/v1/admin/organizations/:id/keys/revoke
+Request: {
+  keyDid: string;
+  reason: string;
+  revokeCredentials: boolean;  // Default: true
+}
+Response: {
+  revokedKeyDid: string;
+  credentialsRevoked: number;
+  newKeyDid: string;
+  statusListUpdated: boolean;
+}
+
+// Bulk credential re-issuance
+POST /api/v1/admin/organizations/:id/credentials/reissue
+Request: {
+  credentialIds?: string[];    // Specific credentials, or omit for all
+  useNewKey: boolean;          // Default: true
+}
+Response: {
+  reissuedCount: number;
+  newCredentialIds: string[];
+  failedCount: number;
+  failures: Array<{ credentialId: string; reason: string }>;
+}
+```
+
+### Key Derivation Path in Credentials
+
+Each credential includes metadata about the signing key's derivation path for full traceability.
+
+```json
+{
+  "@context": [...],
+  "type": ["VerifiableCredential", "DigitalProductPassport"],
+  "issuer": {
+    "id": "did:key:z6MkNewKey...",
+    "name": "Acme Corp",
+    "keyMetadata": {
+      "keyId": "key_abc123",
+      "keyVersion": 2,
+      "algorithm": "Ed25519",
+      "createdAt": "2026-01-01T00:00:00Z",
+      "derivationPath": "m/44'/501'/0'/0'",
+      "previousKeyDid": "did:key:z6MkOldKey..."
+    }
+  },
+  "credentialSubject": { ... },
+  "proof": { ... }
+}
+```
+
+**Key Metadata Fields:**
+
+| Field | Description |
+|-------|-------------|
+| `keyId` | Internal key identifier |
+| `keyVersion` | Rotation counter (1 = original, 2+ = rotated) |
+| `algorithm` | Signing algorithm (Ed25519) |
+| `createdAt` | Key generation timestamp |
+| `derivationPath` | BIP-44 derivation path for deterministic key generation |
+| `previousKeyDid` | DID of the key this one replaced (if rotated) |
 
 ---
 
@@ -1524,6 +1791,284 @@ To minimize network calls, status lists are cached:
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+### Status List Optimization for Scale
+
+As credential volumes grow to 10M+ per organization, status lists require optimization strategies.
+
+#### Status List Sharding
+
+Large organizations may issue millions of credentials. A single status list becomes inefficient at scale.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    STATUS LIST SHARDING STRATEGY                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  SHARDING OPTIONS:                                                          │
+│                                                                              │
+│  1. TIME-BASED SHARDING (Recommended)                                       │
+│  ────────────────────────────────────                                       │
+│  Each month/quarter gets a separate status list:                            │
+│                                                                              │
+│  /v1/status/org_abc123/2026-Q1  → Credentials issued Jan-Mar 2026          │
+│  /v1/status/org_abc123/2026-Q2  → Credentials issued Apr-Jun 2026          │
+│  /v1/status/org_abc123/2026-Q3  → Credentials issued Jul-Sep 2026          │
+│                                                                              │
+│  Benefits:                                                                  │
+│  • Older lists become static (no updates, perfect caching)                 │
+│  • Only current period's list needs frequent updates                        │
+│  • Predictable list sizes                                                   │
+│                                                                              │
+│  2. CREDENTIAL-TYPE SHARDING                                                │
+│  ───────────────────────────────                                            │
+│  Separate lists by credential type:                                         │
+│                                                                              │
+│  /v1/status/org_abc123/dpp        → Digital Product Passports              │
+│  /v1/status/org_abc123/attestation → Supplier attestations                 │
+│  /v1/status/org_abc123/batch      → Batch-level credentials                │
+│                                                                              │
+│  Benefits:                                                                  │
+│  • High-volume types isolated from low-volume                              │
+│  • Different cache strategies per type                                      │
+│                                                                              │
+│  3. HYBRID SHARDING                                                         │
+│  ──────────────────                                                         │
+│  Combine time + type for very large deployments:                            │
+│                                                                              │
+│  /v1/status/org_abc123/dpp/2026-Q1                                         │
+│  /v1/status/org_abc123/attestation/2026-Q1                                 │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Status List Credential Reference with Sharding:**
+
+```json
+{
+  "credentialStatus": {
+    "id": "https://api.eurocomply.eu/v1/status/org_abc123/2026-Q1#42857",
+    "type": "StatusList2021Entry",
+    "statusPurpose": "revocation",
+    "statusListIndex": "42857",
+    "statusListCredential": "https://api.eurocomply.eu/v1/status/org_abc123/2026-Q1"
+  }
+}
+```
+
+**Shard Selection at Issuance:**
+
+```typescript
+function selectStatusListShard(orgId: string, credentialType: string): string {
+  const currentQuarter = getCurrentQuarter(); // e.g., "2026-Q1"
+
+  // Time-based sharding (default)
+  return `${orgId}/${currentQuarter}`;
+
+  // Or hybrid for high-volume orgs:
+  // return `${orgId}/${credentialType}/${currentQuarter}`;
+}
+```
+
+#### CDN Cache Invalidation on Revocation
+
+When a credential is revoked, the status list must be updated and caches invalidated.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    CACHE INVALIDATION FLOW                                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  REVOCATION REQUEST                                                         │
+│  ──────────────────                                                         │
+│  POST /api/v1/credentials/{id}/revoke                                      │
+│                                                                              │
+│  PROCESSING STEPS:                                                          │
+│                                                                              │
+│  1. UPDATE STATUS LIST                                                      │
+│     ├── Load current status list for credential's shard                    │
+│     ├── Set bit at credential's statusListIndex = 1                        │
+│     ├── Re-sign status list credential                                     │
+│     └── Save to database                                                    │
+│                                                                              │
+│  2. INVALIDATE CDN CACHE (Cloudflare)                                      │
+│     ├── Determine revocation priority                                       │
+│     │   • CRITICAL (safety recall): Immediate purge                        │
+│     │   • STANDARD (routine): Let TTL expire (5 min)                       │
+│     └── If CRITICAL: API call to Cloudflare purge                          │
+│                                                                              │
+│  3. NOTIFY SUBSCRIBERS (Optional)                                           │
+│     └── Webhook: credential.revoked                                         │
+│                                                                              │
+│  PRIORITY LEVELS:                                                           │
+│  ────────────────                                                           │
+│  | Priority  | Cache Action      | Use Case                    |           │
+│  |-----------|-------------------|------------------------------|          │
+│  | CRITICAL  | Immediate purge   | Safety recall, fraud         |          │
+│  | HIGH      | Purge within 1m   | Compliance issue             |          │
+│  | STANDARD  | TTL expiry (5m)   | Routine revocation           |          │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Revocation API with Priority:**
+
+```typescript
+interface RevocationRequest {
+  credentialId: string;
+  reason: 'PRODUCT_RECALL' | 'FRAUD' | 'COMPLIANCE' | 'SUPERSEDED' | 'OTHER';
+  priority: 'CRITICAL' | 'HIGH' | 'STANDARD';
+  notes?: string;
+}
+
+async function revokeCredential(request: RevocationRequest): Promise<void> {
+  // 1. Update status list
+  const credential = await getCredential(request.credentialId);
+  const shard = extractShardFromStatusUrl(credential.credentialStatus.statusListCredential);
+  await updateStatusBit(shard, credential.credentialStatus.statusListIndex, 1);
+
+  // 2. Re-sign status list
+  const updatedList = await resignStatusList(shard);
+
+  // 3. Invalidate cache based on priority
+  if (request.priority === 'CRITICAL') {
+    await cloudflare.purgeCache({
+      files: [credential.credentialStatus.statusListCredential]
+    });
+  } else if (request.priority === 'HIGH') {
+    // Queue for purge within 1 minute
+    await purgeQueue.add({ url: credential.credentialStatus.statusListCredential }, { delay: 60000 });
+  }
+  // STANDARD: Let TTL handle it
+
+  // 4. Emit webhook
+  await emitWebhook('credential.revoked', {
+    credentialId: request.credentialId,
+    reason: request.reason,
+    revokedAt: new Date().toISOString()
+  });
+}
+```
+
+#### Pre-Computation for High-Traffic Credentials
+
+Popular products may have credentials verified thousands of times per minute. Pre-computation optimizes verification.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    PRE-COMPUTATION STRATEGY                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  PROBLEM: High-traffic credentials cause repeated status list fetches      │
+│                                                                              │
+│  SOLUTION: Pre-compute verification results for popular credentials         │
+│                                                                              │
+│  TRACKING POPULARITY:                                                       │
+│  ────────────────────                                                       │
+│  1. Log verification requests per credential (anonymized)                   │
+│  2. Identify "hot" credentials (>100 verifications/hour)                   │
+│  3. Pre-compute verification bundles for hot credentials                   │
+│                                                                              │
+│  PRE-COMPUTED VERIFICATION BUNDLE:                                          │
+│  ──────────────────────────────────                                         │
+│  {                                                                          │
+│    "credentialId": "cred_abc123",                                          │
+│    "signatureValid": true,                                                 │
+│    "revocationStatus": "valid",                                            │
+│    "statusListHash": "sha256:e3b0c44...",                                  │
+│    "computedAt": "2026-01-14T12:00:00Z",                                   │
+│    "validUntil": "2026-01-14T12:05:00Z",                                   │
+│    "attestationStatuses": [                                                │
+│      { "id": "att_xyz", "status": "valid" },                              │
+│      { "id": "att_uvw", "status": "valid" }                               │
+│    ]                                                                        │
+│  }                                                                          │
+│                                                                              │
+│  CACHE LOCATIONS:                                                           │
+│  ────────────────                                                           │
+│  • Edge (Cloudflare Workers KV): For global low-latency access             │
+│  • Regional (Redis): For API-level caching                                 │
+│                                                                              │
+│  INVALIDATION TRIGGER:                                                      │
+│  ─────────────────────                                                      │
+│  • On revocation: Purge pre-computed bundle                                │
+│  • On attestation revocation: Purge affected bundles                       │
+│  • TTL expiry: Re-compute automatically                                    │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Pre-Computation Background Job:**
+
+```typescript
+// Runs every minute
+async function preComputeHotCredentials(): Promise<void> {
+  // 1. Get credentials with >100 verifications in last hour
+  const hotCredentials = await getHotCredentials({
+    threshold: 100,
+    window: '1h'
+  });
+
+  for (const credentialId of hotCredentials) {
+    // 2. Fetch credential and status list
+    const credential = await getCredential(credentialId);
+    const statusList = await getStatusList(credential.credentialStatus.statusListCredential);
+
+    // 3. Compute full verification
+    const bundle: PreComputedVerification = {
+      credentialId,
+      signatureValid: await verifySignature(credential),
+      revocationStatus: checkRevocationBit(statusList, credential.credentialStatus.statusListIndex),
+      statusListHash: hashStatusList(statusList),
+      computedAt: new Date().toISOString(),
+      validUntil: addMinutes(new Date(), 5).toISOString(),
+      attestationStatuses: await checkAttestationStatuses(credential)
+    };
+
+    // 4. Cache at edge
+    await cloudflareKV.put(
+      `verification:${credentialId}`,
+      JSON.stringify(bundle),
+      { expirationTtl: 300 } // 5 minutes
+    );
+  }
+}
+```
+
+**Verification with Pre-Computation:**
+
+```typescript
+async function verifyCredential(credentialId: string): Promise<VerificationResult> {
+  // 1. Check for pre-computed result
+  const cached = await cloudflareKV.get(`verification:${credentialId}`);
+
+  if (cached) {
+    const bundle = JSON.parse(cached);
+
+    // Verify cache is still valid
+    if (new Date(bundle.validUntil) > new Date()) {
+      return {
+        valid: bundle.signatureValid && bundle.revocationStatus === 'valid',
+        source: 'precomputed',
+        computedAt: bundle.computedAt,
+        attestations: bundle.attestationStatuses
+      };
+    }
+  }
+
+  // 2. Fall back to real-time verification
+  return await performFullVerification(credentialId);
+}
+```
+
+**Scaling Targets:**
+
+| Metric | Target | Strategy |
+|--------|--------|----------|
+| Verifications/second | 100,000+ | Pre-computation + edge caching |
+| Status list size | 10M credentials | Time-based sharding |
+| Revocation propagation | <1 minute (critical) | CDN purge API |
+| Cache hit rate | >95% for hot credentials | Pre-computation |
 
 ---
 

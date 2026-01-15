@@ -90,7 +90,7 @@ variable "db_instance_class" {
 variable "db_allocated_storage" {
   description = "Initial storage allocation in GB"
   type        = number
-  default     = 20
+  default     = 50  # Matches Architecture docs
 }
 
 variable "db_max_allocated_storage" {
@@ -108,7 +108,7 @@ variable "db_backup_retention_days" {
 variable "db_multi_az" {
   description = "Enable Multi-AZ deployment for RDS"
   type        = bool
-  default     = false
+  default     = true  # Matches Architecture docs - required for HA
 }
 
 variable "db_deletion_protection" {
@@ -184,7 +184,7 @@ variable "sqs_dlq_max_receive_count" {
 variable "api_cpu" {
   description = "CPU units for API task (1024 = 1 vCPU)"
   type        = number
-  default     = 512
+  default     = 256  # 0.25 vCPU - matches Architecture docs
 }
 
 variable "api_memory" {

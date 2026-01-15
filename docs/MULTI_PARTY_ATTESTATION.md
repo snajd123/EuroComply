@@ -458,6 +458,318 @@ Attestations can have expiry dates or be indefinite. Both customer and contribut
 
 ---
 
+## Attestation Workflow Robustness
+
+This section defines timeout handling, retry logic, and error recovery for the attestation workflow.
+
+### Request TTL and Timeout Handling
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    REQUEST LIFECYCLE WITH TIMEOUTS                           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  REQUEST CREATED                                                            │
+│  ───────────────                                                            │
+│  • Default TTL: 7 days (configurable: 1-30 days)                           │
+│  • Status: PENDING                                                          │
+│  • Email sent to contributor                                                │
+│                                                                              │
+│       Day 0          Day 5           Day 7                                  │
+│         │              │               │                                     │
+│         ▼              ▼               ▼                                     │
+│     ┌───────┐     ┌─────────┐     ┌─────────┐                              │
+│     │Request│────▶│Reminder │────▶│ EXPIRED │                              │
+│     │Created│     │Email    │     │         │                              │
+│     └───────┘     └─────────┘     └─────────┘                              │
+│                                        │                                     │
+│                                        ▼                                     │
+│                              Customer notified                               │
+│                              Can re-send request                             │
+│                                                                              │
+│  CONFIGURABLE SETTINGS:                                                     │
+│  ──────────────────────                                                     │
+│  │ Setting              │ Default │ Range    │ Description                 │
+│  │──────────────────────│─────────│──────────│─────────────────────────────│
+│  │ requestTtlDays       │ 7       │ 1-30     │ Days until request expires  │
+│  │ reminderBeforeDays   │ 2       │ 1-7      │ Days before expiry to remind│
+│  │ allowExtension       │ true    │ bool     │ Customer can extend TTL     │
+│  │ maxExtensions        │ 3       │ 0-5      │ Max times can extend        │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Timeout State Transitions
+
+| Current State | Trigger | New State | Action |
+|---------------|---------|-----------|--------|
+| PENDING | TTL expires | EXPIRED | Notify customer |
+| PENDING | Contributor clicks link | ACCEPTED | Start contribution |
+| ACCEPTED | 48h no activity | ACCEPTED (reminder) | Email contributor |
+| ACCEPTED | 7 days no activity | STALE | Notify both parties |
+| STALE | Contributor submits | PENDING_REVIEW | Normal flow |
+| STALE | 7 more days | EXPIRED | Close request |
+
+### Delivery Retry Logic
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    EMAIL DELIVERY RETRY                                      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  RETRY SCHEDULE:                                                            │
+│  ───────────────                                                            │
+│  Attempt 1: Immediate                                                       │
+│  Attempt 2: 1 minute (if soft bounce or timeout)                           │
+│  Attempt 3: 5 minutes                                                       │
+│  Attempt 4: 30 minutes                                                      │
+│  Attempt 5: 2 hours                                                         │
+│  After 5 failures: Move to Dead Letter Queue                               │
+│                                                                              │
+│  FAILURE CLASSIFICATION:                                                    │
+│  ───────────────────────                                                    │
+│  │ Failure Type    │ Retry? │ Action                                       │
+│  │─────────────────│────────│──────────────────────────────────────────────│
+│  │ Soft bounce     │ Yes    │ Retry with backoff                           │
+│  │ Timeout         │ Yes    │ Retry with backoff                           │
+│  │ Hard bounce     │ No     │ Mark email invalid, notify customer          │
+│  │ Spam complaint  │ No     │ Mark email blocked, notify customer          │
+│  │ Invalid format  │ No     │ Validation error, notify customer            │
+│                                                                              │
+│  DEAD LETTER QUEUE:                                                         │
+│  ─────────────────                                                          │
+│  Failed deliveries are stored for manual review:                            │
+│  • Customer notified of delivery failure                                    │
+│  • Dashboard shows "Delivery failed" status                                 │
+│  • Option to retry with different email or cancel request                   │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Webhook Notification Retry
+
+Attestation lifecycle events trigger webhooks. Retry policy matches standard webhook delivery:
+
+| Event | Webhook Type | Retry Policy |
+|-------|--------------|--------------|
+| Request created | `attestation.requested` | Standard (6 attempts over 24h) |
+| Contribution submitted | `attestation.submitted` | Standard |
+| Attestation approved | `attestation.approved` | Standard |
+| Attestation rejected | `attestation.rejected` | Standard |
+| Attestation expired | `attestation.expired` | Standard |
+| Contributor key revoked | `attestation.contributor_key_revoked` | High priority (immediate + 3 fast retries) |
+
+### Contributor Key Revocation Handling
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    KEY REVOCATION SCENARIOS                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  SCENARIO 1: Key Compromised During PENDING Request                         │
+│  ──────────────────────────────────────────────────                         │
+│                                                                              │
+│  Contributor reports key compromise → Before they submitted any data        │
+│                                                                              │
+│  Actions:                                                                   │
+│  1. Contributor's account locked                                            │
+│  2. All PENDING requests to this contributor: Status → CANCELLED            │
+│  3. Customer notified: "Contributor security incident, request cancelled"   │
+│  4. Contributor must re-onboard with new key                               │
+│  5. Customer can re-send request to contributor's new account              │
+│                                                                              │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│                                                                              │
+│  SCENARIO 2: Key Compromised During PENDING_REVIEW                          │
+│  ─────────────────────────────────────────────────                          │
+│                                                                              │
+│  Contributor reports key compromise → After submitting, before approval     │
+│                                                                              │
+│  Actions:                                                                   │
+│  1. Contribution status → CANCELLED_KEY_COMPROMISE                         │
+│  2. Customer notified with details:                                         │
+│     - Which contribution affected                                           │
+│     - When it was signed (before or during compromise window?)              │
+│     - Recommendation: Request fresh attestation with new key               │
+│  3. Existing signed VC marked as "key_compromised" in metadata             │
+│  4. Customer can choose to:                                                 │
+│     a) Reject and request new attestation (recommended)                    │
+│     b) Accept anyway if signed before compromise window (audit logged)     │
+│                                                                              │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│                                                                              │
+│  SCENARIO 3: Key Compromised After APPROVED                                 │
+│  ──────────────────────────────────────────                                 │
+│                                                                              │
+│  Contributor reports key compromise → Attestation already approved & in use │
+│                                                                              │
+│  Actions:                                                                   │
+│  1. APPROVED attestations signed BEFORE compromise: Remain valid            │
+│     - Signature was authentic at time of signing                           │
+│     - No retroactive invalidation                                           │
+│  2. Customer notified: "Contributor key compromised, review attestations"  │
+│  3. Customer can choose to:                                                 │
+│     a) Keep existing attestations (valid)                                  │
+│     b) Request fresh attestation with new key (for new DPPs)              │
+│     c) Revoke attestation if signed during suspected compromise window     │
+│  4. Issued DPPs referencing these attestations: Unaffected                 │
+│     - DPP validity not changed                                             │
+│     - Verification shows: "Attestation key has been rotated"              │
+│                                                                              │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│                                                                              │
+│  DATABASE SCHEMA ADDITION:                                                  │
+│                                                                              │
+│  ContributionVersion (existing table, new fields):                         │
+│  ├── keyStatus: 'VALID' | 'KEY_ROTATED' | 'KEY_COMPROMISED'                │
+│  ├── keyCompromisedAt?: DateTime                                           │
+│  └── signedDuringCompromise?: boolean                                      │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Partial Attestation State Management
+
+Contributors may not fill all requested fields. The system handles partial attestations:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    PARTIAL ATTESTATION HANDLING                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  EXAMPLE:                                                                   │
+│  ─────────                                                                  │
+│  Customer requests: [materials, carbonFootprint, factoryLocation]          │
+│  Contributor submits: [materials, carbonFootprint] only                    │
+│  Missing: [factoryLocation]                                                │
+│                                                                              │
+│  CONTRIBUTOR VIEW:                                                          │
+│  ─────────────────                                                          │
+│  • Can submit with partial data                                             │
+│  • Must confirm: "I can only attest to these fields"                       │
+│  • Optional: Explain why (dropdown + free text)                            │
+│    - "Data not available"                                                  │
+│    - "Confidential / trade secret"                                         │
+│    - "Not applicable to this product"                                      │
+│    - "Will provide later" (sets reminder)                                  │
+│                                                                              │
+│  CUSTOMER REVIEW VIEW:                                                      │
+│  ─────────────────────                                                      │
+│                                                                              │
+│  ┌───────────────────────────────────────────────────────────────────────┐ │
+│  │  Attestation from: Supplier ABC                                       │ │
+│  │                                                                        │ │
+│  │  ✅ Materials         Attested    [View data]                         │ │
+│  │  ✅ Carbon Footprint  Attested    [View data]                         │ │
+│  │  ⚠️ Factory Location  Skipped     Reason: "Confidential"              │ │
+│  │                                                                        │ │
+│  │  Coverage: 2 of 3 requested fields (67%)                              │ │
+│  │                                                                        │ │
+│  │  [Approve Partial] [Reject - Request Missing] [Reject - Cancel]       │ │
+│  └───────────────────────────────────────────────────────────────────────┘ │
+│                                                                              │
+│  APPROVAL OPTIONS:                                                          │
+│  ─────────────────                                                          │
+│                                                                              │
+│  │ Action                    │ Effect                                      │
+│  │───────────────────────────│─────────────────────────────────────────────│
+│  │ Approve Partial           │ Attestation approved for submitted fields   │
+│  │                           │ Missing fields remain unattested            │
+│  │                           │ Customer can request separately later       │
+│  │───────────────────────────│─────────────────────────────────────────────│
+│  │ Reject - Request Missing  │ Status → REJECTED                           │
+│  │                           │ Contributor notified to add missing fields  │
+│  │                           │ Contributor can revise and resubmit         │
+│  │───────────────────────────│─────────────────────────────────────────────│
+│  │ Reject - Cancel           │ Status → REJECTED                           │
+│  │                           │ Request closed                              │
+│  │                           │ Customer can send new request if needed     │
+│                                                                              │
+│  METADATA IN ATTESTATION VC:                                                │
+│  ───────────────────────────                                                │
+│                                                                              │
+│  {                                                                          │
+│    "requestedFields": ["materials", "carbonFootprint", "factoryLocation"], │
+│    "attestedFields": ["materials", "carbonFootprint"],                     │
+│    "skippedFields": [                                                      │
+│      {                                                                     │
+│        "field": "factoryLocation",                                        │
+│        "reason": "confidential",                                          │
+│        "note": "Trade secret per supplier agreement"                      │
+│      }                                                                     │
+│    ],                                                                       │
+│    "coveragePercentage": 67                                                │
+│  }                                                                          │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Workflow State Diagram
+
+Complete state machine for attestation requests:
+
+```
+                                    ┌─────────────────┐
+                                    │     CREATED     │
+                                    │  (request sent) │
+                                    └────────┬────────┘
+                                             │
+                         ┌───────────────────┼───────────────────┐
+                         │                   │                   │
+                    TTL expires       Contributor clicks    Contributor declines
+                         │                   │                   │
+                         ▼                   ▼                   ▼
+                  ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+                  │   EXPIRED   │     │  ACCEPTED   │     │  DECLINED   │
+                  └─────────────┘     └──────┬──────┘     └─────────────┘
+                                             │
+                         ┌───────────────────┼───────────────────┐
+                         │                   │                   │
+                   Key compromised    Submits contribution   Goes stale (14d)
+                         │                   │                   │
+                         ▼                   ▼                   ▼
+                  ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+                  │  CANCELLED  │     │  PENDING    │     │   STALE     │
+                  │  (security) │     │   REVIEW    │     │ (reminder)  │
+                  └─────────────┘     └──────┬──────┘     └──────┬──────┘
+                                             │                   │
+                         ┌───────────────────┼───────────────────┤
+                         │                   │                   │
+                   Customer approves  Customer rejects    7 more days
+                         │                   │                   │
+                         ▼                   ▼                   ▼
+                  ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+                  │  APPROVED   │     │  REJECTED   │     │   EXPIRED   │
+                  │             │     │             │     │             │
+                  │ Stored in   │     │ Contributor │     │   Closed    │
+                  │ The Hub     │     │ can revise  │     │             │
+                  └──────┬──────┘     └──────┬──────┘     └─────────────┘
+                         │                   │
+                         │            Contributor revises
+                         │                   │
+                         │                   ▼
+                         │            ┌─────────────┐
+                         │            │  PENDING    │
+                         │            │   REVIEW    │
+                         │            │  (v2, v3...)│
+                         │            └─────────────┘
+                         │
+                  Post-approval events:
+                         │
+          ┌──────────────┼──────────────┐
+          │              │              │
+   Attestation     Contributor     Key compromised
+   expires         revokes         (post-approval)
+          │              │              │
+          ▼              ▼              ▼
+   ┌─────────────┐ ┌─────────────┐ ┌─────────────┐
+   │   EXPIRED   │ │   REVOKED   │ │ VALID but   │
+   │ (no new DPP)│ │ (removed)   │ │ KEY_ROTATED │
+   └─────────────┘ └─────────────┘ └─────────────┘
+```
+
+---
+
 ## Verifiable Credential Structures
 
 ### Attestation VC

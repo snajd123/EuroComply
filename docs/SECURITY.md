@@ -1337,12 +1337,15 @@ EuroComply uses a **schema-per-tenant** model with seven layers of defense. Secu
 
 ### 13.1 Design Principle
 
+> **Architecture Decision:** ALL tiers receive per-tenant database credentials. Security is not a premium feature—every customer gets the same isolation guarantees.
+
 | Tier | Isolation Model | Max Breach Impact |
 |------|-----------------|-------------------|
-| Growth (€129) | Schema + Cell | 1 tenant |
-| Scale (€399) | Schema + Cell + Credentials | 1 tenant |
-| Enterprise (€999) | Dedicated Instance | 1 tenant |
-| Mega (€4,999) | Dedicated Cluster | 1 tenant |
+| Starter (€79) | Schema + Per-Tenant Credentials | 1 tenant |
+| Growth (€199) | Schema + Per-Tenant Credentials | 1 tenant |
+| Scale (€599) | Schema + Per-Tenant Credentials | 1 tenant |
+| Enterprise (€1,499) | Schema + Per-Tenant Credentials | 1 tenant |
+| Platform (Custom) | Dedicated Instance | 1 tenant |
 
 ### 13.2 Seven Layers of Security
 
@@ -1392,7 +1395,7 @@ Each tenant receives a dedicated PostgreSQL schema within a shared database cell
 │  │ └─────────────┘ │  │ └─────────────┘ │  │ └─────────────┘ │             │
 │  └─────────────────┘  └─────────────────┘  └─────────────────┘             │
 │                                                                              │
-│  Cell Credentials: growth_cell_1_user                                       │
+│  Per-Tenant Credentials: tenant_org_{id} (one per tenant)                   │
 │  Tenants per Cell: ~200                                                     │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -1540,16 +1543,16 @@ CREATE POLICY tenant_isolation ON products
 - Blocks raw SQL queries that bypass Prisma
 - Defense-in-depth principle
 
-### 13.10 Cell-Level Hardening
+### 13.10 Per-Tenant Database Credentials
 
-**Problem:** While schema-per-tenant provides strong logical isolation, tenants within a Cell (~200 per Growth cell) share:
-- Database credentials (`growth_cell_1_user`)
-- Compute resources (CPU, memory, IOPS)
-- Network bandwidth
+> **Architecture Decision:** Every tenant receives dedicated PostgreSQL credentials regardless of pricing tier. This is our standard model, not an optional enhancement.
 
-A credential compromise or noisy neighbor affects all ~200 tenants simultaneously.
-
-**Solution:** Defense-in-depth at the Cell level through per-schema credentials, resource quotas, monitoring, and incident response procedures.
+**Why Per-Tenant Credentials:**
+While schema-per-tenant provides strong logical isolation, sharing cell-level credentials (`growth_cell_1_user`) would mean a credential compromise affects all ~200 tenants in that cell. With per-tenant credentials:
+- Credential leak exposes 1 tenant, not 200
+- Each tenant's connection can be individually revoked
+- Audit trails are per-tenant
+- Defense-in-depth against privilege escalation
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -1648,12 +1651,12 @@ class SecureTenantRouter {
 }
 ```
 
-**Blast Radius Comparison:**
+**Blast Radius Comparison (why we chose per-tenant):**
 
 | Credential Type | If Compromised | Blast Radius |
 |----------------|----------------|--------------|
-| Cell credential (old) | Attacker can query any schema | ~200 tenants |
-| Per-schema credential (new) | Attacker limited to one schema | 1 tenant |
+| Cell credential (rejected) | Attacker can query any schema | ~200 tenants |
+| **Per-tenant credential (chosen)** | Attacker limited to one schema | **1 tenant** |
 
 **Operational Considerations:**
 
@@ -2054,6 +2057,418 @@ With Cell-Level Hardening, the attack scenario outcomes improve:
 | Noisy neighbor | Resource quotas + throttling | ~200 tenants degraded | 1 tenant throttled |
 | Complete cell compromise | Quarantine + migration | ~200 tenants, hours to recover | ~200 tenants, minutes to migrate |
 | Credential enumeration | Per-tenant secrets, rotation | Persistent access | Access revoked within rotation window |
+
+### 13.11 Schema Provisioning Automation
+
+This section details the automated provisioning of tenant schemas during onboarding.
+
+#### 13.11.1 Provisioning Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    TENANT SCHEMA PROVISIONING                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  TRIGGER: Stripe webhook `checkout.session.completed`                       │
+│                                                                              │
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │  STEP 1: SELECT TARGET CELL                                          │   │
+│  │  ────────────────────────────                                        │   │
+│  │  Input: Organization tier (starter, growth, scale, enterprise)       │   │
+│  │  Logic:                                                              │   │
+│  │  • Query cell_metadata for cells with capacity                       │   │
+│  │  • Filter by tier (growth cells for growth tier, etc.)               │   │
+│  │  • Select cell with lowest current_tenants                           │   │
+│  │  • If all cells > 80% capacity: Alert ops, provision new cell        │   │
+│  │  Output: cellId (e.g., "growth-cell-1")                              │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
+│                              │                                               │
+│                              ▼                                               │
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │  STEP 2: CREATE SCHEMA                                               │   │
+│  │  ─────────────────────                                               │   │
+│  │  SQL (via cell admin connection):                                    │   │
+│  │                                                                       │   │
+│  │  BEGIN;                                                              │   │
+│  │  CREATE SCHEMA schema_tenant_{org_id};                               │   │
+│  │  SET search_path = schema_tenant_{org_id};                           │   │
+│  │  -- Create all tables via Prisma migration                           │   │
+│  │  COMMIT;                                                             │   │
+│  │                                                                       │   │
+│  │  On failure: ROLLBACK, log error, alert ops                          │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
+│                              │                                               │
+│                              ▼                                               │
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │  STEP 3: CREATE TENANT ROLE                                          │   │
+│  │  ─────────────────────────                                           │   │
+│  │  SQL:                                                                │   │
+│  │                                                                       │   │
+│  │  -- Create role with random password                                 │   │
+│  │  CREATE ROLE tenant_org_{org_id} WITH LOGIN PASSWORD '{generated}';  │   │
+│  │                                                                       │   │
+│  │  -- Apply resource limits                                            │   │
+│  │  ALTER ROLE tenant_org_{org_id} SET statement_timeout = '30s';       │   │
+│  │  ALTER ROLE tenant_org_{org_id} SET lock_timeout = '10s';            │   │
+│  │  ALTER ROLE tenant_org_{org_id} SET temp_file_limit = '100MB';       │   │
+│  │                                                                       │   │
+│  │  -- Tier-specific limits                                             │   │
+│  │  -- Growth: CONNECTION LIMIT 10                                      │   │
+│  │  -- Scale: CONNECTION LIMIT 25                                       │   │
+│  │  -- Enterprise: CONNECTION LIMIT 100                                 │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
+│                              │                                               │
+│                              ▼                                               │
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │  STEP 4: GRANT PERMISSIONS                                           │   │
+│  │  ──────────────────────                                              │   │
+│  │  SQL:                                                                │   │
+│  │                                                                       │   │
+│  │  -- Grant schema access                                              │   │
+│  │  GRANT USAGE ON SCHEMA schema_tenant_{org_id} TO tenant_org_{org_id};│   │
+│  │  GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA schema_tenant_{org_id} │   │
+│  │    TO tenant_org_{org_id};                                           │   │
+│  │  GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA schema_tenant_{org_id}│ │
+│  │    TO tenant_org_{org_id};                                           │   │
+│  │                                                                       │   │
+│  │  -- Future tables inherit permissions                                │   │
+│  │  ALTER DEFAULT PRIVILEGES IN SCHEMA schema_tenant_{org_id}           │   │
+│  │    GRANT ALL PRIVILEGES ON TABLES TO tenant_org_{org_id};            │   │
+│  │                                                                       │   │
+│  │  -- Deny access to other schemas                                     │   │
+│  │  REVOKE ALL ON SCHEMA public FROM tenant_org_{org_id};               │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
+│                              │                                               │
+│                              ▼                                               │
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │  STEP 5: STORE CREDENTIALS                                           │   │
+│  │  ────────────────────────                                            │   │
+│  │                                                                       │   │
+│  │  AWS Secrets Manager:                                                │   │
+│  │  Secret ID: eurocomply/tenant/{org_id}/db-credentials               │   │
+│  │  Value: {                                                            │   │
+│  │    "host": "growth-cell-1.xxx.rds.amazonaws.com",                   │   │
+│  │    "port": 5432,                                                     │   │
+│  │    "database": "eurocomply",                                        │   │
+│  │    "username": "tenant_org_{org_id}",                               │   │
+│  │    "password": "{generated}",                                        │   │
+│  │    "schema": "schema_tenant_{org_id}"                               │   │
+│  │  }                                                                   │   │
+│  │                                                                       │   │
+│  │  Tags: organizationId, cellId, tier, createdAt                      │   │
+│  │  Rotation: Enabled with Lambda handler (see 13.10.3)                │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
+│                              │                                               │
+│                              ▼                                               │
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │  STEP 6: UPDATE ROUTING                                              │   │
+│  │  ──────────────────────                                              │   │
+│  │                                                                       │   │
+│  │  DynamoDB (eurocomply-routing table):                               │   │
+│  │  PK: ORG#{org_id}                                                   │   │
+│  │  SK: ROUTING                                                         │   │
+│  │  Attributes: cellId, schemaName, status='active', tier, updatedAt   │   │
+│  │                                                                       │   │
+│  │  Cell metadata update:                                               │   │
+│  │  UPDATE cell_metadata SET current_tenants = current_tenants + 1     │   │
+│  │    WHERE cell_id = '{cellId}';                                      │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
+│                              │                                               │
+│                              ▼                                               │
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │  STEP 7: GENERATE ENCRYPTION KEY (DEK)                               │   │
+│  │  ─────────────────────────────────────                               │   │
+│  │                                                                       │   │
+│  │  AWS KMS:                                                            │   │
+│  │  • Generate data key using cell CMK                                 │   │
+│  │  • Store encrypted DEK in tenant record                             │   │
+│  │  • DEK used for encrypting sensitive fields (BOM, attestations)     │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
+│                              │                                               │
+│                              ▼                                               │
+│                        PROVISIONING COMPLETE                                │
+│                        Send welcome email                                   │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 13.11.2 Rollback on Failure
+
+If provisioning fails at any step, the system performs cleanup:
+
+```typescript
+// src/lib/provisioning/tenant-provisioner.ts
+
+async function provisionTenant(organizationId: string, tier: Tier): Promise<ProvisioningResult> {
+  const rollbackSteps: RollbackStep[] = [];
+
+  try {
+    // Step 1: Select cell
+    const cell = await selectTargetCell(tier);
+
+    // Step 2: Create schema
+    await cellAdmin.query(`CREATE SCHEMA schema_tenant_${organizationId}`);
+    rollbackSteps.push({ type: 'DROP_SCHEMA', schema: `schema_tenant_${organizationId}` });
+
+    // Step 3: Create role
+    const password = generateSecurePassword(32);
+    await cellAdmin.query(`CREATE ROLE tenant_org_${organizationId} WITH LOGIN PASSWORD '${password}'`);
+    rollbackSteps.push({ type: 'DROP_ROLE', role: `tenant_org_${organizationId}` });
+
+    // Step 4: Grant permissions
+    await grantSchemaPermissions(organizationId);
+
+    // Step 5: Store credentials
+    const secretArn = await storeCredentials(organizationId, cell, password);
+    rollbackSteps.push({ type: 'DELETE_SECRET', secretArn });
+
+    // Step 6: Update routing
+    await updateRouting(organizationId, cell);
+    rollbackSteps.push({ type: 'DELETE_ROUTING', organizationId });
+
+    // Step 7: Generate DEK
+    await generateDek(organizationId, cell);
+    rollbackSteps.push({ type: 'DELETE_DEK', organizationId });
+
+    return { success: true, cellId: cell.id };
+
+  } catch (error) {
+    // Execute rollback in reverse order
+    for (const step of rollbackSteps.reverse()) {
+      await executeRollback(step);
+    }
+
+    await alertOps({
+      type: 'PROVISIONING_FAILED',
+      organizationId,
+      error: error.message,
+      rollbackCompleted: true,
+    });
+
+    throw new ProvisioningError(error.message);
+  }
+}
+```
+
+**Rollback Actions:**
+
+| Step Failed | Rollback Actions |
+|-------------|------------------|
+| Create schema | None needed |
+| Create role | DROP SCHEMA |
+| Grant permissions | DROP ROLE, DROP SCHEMA |
+| Store credentials | DROP ROLE, DROP SCHEMA |
+| Update routing | Delete secret, DROP ROLE, DROP SCHEMA |
+| Generate DEK | Delete routing, delete secret, DROP ROLE, DROP SCHEMA |
+
+#### 13.11.3 Zero-Downtime Credential Rotation
+
+Credential rotation maintains dual-credential validity to prevent connection failures:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    ZERO-DOWNTIME CREDENTIAL ROTATION                         │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  TIMELINE:                                                                  │
+│                                                                              │
+│  T+0:00  │ Rotation triggered (scheduled or manual)                        │
+│          │                                                                   │
+│  T+0:01  │ Generate new password                                           │
+│          │ Store as AWSPENDING version in Secrets Manager                  │
+│          │                                                                   │
+│  T+0:02  │ PostgreSQL: ALTER ROLE ... PASSWORD (new password)              │
+│          │ NOTE: PostgreSQL allows BOTH old and new to work briefly        │
+│          │                                                                   │
+│  T+0:03  │ Test new credentials (SELECT 1)                                 │
+│          │ If test fails: Rollback, alert ops, abort rotation              │
+│          │                                                                   │
+│  T+0:04  │ Update Secrets Manager:                                         │
+│          │ • AWSPENDING → AWSCURRENT                                       │
+│          │ • Old version → AWSPREVIOUS                                     │
+│          │                                                                   │
+│  T+0:05  │ Invalidate connection pool cache                                │
+│          │ New connections use new credentials                             │
+│          │                                                                   │
+│  T+5:00  │ Grace period ends                                               │
+│          │ AWSPREVIOUS version deleted                                     │
+│          │ Only new credentials work                                       │
+│          │                                                                   │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│                                                                              │
+│  DUAL-CREDENTIAL WINDOW (T+0:04 to T+5:00):                                │
+│  • Both AWSCURRENT and AWSPREVIOUS credentials valid                       │
+│  • Existing connections continue working with old credentials              │
+│  • New connections get new credentials from refreshed cache                │
+│  • No connection failures during rotation                                  │
+│                                                                              │
+│  CONNECTION POOL REFRESH STRATEGY:                                          │
+│  ─────────────────────────────────                                          │
+│  • Cache TTL: 5 minutes (matches grace period)                             │
+│  • On cache miss: Fetch from Secrets Manager (gets AWSCURRENT)             │
+│  • Existing pooled connections: Remain valid until returned to pool        │
+│  • PgBouncer server_lifetime: 300 seconds (forces reconnect within window) │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Rotation Failure Handling:**
+
+| Failure Point | Action | Recovery |
+|---------------|--------|----------|
+| Generate password | Abort, no changes | Retry next cycle |
+| ALTER ROLE fails | Abort, no changes | Alert ops, manual review |
+| Test connection fails | Keep old password | Alert ops, investigate PostgreSQL |
+| Secrets Manager update fails | PostgreSQL has new password | Manual sync required |
+| Cache invalidation fails | Connections use old credentials | Will self-heal at TTL expiry |
+
+#### 13.11.4 PostgreSQL Role Hierarchy
+
+Complete role structure for multi-tenant isolation:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    POSTGRESQL ROLE HIERARCHY                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│                          ┌─────────────────────┐                            │
+│                          │  rds_superuser      │                            │
+│                          │  (AWS managed)      │                            │
+│                          └──────────┬──────────┘                            │
+│                                     │                                        │
+│                                     │ GRANT                                  │
+│                                     ▼                                        │
+│                          ┌─────────────────────┐                            │
+│                          │  eurocomply_admin   │                            │
+│                          │  (Platform admin)   │                            │
+│                          └──────────┬──────────┘                            │
+│                                     │                                        │
+│                    ┌────────────────┼────────────────┐                      │
+│                    │                │                │                      │
+│                    ▼                ▼                ▼                      │
+│          ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐       │
+│          │ cell_1_admin    │ │ cell_2_admin    │ │ cell_3_admin    │       │
+│          │ (Cell-level)    │ │ (Cell-level)    │ │ (Cell-level)    │       │
+│          └────────┬────────┘ └────────┬────────┘ └────────┬────────┘       │
+│                   │                   │                   │                 │
+│        ┌──────────┼──────────┐        │                   │                 │
+│        │          │          │        │                   │                 │
+│        ▼          ▼          ▼        ▼                   ▼                 │
+│   ┌─────────┐┌─────────┐┌─────────┐                                        │
+│   │tenant_  ││tenant_  ││tenant_  │  ... (up to 200 per cell)              │
+│   │org_abc  ││org_def  ││org_ghi  │                                        │
+│   └─────────┘└─────────┘└─────────┘                                        │
+│                                                                              │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│                                                                              │
+│  ROLE DEFINITIONS:                                                          │
+│                                                                              │
+│  │ Role              │ Purpose                     │ Permissions            │
+│  │───────────────────│─────────────────────────────│────────────────────────│
+│  │ rds_superuser     │ AWS RDS admin               │ All (AWS managed)      │
+│  │ eurocomply_admin  │ Platform operations         │ Create roles, schemas  │
+│  │ cell_N_admin      │ Cell provisioning/migration │ Manage schemas in cell │
+│  │ tenant_org_{id}   │ Tenant application access   │ Own schema only        │
+│  │ audit_readonly    │ Compliance audits           │ SELECT on audit tables │
+│  │ support_readonly  │ Customer support            │ SELECT on specific org │
+│                                                                              │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│                                                                              │
+│  ROLE CREATION SQL:                                                         │
+│                                                                              │
+│  -- Cell admin (created once per cell)                                      │
+│  CREATE ROLE cell_1_admin WITH LOGIN PASSWORD '{secret}' CREATEROLE;        │
+│  GRANT CREATE ON DATABASE eurocomply TO cell_1_admin;                       │
+│                                                                              │
+│  -- Tenant role (created per tenant by cell admin)                          │
+│  SET ROLE cell_1_admin;                                                     │
+│  CREATE ROLE tenant_org_abc123 WITH LOGIN PASSWORD '{secret}';              │
+│  -- (permissions granted as shown in 13.11.1)                               │
+│  RESET ROLE;                                                                │
+│                                                                              │
+│  -- Audit role (read-only access to audit schemas)                          │
+│  CREATE ROLE audit_readonly WITH LOGIN PASSWORD '{secret}';                 │
+│  GRANT USAGE ON SCHEMA schema_audit TO audit_readonly;                      │
+│  GRANT SELECT ON ALL TABLES IN SCHEMA schema_audit TO audit_readonly;       │
+│                                                                              │
+│  -- Support role (temporary, org-specific read access)                      │
+│  CREATE ROLE support_readonly WITH LOGIN PASSWORD '{temp}' VALID UNTIL      │
+│    '{timestamp + 4 hours}';                                                 │
+│  GRANT USAGE ON SCHEMA schema_tenant_abc123 TO support_readonly;            │
+│  GRANT SELECT ON ALL TABLES IN SCHEMA schema_tenant_abc123 TO               │
+│    support_readonly;                                                        │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 13.11.5 Connection Pool Sizing by Tier
+
+Each tier has appropriate connection limits based on expected usage:
+
+| Tier | Connections/Tenant | Pool Size | Max Connections/Cell | Rationale |
+|------|-------------------|-----------|---------------------|-----------|
+| Starter | 5 | 2 | 1,000 (200 tenants) | Basic usage, single user |
+| Growth | 10 | 5 | 2,000 (200 tenants) | Small team, moderate API |
+| Scale | 25 | 10 | 1,250 (50 tenants) | Larger team, heavy API |
+| Enterprise | 100 | 25 | 100 (dedicated) | Full access, dedicated cell |
+| Platform | 500 | 100 | 500 (dedicated) | Unlimited, dedicated cluster |
+
+**PgBouncer Pool Configuration:**
+
+```ini
+; Per-tier pool settings in pgbouncer.ini
+
+[pools]
+; Starter tier tenants
+starter_pool_mode = transaction
+starter_default_pool_size = 2
+starter_min_pool_size = 0
+starter_reserve_pool_size = 1
+starter_max_client_conn = 5
+
+; Growth tier tenants
+growth_pool_mode = transaction
+growth_default_pool_size = 5
+growth_min_pool_size = 1
+growth_reserve_pool_size = 2
+growth_max_client_conn = 10
+
+; Scale tier tenants
+scale_pool_mode = transaction
+scale_default_pool_size = 10
+scale_min_pool_size = 2
+scale_reserve_pool_size = 5
+scale_max_client_conn = 25
+```
+
+**Connection Exhaustion Handling:**
+
+```typescript
+// When tenant exceeds connection limit
+class ConnectionManager {
+  async getConnection(organizationId: string): Promise<PoolClient> {
+    const tier = await this.getTenantTier(organizationId);
+    const limit = CONNECTION_LIMITS[tier];
+
+    const activeConnections = await this.countActiveConnections(organizationId);
+
+    if (activeConnections >= limit) {
+      // Log warning, don't fail immediately
+      logger.warn('Connection limit approaching', { organizationId, active: activeConnections, limit });
+
+      if (activeConnections >= limit * 1.1) {
+        // Hard limit with 10% buffer exceeded
+        throw new ConnectionLimitError(
+          `Connection limit exceeded: ${activeConnections}/${limit}. ` +
+          `Consider upgrading to ${this.suggestUpgrade(tier)} for more connections.`
+        );
+      }
+    }
+
+    return this.pool.connect();
+  }
+}
+```
 
 ---
 

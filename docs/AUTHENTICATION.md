@@ -790,16 +790,431 @@ async function refreshAccessToken(req: Request) {
 
 ### 10.2 Multi-Factor Authentication (MFA)
 
-**Status:** Planned for Phase 2
+MFA provides an additional layer of security beyond passwords. EuroComply supports multiple MFA methods.
 
-| Method | Status | Notes |
-|--------|--------|-------|
-| TOTP (Authenticator App) | PLANNED | Required for ADMIN users |
-| SMS | NOT PLANNED | Security concerns |
-| Email OTP | PLANNED | Backup method |
-| Hardware Key (WebAuthn) | PLANNED | Optional for Enterprise tier |
+#### 10.2.1 MFA Methods
 
-### 10.3 Rate Limiting
+| Method | Availability | Security Level | Use Case |
+|--------|--------------|----------------|----------|
+| **TOTP** (Authenticator App) | All tiers | High | Primary MFA method |
+| **WebAuthn** (Hardware Key) | Enterprise+ | Highest | Security-critical operations |
+| **Email OTP** | All tiers | Medium | Backup/recovery only |
+| **SMS** | Not supported | - | Security concerns (SIM swap) |
+
+#### 10.2.2 MFA Requirements by Role
+
+| Role | MFA Required? | Can Disable? | Notes |
+|------|---------------|--------------|-------|
+| **ADMIN** | Yes (enforced) | No | Required for all admin operations |
+| **MANAGER** | Recommended | Yes | Strongly encouraged |
+| **EDITOR** | Optional | Yes | User choice |
+| **VIEWER** | Optional | Yes | User choice |
+| **CONTRIBUTOR** | Optional | Yes | External users |
+
+**Admin Operations Requiring MFA:**
+- User management (invite, remove, role change)
+- Billing changes (plan upgrade/downgrade)
+- API key management (create, revoke)
+- Organization settings changes
+- Data export requests
+- Key export operations
+
+#### 10.2.3 TOTP Setup Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    TOTP ENROLLMENT FLOW                                      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  STEP 1: User initiates MFA setup                                           │
+│  ───────────────────────────────                                            │
+│  POST /api/v1/auth/mfa/totp/setup                                          │
+│                                                                              │
+│  Response:                                                                  │
+│  {                                                                          │
+│    "secret": "JBSWY3DPEHPK3PXP",       // Base32-encoded secret           │
+│    "qrCode": "data:image/png;base64,...", // QR code image                 │
+│    "backupCodes": [                      // One-time recovery codes        │
+│      "ABCD-1234-EFGH",                                                     │
+│      "IJKL-5678-MNOP",                                                     │
+│      ... (10 codes total)                                                  │
+│    ],                                                                       │
+│    "setupToken": "setup_abc123..."      // Temporary token for verification│
+│  }                                                                          │
+│                                                                              │
+│  STEP 2: User scans QR code with authenticator app                         │
+│  ─────────────────────────────────────────────────                         │
+│  Compatible apps: Google Authenticator, Authy, 1Password, etc.             │
+│                                                                              │
+│  STEP 3: User verifies setup with current code                             │
+│  ─────────────────────────────────────────────                             │
+│  POST /api/v1/auth/mfa/totp/verify-setup                                   │
+│  {                                                                          │
+│    "setupToken": "setup_abc123...",                                        │
+│    "code": "123456"    // Current TOTP code from app                       │
+│  }                                                                          │
+│                                                                              │
+│  STEP 4: MFA enabled, backup codes saved                                   │
+│  ───────────────────────────────────────                                   │
+│  • User must save backup codes securely                                    │
+│  • Each backup code can only be used once                                  │
+│  • 10 backup codes provided initially                                      │
+│  • Can regenerate backup codes (invalidates old ones)                      │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**TOTP Parameters:**
+- Algorithm: SHA-1 (RFC 6238 compatible)
+- Digits: 6
+- Period: 30 seconds
+- Clock skew tolerance: ±1 period (90 seconds total window)
+
+#### 10.2.4 WebAuthn (Hardware Key) Setup
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    WEBAUTHN REGISTRATION FLOW                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  SUPPORTED AUTHENTICATORS:                                                  │
+│  • YubiKey 5 series                                                        │
+│  • Google Titan                                                             │
+│  • Windows Hello                                                            │
+│  • Touch ID / Face ID (platform authenticators)                            │
+│                                                                              │
+│  REGISTRATION:                                                              │
+│                                                                              │
+│  1. POST /api/v1/auth/mfa/webauthn/register/begin                          │
+│     → Returns WebAuthn challenge                                            │
+│                                                                              │
+│  2. Browser calls navigator.credentials.create()                           │
+│     → User touches hardware key or uses biometric                          │
+│                                                                              │
+│  3. POST /api/v1/auth/mfa/webauthn/register/complete                       │
+│     → Stores credential public key                                          │
+│                                                                              │
+│  AUTHENTICATION:                                                            │
+│                                                                              │
+│  1. POST /api/v1/auth/mfa/webauthn/authenticate/begin                      │
+│     → Returns assertion challenge                                           │
+│                                                                              │
+│  2. Browser calls navigator.credentials.get()                              │
+│     → User touches hardware key or uses biometric                          │
+│                                                                              │
+│  3. POST /api/v1/auth/mfa/webauthn/authenticate/complete                   │
+│     → Verifies signature, issues session                                    │
+│                                                                              │
+│  SECURITY SETTINGS:                                                         │
+│  • Attestation: "direct" (verify authenticator model)                      │
+│  • User verification: "required" (PIN or biometric)                        │
+│  • Resident key: "preferred" (passwordless capable)                        │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 10.2.5 MFA Recovery
+
+When a user loses access to their MFA device:
+
+| Recovery Method | Process | Security |
+|-----------------|---------|----------|
+| **Backup codes** | Enter one of 10 pre-generated codes | High - codes are one-time use |
+| **Admin reset** | Organization admin resets MFA | Medium - requires admin verification |
+| **Support reset** | Contact support with identity verification | High - video call + document verification |
+
+**Admin MFA Reset Procedure:**
+1. User contacts organization admin
+2. Admin verifies user identity (out-of-band)
+3. Admin initiates reset: `POST /api/v1/users/{userId}/mfa/reset`
+4. User receives email with temporary login link
+5. User must set up new MFA within 24 hours
+6. Audit log records: admin ID, user ID, reason, timestamp
+
+**Support MFA Reset (no admin available):**
+1. User submits request via support portal
+2. Video call scheduled for identity verification
+3. User presents government ID + answers security questions
+4. 24-hour cooling-off period
+5. MFA reset executed
+6. All sessions invalidated, user must re-authenticate
+
+### 10.3 Session Invalidation
+
+Sessions must be invalidated when security-relevant changes occur.
+
+#### 10.3.1 Invalidation Triggers
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    SESSION INVALIDATION TRIGGERS                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  IMMEDIATE INVALIDATION (all sessions):                                     │
+│  ──────────────────────────────────────                                     │
+│  │ Trigger                        │ Scope              │ User Notified?    │
+│  │────────────────────────────────│────────────────────│───────────────────│
+│  │ Password changed               │ All user sessions  │ Yes (email)       │
+│  │ Password reset completed       │ All user sessions  │ Yes (email)       │
+│  │ MFA device changed             │ All user sessions  │ Yes (email)       │
+│  │ User marked as compromised     │ All user sessions  │ Yes (email+SMS)   │
+│  │ Account disabled               │ All user sessions  │ Yes (email)       │
+│                                                                              │
+│  IMMEDIATE INVALIDATION (specific sessions):                                │
+│  ───────────────────────────────────────────                                │
+│  │ Trigger                        │ Scope              │ User Notified?    │
+│  │────────────────────────────────│────────────────────│───────────────────│
+│  │ Role downgraded                │ Affected user      │ Yes (in-app)      │
+│  │ Workspace access revoked       │ Affected user      │ Yes (in-app)      │
+│  │ Removed from organization      │ Affected user      │ Yes (email)       │
+│  │ API key revoked                │ Sessions using key │ No (key owner)    │
+│                                                                              │
+│  SOFT INVALIDATION (re-auth required for sensitive ops):                    │
+│  ─────────────────────────────────────────────────────                      │
+│  │ Trigger                        │ Effect                                 │
+│  │────────────────────────────────│────────────────────────────────────────│
+│  │ Session idle > 30 minutes      │ Require re-auth for admin operations  │
+│  │ Different IP detected          │ Require MFA verification              │
+│  │ Different device detected      │ Require MFA verification              │
+│  │ Permission escalation needed   │ Require password re-entry             │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 10.3.2 Implementation
+
+```typescript
+// Session invalidation service
+class SessionInvalidator {
+  // Invalidate all sessions for a user
+  async invalidateAllUserSessions(userId: string, reason: string): Promise<void> {
+    // 1. Get all active sessions
+    const sessions = await redis.keys(`session:${userId}:*`);
+
+    // 2. Delete all sessions
+    if (sessions.length > 0) {
+      await redis.del(...sessions);
+    }
+
+    // 3. Increment user's token generation (invalidates all JWTs)
+    await prisma.user.update({
+      where: { id: userId },
+      data: { tokenGeneration: { increment: 1 } },
+    });
+
+    // 4. Log event
+    await auditLog.create({
+      type: 'SESSIONS_INVALIDATED',
+      userId,
+      reason,
+      sessionsInvalidated: sessions.length,
+    });
+  }
+
+  // Invalidate sessions on permission change
+  async onPermissionChange(userId: string, change: PermissionChange): Promise<void> {
+    if (this.isDowngrade(change)) {
+      await this.invalidateAllUserSessions(userId, `Permission downgrade: ${change.description}`);
+    }
+  }
+
+  // Force re-authentication for sensitive operations
+  async requireReauth(sessionId: string): Promise<void> {
+    await redis.hset(`session:${sessionId}`, 'requiresReauth', 'true');
+  }
+}
+```
+
+### 10.4 IP Allowlisting
+
+Enterprise tier organizations can restrict access to specific IP ranges.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    IP ALLOWLISTING (Enterprise Tier)                         │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  CONFIGURATION:                                                             │
+│  ─────────────                                                              │
+│                                                                              │
+│  POST /api/v1/organization/security/ip-allowlist                           │
+│  {                                                                          │
+│    "enabled": true,                                                         │
+│    "rules": [                                                               │
+│      {                                                                      │
+│        "name": "Office HQ",                                                │
+│        "cidr": "203.0.113.0/24",                                          │
+│        "description": "Main office IP range"                               │
+│      },                                                                     │
+│      {                                                                      │
+│        "name": "VPN Exit",                                                 │
+│        "cidr": "198.51.100.50/32",                                        │
+│        "description": "Corporate VPN exit IP"                              │
+│      }                                                                      │
+│    ],                                                                       │
+│    "bypassOptions": {                                                       │
+│      "allowMobileWithMfa": true,    // Allow mobile if MFA verified       │
+│      "bypassUsers": ["user_ceo123"] // Specific users can bypass          │
+│    },                                                                       │
+│    "enforcementMode": "enforce"     // "audit" | "warn" | "enforce"        │
+│  }                                                                          │
+│                                                                              │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│                                                                              │
+│  ENFORCEMENT MODES:                                                         │
+│  ──────────────────                                                         │
+│                                                                              │
+│  │ Mode    │ Behavior                               │ Use Case            │
+│  │─────────│────────────────────────────────────────│─────────────────────│
+│  │ audit   │ Log violations but allow access        │ Testing rules       │
+│  │ warn    │ Show warning but allow access          │ Gradual rollout     │
+│  │ enforce │ Block access from non-allowed IPs      │ Production          │
+│                                                                              │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│                                                                              │
+│  BYPASS SCENARIOS:                                                          │
+│  ─────────────────                                                          │
+│                                                                              │
+│  1. Mobile App with MFA (if allowMobileWithMfa = true):                    │
+│     • User authenticates from unknown IP                                   │
+│     • System detects mobile user agent                                     │
+│     • Requires MFA verification                                            │
+│     • If MFA passes: Access granted, logged as "bypass_mobile_mfa"         │
+│                                                                              │
+│  2. Bypass Users (emergency access):                                        │
+│     • Specific users in bypassUsers list                                   │
+│     • Still requires MFA for admin operations                              │
+│     • All access logged as "bypass_user_override"                          │
+│                                                                              │
+│  3. Temporary Bypass Token (support scenarios):                            │
+│     • Support can issue 4-hour bypass token                                │
+│     • Token tied to specific user and reason                               │
+│     • Logged as "bypass_support_token"                                     │
+│                                                                              │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│                                                                              │
+│  BLOCKED ACCESS RESPONSE:                                                   │
+│  ────────────────────────                                                   │
+│                                                                              │
+│  HTTP 403 Forbidden                                                        │
+│  {                                                                          │
+│    "success": false,                                                        │
+│    "error": {                                                               │
+│      "code": "IP_NOT_ALLOWED",                                             │
+│      "message": "Access denied: IP address not in organization allowlist", │
+│      "details": {                                                           │
+│        "clientIp": "192.0.2.50",                                          │
+│        "organizationId": "org_abc123",                                     │
+│        "contactAdmin": true                                                │
+│      }                                                                      │
+│    }                                                                        │
+│  }                                                                          │
+│                                                                              │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│                                                                              │
+│  AUDIT LOGGING:                                                             │
+│  ──────────────                                                             │
+│                                                                              │
+│  All IP allowlist events logged:                                            │
+│  • Configuration changes (who, when, what changed)                         │
+│  • Blocked access attempts (IP, user if known, timestamp)                  │
+│  • Bypass usage (type, user, IP, timestamp)                                │
+│  • Rule matches (which rule matched for allowed access)                    │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 10.5 OAuth Scope Matrix
+
+Complete API scope definitions for OAuth and API key authorization.
+
+#### 10.5.1 Scope Definitions
+
+| Scope | Description | Endpoints |
+|-------|-------------|-----------|
+| **Products** | | |
+| `read:products` | View products and versions | `GET /products/*` |
+| `write:products` | Create, update, archive products | `POST/PUT/DELETE /products/*` |
+| `delete:products` | Permanently delete products | `DELETE /products/{id}/permanent` |
+| **Passports** | | |
+| `read:passports` | View issued passports | `GET /passports/*` |
+| `write:passports` | Issue and revoke passports | `POST /passports/*`, `POST /passports/{id}/revoke` |
+| **Credentials** | | |
+| `read:credentials` | View credentials and status | `GET /credentials/*` |
+| `write:credentials` | Issue credentials | `POST /credentials/*` |
+| `revoke:credentials` | Revoke credentials | `POST /credentials/{id}/revoke` |
+| **Attestations** | | |
+| `read:attestations` | View attestation requests and contributions | `GET /attestations/*` |
+| `write:attestations` | Create attestation requests | `POST /attestations/*` |
+| `approve:attestations` | Approve/reject contributions | `POST /attestations/{id}/approve` |
+| **Organization** | | |
+| `read:organization` | View organization settings | `GET /organization/*` |
+| `write:organization` | Update organization settings | `PUT /organization/*` |
+| `admin:organization` | Billing, security settings | `*/organization/billing/*`, `*/organization/security/*` |
+| **Users** | | |
+| `read:users` | View users in organization | `GET /users/*` |
+| `write:users` | Invite, update users | `POST/PUT /users/*` |
+| `admin:users` | Remove users, change roles | `DELETE /users/*`, `PUT /users/{id}/role` |
+| **Bulk Operations** | | |
+| `bulk:import` | Import products, credentials | `POST /import/*` |
+| `bulk:export` | Export organization data | `POST /export/*` |
+| **Webhooks** | | |
+| `read:webhooks` | View webhook configurations | `GET /webhooks/*` |
+| `write:webhooks` | Create, update, delete webhooks | `POST/PUT/DELETE /webhooks/*` |
+| **Audit** | | |
+| `read:audit` | View audit logs | `GET /audit/*` |
+
+#### 10.5.2 Scope Hierarchy
+
+Some scopes imply others:
+
+```
+admin:organization
+├── write:organization
+│   └── read:organization
+└── admin:users
+    └── write:users
+        └── read:users
+
+write:products
+└── read:products
+
+write:credentials
+├── read:credentials
+└── revoke:credentials
+
+bulk:export
+└── read:products
+└── read:passports
+└── read:credentials
+```
+
+#### 10.5.3 Minimum Scopes by Operation
+
+| Operation | Minimum Scopes Required |
+|-----------|------------------------|
+| View dashboard | `read:products` |
+| Create product | `write:products` |
+| Issue DPP | `write:passports`, `read:products` |
+| Bulk import | `bulk:import`, `write:products` |
+| Export all data | `bulk:export` |
+| Manage users | `admin:users` |
+| Configure webhooks | `write:webhooks` |
+| View audit trail | `read:audit` |
+
+#### 10.5.4 API Key Scope Templates
+
+Pre-defined scope bundles for common use cases:
+
+| Template | Scopes | Use Case |
+|----------|--------|----------|
+| **read-only** | `read:products`, `read:passports`, `read:credentials` | Monitoring, reporting |
+| **integration** | `read:products`, `write:products`, `read:passports`, `write:passports` | E-commerce sync |
+| **automation** | `bulk:import`, `bulk:export`, `write:products`, `write:passports` | CI/CD, batch jobs |
+| **full-access** | All scopes except `admin:*` | Full API access |
+| **admin** | All scopes | Administrative access |
+
+### 10.6 Rate Limiting
 
 | Authentication Type | Limit | Window |
 |---------------------|-------|--------|

@@ -109,10 +109,12 @@ See [DATA_SOVEREIGNTY.md](./DATA_SOVEREIGNTY.md) for detailed architecture and r
 │  EXAMPLE - Every VC we issue contains:                                      │
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
 │  │ "credentialStatus": {                                                │   │
-│  │   "statusListCredential": "https://api.eurocomply.eu/v1/status/..." │   │
+│  │   "statusListCredential": "https://status.yourcompany.com/v1/..."   │   │
 │  │ }                                                ▲                   │   │
 │  │                                                  │                   │   │
-│  │                            This URL is IMMUTABLE after issuance     │   │
+│  │                   Customer's own domain (recommended) - portable!   │   │
+│  │                   Or: api.eurocomply.eu (default) - requires exit   │   │
+│  │                        planning if leaving                          │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                              │
 │  IMPLICATIONS FOR EXPORTED VCs:                                             │
@@ -128,10 +130,13 @@ See [DATA_SOVEREIGNTY.md](./DATA_SOVEREIGNTY.md) for detailed architecture and r
 | Scenario | Signature Valid? | Revocation Checkable? | Can Issue New Revocations? |
 |----------|------------------|----------------------|---------------------------|
 | Active subscription | ✅ Yes | ✅ Yes | ✅ Yes |
+| **Customer domain + self-host** | ✅ Yes | ✅ Yes | ✅ Yes |
 | Compliance Archive (€99/yr) | ✅ Yes | ✅ Yes (frozen) | ❌ No |
 | Self-hosted status list | ✅ Yes | ✅ Yes | ✅ Yes |
 | Export without hosting | ✅ Yes | ❌ No (URL dead) | ❌ No |
 | EuroComply shuts down | ✅ Yes | ❌ No (unless migrated) | ❌ No |
+
+**Recommended:** Configure your own domain (e.g., `status.yourcompany.com`) from day 1. This gives you full portability—just point the CNAME elsewhere when leaving.
 
 ### Migration Options for Full Independence
 
@@ -160,6 +165,132 @@ See [DATA_SOVEREIGNTY.md](./DATA_SOVEREIGNTY.md) for detailed architecture and r
 ```
 
 See [Status List Migration Guide](#status-list-migration-guide) below for detailed instructions.
+
+---
+
+## Portable Status List (Customer-Owned Domain)
+
+> **Architecture Decision:** Customers can configure their own domain for status list URLs from day 1, eliminating URL lock-in entirely.
+
+### The Problem with Platform-Owned URLs
+
+When status list URLs use our domain (`api.eurocomply.eu`), customers face difficult choices when leaving:
+- **Option A:** Pay for Compliance Archive (€99/year minimum) indefinitely
+- **Option B:** Set up complex DNS redirects that depend on our cooperation
+- **Option C:** Lose revocation capability entirely
+
+This creates soft lock-in even though we use open standards.
+
+### The Solution: Customer Domain from Day 1
+
+Customers configure their own subdomain during onboarding:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    PORTABLE STATUS LIST ARCHITECTURE                         │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  SETUP (During Onboarding)                                                  │
+│  ─────────────────────────                                                  │
+│  Customer chooses: status.acme-corp.com                                     │
+│  Customer adds CNAME: status.acme-corp.com → status.eurocomply.eu           │
+│  We verify domain ownership (DNS TXT record)                                │
+│                                                                              │
+│  ISSUANCE (Every VC)                                                        │
+│  ────────────────────                                                       │
+│  Status List URL: https://status.acme-corp.com/v1/status/org_abc123         │
+│                   ▲ Customer's domain, not ours                             │
+│                                                                              │
+│  DURING SUBSCRIPTION                                                        │
+│  ───────────────────                                                        │
+│  Customer's CNAME → EuroComply servers                                      │
+│  We handle revocations, updates, SSL, etc.                                  │
+│                                                                              │
+│  AFTER LEAVING                                                              │
+│  ─────────────                                                              │
+│  Customer points CNAME → their own server OR new provider                   │
+│  No URL changes needed. No reprinting. Full independence.                   │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### How It Works
+
+**1. Domain Configuration**
+```typescript
+// During organization onboarding
+interface StatusListConfig {
+  // Customer provides their subdomain
+  customDomain?: string;  // e.g., "status.acme-corp.com"
+
+  // Or use our default (creates lock-in)
+  useEuroComplyDomain?: boolean;  // Default: false
+}
+```
+
+**2. DNS Verification**
+```
+Customer adds these DNS records:
+  CNAME  status.acme-corp.com     → status.eurocomply.eu
+  TXT    _eurocomply-verify       → org_abc123_verification_token
+```
+
+**3. VC Issuance with Customer Domain**
+```json
+{
+  "@context": [...],
+  "issuer": "did:key:z6MkOrg...",
+  "credentialSubject": {...},
+  "credentialStatus": {
+    "type": "StatusList2021Entry",
+    "statusPurpose": "revocation",
+    "statusListIndex": "42",
+    "statusListCredential": "https://status.acme-corp.com/v1/status/org_abc123"
+  }
+}
+```
+
+**4. Migration Path**
+
+| Phase | Customer Action | Status List URL |
+|-------|----------------|-----------------|
+| Active | CNAME → EuroComply | `https://status.acme-corp.com/...` ✅ |
+| Leaving | Export status list | Same URL |
+| Migrated | CNAME → own server | `https://status.acme-corp.com/...` ✅ |
+
+### Comparison: With vs Without Customer Domain
+
+| Scenario | EuroComply Domain | Customer Domain |
+|----------|-------------------|-----------------|
+| **URL in VCs** | `api.eurocomply.eu/...` | `status.customer.com/...` |
+| **Migration complexity** | High (DNS redirects or Compliance Archive) | Low (point CNAME elsewhere) |
+| **Reprinting required** | No (if using redirects) | No |
+| **Full independence** | Requires cooperation | Yes |
+| **Cost to leave** | €99/year minimum | Free |
+
+### Default Recommendation
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  RECOMMENDED: Configure your own domain from day 1                          │
+│                                                                              │
+│  Even if you never plan to leave EuroComply, using your own domain:         │
+│  • Looks more professional (status.yourbrand.com vs eurocomply.eu)          │
+│  • Gives you insurance against any future changes                           │
+│  • Takes 5 minutes to set up during onboarding                              │
+│  • Costs nothing extra                                                      │
+│                                                                              │
+│  Setup: Add a CNAME record pointing to status.eurocomply.eu                 │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Fallback: EuroComply Domain
+
+For customers who don't want to manage DNS:
+- Default to `api.eurocomply.eu/v1/status/{org_id}`
+- Compliance Archive available as exit path
+- Can configure custom domain later (but existing VCs won't change)
 
 ---
 
@@ -642,7 +773,7 @@ export/
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    OFFLINE VERIFICATION                          │
+│                    SIGNATURE VERIFICATION                        │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
 │  Given a VC file:                                               │
@@ -652,18 +783,20 @@ export/
 │    "proof": { "jws": "..." }                                    │
 │  }                                                               │
 │                                                                  │
-│  To verify:                                                     │
+│  To verify SIGNATURE (no network needed):                       │
 │  1. Parse did:key → Extract public key                          │
 │  2. Parse proof.jws → Extract signature                         │
 │  3. Verify signature using public key                           │
-│  4. Done! No network call needed.                               │
+│  4. Done! Proves data hasn't been tampered.                     │
 │                                                                  │
-│  This works:                                                    │
-│  ✓ Offline                                                      │
+│  Signature verification works:                                  │
+│  ✓ Without network                                              │
 │  ✓ Without contacting EuroComply                                │
 │  ✓ Without contacting the supplier                              │
 │  ✓ 10 years from now                                            │
 │  ✓ After EuroComply shuts down                                  │
+│                                                                  │
+│  ⚠️  Revocation status requires network access to status list   │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```

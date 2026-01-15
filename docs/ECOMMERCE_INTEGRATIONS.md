@@ -441,6 +441,267 @@ SHOPIFY_DEBUG=true
 
 ---
 
+## Shopify Integration Lifecycle
+
+This section covers the full lifecycle of a Shopify integration, including error recovery, token management, and cleanup procedures.
+
+### OAuth Token Management
+
+**Token Types:**
+- **Access Token**: Long-lived token for API access (does not expire for Shopify)
+- **Session Token**: Short-lived token for embedded app sessions (expires after 1 hour)
+
+**Token Storage:**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    TOKEN STORAGE & SECURITY                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  STORAGE:                                                                   │
+│  • Access tokens encrypted at rest (AES-256-GCM)                           │
+│  • Encryption key per tenant (derived from tenant secret)                  │
+│  • Token stored in shopify_connections table                               │
+│                                                                              │
+│  VALIDATION:                                                                │
+│  • Token validity checked on each API call                                 │
+│  • Invalid token triggers re-authorization flow                            │
+│  • User notified via email and dashboard                                   │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Token Invalidation Scenarios:**
+
+| Scenario | Detection | Response |
+|----------|-----------|----------|
+| User revokes app access | 401 response from Shopify | Mark connection as `DISCONNECTED`, notify user |
+| Store ownership transfer | `shop/update` webhook | Validate token, request re-auth if invalid |
+| App reinstalled after uninstall | New OAuth flow | Create new connection, preserve historical data |
+| Shopify platform issue | 5xx responses | Retry with backoff, alert if persistent |
+
+**Token Refresh Failure Handling:**
+
+```typescript
+interface TokenRefreshConfig {
+  maxRetries: 5;
+  initialDelayMs: 1000;      // 1 second
+  maxDelayMs: 300000;        // 5 minutes
+  backoffMultiplier: 2;
+
+  // After max retries exhausted
+  onFailure: {
+    markConnectionStatus: 'AUTH_REQUIRED';
+    notifyUser: true;
+    notificationChannels: ['email', 'dashboard'];
+    pauseSyncJobs: true;
+    retentionPeriod: '30 days';  // Before marking connection as abandoned
+  };
+}
+```
+
+**Retry Flow:**
+
+```
+Attempt 1 → Fail → Wait 1s
+Attempt 2 → Fail → Wait 2s
+Attempt 3 → Fail → Wait 4s
+Attempt 4 → Fail → Wait 8s
+Attempt 5 → Fail → Mark AUTH_REQUIRED, notify user
+
+User has 30 days to re-authorize before connection marked ABANDONED
+```
+
+### Store Uninstall Handling
+
+When a user uninstalls the EuroComply app from their Shopify store:
+
+**Webhook: `app/uninstalled`**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    UNINSTALL CLEANUP PROCEDURE                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  IMMEDIATE ACTIONS (within webhook handler):                                │
+│  ─────────────────────────────────────────────                              │
+│  1. Mark shopify_connection as UNINSTALLED                                 │
+│  2. Revoke and delete access token                                         │
+│  3. Cancel all pending sync jobs for this connection                       │
+│  4. Log uninstall event to audit trail                                     │
+│                                                                              │
+│  DATA RETENTION:                                                            │
+│  ───────────────                                                            │
+│  • Product data in EuroComply: RETAINED (belongs to organization)          │
+│  • Sync history: RETAINED (audit trail, 7 years)                           │
+│  • Connection metadata: RETAINED (for reinstall detection)                 │
+│  • Access tokens: DELETED IMMEDIATELY                                      │
+│  • Webhook subscriptions: AUTO-REMOVED by Shopify                          │
+│                                                                              │
+│  NOTIFICATION:                                                              │
+│  ────────────                                                               │
+│  • Email sent to organization admin                                        │
+│  • Dashboard notification                                                   │
+│  • Include: reason (if available), data retention policy, reinstall link   │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Data Retention Policy:**
+
+| Data Type | Retention | Rationale |
+|-----------|-----------|-----------|
+| Product data (Hub) | Permanent | Belongs to organization, not Shopify |
+| Issued DPPs | Permanent (10 years min) | ESPR compliance requirement |
+| Sync history | 7 years | Audit trail requirement |
+| Connection record | Permanent | Reinstall detection |
+| Access tokens | Deleted immediately | Security best practice |
+| Pending jobs | Cancelled | No longer valid |
+
+**Reinstall Detection:**
+
+When user reinstalls the app:
+1. OAuth flow completes with new access token
+2. System checks for existing connection record by `shop` domain
+3. If found: Link new connection to existing organization
+4. Product data preserved, sync resumes from where it left off
+5. User sees "Welcome back" flow instead of fresh onboarding
+
+### Rate Limit Handling (Leaky Bucket)
+
+Shopify uses a leaky bucket algorithm for rate limiting. Our sync worker implements compliant rate limit handling.
+
+**Shopify Rate Limits:**
+
+| API Type | Bucket Size | Leak Rate | Our Target |
+|----------|-------------|-----------|------------|
+| REST API | 40 requests | 2/second | 1.5/second (75% of limit) |
+| GraphQL | 1000 points | 50/second | 40/second (80% of limit) |
+
+**Implementation:**
+
+```typescript
+interface RateLimitConfig {
+  // Target below limit to avoid 429s
+  restApi: {
+    requestsPerSecond: 1.5;    // Target (limit is 2)
+    burstLimit: 30;             // Target (limit is 40)
+  };
+  graphql: {
+    pointsPerSecond: 40;        // Target (limit is 50)
+    maxQueryCost: 500;          // Half of bucket to allow recovery
+  };
+
+  // Backoff on 429
+  onRateLimitHit: {
+    strategy: 'RESPECT_RETRY_AFTER';
+    fallbackDelayMs: 2000;
+    maxBackoffMs: 60000;
+    alertThreshold: 5;          // Alert if 5+ rate limits in 1 hour
+  };
+}
+```
+
+**Rate Limit Response Handling:**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    RATE LIMIT HANDLING FLOW                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ON 429 RESPONSE:                                                           │
+│  ────────────────                                                           │
+│  1. Parse Retry-After header (seconds to wait)                             │
+│  2. If no header: use fallback (2 seconds)                                 │
+│  3. Pause BullMQ worker for duration                                       │
+│  4. Log rate limit event                                                   │
+│  5. Resume processing after wait                                           │
+│                                                                              │
+│  ADAPTIVE THROTTLING:                                                       │
+│  ────────────────────                                                       │
+│  • Track rate limit hits per hour                                          │
+│  • If > 3 hits/hour: reduce target rate by 20%                            │
+│  • If 0 hits for 1 hour: gradually increase rate (max: configured target) │
+│                                                                              │
+│  MONITORING:                                                                │
+│  ───────────                                                                │
+│  • Dashboard shows current rate limit utilization                          │
+│  • Alert if consistently hitting limits                                    │
+│  • Metric: shopify_rate_limit_hits_total                                  │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Inventory Sync Conflict Resolution
+
+Inventory data has specific conflict resolution rules because it represents physical stock quantities.
+
+**Inventory Data Flow:**
+
+```
+Shopify Inventory ←→ Operations Workspace (Batch Management)
+                        │
+                        ▼
+                    Not synced to Hub directly
+                    (Inventory is Shopify-authoritative)
+```
+
+**Conflict Resolution Strategy:**
+
+| Data Type | Authority | Rationale |
+|-----------|-----------|-----------|
+| Stock quantities | Shopify | Shopify is the sales system of record |
+| Location mappings | Shopify | Shopify manages fulfillment locations |
+| Inventory policies | Shopify | Continue selling, track quantity, etc. |
+| Batch/lot numbers | EuroComply | Compliance tracking requires our data |
+| Serial numbers | EuroComply | DPP issuance requires our data |
+
+**Conflict Scenarios:**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    INVENTORY CONFLICT RESOLUTION                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  SCENARIO 1: Quantity Mismatch                                             │
+│  ─────────────────────────────────                                          │
+│  Shopify: 50 units    EuroComply Batch: 55 units                           │
+│                                                                              │
+│  Resolution: Shopify wins for sellable quantity                            │
+│  Action: Log discrepancy for inventory audit                               │
+│  Alert: If discrepancy > 10%, notify operations team                       │
+│                                                                              │
+│  SCENARIO 2: Batch Tracking Conflict                                        │
+│  ─────────────────────────────────────                                      │
+│  Order ships from Shopify without batch assignment                         │
+│                                                                              │
+│  Resolution: EuroComply assigns batch based on FIFO                        │
+│  Action: Auto-assign oldest batch with available quantity                  │
+│  Alert: If no batch available, flag for manual assignment                  │
+│                                                                              │
+│  SCENARIO 3: Serial Number Mismatch                                         │
+│  ─────────────────────────────────────                                      │
+│  Shopify fulfillment has serial not in EuroComply                          │
+│                                                                              │
+│  Resolution: Block DPP issuance for that serial                            │
+│  Action: Create pending serial record, request verification                │
+│  Alert: Notify operations team immediately                                 │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Inventory Discrepancy Alerts:**
+
+| Discrepancy | Threshold | Alert Level | Action |
+|-------------|-----------|-------------|--------|
+| Quantity mismatch | > 5% | Warning | Dashboard notification |
+| Quantity mismatch | > 10% | Error | Email + dashboard |
+| Missing batch | Any | Warning | Auto-assign FIFO |
+| Unknown serial | Any | Error | Block DPP, notify team |
+| Negative inventory | Any | Critical | Immediate alert, pause sync |
+
+---
+
 ## Shopify Retailer App (Free)
 
 The Shopify Retailer App enables retailers to display DPPs for products they sell from brands using EuroComply. This app is provided free of charge in compliance with ESPR Article 31, which mandates free DPP access for all economic operators.

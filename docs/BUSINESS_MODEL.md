@@ -413,16 +413,18 @@ The per-DPP model creates a significant shift in revenue composition:
 
 ### Customer Tier Distribution (Year 5)
 
-| Tier | Customers | % of Base | Base MRR | DPP MRR | Total MRR |
-|------|-----------|-----------|----------|---------|-----------|
-| Starter | 1,800 | 30% | €142K | €36K | €178K |
-| Growth | 2,400 | 40% | €478K | €240K | €718K |
-| Scale | 1,200 | 20% | €719K | €1.2M | €1.9M |
-| Enterprise | 540 | 9% | €809K | €4.3M | €5.1M |
-| Platform | 60 | 1% | €300K | €2.3M | €2.6M |
-| **Total** | **6,000** | **100%** | **€2.45M** | **€8.08M** | **€10.5M** |
+| Tier | Customers | % | Avg Base Fee | Base MRR | DPP MRR | Total MRR |
+|------|-----------|---|--------------|----------|---------|-----------|
+| Starter | 1,800 | 30% | €79 | €142K | €36K | €178K |
+| Growth | 2,400 | 40% | €199 | €478K | €240K | €718K |
+| Scale | 1,200 | 20% | €599 | €719K | €1.2M | €1.9M |
+| Enterprise | 540 | 9% | €1,499 | €809K | €4.3M | €5.1M |
+| Platform | 60 | 1% | €24,200 | €1,452K | €2.3M | €3.8M |
+| **Total** | **6,000** | **100%** | | **€3.6M** | **€8.0M** | **€11.6M** |
 
-*Monthly figures. Annual × 12 = €126M (excluding services)*
+*Monthly figures. Annual: Base €43.2M + DPP €96M + Services €5M = €144.2M*
+
+**Note:** Platform tier includes large enterprise customers (automotive OEMs, multinational manufacturers) with custom contracts averaging €24K/month base + high DPP volumes.
 
 ---
 
@@ -448,22 +450,26 @@ The per-DPP model creates a significant shift in revenue composition:
 │  10-YEAR STORAGE:                                               │
 │  ├── Product template (R2, shared): €0.00003/item amortized     │
 │  │   (30KB template ÷ avg 1,000 items per product)              │
-│  ├── Item record (DynamoDB): €0.0006 over 10 years              │
-│  │   (500 bytes × $0.125/GB/month × 120 months)                 │
-│  └── Subtotal: ~€0.0006/item                                    │
+│  ├── Item record (DynamoDB): €0.00002/item over 10 years        │
+│  │   (500 bytes ÷ 1GB × $0.25/GB/month × 120 months)            │
+│  ├── DynamoDB write: €0.000001/item                             │
+│  └── Subtotal: ~€0.00005/item                                   │
 │                                                                  │
 │  SERVING (Cloudflare):                                          │
 │  ├── CDN bandwidth: €0 (R2 has zero egress)                     │
-│  ├── Worker invocations: ~€0.0001/scan                          │
+│  ├── Worker invocations: ~€0.0001/scan (amortized)              │
 │  ├── Template cached at edge (30-day TTL)                       │
-│  └── Subtotal: ~€0 (amortized)                                  │
+│  └── Subtotal: ~€0 (amortized over many scans)                  │
 │                                                                  │
-│  TOTAL COST PER DPP: ~€0.001 (all content included)             │
+│  SUBTOTAL PER DPP: ~€0.00015                                    │
+│  WITH BUFFER (2x): ~€0.0003                                     │
+│  USED FOR PRICING: €0.001 (conservative, maintains margins)     │
 │                                                                  │
 │  10-YEAR PROJECTION (10B DPPs):                                 │
-│  ├── Naive approach: 10B × 30KB = 300TB = ~€54M                 │
-│  ├── Deduplicated: 100K templates + 10B records = ~€600K        │
-│  └── SAVINGS: 99% ($53.4M saved)                                │
+│  ├── Naive approach: 10B × 30KB files = 300TB = ~€54M           │
+│  ├── Deduplicated (actual): 10B × €0.0003 = ~€3M                │
+│  ├── Deduplicated (pricing): 10B × €0.001 = ~€10M               │
+│  └── SAVINGS vs naive: 82-94%                                   │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -482,18 +488,85 @@ The per-DPP model creates a significant shift in revenue composition:
 
 ### Overall Unit Economics
 
-| Metric | Value |
-|--------|-------|
-| Average Revenue Per User (ARPU) | €970/month |
-| Base Fee ARPU | €300/month |
-| DPP ARPU | €670/month |
-| Customer Acquisition Cost (CAC) | €1,200 |
-| Lifetime Value (LTV) | €34,920 (36 months) |
-| LTV:CAC Ratio | 29x |
-| Gross Margin (Base) | 95% |
-| Gross Margin (DPP) | 90% average |
-| Blended Gross Margin | 92% |
-| Monthly Churn | 1.5% |
+| Metric | Value | Benchmark Context |
+|--------|-------|-------------------|
+| Average Revenue Per User (ARPU) | €970/month | - |
+| Base Fee ARPU | €300/month | - |
+| DPP ARPU | €670/month | - |
+| Customer Acquisition Cost (CAC) | €1,200 | Industry average for B2B SaaS |
+| Lifetime Value (LTV) | €34,920 (36 months) | - |
+| LTV:CAC Ratio | 29x | Top-tier (benchmark: 3-5x) |
+| Gross Margin (Base) | 95% | - |
+| Gross Margin (DPP) | 90% average | - |
+| Blended Gross Margin | 92% | - |
+| Monthly Churn | 1.5% | Optimistic (see analysis below) |
+
+### CAC and Churn Assumptions - Industry Benchmarks
+
+> **Context**: These assumptions are based on 2025 B2B SaaS industry benchmarks. Actual values will vary based on go-to-market strategy and market conditions.
+
+#### Customer Acquisition Cost (CAC) = €1,200
+
+**Industry Benchmarks (2025):**
+- SMB-focused B2B SaaS: $200-$300
+- Mid-market B2B SaaS: $300-$5,000
+- B2B SaaS industry average: **$1,200** (our assumption)
+- Regulated/compliance industries: $400-$4,000 (trust-building premium)
+
+**Why €1,200 is reasonable for EuroComply:**
+- ESPR compliance is regulatory-driven (less "nice-to-have" objections)
+- Concentrated buyer persona (sustainability/compliance teams)
+- Inbound-heavy via content marketing (SEO on ESPR, DPP)
+- Shopify app marketplace provides low-CAC acquisition channel
+
+**Sensitivity Analysis:**
+
+| CAC Scenario | CAC | LTV:CAC | CAC Payback |
+|--------------|-----|---------|-------------|
+| Optimistic | €800 | 44x | 0.8 months |
+| **Base Case** | **€1,200** | **29x** | **1.2 months** |
+| Conservative | €2,000 | 17x | 2.1 months |
+| Pessimistic | €3,000 | 12x | 3.1 months |
+
+*All scenarios remain healthy (LTV:CAC > 3x is "good")*
+
+#### Monthly Churn = 1.5% (18% Annual)
+
+**Industry Benchmarks (2025):**
+- SMB-focused SaaS: 3-5% monthly (31-58% annual)
+- Mid-market SaaS: 1.5-3% monthly (~20-30% annual)
+- Enterprise SaaS: 1-2% monthly (3.8-5% annual)
+- Best-in-class: <1% monthly (<5% annual)
+
+**Why 1.5%/month may be achievable for EuroComply:**
+- **Regulatory lock-in**: ESPR compliance is mandatory by 2027, not discretionary
+- **Data gravity**: 10-year product lifetime creates switching costs
+- **Issued credentials**: Status list URLs create soft lock-in
+- **Contract structures**: Annual contracts (reduces monthly churn)
+
+**Why 1.5%/month may be optimistic:**
+- SMB customers typically churn 3-5% monthly
+- Early-stage products see higher churn
+- €79-199/month tiers have lower switching costs
+
+**Sensitivity Analysis:**
+
+| Churn Scenario | Monthly | Annual | LTV (36mo base) | LTV:CAC |
+|----------------|---------|--------|-----------------|---------|
+| Best Case | 1.0% | 11% | €52,380 | 44x |
+| **Base Case** | **1.5%** | **17%** | **€34,920** | **29x** |
+| Market Average | 2.5% | 26% | €20,952 | 17x |
+| SMB Average | 4.0% | 39% | €13,095 | 11x |
+
+*Even at 4% monthly churn (SMB average), unit economics remain healthy.*
+
+**Key Insight**: Our 1.5% assumption sits between mid-market (1.5-3%) and enterprise (1-2%) benchmarks. This assumes regulatory stickiness from ESPR drives better-than-SMB-average retention.
+
+**Data Sources:**
+- [2025 B2B SaaS Benchmarks - Pavilion](https://www.joinpavilion.com/resource/b2b-saas-performance-benchmarks)
+- [B2B SaaS CAC Report - First Page Sage](https://firstpagesage.com/reports/b2b-saas-customer-acquisition-cost-2024-report/)
+- [SaaS Churn Rate Benchmarks 2025 - Vitally](https://www.vitally.io/post/saas-churn-benchmarks)
+- [2025 B2B SaaS Startup Benchmarks - Lighter Capital](https://www.lightercapital.com/blog/2025-b2b-saas-startup-benchmarks)
 
 ### Year 5 Operating Model
 
@@ -629,17 +702,21 @@ ESPR requires DPP data to be accessible for 10+ years. With deduplicated storage
 
 | Component | Per Product Type | Per Item | Notes |
 |-----------|------------------|----------|-------|
-| Template (R2) | ~30KB ($0.005/10yr) | Shared | Images, materials, descriptions |
-| Item record (DynamoDB) | - | 500 bytes ($0.0006/10yr) | Serial, batch, status |
-| **Amortized per item** | | **~$0.001** | (1,000 items/product avg) |
+| Template (R2) | ~30KB ($0.005/10yr) | $0.00003 amortized | Shared across ~1,000 items |
+| Item record (DynamoDB) | - | $0.00002/10yr | 500 bytes storage |
+| DynamoDB write | - | $0.000001 | One-time write cost |
+| Generation compute | - | $0.0001 | Lambda + QR code |
+| **Total per item** | | **~$0.0003** | Actual cost |
+| **Pricing buffer** | | **$0.001** | Used for margin calculations |
 | **Scans** | | **FREE** | R2 egress is free |
 
 **10-Year Projection:**
-| Approach | 10B Items | Cost |
-|----------|-----------|------|
-| Naive (pre-generated files) | 300TB | ~$54M |
-| **Deduplicated** | ~5TB | **~$600K** |
-| **Savings** | 98% | **$53.4M** |
+| Approach | 10B Items | Cost | Notes |
+|----------|-----------|------|-------|
+| Naive (pre-generated files) | 300TB | ~$54M | Each item = 30KB file |
+| **Deduplicated (actual)** | ~5TB | **~$3M** | Templates shared |
+| **Deduplicated (for pricing)** | - | **~$10M** | Conservative buffer |
+| **Savings vs naive** | | **82-94%** | |
 
 Key advantages:
 - R2 has zero egress fees, so unlimited scans cost nothing

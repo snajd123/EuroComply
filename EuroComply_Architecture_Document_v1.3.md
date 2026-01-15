@@ -341,6 +341,208 @@ interface CachedRouting {
 }
 ```
 
+### 3.7 Configuration Database Resilience
+
+The configuration database (routing tables in DynamoDB + cell metadata in PostgreSQL) is critical infrastructure. If unavailable, tenant routing fails and the entire platform is inaccessible.
+
+#### High Availability Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    CONFIGURATION DATABASE HA                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  GLOBAL ROUTING (DynamoDB Global Tables)                                    │
+│  ───────────────────────────────────────                                    │
+│                                                                              │
+│  ┌─────────────────────┐         ┌─────────────────────┐                   │
+│  │  eu-central-1       │◄───────►│  eu-west-1          │                   │
+│  │  (Primary)          │  sync   │  (Secondary)        │                   │
+│  │                     │  <1s    │                     │                   │
+│  │  eurocomply-routing │         │  eurocomply-routing │                   │
+│  └─────────────────────┘         └─────────────────────┘                   │
+│           │                               │                                  │
+│           │                               │                                  │
+│       Route 53 latency-based routing                                        │
+│           │                               │                                  │
+│           ▼                               ▼                                  │
+│  ┌─────────────────────┐         ┌─────────────────────┐                   │
+│  │  API Servers        │         │  API Servers        │                   │
+│  │  (eu-central-1)     │         │  (eu-west-1)        │                   │
+│  └─────────────────────┘         └─────────────────────┘                   │
+│                                                                              │
+│  Benefits:                                                                  │
+│  • Active-active in both regions                                           │
+│  • Automatic failover via Route 53                                         │
+│  • < 1 second replication lag                                              │
+│  • 99.999% availability SLA                                                │
+│                                                                              │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│                                                                              │
+│  CELL CONFIGURATION (Aurora Global Database)                                │
+│  ───────────────────────────────────────────                                │
+│                                                                              │
+│  Each cell's config schema uses Aurora with read replica in DR region:     │
+│                                                                              │
+│  ┌─────────────────────┐         ┌─────────────────────┐                   │
+│  │  eu-central-1       │────────►│  eu-west-1          │                   │
+│  │  Aurora Primary     │  async  │  Aurora Replica     │                   │
+│  │  (read/write)       │  <1s    │  (read-only)        │                   │
+│  │                     │         │                     │                   │
+│  │  schema_config      │         │  schema_config      │                   │
+│  └─────────────────────┘         └─────────────────────┘                   │
+│                                          │                                  │
+│                              On failover: promoted to read/write            │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### RTO/RPO Targets
+
+| Component | RPO | RTO | Mechanism |
+|-----------|-----|-----|-----------|
+| DynamoDB Global Tables | < 1 second | < 1 minute | Active-active replication |
+| Aurora Cell Config | < 1 second | < 1 minute | Global Database failover |
+| Redis Routing Cache | N/A (cache) | < 5 seconds | Auto-rebuild from source |
+
+#### Automated Failover Triggers
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    FAILOVER TRIGGERS                                         │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  DYNAMODB (Automatic via Global Tables)                                     │
+│  ──────────────────────────────────────                                     │
+│  • Region unavailable: Traffic routes to secondary region automatically    │
+│  • No manual intervention required                                          │
+│  • Route 53 health checks detect failure in < 30 seconds                   │
+│                                                                              │
+│  AURORA (Automated Failover)                                                │
+│  ──────────────────────────                                                 │
+│  Trigger conditions (any one):                                              │
+│  • Primary instance unavailable > 30 seconds                               │
+│  • Replication lag > 10 seconds sustained for 1 minute                     │
+│  • Storage subsystem failure detected                                       │
+│  • Manual trigger via AWS Console or CLI                                    │
+│                                                                              │
+│  Failover sequence:                                                         │
+│  1. Aurora detects failure (< 30 seconds)                                  │
+│  2. Promotes read replica to primary (< 30 seconds)                        │
+│  3. Updates DNS endpoint (< 10 seconds)                                    │
+│  4. Applications reconnect automatically                                    │
+│  Total RTO: < 1 minute                                                      │
+│                                                                              │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│                                                                              │
+│  MANUAL FAILOVER (Operations Console)                                       │
+│  ────────────────────────────────────                                       │
+│  Use cases:                                                                 │
+│  • Planned maintenance in primary region                                   │
+│  • Performance degradation detected                                         │
+│  • Security incident requiring region isolation                             │
+│                                                                              │
+│  Command:                                                                   │
+│  aws rds failover-global-cluster \                                         │
+│    --global-cluster-identifier eurocomply-global \                         │
+│    --target-db-cluster-identifier eurocomply-cell-1-eu-west-1              │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Failover Procedure
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    FAILOVER RUNBOOK                                          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  AUTOMATIC FAILOVER (No Action Required)                                    │
+│  ───────────────────────────────────────                                    │
+│  1. CloudWatch alarm triggers PagerDuty notification                        │
+│  2. Aurora/DynamoDB performs automatic failover                             │
+│  3. On-call engineer monitors progress                                      │
+│  4. Verify services recovered via health check dashboard                    │
+│  5. Document incident in post-mortem                                        │
+│                                                                              │
+│  MANUAL FAILOVER (Planned Maintenance)                                      │
+│  ─────────────────────────────────────                                      │
+│  1. Announce maintenance window (24h notice for non-emergency)              │
+│  2. Verify DR region is healthy and in-sync                                 │
+│  3. Drain connections from primary (set maintenance mode)                   │
+│  4. Execute failover command                                                │
+│  5. Verify secondary promoted successfully                                  │
+│  6. Run integration test suite against new primary                          │
+│  7. Clear maintenance mode                                                  │
+│  8. Monitor for 30 minutes post-failover                                    │
+│                                                                              │
+│  POST-FAILOVER VALIDATION CHECKLIST                                         │
+│  ──────────────────────────────────                                         │
+│  □ All API health checks passing                                            │
+│  □ Tenant routing resolves correctly (sample 10 tenants)                   │
+│  □ New tenant signup works                                                  │
+│  □ DPP issuance works (test credential)                                    │
+│  □ Dashboard login works                                                    │
+│  □ Replication from new primary to new secondary established               │
+│  □ Alerting updated for new topology                                        │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Cell Provisioning Prerequisites
+
+Before provisioning a new cell, the configuration database must be healthy:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    CELL PROVISIONING HEALTH CHECK                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  PRE-PROVISIONING CHECKS (Automated)                                        │
+│  ───────────────────────────────────                                        │
+│                                                                              │
+│  □ DynamoDB Global Tables healthy                                           │
+│    └── Check: aws dynamodb describe-table shows ACTIVE in both regions     │
+│                                                                              │
+│  □ Aurora Global Database healthy                                           │
+│    └── Check: aws rds describe-global-clusters shows all members AVAILABLE │
+│                                                                              │
+│  □ Replication lag < 1 second                                               │
+│    └── Check: CloudWatch AuroraGlobalDBReplicationLag metric                │
+│                                                                              │
+│  □ No active failovers in progress                                          │
+│    └── Check: aws rds describe-events --source-type db-cluster             │
+│                                                                              │
+│  □ Primary region not in maintenance window                                 │
+│    └── Check: internal maintenance calendar API                            │
+│                                                                              │
+│  PROVISIONING BLOCKED IF:                                                   │
+│  ────────────────────────                                                   │
+│  • Any health check fails                                                   │
+│  • Replication lag > 5 seconds                                              │
+│  • Active incident affecting config database                                │
+│  • Primary region capacity > 90%                                            │
+│                                                                              │
+│  OVERRIDE (Emergency Only):                                                 │
+│  ─────────────────────────                                                  │
+│  Platform lead can override with documented justification:                  │
+│  terraform apply -var="skip_config_health_check=true" \                    │
+│                  -var="override_reason=INCIDENT-123"                       │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Monitoring and Alerting
+
+| Metric | Warning | Critical | Action |
+|--------|---------|----------|--------|
+| DynamoDB read latency | > 10ms | > 50ms | Check region health |
+| DynamoDB write latency | > 20ms | > 100ms | Check replication |
+| Aurora replication lag | > 1s | > 5s | Investigate, prepare failover |
+| Aurora connections | > 80% max | > 95% max | Scale or provision new cell |
+| Config DB error rate | > 0.1% | > 1% | Page on-call |
+| Routing cache miss rate | > 10% | > 30% | Check Redis health |
+
 ---
 
 ## 4. Security Architecture
@@ -624,6 +826,124 @@ Access Patterns:
                 │ Database │                                        │  Worker  │
                 │  Write   │                                        │ Service  │
                 └──────────┘                                        └──────────┘
+```
+
+#### 6.2.1 Workspace Hub Synchronization
+
+Each product exists across four workspaces (Design, Operations, Marketing, Compliance), with the Hub as the central source of truth. Workspaces synchronize via an event bus with eventual consistency.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    WORKSPACE HUB SYNCHRONIZATION                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│   ┌─────────┐          ┌─────────────────┐          ┌─────────┐            │
+│   │ DESIGN  │ ────────▶│                 │◀──────── │  OPS    │            │
+│   │Workspace│          │                 │          │Workspace│            │
+│   └─────────┘          │    PRODUCT      │          └─────────┘            │
+│        │               │      HUB        │               │                 │
+│        │               │  (Source of     │               │                 │
+│        │               │    Truth)       │               │                 │
+│   ┌─────────┐          │                 │          ┌─────────┐            │
+│   │MARKETING│ ────────▶│                 │◀──────── │COMPLIANCE│           │
+│   │Workspace│          │                 │          │Workspace│            │
+│   └─────────┘          └─────────────────┘          └─────────┘            │
+│                               │                                            │
+│                               ▼                                            │
+│                    ┌─────────────────────┐                                 │
+│                    │   PUBLISHED DPP     │                                 │
+│                    │  (Immutable VC)     │                                 │
+│                    └─────────────────────┘                                 │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Synchronization Architecture:**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    EVENT BUS SYNC FLOW                                       │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Workspace Change                                                           │
+│       │                                                                     │
+│       ▼                                                                     │
+│  ┌─────────────┐     ┌─────────────┐     ┌─────────────┐                   │
+│  │  Business   │────▶│   Outbox    │────▶│   SQS/SNS   │                   │
+│  │   Logic     │     │   Table     │     │  Event Bus  │                   │
+│  └─────────────┘     └─────────────┘     └─────────────┘                   │
+│       │                                         │                          │
+│       │ Same Transaction                        │                          │
+│       ▼                                         ▼                          │
+│  ┌─────────────┐                          ┌─────────────┐                  │
+│  │  Workspace  │                          │  Hub Sync   │                  │
+│  │  Database   │                          │   Worker    │                  │
+│  └─────────────┘                          └─────────────┘                  │
+│                                                 │                          │
+│                                                 ▼                          │
+│                                           ┌─────────────┐                  │
+│                                           │  Hub Update │                  │
+│                                           │ + Fan-out   │                  │
+│                                           └─────────────┘                  │
+│                                                 │                          │
+│                          ┌──────────────────────┼──────────────────────┐   │
+│                          ▼                      ▼                      ▼   │
+│                    ┌──────────┐           ┌──────────┐           ┌──────────┐
+│                    │ Design   │           │  Ops     │           │Marketing │
+│                    │ Listener │           │ Listener │           │ Listener │
+│                    └──────────┘           └──────────┘           └──────────┘
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Consistency Model: Eventual**
+
+| Property | Guarantee |
+|----------|-----------|
+| Sync latency | < 5 seconds typical, < 30 seconds P99 |
+| Ordering | Per-product ordering via partition key |
+| Durability | At-least-once delivery with idempotent handlers |
+| Conflict handling | N/A - checkout system prevents concurrent edits |
+
+**Event Types:**
+
+```typescript
+type WorkspaceSyncEvent =
+  | { type: 'product.field.updated'; productId: string; workspace: Workspace; field: string; version: number }
+  | { type: 'product.version.checked_in'; productId: string; version: number; checkedInBy: string }
+  | { type: 'product.version.checked_out'; productId: string; version: number; checkedOutBy: string }
+  | { type: 'dpp.submitted_for_approval'; productId: string; versionId: string }
+  | { type: 'dpp.approved'; productId: string; credentialId: string }
+  | { type: 'dpp.rejected'; productId: string; reason: string };
+
+interface SyncEvent {
+  eventId: string;           // Idempotency key
+  timestamp: string;         // ISO 8601
+  productId: string;         // Partition key for ordering
+  sourceWorkspace: Workspace;
+  payload: WorkspaceSyncEvent;
+}
+```
+
+**Failure Recovery:**
+
+| Failure Mode | Recovery Action |
+|--------------|-----------------|
+| Sync worker crash | SQS visibility timeout → automatic retry |
+| Poison message | Move to DLQ after 3 retries, alert ops team |
+| Hub temporarily unavailable | Exponential backoff, messages queue in SQS |
+| Workspace DB write failure | Retry with idempotent handler, log to audit |
+
+**Dead Letter Queue Handling:**
+
+```
+DLQ Runbook:
+1. Alert triggered: "workspace-sync-dlq messages > 0"
+2. Inspect failed messages: aws sqs receive-message --queue-url $DLQ_URL
+3. Identify failure pattern (schema mismatch, permission, timeout)
+4. Fix root cause
+5. Replay messages: ./ops-cli sync replay-dlq --queue workspace-sync-dlq
+6. Monitor for successful processing
 ```
 
 ### 6.3 API Structure
@@ -1433,8 +1753,96 @@ Note: The t4g.nano NAT instance works fine for Starter/Growth/Scale/Enterprise t
 | 100 | 25 Starter, 50 Growth, 20 Scale, 5 Ent | €360/mo | €25,895/mo | €25,000/mo | €50,895/mo | 99% |
 | 200 | 40 Starter, 100 Growth, 45 Scale, 14 Ent, 1 Platform | €520/mo | €71,256/mo | €100,000/mo | €171,256/mo | 99.7% |
 | 500 | 75 Starter, 250 Growth, 130 Scale, 42 Ent, 3 Platform | €1,200/mo | €210,533/mo | €500,000/mo | €710,533/mo | 99.8% |
+| 1,000 | 150 S, 500 G, 260 Sc, 84 E, 6 P | €2,500/mo | €420K/mo | €1.5M/mo | €1.9M/mo | 99.9% |
+| 2,000 | 300 S, 1,000 G, 520 Sc, 168 E, 12 P | €5,500/mo | €840K/mo | €4M/mo | €4.8M/mo | 99.9% |
+| 4,000 | 600 S, 2,000 G, 1,040 Sc, 336 E, 24 P | €12,000/mo | €1.7M/mo | €6M/mo | €7.7M/mo | 99.8% |
+| 6,000 | 900 S, 3,000 G, 1,560 Sc, 504 E, 36 P | €20,000/mo | €2.5M/mo | €8M/mo | €10.5M/mo | 99.8% |
 
 *DPP revenue estimates assume growing item-level DPP adoption in batteries, electronics, and industrial sectors.*
+
+### 9.3.1 Year 3-5 Scaling Milestones (1,000-6,000 Customers)
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    YEAR 3-5 INFRASTRUCTURE SCALING                           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  500        1,000       2,000       4,000       6,000                       │
+│   │           │           │           │           │                         │
+│   ▼           ▼           ▼           ▼           ▼                         │
+│ ┌───┐      ┌───┐      ┌───┐      ┌───┐      ┌───┐                          │
+│ │ 3 │      │ 6 │      │12 │      │24 │      │36 │  Growth Cells            │
+│ └───┘      └───┘      └───┘      └───┘      └───┘  (Starter + Growth)      │
+│                                                                              │
+│ ┌───┐      ┌───┐      ┌───┐      ┌───┐      ┌───┐                          │
+│ │ 1 │      │ 3 │      │ 5 │      │10 │      │16 │  Scale Cells             │
+│ └───┘      └───┘      └───┘      └───┘      └───┘  (~100 tenants/cell)     │
+│                                                                              │
+│ ┌───┐      ┌───┐      ┌───┐      ┌───┐      ┌───┐                          │
+│ │ 5 │      │10 │      │20 │      │40 │      │60 │  Enterprise DBs          │
+│ └───┘      └───┘      └───┘      └───┘      └───┘  (dedicated instances)   │
+│                                                                              │
+│ €1.2K     €2.5K      €5.5K      €12K       €20K   Monthly Infra Cost       │
+│                                                                              │
+│  MULTI-REGION: Required at 2,000+ customers for reliability                 │
+│  Adds ~€300-500/mo per region                                               │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Milestone 7: 1,000 Customers (Year 2-3)
+
+**Trigger:** 1,000 active customers across all tiers
+**Actions:**
+- Scale to 6 Growth cells (Starter + Growth tiers)
+- Add 2 Scale cells (100 tenants per cell)
+- ~10 Enterprise dedicated instances
+- Consider secondary AWS region (EU-WEST)
+
+**Infrastructure Cost:** ~€2,500/month
+**Operational:** Add second engineer for on-call rotation
+
+#### Milestone 8: 2,000 Customers (Year 3)
+
+**Trigger:** 2,000 active customers
+**Actions:**
+- Scale to 12 Growth cells
+- Scale to 5 Scale cells
+- ~20 Enterprise dedicated instances
+- **Deploy secondary region** (EU-WEST-1)
+- Add read replicas for hot cells
+
+**Infrastructure Cost:** ~€5,500/month
+**Operational:** Implement follow-the-sun support
+
+#### Milestone 9: 4,000 Customers (Year 4)
+
+**Trigger:** 4,000 active customers
+**Actions:**
+- 24 Growth cells (automated provisioning)
+- 10 Scale cells
+- ~40 Enterprise instances
+- Consider third region (US-EAST for CBAM partners)
+- Global load balancing
+
+**Infrastructure Cost:** ~€12,000/month
+**Operational:** SRE team of 3+
+
+#### Milestone 10: 6,000 Customers (Year 5)
+
+**Trigger:** 6,000 active customers (Year 5 projection)
+**Actions:**
+- 36 Growth cells
+- 16 Scale cells
+- 60 Enterprise instances
+- 36 Platform deployments (dedicated infrastructure)
+- Full multi-region with automatic failover
+
+**Infrastructure Cost:** ~€20,000/month
+**Total Infrastructure at Scale:** ~€240K/year
+
+**Revenue at 6,000 customers:** ~€126M ARR (Base + DPP)
+**Infrastructure as % of revenue:** <0.2%
 
 ### 9.4 Infrastructure Baseline
 

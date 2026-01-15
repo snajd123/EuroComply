@@ -568,6 +568,809 @@ aws sqs send-message \
 
 ---
 
+## Multi-Cell Operations
+
+This section covers operational procedures for managing multiple database cells at scale.
+
+### Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    MULTI-CELL ARCHITECTURE                                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  CELL TOPOLOGY:                                                             │
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                    CONFIGURATION DATABASE                            │   │
+│  │                    (Aurora Global - Single Instance)                 │   │
+│  │                                                                      │   │
+│  │  • Tenant → Cell mapping                                            │   │
+│  │  • Cell health status                                               │   │
+│  │  • Global configuration                                             │   │
+│  └───────────────────────────┬─────────────────────────────────────────┘   │
+│                              │                                              │
+│            ┌─────────────────┼─────────────────┐                           │
+│            │                 │                 │                           │
+│            ▼                 ▼                 ▼                           │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                     │
+│  │   CELL-01    │  │   CELL-02    │  │   CELL-03    │                     │
+│  │ (eu-west-1)  │  │ (eu-west-1)  │  │ (eu-central) │                     │
+│  │              │  │              │  │              │                     │
+│  │ ~200 tenants │  │ ~200 tenants │  │ ~150 tenants │                     │
+│  │ PostgreSQL   │  │ PostgreSQL   │  │ PostgreSQL   │                     │
+│  │ Redis        │  │ Redis        │  │ Redis        │                     │
+│  └──────────────┘  └──────────────┘  └──────────────┘                     │
+│                                                                              │
+│  CAPACITY PER CELL: ~200 tenants (varies by tenant size)                   │
+│  MAX CELLS: Unlimited (provision as needed)                                 │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Cross-Cell Query Capability
+
+Admin dashboards need to query across all cells for aggregate reporting.
+
+#### Federated Query Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    FEDERATED QUERY FLOW                                      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ADMIN REQUEST:                                                             │
+│  GET /admin/metrics/all-organizations                                       │
+│                                                                              │
+│  PROCESSING:                                                                │
+│                                                                              │
+│  1. Admin API receives request                                              │
+│     │                                                                        │
+│  2. Query config DB for list of active cells                               │
+│     │                                                                        │
+│  3. Fan out query to each cell (parallel)                                  │
+│     ├── Cell-01: Query tenant metrics                                      │
+│     ├── Cell-02: Query tenant metrics                                      │
+│     └── Cell-03: Query tenant metrics                                      │
+│     │                                                                        │
+│  4. Aggregate results                                                       │
+│     │                                                                        │
+│  5. Return combined response                                                │
+│                                                                              │
+│  TIMEOUT HANDLING:                                                          │
+│  • Individual cell timeout: 5s                                              │
+│  • If cell times out: Return partial results with warning                  │
+│  • Response includes: { "partial": true, "failedCells": ["cell-03"] }      │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Federated Query Implementation:**
+
+```typescript
+interface FederatedQueryOptions {
+  cells?: string[];        // Specific cells (default: all active)
+  timeout?: number;        // Per-cell timeout in ms (default: 5000)
+  failOnPartial?: boolean; // Fail if any cell fails (default: false)
+}
+
+async function federatedQuery<T>(
+  query: (cell: CellConnection) => Promise<T[]>,
+  options: FederatedQueryOptions = {}
+): Promise<FederatedResult<T>> {
+  const { timeout = 5000, failOnPartial = false } = options;
+
+  // 1. Get active cells from config DB
+  const cells = options.cells ?? await getActiveCells();
+
+  // 2. Execute query on each cell in parallel
+  const results = await Promise.allSettled(
+    cells.map(cell =>
+      withTimeout(
+        query(cell.connection),
+        timeout,
+        `Cell ${cell.id} timeout`
+      )
+    )
+  );
+
+  // 3. Aggregate results
+  const data: T[] = [];
+  const failedCells: string[] = [];
+
+  results.forEach((result, index) => {
+    if (result.status === 'fulfilled') {
+      data.push(...result.value);
+    } else {
+      failedCells.push(cells[index].id);
+    }
+  });
+
+  if (failOnPartial && failedCells.length > 0) {
+    throw new Error(`Query failed on cells: ${failedCells.join(', ')}`);
+  }
+
+  return {
+    data,
+    partial: failedCells.length > 0,
+    failedCells,
+    queriedCells: cells.map(c => c.id)
+  };
+}
+```
+
+**Available Federated Queries:**
+
+| Query | Endpoint | Use Case |
+|-------|----------|----------|
+| All Organizations | `GET /admin/organizations` | Admin dashboard |
+| Global Metrics | `GET /admin/metrics/global` | Executive reporting |
+| DPP Count | `GET /admin/metrics/dpp-count` | Billing reconciliation |
+| Health Check | `GET /admin/health/cells` | Ops monitoring |
+
+### Tenant Migration Between Cells
+
+When a cell approaches capacity or a tenant needs to be moved (e.g., to a region-specific cell).
+
+#### Migration Procedure
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    TENANT MIGRATION RUNBOOK                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  PRE-MIGRATION CHECKLIST:                                                   │
+│  ─────────────────────────                                                  │
+│  □ Identify source cell and target cell                                    │
+│  □ Verify target cell has capacity (<180 tenants)                         │
+│  □ Schedule maintenance window (notify tenant if >1 hour)                  │
+│  □ Create backup of tenant data in source cell                            │
+│  □ Prepare rollback plan                                                   │
+│                                                                              │
+│  MIGRATION STEPS:                                                           │
+│  ────────────────                                                           │
+│                                                                              │
+│  1. PREPARE (No downtime)                                                   │
+│     ├── Create tenant schema in target cell                                │
+│     ├── Set up streaming replication from source to target                 │
+│     └── Verify replication lag is acceptable (<1 minute)                   │
+│                                                                              │
+│  2. CUTOVER (Brief downtime: 30-60 seconds)                                │
+│     ├── Enable maintenance mode for tenant                                 │
+│     ├── Wait for final replication sync                                    │
+│     ├── Update config DB: tenant → target cell                            │
+│     ├── Invalidate tenant cache in API layer                              │
+│     └── Disable maintenance mode                                           │
+│                                                                              │
+│  3. VERIFY (No downtime)                                                    │
+│     ├── Test API calls for tenant                                          │
+│     ├── Verify all products accessible                                     │
+│     ├── Check webhook deliveries working                                   │
+│     └── Monitor error rates for 1 hour                                     │
+│                                                                              │
+│  4. CLEANUP (No downtime, delayed)                                         │
+│     ├── Keep source data for 7 days (rollback window)                     │
+│     ├── After 7 days: Drop tenant schema from source cell                 │
+│     └── Update migration log                                               │
+│                                                                              │
+│  ROLLBACK PROCEDURE:                                                        │
+│  ────────────────────                                                       │
+│  If issues detected within 7 days:                                          │
+│  1. Enable maintenance mode                                                 │
+│  2. Update config DB: tenant → source cell                                 │
+│  3. Invalidate cache                                                       │
+│  4. Disable maintenance mode                                               │
+│  5. Investigate root cause before retry                                    │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Migration Commands:**
+
+```bash
+# 1. Start migration (creates schema, begins replication)
+./ops-cli tenant migrate start \
+  --tenant-id org_abc123 \
+  --source-cell cell-01 \
+  --target-cell cell-02
+
+# 2. Check replication status
+./ops-cli tenant migrate status --tenant-id org_abc123
+
+# 3. Execute cutover (brief downtime)
+./ops-cli tenant migrate cutover --tenant-id org_abc123 --confirm
+
+# 4. Verify migration
+./ops-cli tenant migrate verify --tenant-id org_abc123
+
+# 5. Cleanup source (after 7 days)
+./ops-cli tenant migrate cleanup --tenant-id org_abc123 --confirm
+```
+
+**Migration Metrics:**
+
+| Metric | Target | Alert Threshold |
+|--------|--------|-----------------|
+| Cutover duration | <60 seconds | >120 seconds |
+| Replication lag | <1 minute | >5 minutes |
+| Post-migration errors | 0 | Any |
+| Migrations per week | <5 | >10 (investigate growth) |
+
+### Cell Decommissioning
+
+When a cell needs to be retired (e.g., consolidation, region migration).
+
+#### Decommissioning Checklist
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    CELL DECOMMISSIONING RUNBOOK                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  PRE-DECOMMISSION (2+ weeks before):                                        │
+│  ────────────────────────────────────                                       │
+│  □ Identify all tenants in cell                                            │
+│  □ Plan target cells for each tenant                                       │
+│  □ Verify target cells have capacity                                       │
+│  □ Notify affected tenants (if extended maintenance expected)              │
+│  □ Schedule migration windows                                              │
+│                                                                              │
+│  MIGRATION PHASE (1-2 weeks):                                               │
+│  ────────────────────────────                                               │
+│  □ Migrate tenants in batches (5-10 per day)                               │
+│  □ Monitor error rates after each batch                                    │
+│  □ Verify each tenant after migration                                      │
+│  □ Track progress in migration log                                         │
+│                                                                              │
+│  DRAINING PHASE (After all tenants migrated):                              │
+│  ─────────────────────────────────────────────                              │
+│  □ Mark cell as "draining" in config DB                                    │
+│  □ No new tenants assigned to this cell                                    │
+│  □ Verify tenant count = 0                                                 │
+│  □ Keep cell running for 7 days (rollback window)                         │
+│                                                                              │
+│  DECOMMISSION PHASE:                                                        │
+│  ────────────────────                                                       │
+│  □ Mark cell as "decommissioned" in config DB                              │
+│  □ Take final backup of cell databases                                     │
+│  □ Store backup in Glacier (7-year retention)                             │
+│  □ Terminate cell infrastructure via Terraform                             │
+│  □ Remove DNS entries                                                       │
+│  □ Update architecture documentation                                       │
+│  □ Close decommission ticket                                               │
+│                                                                              │
+│  INFRASTRUCTURE TEARDOWN (Terraform):                                       │
+│  ─────────────────────────────────────                                      │
+│  terraform workspace select cell-XX                                         │
+│  terraform destroy -auto-approve                                            │
+│                                                                              │
+│  POST-DECOMMISSION:                                                         │
+│  ──────────────────                                                         │
+│  □ Verify no traffic to decommissioned cell (CloudWatch)                   │
+│  □ Update capacity planning documents                                       │
+│  □ Archive cell configuration                                              │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Decommission Commands:**
+
+```bash
+# 1. List tenants in cell
+./ops-cli cell list-tenants --cell cell-03
+
+# 2. Mark cell as draining (no new assignments)
+./ops-cli cell drain --cell cell-03
+
+# 3. Migrate all tenants (interactive, batched)
+./ops-cli cell evacuate --cell cell-03 --batch-size 5
+
+# 4. Verify cell is empty
+./ops-cli cell verify-empty --cell cell-03
+
+# 5. Create final backup
+./ops-cli cell backup --cell cell-03 --destination s3://backups/cell-03-final/
+
+# 6. Decommission (marks cell inactive, does NOT destroy)
+./ops-cli cell decommission --cell cell-03 --confirm
+
+# 7. Destroy infrastructure (after 7-day waiting period)
+./ops-cli cell destroy --cell cell-03 --confirm
+```
+
+### Cell Health Dashboard
+
+Monitor all cells from a single dashboard.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  CELL HEALTH DASHBOARD                                                       │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Cell Overview:                                                             │
+│  ┌─────────┬──────────┬────────┬──────────┬────────────┬─────────────────┐ │
+│  │ Cell    │ Region   │ Status │ Tenants  │ CPU        │ Connections     │ │
+│  ├─────────┼──────────┼────────┼──────────┼────────────┼─────────────────┤ │
+│  │ cell-01 │ eu-west-1│ ● OK   │ 187/200  │ ▓▓▓▓░ 42%  │ ▓▓▓░░░ 98/200  │ │
+│  │ cell-02 │ eu-west-1│ ● OK   │ 156/200  │ ▓▓▓░░ 35%  │ ▓▓░░░░ 76/200  │ │
+│  │ cell-03 │ eu-cent  │ ⚠ WARN │ 195/200  │ ▓▓▓▓▓ 68%  │ ▓▓▓▓░░ 145/200 │ │
+│  │ cell-04 │ eu-west-2│ ● OK   │ 42/200   │ ▓░░░░ 12%  │ ▓░░░░░ 28/200  │ │
+│  └─────────┴──────────┴────────┴──────────┴────────────┴─────────────────┘ │
+│                                                                              │
+│  Total: 4 cells │ 580 tenants │ Avg utilization: 39%                       │
+│                                                                              │
+│  Alerts:                                                                    │
+│  ⚠ cell-03: Tenant count at 97.5% capacity - schedule new cell provision  │
+│                                                                              │
+│  Recent Operations:                                                         │
+│  │ 2026-01-14 11:30 │ tenant org_xyz migrated cell-01 → cell-04 │ Success │ │
+│  │ 2026-01-13 09:00 │ cell-04 provisioned                       │ Success │ │
+│  │ 2026-01-10 14:20 │ tenant org_abc migrated cell-03 → cell-02 │ Success │ │
+│                                                                              │
+│  [Provision New Cell]  [View Migration Queue]  [Export Report]             │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Operational Tooling
+
+### Tenant Data Export API (GDPR Compliance)
+
+Complete data export capability for GDPR Article 20 (data portability) and Article 15 (right of access) compliance.
+
+#### Export Data Categories
+
+| Category | Description | Format | Included By Default |
+|----------|-------------|--------|---------------------|
+| `account` | User profile, preferences, organization | JSON | Yes |
+| `products` | All product records with full history | JSON + CSV | Yes |
+| `dpps` | Issued Digital Product Passports | JSON (VC format) | Yes |
+| `attestations` | Third-party attestations received | JSON | Yes |
+| `events` | EPCIS events for supply chain | JSON | Yes |
+| `audit_log` | User actions audit trail | JSON | On request |
+| `billing` | Invoices, payment history | JSON + PDF | On request |
+| `api_keys` | API key metadata (not secrets) | JSON | Yes |
+
+#### Export API Endpoints
+
+```typescript
+// POST /api/v1/exports
+// Request a new data export
+interface ExportRequest {
+  scope: 'full' | 'partial';
+  categories?: string[];  // If partial, specify which categories
+  format: 'json' | 'csv' | 'both';
+  includeHistory: boolean;  // Include version history
+  encryption: {
+    enabled: boolean;
+    publicKey?: string;  // Customer's PGP public key for encryption
+  };
+  notifyEmail?: string;  // Email when export ready
+}
+
+// Response
+interface ExportResponse {
+  exportId: string;           // exp_abc123
+  status: 'queued' | 'processing' | 'completed' | 'failed';
+  estimatedSize: number;      // Bytes
+  estimatedCompletionTime: string;  // ISO 8601
+  createdAt: string;
+}
+
+// GET /api/v1/exports/:exportId
+// Check export status
+interface ExportStatus {
+  exportId: string;
+  status: 'queued' | 'processing' | 'completed' | 'failed';
+  progress: number;           // 0-100
+  categories: {
+    name: string;
+    status: 'pending' | 'processing' | 'completed';
+    recordCount: number;
+  }[];
+  downloadUrl?: string;       // Signed URL, expires in 24 hours
+  expiresAt?: string;         // When download URL expires
+  errorMessage?: string;      // If failed
+}
+
+// GET /api/v1/exports/:exportId/download
+// Download the export (redirects to signed S3 URL)
+
+// DELETE /api/v1/exports/:exportId
+// Delete an export before download (cancel if in progress)
+```
+
+#### Export Job Lifecycle
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         EXPORT JOB LIFECYCLE                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  QUEUED ────► PROCESSING ────► COMPLETED ────► DOWNLOADED ────► EXPIRED     │
+│     │              │               │                                        │
+│     │              │               └──► Download URL valid for 24 hours     │
+│     │              │                    Then auto-deleted from storage      │
+│     │              │                                                        │
+│     │              └──────────────► FAILED (retryable up to 3 times)       │
+│     │                                                                       │
+│     └──────────────────────────────► CANCELLED (by user request)           │
+│                                                                              │
+│  Timeouts:                                                                  │
+│  • Queued → Processing: Max 5 minutes                                       │
+│  • Processing: Max 4 hours (large exports)                                 │
+│  • Completed → Expired: 24 hours after completion                          │
+│                                                                              │
+│  Notifications:                                                             │
+│  • Email sent when export completes or fails                               │
+│  • Webhook event: export.completed, export.failed                          │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Export Format Specification
+
+```typescript
+// Export archive structure (ZIP)
+export-{orgId}-{timestamp}/
+├── manifest.json           // Export metadata and checksums
+├── account/
+│   ├── organization.json   // Organization details
+│   └── users.json          // User profiles (admin-only)
+├── products/
+│   ├── products.json       // All products
+│   ├── products.csv        // CSV version
+│   └── history/
+│       └── {productId}.json // Version history per product
+├── dpps/
+│   ├── credentials.json    // All issued VCs
+│   └── status-lists.json   // Revocation status
+├── attestations/
+│   └── attestations.json   // Third-party attestations
+├── events/
+│   └── epcis-events.json   // Supply chain events
+├── audit/                  // Only if requested
+│   └── audit-log.json      // User action log
+└── billing/                // Only if requested
+    ├── invoices.json       // Invoice metadata
+    └── invoices/           // PDF invoices
+        └── {invoiceId}.pdf
+
+// manifest.json
+interface ExportManifest {
+  version: '1.0';
+  exportId: string;
+  organizationId: string;
+  exportedAt: string;        // ISO 8601
+  exportedBy: string;        // User ID who requested
+  categories: string[];
+  totalRecords: number;
+  totalSize: number;         // Bytes
+  checksums: {
+    [filename: string]: {
+      algorithm: 'sha256';
+      hash: string;
+    };
+  };
+  encryption: {
+    enabled: boolean;
+    algorithm?: 'PGP';
+    keyFingerprint?: string;
+  };
+}
+```
+
+#### Rate Limits and Quotas
+
+| Tier | Concurrent Exports | Export History Retention | Max Export Size |
+|------|-------------------|--------------------------|-----------------|
+| Starter | 1 | 7 days | 1 GB |
+| Growth | 2 | 30 days | 10 GB |
+| Enterprise | 5 | 90 days | Unlimited |
+
+#### CLI Tool
+
+```bash
+# Request export
+./ops-cli export create --org org_xyz --scope full --format json
+
+# Check status
+./ops-cli export status --export-id exp_abc123
+
+# Download
+./ops-cli export download --export-id exp_abc123 --output ./export.zip
+
+# List recent exports
+./ops-cli export list --org org_xyz --limit 10
+
+# Admin: Export all tenant data (for legal/compliance)
+./ops-cli export admin-create --org org_xyz --include-audit --reason "Legal hold request"
+```
+
+---
+
+### Audit Log Retention Policy
+
+Audit logs are retained for 7 years to meet compliance requirements for financial records, ESPR traceability, and legal discovery.
+
+#### Retention Tiers
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         AUDIT LOG RETENTION TIERS                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  HOT STORAGE (0-90 days)                                                    │
+│  ───────────────────────                                                    │
+│  • Location: Aurora PostgreSQL (primary database)                           │
+│  • Query performance: < 100ms                                              │
+│  • Full-text search: Yes                                                    │
+│  • Used for: Real-time dashboards, recent activity views                   │
+│                                                                              │
+│  WARM STORAGE (90 days - 2 years)                                          │
+│  ─────────────────────────────────                                         │
+│  • Location: S3 (Standard)                                                  │
+│  • Query performance: 1-10 seconds (via Athena)                            │
+│  • Full-text search: Yes (Athena)                                          │
+│  • Used for: Security investigations, compliance queries                    │
+│                                                                              │
+│  COLD STORAGE (2-7 years)                                                   │
+│  ─────────────────────────                                                  │
+│  • Location: S3 Glacier Deep Archive                                        │
+│  • Query performance: 12-48 hours retrieval time                           │
+│  • Full-text search: No (must restore first)                               │
+│  • Used for: Legal discovery, regulatory audits                            │
+│                                                                              │
+│  DELETION (7+ years)                                                        │
+│  ────────────────────                                                       │
+│  • Automated deletion via S3 lifecycle policy                              │
+│  • Deletion logged for compliance                                          │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Audit Event Categories
+
+| Category | Retention | Legal Basis |
+|----------|-----------|-------------|
+| Authentication events | 2 years | Security |
+| Authorization changes | 7 years | SOC2, compliance |
+| Data modifications | 7 years | ESPR traceability |
+| DPP issuance/revocation | 10 years | ESPR Article 12(2) |
+| Billing events | 7 years | Tax/financial records |
+| API access | 90 days | Operational |
+| System events | 30 days | Operational |
+
+#### Audit Log Schema
+
+```typescript
+interface AuditLogEntry {
+  id: string;                    // Unique log ID
+  timestamp: string;             // ISO 8601 with timezone
+  eventType: string;             // e.g., 'product.update', 'dpp.issue'
+  category: AuditCategory;       // For retention policy
+
+  // Actor
+  actorType: 'user' | 'api_key' | 'system' | 'admin';
+  actorId: string;               // User ID, API key ID, or 'system'
+  actorEmail?: string;           // For user actors
+  actorIp?: string;              // IP address (hashed after 90 days)
+
+  // Target
+  resourceType: string;          // e.g., 'product', 'dpp', 'user'
+  resourceId: string;            // Target resource ID
+  organizationId: string;        // Tenant isolation
+
+  // Details
+  action: 'create' | 'read' | 'update' | 'delete' | 'other';
+  details: {
+    before?: object;             // Previous state (for updates)
+    after?: object;              // New state (for creates/updates)
+    metadata?: object;           // Additional context
+  };
+
+  // Compliance
+  retentionCategory: RetentionCategory;
+  retentionExpiresAt: string;    // When this log can be deleted
+}
+
+type AuditCategory =
+  | 'authentication'
+  | 'authorization'
+  | 'data_modification'
+  | 'dpp_lifecycle'
+  | 'billing'
+  | 'api_access'
+  | 'system';
+
+type RetentionCategory =
+  | '30_days'    // System events
+  | '90_days'    // API access
+  | '2_years'    // Authentication
+  | '7_years'    // Data modifications, billing
+  | '10_years';  // DPP lifecycle (ESPR)
+```
+
+#### Automated Archival Process
+
+```typescript
+// Daily archival job (runs at 3 AM UTC)
+interface ArchivalJob {
+  name: 'audit-log-archival';
+  schedule: '0 3 * * *';
+
+  steps: [
+    {
+      // Step 1: Move 90+ day logs from PostgreSQL to S3
+      action: 'archive_to_warm',
+      source: 'aurora.audit_logs',
+      destination: 's3://audit-logs-warm/',
+      condition: 'timestamp < NOW() - INTERVAL 90 days',
+      format: 'parquet',  // Efficient for Athena queries
+      partitionBy: ['year', 'month', 'organization_id'],
+    },
+    {
+      // Step 2: Move 2+ year logs from S3 Standard to Glacier
+      action: 'archive_to_cold',
+      source: 's3://audit-logs-warm/',
+      destination: 's3://audit-logs-cold/',
+      condition: 'timestamp < NOW() - INTERVAL 2 years',
+      storageClass: 'GLACIER_DEEP_ARCHIVE',
+    },
+    {
+      // Step 3: Delete 7+ year logs (except DPP lifecycle)
+      action: 'delete_expired',
+      source: 's3://audit-logs-cold/',
+      condition: 'timestamp < NOW() - INTERVAL 7 years AND category != dpp_lifecycle',
+      logDeletion: true,  // Log what was deleted for compliance
+    },
+    {
+      // Step 4: Delete 10+ year DPP logs
+      action: 'delete_expired',
+      source: 's3://audit-logs-cold/',
+      condition: 'timestamp < NOW() - INTERVAL 10 years AND category = dpp_lifecycle',
+      logDeletion: true,
+    },
+  ];
+}
+```
+
+#### Audit Log Query API
+
+```typescript
+// GET /api/v1/audit-logs
+// Query audit logs (hot storage only via API)
+interface AuditLogQuery {
+  organizationId: string;        // Required for tenant isolation
+  startTime?: string;            // ISO 8601
+  endTime?: string;              // ISO 8601
+  eventType?: string;            // Filter by event type
+  actorId?: string;              // Filter by actor
+  resourceType?: string;         // Filter by resource type
+  resourceId?: string;           // Filter by specific resource
+  limit?: number;                // Max 1000
+  cursor?: string;               // Pagination
+}
+
+// For warm/cold storage, use admin CLI
+// ./ops-cli audit query --org org_xyz --start 2024-01-01 --end 2024-12-31
+```
+
+---
+
+### Performance Baselines
+
+Performance baselines for monitoring and alerting. All metrics measured at P50, P95, and P99 percentiles.
+
+#### API Response Time Baselines
+
+| Operation | P50 | P95 | P99 | Alert Threshold |
+|-----------|-----|-----|-----|-----------------|
+| **Authentication** |
+| Magic link send | 200ms | 500ms | 1s | P95 > 1s |
+| Magic link verify | 50ms | 100ms | 200ms | P95 > 300ms |
+| Session validate | 10ms | 30ms | 50ms | P95 > 100ms |
+| **Products** |
+| List products | 100ms | 300ms | 500ms | P95 > 500ms |
+| Get product | 50ms | 100ms | 200ms | P95 > 300ms |
+| Create product | 150ms | 400ms | 800ms | P95 > 1s |
+| Update product | 100ms | 300ms | 600ms | P95 > 800ms |
+| **DPP Operations** |
+| Issue DPP | 500ms | 1.5s | 3s | P95 > 3s |
+| Verify DPP | 100ms | 300ms | 500ms | P95 > 500ms |
+| Revoke DPP | 200ms | 500ms | 1s | P95 > 1s |
+| Get status list | 50ms | 100ms | 200ms | P95 > 300ms |
+| **Bulk Operations** |
+| Import (100 products) | 5s | 15s | 30s | P95 > 30s |
+| Export (full org) | 30s | 2min | 5min | P95 > 5min |
+| Batch DPP issue (100) | 10s | 30s | 60s | P95 > 60s |
+| **Integrations** |
+| Shopify webhook process | 200ms | 500ms | 1s | P95 > 1s |
+| PLM sync | 500ms | 2s | 5s | P95 > 5s |
+
+#### Database Query Baselines
+
+| Query Type | P50 | P95 | P99 | Alert Threshold |
+|------------|-----|-----|-----|-----------------|
+| Simple select | 5ms | 20ms | 50ms | P95 > 50ms |
+| Indexed query | 10ms | 50ms | 100ms | P95 > 100ms |
+| Join (2 tables) | 20ms | 100ms | 200ms | P95 > 200ms |
+| Aggregation | 50ms | 200ms | 500ms | P95 > 500ms |
+| Full-text search | 100ms | 500ms | 1s | P95 > 1s |
+
+#### Background Job Baselines
+
+| Job Type | Expected Duration | Max Duration | Alert Threshold |
+|----------|------------------|--------------|-----------------|
+| Email send | 1s | 10s | > 30s |
+| Webhook delivery | 2s | 30s | > 60s (with retries) |
+| Status list update | 500ms | 5s | > 10s |
+| Audit log archival | 5min | 30min | > 1hr |
+| DPP pre-computation | 100ms | 1s | > 5s |
+
+#### Infrastructure Baselines
+
+| Metric | Normal | Warning | Critical |
+|--------|--------|---------|----------|
+| **ECS Tasks** |
+| CPU utilization | < 50% | 50-75% | > 75% |
+| Memory utilization | < 60% | 60-80% | > 80% |
+| Task count | Baseline | +25% | +50% |
+| **RDS/Aurora** |
+| CPU utilization | < 40% | 40-70% | > 70% |
+| Connection count | < 60% max | 60-80% max | > 80% max |
+| Read latency | < 5ms | 5-20ms | > 20ms |
+| Write latency | < 10ms | 10-50ms | > 50ms |
+| **DynamoDB** |
+| Read capacity | < 60% | 60-80% | > 80% |
+| Write capacity | < 60% | 60-80% | > 80% |
+| Throttled requests | 0 | < 1% | > 1% |
+
+#### Performance Monitoring Dashboard
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  PERFORMANCE DASHBOARD                                              [Live]  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  API Response Times (Last Hour):                                            │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │ Products API     [====●=========] P50: 87ms  P95: 245ms  P99: 412ms  │ │
+│  │ DPP Issue        [======●=======] P50: 523ms P95: 1.2s   P99: 2.1s   │ │
+│  │ DPP Verify       [==●===========] P50: 89ms  P95: 187ms  P99: 298ms  │ │
+│  │ Authentication   [=●============] P50: 42ms  P95: 98ms   P99: 156ms  │ │
+│  └────────────────────────────────────────────────────────────────────────┘ │
+│                                                                              │
+│  Error Rates:                                                               │
+│  │ API 5xx:        0.02% ▼ (target: < 0.1%)                               │ │
+│  │ API 4xx:        1.2%    (informational)                                │ │
+│  │ Background job: 0.5%  ▼ (target: < 1%)                                 │ │
+│                                                                              │
+│  Database Performance:                                                      │
+│  │ Aurora read:    4.2ms (P95)  ● Normal                                  │ │
+│  │ Aurora write:   8.7ms (P95)  ● Normal                                  │ │
+│  │ DynamoDB:       12ms (P95)   ● Normal                                  │ │
+│                                                                              │
+│  Active Alerts: 0                                                           │
+│                                                                              │
+│  [View Detailed Metrics]  [Configure Alerts]  [Export Report]              │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Performance Baseline Review Schedule
+
+| Review Type | Frequency | Owner | Actions |
+|-------------|-----------|-------|---------|
+| Weekly metrics review | Weekly | Engineering | Identify trends, adjust thresholds |
+| Monthly baseline recalibration | Monthly | Platform Lead | Update baselines based on growth |
+| Quarterly capacity planning | Quarterly | Engineering + Ops | Plan infrastructure changes |
+| Post-incident review | After incidents | Engineering | Update baselines if needed |
+
+---
+
 ## Document Maintenance
 
 | Item | Frequency | Owner |

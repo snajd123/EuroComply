@@ -193,19 +193,19 @@ Links products to sensors, digital twins, or other digital artifacts.
 │                                                                              │
 │  METHOD 1: API Direct Capture                                               │
 │  ─────────────────────────────                                              │
-│  POST /v1/epcis/events                                                      │
+│  POST /api/v1/epcis/events                                                      │
 │  • Customer systems send events directly to EuroComply                      │
 │  • Best for: Custom integrations, existing ERP systems                      │
 │                                                                              │
 │  METHOD 2: Webhook Receiver                                                 │
 │  ────────────────────────                                                   │
-│  POST /v1/epcis/webhook                                                     │
+│  POST /api/v1/epcis/webhook                                                     │
 │  • EuroComply receives events from EPCIS repositories                       │
 │  • Best for: Customers using existing EPCIS infrastructure                  │
 │                                                                              │
 │  METHOD 3: Batch Import                                                     │
 │  ────────────────────────                                                   │
-│  POST /v1/epcis/import                                                      │
+│  POST /api/v1/epcis/import                                                      │
 │  • Upload EPCIS XML or JSON-LD event files                                  │
 │  • Best for: Historical data, periodic sync                                 │
 │                                                                              │
@@ -355,7 +355,7 @@ Not all EPCIS events should be in the public DPP:
 ### 5.1 Capture Event
 
 ```http
-POST /v1/epcis/events
+POST /api/v1/epcis/events
 Content-Type: application/json
 
 {
@@ -389,7 +389,7 @@ Response:
 ### 5.2 Query Events
 
 ```http
-GET /v1/epcis/events?productId=prod_xyz&eventType=ObjectEvent&from=2026-01-01
+GET /api/v1/epcis/events?productId=prod_xyz&eventType=ObjectEvent&from=2026-01-01
 ```
 
 Query Parameters:
@@ -406,7 +406,7 @@ Query Parameters:
 ### 5.3 Batch Import
 
 ```http
-POST /v1/epcis/import
+POST /api/v1/epcis/import
 Content-Type: application/json
 
 {
@@ -427,7 +427,7 @@ Content-Type: application/json
 For compatibility with EPCIS 2.0 query clients:
 
 ```http
-GET /v1/epcis/events/query?MATCH_epc=urn:epc:id:sgtin:5901234.*
+GET /api/v1/epcis/events/query?MATCH_epc=urn:epc:id:sgtin:5901234.*
 ```
 
 Supports standard EPCIS query parameters per GS1 specification.
@@ -441,7 +441,7 @@ Supports standard EPCIS query parameters per GS1 specification.
 Before capturing events, register facility locations:
 
 ```http
-POST /v1/facilities
+POST /api/v1/facilities
 Content-Type: application/json
 
 {

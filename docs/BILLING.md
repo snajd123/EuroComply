@@ -687,6 +687,273 @@ function calculateDppCost(plan: Plan, dppCount: number): number {
 
 ---
 
+## 8.1 Billing Edge Cases
+
+This section covers additional billing scenarios and edge cases not covered in the standard flows.
+
+### Card Expiry Handling
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    CARD EXPIRY MANAGEMENT                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  PROACTIVE NOTIFICATIONS                                                    │
+│  ───────────────────────                                                    │
+│  Day -30: Card expires next month                                          │
+│  • Email: "Your card ending in 4242 expires soon"                          │
+│  • Dashboard banner: "Update payment method before Feb 1"                  │
+│  • Include direct link to payment update page                              │
+│                                                                              │
+│  Day -7: Card expires in 7 days                                            │
+│  • Email reminder: "Urgent: Update payment method"                         │
+│  • Dashboard: Persistent warning banner                                    │
+│                                                                              │
+│  Day 0: Card expires                                                        │
+│  • If Stripe auto-updates card (card updater): No action needed           │
+│  • If no auto-update: Mark payment method as expired                       │
+│  • Dashboard: "Payment method expired - update required"                   │
+│                                                                              │
+│  GRACE PERIOD FOR EXPIRED CARDS                                            │
+│  ──────────────────────────────                                            │
+│  • 7-day grace period before billing attempt fails                         │
+│  • During grace: Service remains fully active                              │
+│  • User can update payment method at any time                              │
+│  • If updated before billing: Normal charge, no disruption                 │
+│  • If not updated: Enter standard dunning process                          │
+│                                                                              │
+│  STRIPE CARD UPDATER                                                        │
+│  ────────────────────                                                       │
+│  Stripe automatically updates cards when:                                  │
+│  • Card is reissued with new expiry (same card number)                    │
+│  • Bank participates in card updater network                               │
+│  • ~70% of cards auto-update successfully                                  │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Annual-to-Monthly Billing Cycle Switch
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    BILLING CYCLE CHANGES                                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ANNUAL → MONTHLY                                                           │
+│  ────────────────                                                           │
+│  Scenario: Customer on Scale Annual (€5,750/year) switches to monthly      │
+│                                                                              │
+│  TIMING: Switch takes effect at next renewal                               │
+│  • Current annual period continues until expiry                            │
+│  • At renewal: Monthly billing begins (€599/month)                         │
+│  • No prorated refund for unused annual period                             │
+│                                                                              │
+│  USER FLOW:                                                                 │
+│  1. Admin clicks "Switch to Monthly"                                        │
+│  2. Confirmation dialog explains:                                          │
+│     "Your annual plan continues until [date]. After that,                  │
+│      you'll be billed €599/month. You'll lose the 20% annual discount."   │
+│  3. On confirmation: Schedule change for renewal date                       │
+│  4. Email confirmation sent                                                 │
+│                                                                              │
+│  MONTHLY → ANNUAL                                                           │
+│  ────────────────                                                           │
+│  Scenario: Customer on Scale Monthly (€599/mo) switches to annual          │
+│                                                                              │
+│  TIMING: Immediate                                                         │
+│  • Credit remaining monthly period                                         │
+│  • Charge full annual amount (€5,750)                                      │
+│  • Apply credit to annual charge                                           │
+│                                                                              │
+│  Example:                                                                   │
+│  • Days remaining in month: 20/30                                          │
+│  • Monthly credit: €599 × (20/30) = €399.33                               │
+│  • Annual charge: €5,750.00                                                │
+│  • Net charge: €5,750.00 - €399.33 = €5,350.67                            │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Credit Balance Handling
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    CREDIT BALANCE MANAGEMENT                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  SOURCES OF CREDIT                                                          │
+│  ─────────────────                                                          │
+│  • Downgrade proration (switching to lower tier)                           │
+│  • Annual-to-monthly switch (unused period credit)                         │
+│  • Billing errors (manual credit applied)                                  │
+│  • Promotional credits                                                      │
+│                                                                              │
+│  CREDIT APPLICATION                                                         │
+│  ───────────────────                                                        │
+│  • Credits automatically applied to next invoice                           │
+│  • Credit balance shown on billing dashboard                               │
+│  • Credits never expire while account is active                            │
+│                                                                              │
+│  CREDITS ON CANCELLATION                                                    │
+│  ────────────────────────                                                   │
+│  Policy: Credits are NOT refunded on voluntary cancellation                │
+│                                                                              │
+│  • User cancels subscription                                                │
+│  • Service continues until end of paid period                              │
+│  • Any credit balance is forfeited                                         │
+│  • Exception: Credits from billing errors ARE refunded                     │
+│                                                                              │
+│  CREDITS ON ACCOUNT REACTIVATION                                           │
+│  ───────────────────────────────                                            │
+│  • If user reactivates within 90 days: Credits restored                    │
+│  • After 90 days: Credits forfeited permanently                            │
+│                                                                              │
+│  CREDIT TRANSPARENCY                                                        │
+│  ────────────────────                                                       │
+│  Billing dashboard shows:                                                   │
+│  ┌────────────────────────────────────────┐                                │
+│  │ Credit Balance: €266.66                │                                │
+│  │                                         │                                │
+│  │ Sources:                               │                                │
+│  │ • Jan 15: Downgrade proration  €266.66│                                │
+│  │                                         │                                │
+│  │ Applied to next invoice automatically  │                                │
+│  └────────────────────────────────────────┘                                │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Refund Policy
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    REFUND POLICY                                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  GENERAL POLICY                                                             │
+│  ──────────────                                                             │
+│  • Base fees: Prorated credit for downgrades, no refunds for cancellations │
+│  • DPP usage: Non-refundable (usage already consumed)                      │
+│  • Annual plans: No partial refunds for early cancellation                 │
+│                                                                              │
+│  AUTOMATIC REFUND SCENARIOS                                                 │
+│  ───────────────────────────                                                │
+│  | Scenario               | Refund Type    | Processing      |             │
+│  |------------------------|----------------|-----------------|             │
+│  | Duplicate charge       | Full refund    | Automatic       |             │
+│  | Billing system error   | Full refund    | Automatic       |             │
+│  | Service outage (SLA)   | Credit         | Per SLA terms   |             │
+│                                                                              │
+│  MANUAL REFUND SCENARIOS (Requires Support Review)                         │
+│  ──────────────────────────────────────────────────                        │
+│  | Scenario               | Refund Type    | Conditions      |             │
+│  |------------------------|----------------|-----------------|             │
+│  | First 14 days          | Full refund    | On request      |             │
+│  | Accidental renewal     | Full refund    | Within 7 days   |             │
+│  | Extended outage        | Pro-rata       | >24 hours down  |             │
+│  | Disputed feature       | Discretionary  | Case-by-case    |             │
+│                                                                              │
+│  REFUND PROCESSING                                                          │
+│  ─────────────────                                                          │
+│  • Credit card: Refund to original card (3-5 business days)                │
+│  • SEPA: Bank transfer (5-10 business days)                                │
+│  • Invoice: Credit note or bank transfer                                   │
+│                                                                              │
+│  14-DAY MONEY-BACK GUARANTEE                                               │
+│  ───────────────────────────                                                │
+│  New customers can request full refund within 14 days of first payment:    │
+│  • Applies to base fee only                                                │
+│  • DPP usage fees are non-refundable (service was consumed)               │
+│  • One refund per organization (prevents abuse)                            │
+│  • Refund processed within 5 business days                                 │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Chargeback and Dispute Handling
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    CHARGEBACK HANDLING                                       │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  WHEN CHARGEBACK OCCURS                                                     │
+│  ──────────────────────                                                     │
+│  1. Stripe notifies via webhook: charge.dispute.created                    │
+│  2. Subscription status → DISPUTED                                         │
+│  3. Service remains active during dispute (good faith)                     │
+│  4. Support team notified immediately                                       │
+│                                                                              │
+│  DISPUTE RESPONSE (Within 7 days)                                          │
+│  ─────────────────────────────────                                          │
+│  EuroComply provides Stripe with evidence:                                 │
+│  • Customer signup confirmation                                            │
+│  • Service usage logs (DPPs issued, API calls)                            │
+│  • Previous successful payments                                            │
+│  • Terms of service acceptance timestamp                                   │
+│  • Any relevant email communications                                       │
+│                                                                              │
+│  DISPUTE OUTCOMES                                                           │
+│  ────────────────                                                           │
+│  | Outcome      | Action                                    |              │
+│  |--------------|-------------------------------------------|              │
+│  | Won          | Status → ACTIVE, no further action        |              │
+│  | Lost         | Status → CANCELED, account suspended      |              │
+│  | Withdrawn    | Status → ACTIVE, funds returned           |              │
+│                                                                              │
+│  FRIENDLY FRAUD PREVENTION                                                  │
+│  ─────────────────────────                                                  │
+│  • Clear billing descriptor: "EUROCOMPLY*DPPPLATFORM"                      │
+│  • Receipt emails after every charge                                       │
+│  • Usage summaries in invoice                                              │
+│  • Easy-to-find cancellation option                                        │
+│                                                                              │
+│  REPEAT DISPUTE POLICY                                                      │
+│  ─────────────────────                                                      │
+│  • First dispute: Handled normally                                         │
+│  • Second dispute: Account flagged for review                              │
+│  • Third dispute: Account suspended, invoice payment only                  │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Failed Payment Recovery Metrics
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    PAYMENT RECOVERY DASHBOARD                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  DUNNING METRICS (Visible to Finance/Admin)                                │
+│  ──────────────────────────────────────────                                 │
+│                                                                              │
+│  This Month:                                                               │
+│  • Failed payments: 23                                                     │
+│  • Recovered (retry): 18 (78%)                                            │
+│  • Recovered (card update): 3 (13%)                                       │
+│  • Churned: 2 (9%)                                                        │
+│                                                                              │
+│  Recovery by Attempt:                                                      │
+│  • Attempt 1 (Day 1): 45% recovered                                       │
+│  • Attempt 2 (Day 3): 25% recovered                                       │
+│  • Attempt 3 (Day 5): 8% recovered                                        │
+│  • Manual recovery: 13% recovered                                         │
+│                                                                              │
+│  At-Risk Revenue:                                                          │
+│  • Currently in dunning: €4,250 MRR (5 accounts)                          │
+│  • Average days in dunning: 2.3 days                                      │
+│                                                                              │
+│  ALERTS                                                                    │
+│  ──────                                                                    │
+│  • High-value account in dunning (>€500 MRR): Immediate Slack alert       │
+│  • Recovery rate drops below 70%: Weekly review triggered                 │
+│  • Churn rate exceeds 5%: Investigate payment processor issues            │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
 ## 9. Tax Calculation
 
 EuroComply uses **Stripe Tax** for automatic VAT calculation and collection.
