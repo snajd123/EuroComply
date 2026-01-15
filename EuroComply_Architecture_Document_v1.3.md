@@ -1729,20 +1729,82 @@ Attributes:
   dppUrl: String
   dppGenerated: Boolean
   createdAt: String (ISO 8601)
+  updatedAt: String (ISO 8601)
   lastScannedAt: String (ISO 8601)
   scanCount: Number
 
-Global Secondary Index (GSI1):
+  -- GSI key attributes (denormalized for query efficiency)
   gsi1pk: ORG#${org_id}
   gsi1sk: CREATED#${timestamp}#SERIAL#${serial}
-  
-  Use: Time-range queries, recent items
+  gsi2pk: ORG#${org_id}#BATCH#${batch_number}
+  gsi2sk: SERIAL#${serial}
+  gsi3pk: ORG#${org_id}
+  gsi3sk: PRODUCED#${production_date}#SERIAL#${serial}
+  gsi4pk: ORG#${org_id}#FACILITY#${facility_id}
+  gsi4sk: PRODUCED#${production_date}#SERIAL#${serial}
+  gsi5pk: ORG#${org_id}#STATUS#${status}
+  gsi5sk: UPDATED#${updated_at}#SERIAL#${serial}
 
-Access Patterns:
-  1. Get item by serial:     Query pk=ORG#X#PASSPORT#Y, sk=SERIAL#Z
-  2. List items by passport: Query pk=ORG#X#PASSPORT#Y
-  3. Recent items by org:    Query GSI1 pk=ORG#X, sk begins_with CREATED#
-  4. Batch lookup:           BatchGetItem with multiple keys
+─────────────────────────────────────────────────────────────────────────────
+GLOBAL SECONDARY INDEXES
+─────────────────────────────────────────────────────────────────────────────
+
+GSI1 - Recent Items (time-range queries):
+  pk: gsi1pk (ORG#${org_id})
+  sk: gsi1sk (CREATED#${timestamp}#SERIAL#${serial})
+  Use: "Show items created in last 24 hours"
+
+GSI2 - Batch Lookup (recalls):
+  pk: gsi2pk (ORG#${org_id}#BATCH#${batch_number})
+  sk: gsi2sk (SERIAL#${serial})
+  Use: "Get all items in batch B-2024-001 for recall"
+
+GSI3 - Production Date (date range queries):
+  pk: gsi3pk (ORG#${org_id})
+  sk: gsi3sk (PRODUCED#${date}#SERIAL#${serial})
+  Use: "Get items produced between Jan 1 and Jan 15"
+
+GSI4 - Facility (facility-specific queries):
+  pk: gsi4pk (ORG#${org_id}#FACILITY#${facility_id})
+  sk: gsi4sk (PRODUCED#${date}#SERIAL#${serial})
+  Use: "Get all items from Munich factory"
+
+GSI5 - Status (active/recalled filtering):
+  pk: gsi5pk (ORG#${org_id}#STATUS#${status})
+  sk: gsi5sk (UPDATED#${timestamp}#SERIAL#${serial})
+  Use: "List all recalled items", "Count active items"
+
+─────────────────────────────────────────────────────────────────────────────
+ACCESS PATTERNS
+─────────────────────────────────────────────────────────────────────────────
+
+| Pattern | Table/GSI | Query |
+|---------|-----------|-------|
+| Get item by serial | Table | pk=ORG#X#PASSPORT#Y, sk=SERIAL#Z |
+| List items by passport | Table | pk=ORG#X#PASSPORT#Y |
+| Recent items by org | GSI1 | pk=ORG#X, sk begins_with CREATED# |
+| Items by batch (recall) | GSI2 | pk=ORG#X#BATCH#B-001 |
+| Items by date range | GSI3 | pk=ORG#X, sk between PRODUCED#2024-01-01 and PRODUCED#2024-01-15 |
+| Items by facility | GSI4 | pk=ORG#X#FACILITY#munich |
+| Recalled items | GSI5 | pk=ORG#X#STATUS#recalled |
+| Active items count | GSI5 | pk=ORG#X#STATUS#active, Select: COUNT |
+| Batch lookup | Table | BatchGetItem with multiple keys |
+
+─────────────────────────────────────────────────────────────────────────────
+STATUS CHANGE HANDLING
+─────────────────────────────────────────────────────────────────────────────
+
+When item status changes (e.g., recall), update both status and GSI5 keys:
+
+  UpdateItem:
+    Key: { pk, sk }
+    UpdateExpression: SET
+      #status = :newStatus,
+      #updatedAt = :now,
+      #gsi5pk = :newGsi5pk,
+      #gsi5sk = :newGsi5sk
+
+This ensures the item appears in the correct GSI5 partition immediately.
 ```
 
 ---
