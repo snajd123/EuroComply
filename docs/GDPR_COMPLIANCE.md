@@ -546,6 +546,82 @@ This approach balances:
 - **Legal Requirements**: Audit trail preserved for legitimate purposes
 - **Eventual Deletion**: Full erasure when retention obligation ends
 
+#### QR Code and Physical Product Considerations
+
+DPPs are accessed via QR codes on physical products. When GDPR erasure is requested for PII in a sealed DPP, the QR code **cannot be changed** (it's printed on the product). This creates a unique challenge:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    QR CODE LIFECYCLE vs GDPR ERASURE                         │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  SCENARIO: Consumer scans QR code after GDPR erasure of designer name      │
+│                                                                              │
+│  ┌─────────────┐     ┌─────────────────────┐     ┌─────────────────────┐   │
+│  │ QR Code on  │────▶│ EuroComply Server   │────▶│ Consumer sees:      │   │
+│  │ Product     │     │                     │     │                     │   │
+│  │             │     │ Check redaction DB  │     │ Product specs ✓     │   │
+│  │ [unchanged] │     │ Apply display rules │     │ Materials ✓         │   │
+│  │             │     │ Return redacted DPP │     │ Designer: [Redacted]│   │
+│  └─────────────┘     └─────────────────────┘     │ Signature: ✓ Valid  │   │
+│                                                   └─────────────────────┘   │
+│                                                                              │
+│  KEY POINTS:                                                                │
+│  ───────────                                                                │
+│  1. QR code URL remains functional (10-year hosting commitment)            │
+│  2. DPP is served with display redactions applied                          │
+│  3. Cryptographic signature REMAINS VALID (data unchanged at VC layer)     │
+│  4. Consumer sees "[Redacted per GDPR request]" for affected fields        │
+│  5. Legally compliant: data is "effectively erased" from public access     │
+│                                                                              │
+│  WHAT THE CONSUMER EXPERIENCE LOOKS LIKE:                                  │
+│  ────────────────────────────────────────                                  │
+│                                                                              │
+│  ┌─────────────────────────────────────┐                                   │
+│  │      DIGITAL PRODUCT PASSPORT       │                                   │
+│  │      ─────────────────────────      │                                   │
+│  │                                     │                                   │
+│  │  Product: Sustainable Cotton Shirt  │                                   │
+│  │  SKU: SH-2025-001                   │                                   │
+│  │                                     │                                   │
+│  │  Materials:                         │                                   │
+│  │  • 100% Organic Cotton              │                                   │
+│  │  • GOTS Certified                   │                                   │
+│  │                                     │                                   │
+│  │  Designer: [Redacted]               │ ◀── PII removed per GDPR         │
+│  │  Certified by: Bureau Veritas       │                                   │
+│  │  Certificate: #BV-2025-78432        │                                   │
+│  │                                     │                                   │
+│  │  ✓ Signature Valid                  │ ◀── VC integrity preserved       │
+│  │  ✓ Not Revoked                      │                                   │
+│  │                                     │                                   │
+│  │  ℹ️ Some information has been       │                                   │
+│  │     redacted per data protection    │                                   │
+│  │     regulations.                    │                                   │
+│  │                                     │                                   │
+│  └─────────────────────────────────────┘                                   │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Why This Approach Works:**
+
+| Concern | Resolution |
+|---------|------------|
+| "QR can't be updated" | URL works, content is dynamically redacted at display time |
+| "10-year hosting promise" | DPP remains accessible, just with redactions |
+| "Signature breaks if data changes" | Redaction is display-layer only; VC unchanged |
+| "Consumer confusion" | Clear notice explains redaction |
+| "GDPR compliance" | Effective erasure from public-facing data |
+
+**Redaction vs. Full Deletion:**
+
+| Approach | When Used | Effect |
+|----------|-----------|--------|
+| **Display Redaction** | GDPR request during 10-year retention | PII hidden from normal access |
+| **Full Deletion** | After 10-year retention expires | VC and all data permanently deleted |
+| **QR Code 404** | Only if entire organization data deleted | QR returns "Product passport no longer available" |
+
 **Response Template:**
 
 ```

@@ -1174,6 +1174,45 @@ When an organization cancels their subscription but wants to keep their DPP QR c
 
 Dormant Hosting addresses the ESPR requirement for 10-year data availability while providing a low-cost option for organizations that no longer need active product management but want to maintain compliance for products already in market.
 
+### GDPR Compatibility with 10-Year Hosting
+
+The 10-year hosting commitment may seem to conflict with GDPR Article 17 (Right to Erasure), but these are compatible:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    10-YEAR HOSTING + GDPR ERASURE                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  LEGAL FRAMEWORK:                                                           │
+│  ────────────────                                                           │
+│  • ESPR requires 10-year DPP availability (legal obligation)               │
+│  • GDPR Art. 17(3)(b): Erasure doesn't apply when processing               │
+│    is required for legal compliance                                         │
+│                                                                              │
+│  WHAT THIS MEANS:                                                           │
+│  ────────────────                                                           │
+│  • ESPR-mandated data (product specs, materials, certifications)           │
+│    → MUST be retained for 10 years, GDPR erasure does not apply            │
+│                                                                              │
+│  • Non-mandatory PII (designer names, inspector names)                      │
+│    → Subject to GDPR erasure, handled via DISPLAY REDACTION                │
+│                                                                              │
+│  HOW DISPLAY REDACTION WORKS:                                               │
+│  ────────────────────────────                                               │
+│  1. GDPR erasure request received                                          │
+│  2. Personal data flagged in redaction database                            │
+│  3. QR code still works (URL unchanged)                                    │
+│  4. DPP served with PII fields showing "[Redacted]"                        │
+│  5. VC signature remains valid (underlying data unchanged)                 │
+│  6. After 10-year retention: full deletion                                 │
+│                                                                              │
+│  See: GDPR_COMPLIANCE.md § 5.3 for implementation details                  │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Key Insight:** The 10-year hosting promise and GDPR are not in conflict. ESPR provides legal basis for retaining compliance data; non-mandatory PII is redacted from display while preserving VC integrity.
+
 ---
 
 ## Financial Projections
