@@ -2013,13 +2013,15 @@ Each workspace has role-based access control. **This is the single source of tru
 │                     WORKSPACE ROLE HIERARCHY                                 │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  DESIGN, MARKETING, OPERATIONS:              COMPLIANCE:                    │
+│  ALL WORKSPACES (Design, Marketing, Operations, Compliance):                │
 │                                                                              │
-│  MANAGER ← Has all EDITOR permissions        APPROVER ← Has all REVIEWER    │
-│    │                                           │          permissions        │
-│  EDITOR ← Has all VIEWER permissions         REVIEWER ← Has all VIEWER      │
-│    │                                           │          permissions        │
-│  VIEWER ← Base read-only access              VIEWER ← Base read-only access │
+│  MANAGER ← Has all EDITOR permissions                                       │
+│    │       (In Compliance: acts as "Approver" - can approve/reject DPPs)   │
+│  EDITOR ← Has all VIEWER permissions                                        │
+│    │       (In Compliance: acts as "Reviewer" - can create snapshots)      │
+│  VIEWER ← Base read-only access                                             │
+│                                                                              │
+│  CONTRIBUTOR (external) ← Limited access for attestation submission only   │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -2074,8 +2076,8 @@ Each workspace has role-based access control. **This is the single source of tru
 
 **Compliance Workspace:**
 
-| Action | VIEWER | REVIEWER | APPROVER |
-|--------|:------:|:--------:|:--------:|
+| Action | VIEWER | EDITOR | MANAGER |
+|--------|:------:|:------:|:-------:|
 | View DPP readiness dashboard | ✓ | ✓ | ✓ |
 | View snapshot history | ✓ | ✓ | ✓ |
 | View audit log | ✓ | ✓ | ✓ |

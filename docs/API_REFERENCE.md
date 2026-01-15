@@ -571,7 +571,7 @@ Errors during DPP snapshot creation and issuance:
 | `SNAPSHOT_BATCH_NOT_RELEASED` | 400 | Selected batch is not released for DPP | Release the batch first |
 | `SNAPSHOT_VALIDATION_FAILED` | 422 | Snapshot content failed compliance validation | See `validationErrors` in response |
 | `DPP_ALREADY_ISSUED` | 409 | DPP already issued for this batch | Use existing DPP or create new batch |
-| `APPROVER_REQUIRED` | 403 | DPP issuance requires APPROVER role | Request APPROVER access |
+| `MANAGER_REQUIRED` | 403 | DPP issuance requires MANAGER role in Compliance workspace | Request MANAGER access |
 | `SNAPSHOT_EXPIRED` | 400 | Snapshot too old for issuance (>30 days) | Create new snapshot |
 
 #### Snapshot Validation Error Details

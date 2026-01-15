@@ -310,16 +310,19 @@ SSO users bypass magic link flow entirely - authentication delegated to IdP.
 
 ### 3.2 Permission Matrix
 
-| Action | VIEWER | EDITOR | MANAGER | ADMIN |
-|--------|--------|--------|---------|-------|
-| View products | ✅ | ✅ | ✅ | ✅ |
-| Edit products | ❌ | ✅ | ✅ | ✅ |
-| Approve edits | ❌ | ❌ | ✅ | ✅ |
-| Issue DPPs | ❌ | ❌ | ✅ | ✅ |
-| Manage users | ❌ | ❌ | ❌ | ✅ |
-| View billing | ❌ | ❌ | ❌ | ✅ |
-| Manage API keys | ❌ | ❌ | ❌ | ✅ |
-| Export keys | ❌ | ❌ | ❌ | ✅ |
+| Action | CONTRIBUTOR | VIEWER | EDITOR | MANAGER | ADMIN |
+|--------|-------------|--------|--------|---------|-------|
+| View products | ❌ | ✅ | ✅ | ✅ | ✅ |
+| Edit products | ❌ | ❌ | ✅ | ✅ | ✅ |
+| Approve edits | ❌ | ❌ | ❌ | ✅ | ✅ |
+| Issue DPPs | ❌ | ❌ | ❌ | ✅ | ✅ |
+| Submit attestations | ✅ | ❌ | ✅ | ✅ | ✅ |
+| Manage users | ❌ | ❌ | ❌ | ❌ | ✅ |
+| View billing | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Manage API keys | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Export keys | ❌ | ❌ | ❌ | ❌ | ✅ |
+
+> **Note:** CONTRIBUTOR is a special external role for suppliers and attestation agencies. They can only submit attestations for products they're explicitly invited to - they cannot view other organization data.
 
 ### 3.3 Resource-Level Authorization
 
