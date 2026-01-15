@@ -1843,8 +1843,9 @@ This ensures the item appears in the correct GSI5 partition immediately.
 │  ┌─────────────────────────────────────────────────────────────────────┐    │
 │  │                   BULK WORKER SERVICE (Auto-scaling)                 │    │
 │  │  • Processes bulk generation chunks                                 │    │
-│  │  • Parallel DynamoDB writes    • Parallel R2 uploads               │    │
-│  │  • Progress reporting                                               │    │
+│  │  • Parallel DynamoDB writes (via VPC Endpoint - no NAT)            │    │
+│  │  • Template upload to R2 (once per passport, not per-item)         │    │
+│  │  • Progress reporting via Redis                                     │    │
 │  │  Runs: 0-20 Fargate tasks (scales based on queue depth)            │    │
 │  └─────────────────────────────────────────────────────────────────────┘    │
 │                                                                              │
@@ -2565,21 +2566,39 @@ Note: No monthly item/DPP limits - all tiers can issue unlimited DPPs at their p
 │                                                                              │
 │  ────────────────────────────────────────────────────────────────────────   │
 │                                                                              │
-│  2. NAT INSTANCE BANDWIDTH LIMITS                                           │
+│  2. NETWORK TRAFFIC ROUTING                                                 │
 │  ────────────────────────────────────────────────────────────────────────   │
 │                                                                              │
-│  Current: t4g.nano NAT Instance ($3/month)                                  │
-│  • Network: Up to 5 Gbps (burstable)                                       │
-│  • CPU: 2 vCPU (burstable, limited credits)                                │
+│  VPC ENDPOINTS (No NAT, no bandwidth limits):                               │
+│  ─────────────────────────────────────────────                              │
+│  • DynamoDB         → Gateway Endpoint (free, unlimited)                   │
+│  • S3               → Gateway Endpoint (free, unlimited)                   │
+│  • SQS              → Interface Endpoint (~$7/mo)                          │
+│  • Secrets Manager  → Interface Endpoint (~$7/mo)                          │
+│  • ECR              → Interface Endpoint (~$7/mo)                          │
 │                                                                              │
-│  Risk: Bulk workers fetching 100GB of assets will:                         │
-│  • Exhaust CPU credits                                                      │
-│  • Throttle network throughput                                             │
-│  • Cause bulk job timeouts                                                 │
+│  NAT INSTANCE (t4g.nano, $3/month):                                        │
+│  ─────────────────────────────────────                                      │
+│  Only used for external traffic:                                           │
+│  • Cloudflare R2 API (template uploads only - once per passport)           │
+│  • External webhooks                                                        │
+│  • Third-party APIs (Shopify, etc.)                                        │
 │                                                                              │
-│  Trigger for Upgrade:                                                       │
-│  • First Platform tier customer OR                                          │
-│  • Bulk jobs processing >10GB/day consistently                             │
+│  WHY NAT IS NOT A BOTTLENECK:                                              │
+│  ─────────────────────────────                                              │
+│  With deduplicated storage, bulk workers write to DynamoDB (VPC Endpoint)  │
+│  NOT to R2 for each item. R2 only receives template uploads (~50KB each,  │
+│  once per passport, not per-item).                                         │
+│                                                                              │
+│  Example: 1M items batch                                                    │
+│  • DynamoDB writes: 1M × 500 bytes = 500MB (via VPC Endpoint - no NAT)    │
+│  • R2 upload: 1 template × 50KB = 50KB (via NAT - trivial)                │
+│                                                                              │
+│  NAT UPGRADE TRIGGER:                                                       │
+│  ─────────────────────                                                      │
+│  • First Platform tier customer (dedicated infrastructure) OR              │
+│  • External API calls >10GB/day OR                                         │
+│  • Bulk Shopify syncs with high asset volumes                              │
 │                                                                              │
 │  Upgrade Path:                                                              │
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
