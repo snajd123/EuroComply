@@ -43,28 +43,28 @@ EuroComply targets SMEs and mid-market organizations who:
 │                    CUSTOMER SEGMENTS                             │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  STARTER (€79/month base + per-DPP)                             │
+│  STARTER (€149/month base + per-DPP)                            │
 │  ├── Company size: Micro-businesses, startups                   │
 │  ├── SKU count: 1-100 products                                  │
 │  ├── DPP volume: 100-10K DPPs/year                              │
 │  ├── Use case: First ESPR compliance, testing waters            │
 │  └── Example: Small fashion label, local furniture maker        │
 │                                                                  │
-│  GROWTH (€199/month base + per-DPP)                             │
+│  GROWTH (€299/month base + per-DPP)                             │
 │  ├── Company size: Small businesses                             │
 │  ├── SKU count: 100-2,000 products                              │
 │  ├── DPP volume: 10K-100K DPPs/year                             │
 │  ├── Use case: Growing brand with product-level DPPs            │
 │  └── Example: Fashion brand, homeware manufacturer              │
 │                                                                  │
-│  SCALE (€599/month base + per-DPP)                              │
+│  SCALE (€749/month base + per-DPP)                              │
 │  ├── Company size: Mid-market                                   │
 │  ├── SKU count: 2,000-20,000 products                           │
 │  ├── DPP volume: 100K-5M DPPs/year                              │
 │  ├── Use case: Item-level tracking, serialized products         │
 │  └── Example: Electronics brand, industrial equipment           │
 │                                                                  │
-│  ENTERPRISE (€1,499/month base + per-DPP)                       │
+│  ENTERPRISE (€1,999/month base + per-DPP)                       │
 │  ├── Company size: Large mid-market                             │
 │  ├── SKU count: 20,000+ products                                │
 │  ├── DPP volume: 5M-100M DPPs/year                              │
@@ -114,7 +114,7 @@ EuroComply uses a **Base Fee + Per-DPP** pricing model that separates platform a
 │  ├── Full platform access (all 4 workspaces)                    │
 │  ├── Unlimited products/SKUs (no catalog size limits)           │
 │  ├── Unlimited users                                            │
-│  ├── Unlimited storage (products, images, PDFs, all data)       │
+│  ├── Generous storage (500GB-5TB depending on tier)             │
 │  ├── API access and webhooks                                    │
 │  └── Support level (varies by tier)                             │
 │                                                                  │
@@ -131,15 +131,15 @@ EuroComply uses a **Base Fee + Per-DPP** pricing model that separates platform a
 
 ### Pricing Tiers
 
-| Tier | Base Fee | Starting DPP Price | Volume Discounts |
-|------|----------|-------------------|------------------|
-| **Starter** | €79/mo | €0.10/DPP | 10K+: €0.08 |
-| **Growth** | €199/mo | €0.05/DPP | 50K+: €0.03, 100K+: €0.02 |
-| **Scale** | €599/mo | €0.02/DPP | 500K+: €0.01, 1M+: €0.008 |
-| **Enterprise** | €1,499/mo | €0.008/DPP | 5M+: €0.005, 10M+: €0.003 |
-| **Platform** | Custom | €0.001-0.003/DPP | Negotiated |
+| Tier | Base Fee | Storage | Starting DPP Price | Volume Discounts |
+|------|----------|---------|-------------------|------------------|
+| **Starter** | €149/mo | 500 GB | €0.10/DPP | 10K+: €0.08 |
+| **Growth** | €299/mo | 1 TB | €0.05/DPP | 50K+: €0.03, 100K+: €0.02 |
+| **Scale** | €749/mo | 2 TB | €0.02/DPP | 500K+: €0.01, 1M+: €0.008 |
+| **Enterprise** | €1,999/mo | 5 TB | €0.008/DPP | 5M+: €0.005, 10M+: €0.003 |
+| **Platform** | Custom | Custom | €0.001-0.003/DPP | Negotiated |
 
-*All tiers include unlimited storage for products, images, PDFs, and all workspace data.*
+*Storage is for media files (images, PDFs, videos). Product data records and DPP metadata are unlimited.*
 
 ### Volume Discount Details
 
@@ -179,26 +179,41 @@ Each tier has built-in volume discount thresholds that automatically apply as mo
 
 | Tier | Monthly | Annual | Annual Savings |
 |------|---------|--------|----------------|
-| Starter | €79/mo | €758/year | €190/year |
-| Growth | €199/mo | €1,910/year | €478/year |
-| Scale | €599/mo | €5,750/year | €1,438/year |
-| Enterprise | €1,499/mo | €14,390/year | €3,598/year |
+| Starter | €149/mo | €1,430/year | €358/year |
+| Growth | €299/mo | €2,870/year | €718/year |
+| Scale | €749/mo | €7,190/year | €1,798/year |
+| Enterprise | €1,999/mo | €19,190/year | €4,798/year |
 
 *Per-DPP fees are always billed monthly based on actual usage.*
 
-### Unlimited Storage Policy
+### Storage Allowances
 
-All tiers include **unlimited storage** for:
-- Product data, specifications, and BOMs
+Each tier includes generous storage for product media and documents:
+
+| Tier | Storage Included |
+|------|------------------|
+| Starter | 500 GB |
+| Growth | 1 TB |
+| Scale | 2 TB |
+| Enterprise | 5 TB |
+| Platform | Custom |
+
+**What counts toward storage:**
 - Product images and marketing assets
 - PDFs (certifications, spec sheets, compliance documents)
 - Supplier documentation and certificates
 - Videos and rich media content
+
+**What's NOT counted (unlimited):**
+- Product data records, specifications, and BOMs
+- DPP metadata and EPCIS events
 - All workspace data (Design, Operations, Marketing, Compliance)
 
-**Fair Use**: Storage is intended for product lifecycle and compliance data related to your business operations. We reserve the right to contact customers with usage patterns significantly exceeding typical business use (e.g., using EuroComply as general-purpose file hosting unrelated to products).
-
-**No Surprises**: We will never charge overage fees or automatically upgrade your tier based on storage. If usage becomes extreme, we'll work with you to find a solution.
+**If you reach your limit:**
+- We'll notify you at 90% usage via email and dashboard
+- At 100%, new uploads are paused (existing data unaffected)
+- Upgrade anytime for instant additional storage, or clean up unused files
+- Your data is NEVER deleted due to storage limits
 
 ---
 
@@ -216,7 +231,7 @@ All tiers include full platform access. Differences are in support level and per
 | **Limits** | | | | | |
 | Products/SKUs | Unlimited | Unlimited | Unlimited | Unlimited | Unlimited |
 | Users | Unlimited | Unlimited | Unlimited | Unlimited | Unlimited |
-| Storage | Unlimited | Unlimited | Unlimited | Unlimited | Unlimited |
+| Storage (media) | 500 GB | 1 TB | 2 TB | 5 TB | Custom |
 | API Rate Limit | 100/min | 500/min | 2,000/min | 10,000/min | Custom |
 | **DPP Pricing** | | | | | |
 | Base DPP Price | €0.10 | €0.05 | €0.02 | €0.008 | Custom |
@@ -256,12 +271,12 @@ Scenario: Fashion brand with 500 SKUs, product-level DPPs only
 - Monthly DPPs: ~42
 
 Monthly Bill:
-  Base fee:     €199
+  Base fee:     €299
   DPPs:         42 × €0.05 = €2.10
   ─────────────────────────────
-  TOTAL:        €201.10/month
+  TOTAL:        €301.10/month
 
-Annual: €2,413
+Annual: €3,613
 ```
 
 ### Example 2: Electronics Manufacturer (Scale Tier)
@@ -274,12 +289,12 @@ Scenario: Consumer electronics with serialized items
 - Monthly DPPs: ~42,000
 
 Monthly Bill:
-  Base fee:     €599
+  Base fee:     €749
   DPPs:         42,000 × €0.02 = €840
   ─────────────────────────────────
-  TOTAL:        €1,439/month
+  TOTAL:        €1,589/month
 
-Annual: €17,268
+Annual: €19,068
 ```
 
 ### Example 3: Battery Cell Manufacturer (Enterprise Tier)
@@ -292,20 +307,20 @@ Scenario: EV battery manufacturer with cell-level tracking
 - Monthly DPPs: ~4.2M
 
 Monthly Bill (with volume discounts):
-  Base fee:           €1,499
+  Base fee:           €1,999
   First 5M DPPs:      5,000,000 × €0.008 = €40,000
   Remaining DPPs:     (4.2M - 4.2M first month doesn't exceed 5M)
   Actually: 4.2M all at €0.008 = €33,600
   ─────────────────────────────────────────────
-  TOTAL:              €35,099/month
+  TOTAL:              €35,599/month
 
-Annual: €421,188
+Annual: €427,188
 
 At scale (hitting 10M+ DPPs/month):
-  Base fee:           €1,499
+  Base fee:           €1,999
   DPPs at €0.003:     10,000,000 × €0.003 = €30,000
   ───────────────────────────────────────────────
-  TOTAL:              €31,499/month
+  TOTAL:              €31,999/month
 ```
 
 ### Example 4: Automotive Supplier (Platform Tier)
@@ -415,12 +430,12 @@ The per-DPP model creates a significant shift in revenue composition:
 
 | Tier | Customers | % | Avg Base Fee | Base MRR | DPP MRR | Total MRR |
 |------|-----------|---|--------------|----------|---------|-----------|
-| Starter | 1,800 | 30% | €79 | €142K | €36K | €178K |
-| Growth | 2,400 | 40% | €199 | €478K | €240K | €718K |
-| Scale | 1,200 | 20% | €599 | €719K | €1.2M | €1.9M |
-| Enterprise | 540 | 9% | €1,499 | €809K | €4.3M | €5.1M |
+| Starter | 1,800 | 30% | €149 | €268K | €36K | €304K |
+| Growth | 2,400 | 40% | €299 | €718K | €240K | €958K |
+| Scale | 1,200 | 20% | €749 | €899K | €1.2M | €2.1M |
+| Enterprise | 540 | 9% | €1,999 | €1,079K | €4.3M | €5.4M |
 | Platform | 60 | 1% | €24,200 | €1,452K | €2.3M | €3.8M |
-| **Total** | **6,000** | **100%** | | **€3.6M** | **€8.0M** | **€11.6M** |
+| **Total** | **6,000** | **100%** | | **€4.4M** | **€8.0M** | **€12.5M** |
 
 *Monthly figures. Annual: Base €43.2M + DPP €96M + Services €5M = €144.2M*
 
@@ -905,9 +920,9 @@ Brands and manufacturers pay for DPP creation. Retailers access DPPs for free be
 │  • Total Year 1: €132,000+                                      │
 │                                                                  │
 │  Option C: EuroComply Growth Plan                               │
-│  • Monthly base: €199                                           │
+│  • Monthly base: €299                                           │
 │  • DPPs (20K/year): ~€1,000                                     │
-│  • Total Year 1: €3,388                                         │
+│  • Total Year 1: €4,588                                         │
 │  • Full platform access from day 1                              │
 │                                                                  │
 │  EuroComply is 95%+ cheaper than alternatives.                  │
@@ -1040,7 +1055,7 @@ Awareness → Trial → Conversion → Expansion
 | Enterprise ERP | SAP, Oracle | €200k+/year | Not competing |
 | Mid-Market PLM | Arena, Propel | €30k+/year | Adjacent |
 | Mid-Market PIM | Plytix, Sales Layer | €10k+/year | Adjacent |
-| **SME Unified (PLM + ERP + PIM + DPP)** | EuroComply | €948-18k+/year | **Leader** |
+| **SME Unified (PLM + ERP + PIM + DPP)** | EuroComply | €1,788-24k+/year | **Leader** |
 | DPP-Only Tools | Various | €500-2k/year | Partial overlap |
 
 ### Differentiation
@@ -1055,7 +1070,7 @@ Awareness → Trial → Conversion → Expansion
 | Multi-party attestation | None | None | None | Native |
 | AI import | Limited | Limited | None | Any format |
 | E-commerce sync | Complex | Limited | None | Native Shopify |
-| SME pricing | Unaffordable | Too expensive | Affordable | €79-599/mo base |
+| SME pricing | Unaffordable | Too expensive | Affordable | €149-749/mo base |
 | Per-DPP pricing | N/A | N/A | Some | Native |
 | Setup time | Months | Weeks | Days | Same day |
 
@@ -1069,7 +1084,7 @@ Awareness → Trial → Conversion → Expansion
 | Basic ERP/Inventory (€200-1k/mo) | Operations Workspace (Item Tracking, Inventory) |
 | Entry-level PIM (€300-1.5k/mo) | Marketing Workspace (PIM, DAM, Syndication) |
 | Compliance consultants (€5-20k one-time) | Compliance Workspace (DPP, Attestation) |
-| **Total: €1,000-4,500+/mo** | **EuroComply: €79-599/mo base + per-DPP** |
+| **Total: €1,000-4,500+/mo** | **EuroComply: €149-749/mo base + per-DPP** |
 
 ---
 
@@ -1154,12 +1169,12 @@ Dormant Hosting addresses the ESPR requirement for 10-year data availability whi
 
 | Tier | Customers | % of Base | Base MRR | DPP MRR | Total MRR |
 |------|-----------|-----------|----------|---------|-----------|
-| Starter | 750 | 30% | €59K | €30K | €89K |
-| Growth | 1,125 | 45% | €224K | €225K | €449K |
-| Scale | 500 | 20% | €300K | €500K | €800K |
-| Enterprise | 115 | 4.5% | €172K | €287K | €459K |
+| Starter | 750 | 30% | €112K | €30K | €142K |
+| Growth | 1,125 | 45% | €336K | €225K | €561K |
+| Scale | 500 | 20% | €375K | €500K | €875K |
+| Enterprise | 115 | 4.5% | €230K | €287K | €517K |
 | Platform | 10 | 0.5% | €50K | €100K | €150K |
-| **Total** | **2,500** | **100%** | **€805K** | **€1,142K** | **€1,947K** |
+| **Total** | **2,500** | **100%** | **€1,103K** | **€1,142K** | **€2,245K** |
 
 *Monthly figures. Annual × 12 = €23.4M (including month-over-month growth within year)*
 
@@ -1228,11 +1243,11 @@ Dormant Hosting addresses the ESPR requirement for 10-year data availability whi
 │                                                                  │
 │  PRICING STRUCTURE                                              │
 │  Base Fee + Per-DPP model:                                      │
-│  • Starter: €79/mo base + €0.10/DPP                            │
-│  • Growth: €199/mo base + €0.05/DPP                            │
-│  • Scale: €599/mo base + €0.02/DPP                             │
-│  • Enterprise: €1,499/mo base + €0.008/DPP                     │
-│  • Platform: Custom base + €0.001-0.003/DPP                    │
+│  • Starter: €149/mo base + €0.10/DPP (500 GB storage)          │
+│  • Growth: €299/mo base + €0.05/DPP (1 TB storage)             │
+│  • Scale: €749/mo base + €0.02/DPP (2 TB storage)              │
+│  • Enterprise: €1,999/mo base + €0.008/DPP (5 TB storage)      │
+│  • Platform: Custom base + €0.001-0.003/DPP (custom storage)   │
 │                                                                  │
 │  All tiers: Unlimited products/SKUs, unlimited users           │
 │  Volume discounts unlock at tier-specific thresholds           │
@@ -1275,4 +1290,4 @@ Dormant Hosting addresses the ESPR requirement for 10-year data availability whi
 
 ---
 
-*Last Updated: January 14, 2026*
+*Last Updated: January 15, 2026*

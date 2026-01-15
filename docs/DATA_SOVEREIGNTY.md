@@ -1494,22 +1494,22 @@ interface FullExportResponse {
 ┌──────────────────────────────┬───────────────────┬─────────────────────────────┐
 │ Tier                         │ Price             │ Features                    │
 ├──────────────────────────────┼───────────────────┼─────────────────────────────┤
-│ Starter                      │ €79/mo base       │ ✅ Full platform access     │
+│ Starter                      │ €149/mo base      │ ✅ Full platform access     │
 │                              │ + €0.10/DPP       │ ✅ Self-contained VCs       │
-│                              │ 10GB storage      │ ✅ One-click export         │
+│                              │ 500GB storage     │ ✅ One-click export         │
 │                              │                   │ ✅ Signature verification   │
 ├──────────────────────────────┼───────────────────┼─────────────────────────────┤
-│ Growth                       │ €199/mo base      │ ✅ Full platform access     │
+│ Growth                       │ €299/mo base      │ ✅ Full platform access     │
 │                              │ + €0.05/DPP       │ ✅ Shopify sync + API       │
-│                              │ 50GB storage      │ ✅ 50K+: €0.03, 100K+: €0.02│
+│                              │ 1TB storage       │ ✅ 50K+: €0.03, 100K+: €0.02│
 ├──────────────────────────────┼───────────────────┼─────────────────────────────┤
-│ Scale                        │ €599/mo base      │ ✅ Full platform access     │
+│ Scale                        │ €749/mo base      │ ✅ Full platform access     │
 │                              │ + €0.02/DPP       │ ✅ Priority support         │
-│                              │ 200GB storage     │ ✅ 500K+: €0.01, 1M+: €0.008│
+│                              │ 2TB storage       │ ✅ 500K+: €0.01, 1M+: €0.008│
 ├──────────────────────────────┼───────────────────┼─────────────────────────────┤
-│ Enterprise                   │ €1,499/mo base    │ ✅ Full platform access     │
+│ Enterprise                   │ €1,999/mo base    │ ✅ Full platform access     │
 │                              │ + €0.008/DPP      │ ✅ SSO, 99.95% SLA          │
-│                              │ 1TB storage       │ ✅ Dedicated support        │
+│                              │ 5TB storage       │ ✅ Dedicated support        │
 │                              │                   │ ✅ 5M+: €0.005, 10M+: €0.003│
 ├──────────────────────────────┼───────────────────┼─────────────────────────────┤
 │ Platform                     │ Custom base       │ ✅ Dedicated cluster        │
@@ -1520,7 +1520,7 @@ interface FullExportResponse {
 **All tiers include unlimited products/SKUs, unlimited users, and full data sovereignty guarantees.**
 ```
 
-All customers receive full platform access. Tier differentiation is based on storage, support level, and per-DPP pricing.
+All customers receive full platform access. Tier differentiation is based on storage (for media files), support level, and per-DPP pricing.
 
 ---
 

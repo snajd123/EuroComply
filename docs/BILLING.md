@@ -38,8 +38,8 @@ EuroComply uses a **Base Fee + Per-DPP pricing model** that separates platform a
 │  ─────────────────                                              │
 │  • Monthly/annual platform fee                                  │
 │  • Covers: Platform access, storage, support level              │
-│  • Tiers: Starter (€79), Growth (€199), Scale (€599),          │
-│           Enterprise (€1,499), Platform (Custom)                │
+│  • Tiers: Starter (€149), Growth (€299), Scale (€749),         │
+│           Enterprise (€1,999), Platform (Custom)                │
 │                                                                  │
 │  PER-DPP BILLING (Usage-Based)                                  │
 │  ──────────────────────────────                                 │
@@ -86,24 +86,24 @@ EuroComply offers five pricing tiers. All tiers include full platform access wit
 
 ### Tier Comparison
 
-| Plan | Base Fee | Starting DPP Price | Volume Discounts | Support |
-|------|----------|-------------------|------------------|---------|
-| **Starter** | €79/mo | €0.10/DPP | 10K+: €0.08 | Email |
-| **Growth** | €199/mo | €0.05/DPP | 50K+: €0.03, 100K+: €0.02 | Email |
-| **Scale** | €599/mo | €0.02/DPP | 500K+: €0.01, 1M+: €0.008 | Priority |
-| **Enterprise** | €1,499/mo | €0.008/DPP | 5M+: €0.005, 10M+: €0.003 | Dedicated |
-| **Platform** | Custom | €0.001-0.003 | Negotiated | SLA |
+| Plan | Base Fee | Storage | Starting DPP Price | Volume Discounts | Support |
+|------|----------|---------|-------------------|------------------|---------|
+| **Starter** | €149/mo | 500 GB | €0.10/DPP | 10K+: €0.08 | Email |
+| **Growth** | €299/mo | 1 TB | €0.05/DPP | 50K+: €0.03, 100K+: €0.02 | Email |
+| **Scale** | €749/mo | 2 TB | €0.02/DPP | 500K+: €0.01, 1M+: €0.008 | Priority |
+| **Enterprise** | €1,999/mo | 5 TB | €0.008/DPP | 5M+: €0.005, 10M+: €0.003 | Dedicated |
+| **Platform** | Custom | Custom | €0.001-0.003 | Negotiated | SLA |
 
-*All tiers include unlimited storage for products, images, PDFs, and all workspace data.*
+*Storage is for media files (images, PDFs, videos). Product data records and DPP metadata are unlimited.*
 
 ### Annual Pricing (20% discount on base fee)
 
 | Plan | Monthly | Annual | Annual Savings |
 |------|---------|--------|----------------|
-| Starter | €79/mo | €758/year | €190/year |
-| Growth | €199/mo | €1,910/year | €478/year |
-| Scale | €599/mo | €5,750/year | €1,438/year |
-| Enterprise | €1,499/mo | €14,390/year | €3,598/year |
+| Starter | €149/mo | €1,430/year | €358/year |
+| Growth | €299/mo | €2,870/year | €718/year |
+| Scale | €749/mo | €7,190/year | €1,798/year |
+| Enterprise | €1,999/mo | €19,190/year | €4,798/year |
 
 *Per-DPP fees are always billed monthly based on actual usage.*
 
@@ -112,7 +112,7 @@ EuroComply offers five pricing tiers. All tiers include full platform access wit
 - All four workspaces (Design, Operations, Marketing, Compliance)
 - Unlimited products/SKUs (no catalog size limits)
 - Unlimited users within organization
-- **Unlimited storage** (products, images, PDFs, all data)
+- **Generous storage** (500GB to 5TB depending on tier for media files)
 - Full API access and webhooks
 - Shopify integration
 - Permanent DPP hosting (10+ years)
@@ -156,10 +156,10 @@ All payments are processed through **Stripe** (Stripe Billing + Stripe Tax).
 │                                                                  │
 │  STRIPE PRODUCTS (Base Subscriptions)                           │
 │  ────────────────────────────────────                           │
-│  • EuroComply Starter (€79/month or €758/year)                  │
-│  • EuroComply Growth (€199/month or €1,910/year)                │
-│  • EuroComply Scale (€599/month or €5,750/year)                 │
-│  • EuroComply Enterprise (€1,499/month or €14,390/year)         │
+│  • EuroComply Starter (€149/month or €1,430/year)               │
+│  • EuroComply Growth (€299/month or €2,870/year)                │
+│  • EuroComply Scale (€749/month or €7,190/year)                 │
+│  • EuroComply Enterprise (€1,999/month or €19,190/year)         │
 │  • EuroComply Platform (custom pricing)                         │
 │                                                                  │
 │  METERED BILLING (Per-DPP Usage)                                │
@@ -206,7 +206,7 @@ model Organization {
   billingCycle      Cycle     // MONTHLY, ANNUAL
   currentPeriodEnd  DateTime?
 
-  // Note: Storage is unlimited for all plans (no tracking needed)
+  // Note: Storage limits vary by plan (500GB to 5TB for media files)
 
   // DPP Pricing (per-DPP rate in cents)
   baseDppPrice      Int       // 10, 5, 2, 0.8, or custom (in cents)
@@ -262,7 +262,7 @@ enum SubscriptionStatus {
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
 │  Day 1: Subscription starts                                     │
-│  • Stripe charges €599 for Scale base plan                      │
+│  • Stripe charges €749 for Scale base plan                      │
 │  • currentPeriodEnd = Day 30                                    │
 │  • Organization status = ACTIVE                                 │
 │  • dppCountThisMonth = 0                                        │
@@ -279,7 +279,7 @@ enum SubscriptionStatus {
 │    - Total DPP cost: €12,500                                    │
 │                                                                  │
 │  Day 30: Invoice generated                                      │
-│  • Line item 1: Scale base plan - €599.00                       │
+│  • Line item 1: Scale base plan - €749.00                       │
 │  • Line item 2: DPP usage (750K) - €12,500.00                   │
 │  • VAT (if applicable): €2,619.80 (20%)                         │
 │  • Total: €15,718.80                                            │
@@ -300,8 +300,8 @@ enum SubscriptionStatus {
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
 │  Day 1: Subscription starts                                     │
-│  • Stripe charges €5,750 for Scale annual plan                  │
-│  • 20% discount applied (vs. €7,188 monthly)                    │
+│  • Stripe charges €7,190 for Scale annual plan                  │
+│  • 20% discount applied (vs. €8,988 monthly)                    │
 │  • currentPeriodEnd = Day 365                                   │
 │                                                                  │
 │  Monthly DPP billing                                            │
@@ -315,7 +315,7 @@ enum SubscriptionStatus {
 │  • (Base plan already paid annually)                            │
 │                                                                  │
 │  Day 365: Annual renewal                                        │
-│  • Stripe charges €5,750 for next year                          │
+│  • Stripe charges €7,190 for next year                          │
 │  • Customer receives renewal notification 30 days prior         │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
@@ -426,7 +426,7 @@ function calculateDppCost(plan: Plan, dppCount: number): number {
 │     • Historical data: "Jan: 50K, Feb: 75K, Mar: 120K"          │
 │     • Trend visualization in dashboard                          │
 │                                                                  │
-│  Note: Storage is UNLIMITED - no tracking or limits needed      │
+│  Note: Storage limits vary by plan (500GB-5TB for media files)  │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -454,28 +454,28 @@ function calculateDppCost(plan: Plan, dppCount: number): number {
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
 │  1. USER INITIATES UPGRADE                                      │
-│     Current: Growth (€199/month base + €0.05/DPP)               │
-│     Target: Scale (€599/month base + €0.02/DPP)                 │
+│     Current: Growth (€299/month base + €0.05/DPP)               │
+│     Target: Scale (€749/month base + €0.02/DPP)                 │
 │     Days remaining in period: 15 days                           │
 │                                                                  │
 │  2. CALCULATE PRORATION (Base Fee Only)                         │
-│     • Unused Growth credit: €199 × (15/30) = €99.50            │
-│     • Scale prorated charge: €599 × (15/30) = €299.50          │
-│     • Net charge today: €299.50 - €99.50 = €200.00             │
+│     • Unused Growth credit: €299 × (15/30) = €149.50           │
+│     • Scale prorated charge: €749 × (15/30) = €374.50          │
+│     • Net charge today: €374.50 - €149.50 = €225.00            │
 │                                                                  │
 │  3. CONFIRM WITH USER                                           │
 │     ┌──────────────────────────────────────────────┐           │
 │     │ Upgrade to Scale                              │           │
 │     ├──────────────────────────────────────────────┤           │
-│     │ • Charge today: €200.00 (prorated base)      │           │
-│     │ • Next billing: €599.00 on Feb 15            │           │
+│     │ • Charge today: €225.00 (prorated base)      │           │
+│     │ • Next billing: €749.00 on Feb 15            │           │
 │     │                                               │           │
 │     │ • New DPP pricing:                           │           │
 │     │   - Base: €0.02/DPP (was €0.05)              │           │
 │     │   - 500K+: €0.01/DPP                         │           │
 │     │   - 1M+: €0.008/DPP                          │           │
 │     │                                               │           │
-│     │ • Storage: Unlimited (no change)            │           │
+│     │ • Storage: 2 TB (was 1 TB)                   │           │
 │     │ • Priority support enabled                   │           │
 │     │                                               │           │
 │     │ [Cancel]  [Confirm Upgrade]                  │           │
@@ -483,7 +483,7 @@ function calculateDppCost(plan: Plan, dppCount: number): number {
 │                                                                  │
 │  4. EXECUTE UPGRADE                                             │
 │     • Stripe.subscriptions.update(...)                          │
-│     • Immediate charge: €200.00                                 │
+│     • Immediate charge: €225.00                                 │
 │     • Update Organization.plan = 'SCALE'                        │
 │     • Update Organization.baseDppPrice = 2 (cents)              │
 │     • DPPs issued rest of month at new rate                     │
@@ -504,21 +504,21 @@ function calculateDppCost(plan: Plan, dppCount: number): number {
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
 │  1. USER INITIATES DOWNGRADE                                    │
-│     Current: Scale (€599/month base)                            │
-│     Target: Growth (€199/month base)                            │
+│     Current: Scale (€749/month base)                            │
+│     Target: Growth (€299/month base)                            │
 │     Days remaining in period: 20 days                           │
 │                                                                  │
 │  2. CALCULATE CREDIT                                            │
-│     • Unused Scale credit: €599 × (20/30) = €399.33            │
-│     • Growth cost: €199 × (20/30) = €132.67                    │
-│     • Credit balance: €266.66                                   │
+│     • Unused Scale credit: €749 × (20/30) = €499.33            │
+│     • Growth cost: €299 × (20/30) = €199.33                    │
+│     • Credit balance: €300.00                                   │
 │                                                                  │
 │  3. CONFIRM WITH USER                                           │
 │     ┌──────────────────────────────────────────────┐           │
 │     │ Downgrade to Growth                           │           │
 │     ├──────────────────────────────────────────────┤           │
 │     │ • Charge today: €0.00                        │           │
-│     │ • Credit applied: €266.66                    │           │
+│     │ • Credit applied: €300.00                    │           │
 │     │ • Next billing: €0.00 (covered by credit)    │           │
 │     │                                               │           │
 │     │ • New DPP pricing:                           │           │
@@ -526,7 +526,7 @@ function calculateDppCost(plan: Plan, dppCount: number): number {
 │     │   - 50K+: €0.03/DPP                          │           │
 │     │   - 100K+: €0.02/DPP                         │           │
 │     │                                               │           │
-│     │ • Storage: Unlimited (no change)            │           │
+│     │ • Storage: 1 TB (was 2 TB)                   │           │
 │     │ • Priority support disabled                  │           │
 │     │                                               │           │
 │     │ [Cancel]  [Confirm Downgrade]                │           │
@@ -563,7 +563,7 @@ function calculateDppCost(plan: Plan, dppCount: number): number {
 │                                                                  │
 │  DESCRIPTION                            QTY      PRICE   AMOUNT  │
 │  ──────────────────────────────────────────────────────────────│
-│  Scale Plan (Monthly Base Fee)           1    €599.00   €599.00 │
+│  Scale Plan (Monthly Base Fee)           1    €749.00   €749.00 │
 │                                                                  │
 │  DPP Usage                                                       │
 │   - First 500,000 DPPs at €0.02    500,000     €0.02 €10,000.00 │
@@ -571,10 +571,10 @@ function calculateDppCost(plan: Plan, dppCount: number): number {
 │  ──────────────────────────────────────────────────────────────│
 │  DPP Subtotal (750,000 DPPs)                        €12,500.00 │
 │                                                                  │
-│                                         Subtotal:    €13,099.00 │
-│                                         VAT (19%):    €2,488.81 │
+│                                         Subtotal:    €13,249.00 │
+│                                         VAT (19%):    €2,517.31 │
 │                                         ───────────────────────│
-│                                         Total:       €15,587.81 │
+│                                         Total:       €15,766.31 │
 │                                                                  │
 │  Payment Method: •••• 4242 (Visa)                               │
 │  Status: PAID - Jan 31, 2026                                    │
@@ -741,35 +741,35 @@ This section covers additional billing scenarios and edge cases not covered in t
 │                                                                              │
 │  ANNUAL → MONTHLY                                                           │
 │  ────────────────                                                           │
-│  Scenario: Customer on Scale Annual (€5,750/year) switches to monthly      │
+│  Scenario: Customer on Scale Annual (€7,190/year) switches to monthly      │
 │                                                                              │
 │  TIMING: Switch takes effect at next renewal                               │
 │  • Current annual period continues until expiry                            │
-│  • At renewal: Monthly billing begins (€599/month)                         │
+│  • At renewal: Monthly billing begins (€749/month)                         │
 │  • No prorated refund for unused annual period                             │
 │                                                                              │
 │  USER FLOW:                                                                 │
 │  1. Admin clicks "Switch to Monthly"                                        │
 │  2. Confirmation dialog explains:                                          │
 │     "Your annual plan continues until [date]. After that,                  │
-│      you'll be billed €599/month. You'll lose the 20% annual discount."   │
+│      you'll be billed €749/month. You'll lose the 20% annual discount."   │
 │  3. On confirmation: Schedule change for renewal date                       │
 │  4. Email confirmation sent                                                 │
 │                                                                              │
 │  MONTHLY → ANNUAL                                                           │
 │  ────────────────                                                           │
-│  Scenario: Customer on Scale Monthly (€599/mo) switches to annual          │
+│  Scenario: Customer on Scale Monthly (€749/mo) switches to annual          │
 │                                                                              │
 │  TIMING: Immediate                                                         │
 │  • Credit remaining monthly period                                         │
-│  • Charge full annual amount (€5,750)                                      │
+│  • Charge full annual amount (€7,190)                                      │
 │  • Apply credit to annual charge                                           │
 │                                                                              │
 │  Example:                                                                   │
 │  • Days remaining in month: 20/30                                          │
-│  • Monthly credit: €599 × (20/30) = €399.33                               │
-│  • Annual charge: €5,750.00                                                │
-│  • Net charge: €5,750.00 - €399.33 = €5,350.67                            │
+│  • Monthly credit: €749 × (20/30) = €499.33                               │
+│  • Annual charge: €7,190.00                                                │
+│  • Net charge: €7,190.00 - €499.33 = €6,690.67                            │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```

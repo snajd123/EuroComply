@@ -529,6 +529,7 @@ X-RateLimit-Retry-After: 45
 | `VERSION_CONFLICT` | 409 | Concurrent edit detected |
 | `PASSPORT_ALREADY_ISSUED` | 409 | Cannot modify issued passport |
 | `RATE_LIMIT_EXCEEDED` | 429 | Rate limit hit |
+| `STORAGE_LIMIT_EXCEEDED` | 507 | Storage limit reached for plan |
 | `INTERNAL_ERROR` | 500 | Unexpected server error |
 | `SERVICE_UNAVAILABLE` | 503 | System temporarily unavailable |
 

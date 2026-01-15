@@ -269,17 +269,17 @@ EuroComply uses a modular architecture. Modules are the backend capabilities tha
 
 All customers receive full platform access with unlimited products/SKUs and users. Pricing is based on a monthly base fee plus per-DPP charges.
 
-| Plan | Base Fee | DPP Price | Volume Discounts | Support |
-|------|----------|-----------|------------------|---------|
-| **Starter** | €79/mo | €0.10/DPP | 10K+: €0.08 | Email |
-| **Growth** | €199/mo | €0.05/DPP | 50K+: €0.03, 100K+: €0.02 | Email |
-| **Scale** | €599/mo | €0.02/DPP | 500K+: €0.01, 1M+: €0.008 | Priority |
-| **Enterprise** | €1,499/mo | €0.008/DPP | 5M+: €0.005, 10M+: €0.003 | Dedicated |
-| **Platform** | Custom | €0.001-0.003 | Negotiated | SLA |
+| Plan | Base Fee | Storage | DPP Price | Volume Discounts | Support |
+|------|----------|---------|-----------|------------------|---------|
+| **Starter** | €149/mo | 500 GB | €0.10/DPP | 10K+: €0.08 | Email |
+| **Growth** | €299/mo | 1 TB | €0.05/DPP | 50K+: €0.03, 100K+: €0.02 | Email |
+| **Scale** | €749/mo | 2 TB | €0.02/DPP | 500K+: €0.01, 1M+: €0.008 | Priority |
+| **Enterprise** | €1,999/mo | 5 TB | €0.008/DPP | 5M+: €0.005, 10M+: €0.003 | Dedicated |
+| **Platform** | Custom | Custom | €0.001-0.003 | Negotiated | SLA |
 
-*All tiers include unlimited storage for products, images, PDFs, and all workspace data.*
+*Storage is for media files (images, PDFs, videos). Product data and DPP metadata are unlimited.*
 
-**Base fee includes:** All four workspaces, unlimited products/SKUs, unlimited users, unlimited storage, API access, Shopify Sync, EPCIS events, 10-year DPP hosting.
+**Base fee includes:** All four workspaces, unlimited products/SKUs, unlimited users, generous storage, API access, Shopify Sync, EPCIS events, 10-year DPP hosting.
 
 **Per-DPP fee includes:** VC issuance, QR code generation, R2 storage, 10-year serving via Cloudflare edge.
 
