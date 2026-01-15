@@ -286,6 +286,10 @@ server_idle_timeout = 600       ; Close idle backend connections after 10min
 server_connect_timeout = 15     ; Timeout for new backend connections
 client_idle_timeout = 300       ; Close idle client connections
 
+; Connection reset - CRITICAL FOR SECURITY
+server_reset_query = DISCARD ALL
+server_reset_query_always = 1   ; Reset even on error/cancel
+
 ; Security
 auth_type = scram-sha-256
 auth_file = /etc/pgbouncer/userlist.txt
@@ -418,6 +422,55 @@ class ConnectionCircuitBreaker {
   }
 }
 ```
+
+### 3.5.1 Connection Isolation Security
+
+Transaction mode with schema-per-tenant requires careful connection handling. However, EuroComply's per-tenant credentials architecture makes cross-tenant data leaks **not possible**.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│              CONNECTION ISOLATION - DEFENSE IN DEPTH                         │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Layer 1: PgBouncer Reset (PRIMARY)                                         │
+│  └── server_reset_query = DISCARD ALL                                       │
+│  └── server_reset_query_always = 1 (even on error)                          │
+│  └── Executed BEFORE connection returned to pool                            │
+│                                                                              │
+│  Layer 2: Per-Tenant Credentials (CRITICAL)                                 │
+│  └── Each tenant has dedicated PostgreSQL role                              │
+│  └── Role has USAGE only on its own schema                                  │
+│  └── Even if search_path leaks, credential can't access other schemas       │
+│                                                                              │
+│  Layer 3: Row-Level Security (DEFENSE IN DEPTH)                             │
+│  └── app.current_org context variable                                       │
+│  └── RLS policies filter by organization_id                                 │
+│  └── Catches any schema isolation failures                                  │
+│                                                                              │
+│  Layer 4: Application-Level SET (BELT AND SUSPENDERS)                       │
+│  └── SET search_path at transaction start                                   │
+│  └── SET app.current_org at transaction start                               │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Why Transaction Mode is Safe with Per-Tenant Credentials:**
+
+| Concern | Mitigation | Residual Risk |
+|---------|------------|---------------|
+| search_path leak | Per-tenant credentials can't access other schemas | None |
+| RESET ALL failure | server_reset_query_always=1 + per-tenant creds | None |
+| Race condition | PgBouncer serializes reset before reuse | None |
+
+**Blast Radius Analysis:**
+
+| Failure Mode | With Cell Credentials | With Per-Tenant Credentials |
+|--------------|----------------------|----------------------------|
+| search_path leak | ~200 tenants exposed | 0 tenants exposed |
+| RESET failure | ~200 tenants exposed | 0 tenants exposed |
+| Both failures | ~200 tenants exposed | 0 tenants exposed |
+
+Per-tenant credentials make the pooling mode security concern **moot**. See SECURITY.md §13.10 for credential implementation details.
 
 ### 3.6 Tenant Provisioning
 

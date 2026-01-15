@@ -2239,6 +2239,42 @@ With Cell-Level Hardening, the attack scenario outcomes improve:
 | Complete cell compromise | Quarantine + migration | ~200 tenants, hours to recover | ~200 tenants, minutes to migrate |
 | Credential enumeration | Per-tenant secrets, rotation | Persistent access | Access revoked within rotation window |
 
+#### 13.10.7 Connection Isolation Guarantees
+
+With per-tenant credentials, cross-tenant data leaks via connection pooling are **not possible**, even with PgBouncer transaction mode:
+
+```
+SCENARIO: Connection returned to pool with stale search_path
+
+1. Tenant A transaction completes
+2. Connection has search_path = tenant_a_schema
+3. Connection returned to pool (DISCARD ALL runs via server_reset_query)
+4. Tenant B acquires connection
+5. Even if DISCARD ALL failed:
+   - Tenant B's credential can only access tenant_b_schema
+   - Any query against tenant_a_schema fails with permission denied
+   - RLS policies also filter by app.current_org
+```
+
+**Blast Radius Analysis:**
+
+| Failure Mode | With Cell Credentials | With Per-Tenant Credentials |
+|--------------|----------------------|----------------------------|
+| search_path leak | ~200 tenants exposed | **0 tenants exposed** |
+| RESET failure | ~200 tenants exposed | **0 tenants exposed** |
+| Both failures | ~200 tenants exposed | **0 tenants exposed** |
+
+**Critical PgBouncer Settings (must be configured):**
+
+```ini
+server_reset_query = DISCARD ALL
+server_reset_query_always = 1    ; Reset even on error/cancel
+```
+
+Per-tenant credentials make the pooling mode security concern **moot**. The credential itself enforces schema isolation at the PostgreSQL permission level, independent of application-level `search_path` settings.
+
+See Architecture Document §3.5.1 for the full defense-in-depth diagram.
+
 ### 13.11 Schema Provisioning Automation
 
 This section details the automated provisioning of tenant schemas during onboarding.
