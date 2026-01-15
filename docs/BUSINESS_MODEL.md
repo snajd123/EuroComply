@@ -476,30 +476,54 @@ The per-DPP model creates a significant shift in revenue composition:
 │  ├── Template cached at edge (30-day TTL)                       │
 │  └── Subtotal: ~€0 (amortized over many scans)                  │
 │                                                                  │
-│  SUBTOTAL PER DPP: ~€0.00015                                    │
-│  WITH BUFFER (2x): ~€0.0003                                     │
-│  USED FOR PRICING: €0.001 (conservative, maintains margins)     │
+│  SUBTOTAL (GENERATION + STORAGE): ~€0.00015                     │
+│                                                                  │
+│  10-YEAR OPERATIONAL COSTS (often overlooked):                  │
+│  ├── Status list hosting: €0.00005/DPP                          │
+│  │   (BitSet ~1 byte/credential, S3 hosting, 120 months)        │
+│  ├── Format migration reserve: €0.00010/DPP                     │
+│  │   (VC spec evolution, template re-rendering, data migration) │
+│  ├── Inflation buffer (3%/year compounded): €0.00005/DPP        │
+│  │   (Storage/compute costs may increase over decade)           │
+│  └── Subtotal operational: ~€0.00020                            │
+│                                                                  │
+│  TOTAL 10-YEAR TCO PER DPP: ~€0.00035                           │
+│  WITH RISK BUFFER (3x): ~€0.001                                 │
+│  USED FOR PRICING: €0.001 (conservative, break-even at floor)   │
+│                                                                  │
+│  PLATFORM TIER ANALYSIS (€0.001/DPP):                           │
+│  ────────────────────────────────────                            │
+│  At Platform floor pricing, DPP margin is ~0%. This is          │
+│  intentional - Platform tier monetizes via:                     │
+│  • High base subscription (€5,000+/month)                       │
+│  • Volume guarantees (100M+ DPPs committed)                     │
+│  • Professional services (integration, training)                │
+│  • Multi-year contracts (prepaid discounts)                     │
+│                                                                  │
+│  The €0.001 floor ensures we never lose money on DPPs.          │
 │                                                                  │
 │  10-YEAR PROJECTION (10B DPPs):                                 │
 │  ├── Naive approach: 10B × 30KB files = 300TB = ~€54M           │
-│  ├── Deduplicated (actual): 10B × €0.0003 = ~€3M                │
-│  ├── Deduplicated (pricing): 10B × €0.001 = ~€10M               │
-│  └── SAVINGS vs naive: 82-94%                                   │
+│  ├── Deduplicated TCO: 10B × €0.00035 = ~€3.5M                  │
+│  ├── Revenue at €0.001: 10B × €0.001 = €10M                     │
+│  ├── Gross profit: €6.5M (65% margin at floor price)            │
+│  └── SAVINGS vs naive: 94%                                      │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ### Gross Margin by Tier
 
-| Tier | DPP Price | Est. Cost/DPP | Gross Margin |
-|------|-----------|---------------|--------------|
-| Starter | €0.10 | €0.001 | **99%** |
-| Growth | €0.05 | €0.001 | **98%** |
-| Scale | €0.02 | €0.001 | **95%** |
-| Enterprise | €0.008 | €0.001 | **87.5%** |
-| Platform | €0.001-0.003 | €0.001 | **0-67%** |
+| Tier | DPP Price | 10-Year TCO | Gross Margin |
+|------|-----------|-------------|--------------|
+| Starter | €0.10 | €0.00035 | **99.7%** |
+| Growth | €0.05 | €0.00035 | **99.3%** |
+| Scale | €0.02 | €0.00035 | **98.3%** |
+| Enterprise | €0.008 | €0.00035 | **95.6%** |
+| Platform (floor) | €0.001 | €0.00035 | **65%** |
+| Platform (typical) | €0.002 | €0.00035 | **82.5%** |
 
-**Key Insight**: Even at the lowest Platform pricing (€0.001/DPP), margins remain positive. At higher tiers, DPP revenue is extremely profitable.
+**Key Insight**: With full 10-year TCO modeling (including status list hosting, format migration reserves, and inflation buffer), even the Platform floor price of €0.001/DPP maintains 65% gross margin. The €0.001 floor is sustainable, not break-even.
 
 ### Overall Unit Economics
 
