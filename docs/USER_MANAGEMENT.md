@@ -925,58 +925,95 @@ interface CheckoutSettings {
 }
 ```
 
-**Background Job:**
+**Background Job (Scale-Ready with Race Condition Prevention):**
+
+At scale, multiple worker instances may run this job simultaneously. We use `SELECT ... FOR UPDATE SKIP LOCKED` to prevent race conditions where multiple workers process the same expired checkout:
 
 ```typescript
-// Runs every 15 minutes
+// Runs every 15 minutes - SCALE-SAFE with distributed workers
 async function releaseExpiredCheckouts(): Promise<void> {
   const now = new Date();
 
-  // Find expired checkouts with org-specific timeouts
-  const expired = await prisma.$queryRaw<CheckoutRecord[]>`
-    SELECT p.id, p."designCheckedOutById", p."designCheckedOutAt",
-           p."marketingCheckedOutById", p."marketingCheckedOutAt"
-    FROM "Product" p
-    JOIN "Organization" o ON p."organizationId" = o.id
-    WHERE (
-      p."designCheckedOutAt" < ${now} - INTERVAL '1 hour' * COALESCE(
-        (o.settings->>'checkoutTimeoutHours')::int, 72
+  // Use a transaction with row-level locking to prevent race conditions
+  await prisma.$transaction(async (tx) => {
+    // Find and LOCK expired checkouts - SKIP LOCKED prevents worker conflicts
+    const expired = await tx.$queryRaw<CheckoutRecord[]>`
+      SELECT p.id, p."organizationId",
+             p."designCheckedOutById", p."designCheckedOutAt",
+             p."marketingCheckedOutById", p."marketingCheckedOutAt"
+      FROM "Product" p
+      JOIN "Organization" o ON p."organizationId" = o.id
+      WHERE (
+        p."designCheckedOutAt" < ${now} - INTERVAL '1 hour' * COALESCE(
+          (o.settings->>'checkoutTimeoutHours')::int, 72
+        )
+        OR
+        p."marketingCheckedOutAt" < ${now} - INTERVAL '1 hour' * COALESCE(
+          (o.settings->>'checkoutTimeoutHours')::int, 72
+        )
       )
-      OR
-      p."marketingCheckedOutAt" < ${now} - INTERVAL '1 hour' * COALESCE(
-        (o.settings->>'checkoutTimeoutHours')::int, 72
-      )
-    )
-  `;
+      FOR UPDATE SKIP LOCKED
+      LIMIT 100
+    `;
 
-  for (const checkout of expired) {
-    // Release lock but preserve draft
-    await prisma.product.update({
-      where: { id: checkout.id },
-      data: {
-        designCheckedOutById: null,
-        designCheckedOutAt: null,
-        // Note: draftDesignVersionId NOT cleared - draft preserved
+    for (const checkout of expired) {
+      // Release lock but preserve draft
+      await tx.product.update({
+        where: { id: checkout.id },
+        data: {
+          designCheckedOutById: null,
+          designCheckedOutAt: null,
+          marketingCheckedOutById: null,
+          marketingCheckedOutAt: null,
+          // Note: draft NOT cleared - preserved for user recovery
+        }
+      });
+
+      // Notify original user(s)
+      const holders = [
+        checkout.designCheckedOutById,
+        checkout.marketingCheckedOutById
+      ].filter(Boolean);
+
+      for (const userId of holders) {
+        await notifyUser(userId, {
+          type: 'CHECKOUT_EXPIRED',
+          productId: checkout.id,
+          message: 'Your checkout has expired. Your draft is still available.',
+        });
       }
-    });
 
-    // Notify original user
-    await notifyUser(checkout.designCheckedOutById, {
-      type: 'CHECKOUT_EXPIRED',
-      productId: checkout.id,
-      message: 'Your checkout has expired. Your draft is still available.',
-    });
-
-    // Audit log
-    await auditLog.record({
-      action: 'CHECKOUT_AUTO_RELEASED',
-      productId: checkout.id,
-      previousHolder: checkout.designCheckedOutById,
-      reason: 'timeout',
-    });
-  }
+      // Audit log - within transaction for consistency
+      await tx.auditLog.create({
+        data: {
+          organizationId: checkout.organizationId,
+          resourceType: 'product',
+          resourceId: checkout.id,
+          action: 'CHECKOUT_AUTO_RELEASED',
+          actorId: SYSTEM_USER_ID, // '00000000-0000-0000-0000-000000000000'
+          actorType: 'system',
+          details: {
+            designHolder: checkout.designCheckedOutById,
+            marketingHolder: checkout.marketingCheckedOutById,
+            reason: 'timeout',
+            source: 'background_job',
+          },
+        },
+      });
+    }
+  });
 }
 ```
+
+**Why `FOR UPDATE SKIP LOCKED`?**
+
+| Pattern | Behavior | Use Case |
+|---------|----------|----------|
+| `FOR UPDATE` | Blocks until lock acquired | Single worker, strict ordering |
+| `FOR UPDATE NOWAIT` | Fails immediately if locked | Interactive requests |
+| **`FOR UPDATE SKIP LOCKED`** | **Skips locked rows** | **Distributed workers (our case)** |
+
+This allows multiple worker instances to process different expired checkouts concurrently without conflicts or duplicated work.
 
 **Why 72 Hours Default:**
 

@@ -156,6 +156,266 @@ interface ProductCheckout {
 }
 ```
 
+### Workspace Data Contracts (Scale Architecture)
+
+To prevent tight coupling between workspaces and enable independent scaling, the Compliance workspace queries through **immutable view contracts** rather than direct table access.
+
+```typescript
+// ══════════════════════════════════════════════════════════════════════════════
+// WORKSPACE VIEW CONTRACTS
+// Compliance workspace queries these interfaces, not raw tables
+// ══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Immutable view of Design workspace data for DPP issuance
+ * Compliance workspace sees this - cannot modify
+ */
+interface DesignDataView {
+  readonly productId: string;
+  readonly versionId: string;
+  readonly versionNumber: number;
+  readonly state: 'released_to_ops';  // ONLY released versions visible
+
+  // Product definition
+  readonly name: string;
+  readonly gtin?: string;
+  readonly sku?: string;
+  readonly category: string;
+
+  // Bill of Materials (immutable at release)
+  readonly materials: ReadonlyArray<{
+    name: string;
+    percentage: number;
+    recycled: boolean;
+    certified: boolean;
+    certificationName?: string;
+    countryOfOrigin?: string;
+  }>;
+
+  // Sustainability metrics
+  readonly sustainability: Readonly<{
+    carbonFootprintKgCO2e?: number;
+    carbonScope?: 'cradle-to-gate' | 'cradle-to-grave' | 'gate-to-gate';
+    recyclabilityPercent?: number;
+    recycledContentPercent?: number;
+    durabilityScore?: number;  // 1-10
+    repairabilityScore?: number;  // 1-10
+  }>;
+
+  // Certifications attached at Design
+  readonly certifications: ReadonlyArray<{
+    name: string;
+    issuingBody: string;
+    certificateNumber?: string;
+    issueDate?: Date;
+    expiryDate?: Date;
+    verificationUrl?: string;
+  }>;
+
+  // Third-party attestations linked to Design
+  readonly attestations: ReadonlyArray<AttestationView>;
+
+  // Audit trail
+  readonly releasedAt: Date;
+  readonly releasedBy: string;
+}
+
+/**
+ * Immutable view of Operations workspace data for DPP issuance
+ */
+interface OperationsDataView {
+  readonly batchId: string;
+  readonly batchNumber: string;
+  readonly quantity: number;
+  readonly status: 'completed' | 'in_production';  // Only production batches
+
+  // Linked Design version (frozen at batch creation)
+  readonly designVersionId: string;
+  readonly designVersionNumber: number;
+
+  // Production data
+  readonly productionFacility?: string;
+  readonly productionDate?: Date;
+  readonly productionCountry?: string;
+
+  // Material lots used (traceability)
+  readonly materialLots: ReadonlyArray<{
+    materialName: string;
+    lotNumber: string;
+    quantity: number;
+    supplierName?: string;
+  }>;
+
+  // EPCIS events (supply chain events)
+  readonly epcisEvents: ReadonlyArray<{
+    eventType: 'ObjectEvent' | 'AggregationEvent' | 'TransformationEvent';
+    action: 'ADD' | 'OBSERVE' | 'DELETE';
+    eventTime: Date;
+    readPoint?: string;
+    bizLocation?: string;
+  }>;
+
+  // Third-party attestations from Operations
+  readonly attestations: ReadonlyArray<AttestationView>;
+}
+
+/**
+ * Immutable view of Marketing workspace data for DPP issuance
+ */
+interface MarketingDataView {
+  readonly versionId: string;
+  readonly versionNumber: number;
+  readonly state: 'released_for_dpp';  // ONLY released versions visible
+
+  // Commercial content
+  readonly brandStory?: string;
+  readonly careInstructions?: string;
+  readonly warrantyInfo?: string;
+
+  // Media assets (URLs to R2 storage)
+  readonly images: ReadonlyArray<{
+    url: string;
+    altText?: string;
+    type: 'primary' | 'gallery' | 'detail';
+  }>;
+
+  // Localized content
+  readonly localizations: ReadonlyArray<{
+    locale: string;  // e.g., 'de-DE', 'fr-FR'
+    brandStory?: string;
+    careInstructions?: string;
+  }>;
+
+  // Channel-specific data
+  readonly channels: ReadonlyArray<{
+    channelType: 'shopify' | 'amazon' | 'direct';
+    externalId?: string;
+    listingUrl?: string;
+  }>;
+
+  // Audit trail
+  readonly releasedAt: Date;
+  readonly releasedBy: string;
+}
+
+/**
+ * Unified view of attestation data across all workspaces
+ */
+interface AttestationView {
+  readonly id: string;
+  readonly type: string;  // 'MaterialOrigin', 'CarbonFootprint', etc.
+
+  // Contributor who created the attestation
+  readonly contributor: Readonly<{
+    did: string;
+    name: string;
+    role: 'supplier' | 'lab' | 'auditor' | 'manufacturer';
+  }>;
+
+  // Verifiable Credential
+  readonly credential: Readonly<{
+    vcId: string;
+    issuedAt: Date;
+    expiresAt?: Date;
+    signatureValid: boolean;
+    revoked: boolean;
+  }>;
+
+  // Attestation-specific claims
+  readonly claims: Readonly<Record<string, unknown>>;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// DPP SNAPSHOT SERVICE (Compliance Workspace)
+// ══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Service that creates DPP snapshots from workspace views
+ * Uses contracts - never queries tables directly
+ */
+interface DPPSnapshotService {
+  /**
+   * Create an immutable snapshot for DPP issuance
+   * All workspace views are captured at this moment
+   */
+  createSnapshot(params: {
+    organizationId: string;
+    batchId: string;
+    designVersionId: string;
+    marketingVersionId?: string;
+  }): Promise<DPPSnapshot>;
+
+  /**
+   * Get workspace views (for preview before snapshot)
+   */
+  getDesignView(versionId: string): Promise<DesignDataView>;
+  getOperationsView(batchId: string): Promise<OperationsDataView>;
+  getMarketingView(versionId: string): Promise<MarketingDataView | null>;
+}
+
+/**
+ * Immutable snapshot - captured state at DPP creation
+ * This is what gets signed and issued as a VC
+ */
+interface DPPSnapshot {
+  readonly id: string;
+  readonly createdAt: Date;
+  readonly createdBy: string;
+
+  // Captured workspace data (immutable)
+  readonly design: DesignDataView;
+  readonly operations: OperationsDataView;
+  readonly marketing: MarketingDataView | null;
+
+  // Verification state
+  readonly allAttestationsVerified: boolean;
+  readonly attestationCount: number;
+
+  // After issuance
+  readonly issuedAt?: Date;
+  readonly vcId?: string;
+}
+```
+
+**Why Contracts Matter at Scale:**
+
+| Without Contracts | With Contracts |
+|-------------------|----------------|
+| Compliance queries Design tables directly | Compliance queries `DesignDataView` interface |
+| Schema changes break Compliance | Interface remains stable |
+| Can't cache workspace views | Views are read-only, highly cacheable |
+| Tight coupling prevents independent deployment | Workspaces can evolve independently |
+| Testing requires full database | Mock interfaces for unit tests |
+
+**Implementation Note:**
+
+```typescript
+// Repository implements the contract
+class DesignWorkspaceRepository implements DesignDataViewProvider {
+  async getDesignView(versionId: string): Promise<DesignDataView> {
+    const version = await this.prisma.designVersion.findUnique({
+      where: { id: versionId },
+      include: {
+        materials: true,
+        certifications: true,
+        attestations: { include: { contributor: true } },
+      },
+    });
+
+    if (!version || version.state !== 'released_to_ops') {
+      throw new NotFoundError('Design version not released');
+    }
+
+    // Map to immutable view contract
+    return Object.freeze({
+      productId: version.productId,
+      versionId: version.id,
+      // ... map all fields
+    });
+  }
+}
+```
+
 ### Check-Out/Check-In Flow
 
 ```
@@ -303,6 +563,78 @@ We deliberately do NOT implement server-side draft storage because:
 4. **Performance**: No server round-trips during editing
 
 **Recommendation for users**: Check in frequently with descriptive change notes. This creates clear version history and ensures work is never lost.
+
+#### Concurrent Checkout Release (Scale Pattern)
+
+At scale, a background job periodically releases expired checkouts. To prevent race conditions where multiple workers process the same expired checkout, we use `SELECT ... FOR UPDATE SKIP LOCKED`:
+
+```sql
+-- Background job: Release expired checkouts
+-- Uses SKIP LOCKED to prevent double-processing across workers
+
+BEGIN;
+
+-- Select expired checkouts that aren't being processed by another worker
+SELECT id, product_id, workspace, checked_out_by
+FROM product_versions
+WHERE status = 'checked_out'
+  AND checkout_expires_at < NOW()
+  AND deleted_at IS NULL
+FOR UPDATE SKIP LOCKED
+LIMIT 100;
+
+-- Release the selected checkouts
+UPDATE product_versions
+SET status = 'checked_in',
+    checked_out_by = NULL,
+    checkout_expires_at = NULL,
+    updated_at = NOW(),
+    updated_by = '00000000-0000-0000-0000-000000000000', -- System user
+    version = version + 1
+WHERE id IN (/* selected IDs */);
+
+-- Log the timeout events
+INSERT INTO audit_log (
+    organization_id, resource_type, resource_id,
+    action, actor_id, actor_type, details, created_at
+)
+SELECT
+    organization_id, 'product_version', id,
+    'checkout_expired', '00000000-0000-0000-0000-000000000000', 'system',
+    jsonb_build_object(
+        'previous_holder', checked_out_by,
+        'workspace', workspace,
+        'expired_at', checkout_expires_at
+    ),
+    NOW()
+FROM product_versions
+WHERE id IN (/* selected IDs */);
+
+COMMIT;
+```
+
+**Why SKIP LOCKED?**
+- Multiple worker instances may run the expired checkout job simultaneously
+- Without `SKIP LOCKED`, workers would block each other or cause conflicts
+- `SKIP LOCKED` allows each worker to process different expired checkouts
+- Combined with `LIMIT`, this distributes work across workers evenly
+
+**Alternative: Single-Worker Pattern**
+For smaller deployments, a single background worker with distributed locking (Redis `SETNX`) can be used instead:
+
+```typescript
+// Single-worker pattern with Redis lock
+const lockKey = 'checkout:release:lock';
+const acquired = await redis.set(lockKey, workerId, 'NX', 'EX', 300);
+
+if (acquired) {
+  try {
+    await releaseExpiredCheckouts();
+  } finally {
+    await redis.del(lockKey);
+  }
+}
+```
 
 ---
 
@@ -502,6 +834,197 @@ Response: {
   "releaseNote": "Approved by product team for Spring 2026 collection",
   "previousState": "checked_in",
   "newState": "released_to_ops"
+}
+```
+
+#### Complete Version Lifecycle State Machine (Scale Architecture)
+
+For long-term version management at scale, versions follow an extended lifecycle beyond the basic edit/release flow:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    COMPLETE VERSION LIFECYCLE                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  EDITING PHASE (short-term)                                                 │
+│  ─────────────────────────────                                              │
+│                                                                              │
+│  ┌─────────┐    ┌─────────────┐    ┌─────────────┐    ┌────────────────┐   │
+│  │  DRAFT  │───▶│ CHECKED_OUT │───▶│ CHECKED_IN  │───▶│ RELEASED_TO_   │   │
+│  │         │    │             │    │             │    │ OPS            │   │
+│  └─────────┘    └─────────────┘    └─────────────┘    └───────┬────────┘   │
+│                                                                │             │
+│  ════════════════════════════════════════════════════════════════════════   │
+│                                                                │             │
+│  LIFECYCLE PHASE (long-term)                                   │             │
+│  ──────────────────────────                                    ▼             │
+│                                                                              │
+│                      ┌────────────────────────────────────────────────┐     │
+│                      │               ACTIVE                            │     │
+│                      │  • Referenced by production batches             │     │
+│                      │  • Referenced by active DPPs                    │     │
+│                      │  • CANNOT be deleted or modified                │     │
+│                      └──────────────────┬─────────────────────────────┘     │
+│                                         │                                    │
+│                            (no more active references)                       │
+│                                         │                                    │
+│                                         ▼                                    │
+│                      ┌────────────────────────────────────────────────┐     │
+│                      │              DEPRECATED                         │     │
+│                      │  • Superseded by newer version                  │     │
+│                      │  • Still valid for historical DPPs              │     │
+│                      │  • New batches should use newer version         │     │
+│                      └──────────────────┬─────────────────────────────┘     │
+│                                         │                                    │
+│                             (6 months grace period)                          │
+│                                         │                                    │
+│                                         ▼                                    │
+│                      ┌────────────────────────────────────────────────┐     │
+│                      │               ARCHIVED                          │     │
+│                      │  • No active production usage                   │     │
+│                      │  • Retained for compliance (10 years)           │     │
+│                      │  • Still readable for audit                     │     │
+│                      └──────────────────┬─────────────────────────────┘     │
+│                                         │                                    │
+│                            (retention period expires)                        │
+│                                         │                                    │
+│                                         ▼                                    │
+│                      ┌────────────────────────────────────────────────┐     │
+│                      │                RETIRED                          │     │
+│                      │  • All DPPs expired (10+ years)                 │     │
+│                      │  • Can be purged for storage optimization       │     │
+│                      │  • Audit log retained separately                │     │
+│                      └────────────────────────────────────────────────┘     │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Lifecycle State Definitions:**
+
+| State | Trigger | Can Delete? | Can Reference? | Storage |
+|-------|---------|-------------|----------------|---------|
+| **RELEASED** | Manual release | No | Yes (new batches) | Hot |
+| **ACTIVE** | Batch references it | No | Yes | Hot |
+| **DEPRECATED** | Newer version released | No | Warn but allow | Hot |
+| **ARCHIVED** | No active references | No | No (read-only) | Warm (S3) |
+| **RETIRED** | 10-year retention met | Yes (optional) | No | Cold/Delete |
+
+**Automatic State Transitions:**
+
+```typescript
+// Background job: Manage version lifecycle states
+async function processVersionLifecycle(): Promise<void> {
+  // 1. RELEASED → ACTIVE (when first batch references it)
+  await prisma.$executeRaw`
+    UPDATE product_versions
+    SET lifecycle_state = 'active',
+        activated_at = NOW()
+    WHERE lifecycle_state = 'released'
+      AND id IN (
+        SELECT DISTINCT design_version_id FROM batches
+        WHERE status IN ('committed', 'in_production', 'completed')
+      )
+  `;
+
+  // 2. ACTIVE → DEPRECATED (when newer version is active)
+  await prisma.$executeRaw`
+    UPDATE product_versions pv1
+    SET lifecycle_state = 'deprecated',
+        deprecated_at = NOW()
+    WHERE lifecycle_state = 'active'
+      AND EXISTS (
+        SELECT 1 FROM product_versions pv2
+        WHERE pv2.product_id = pv1.product_id
+          AND pv2.workspace = pv1.workspace
+          AND pv2.version > pv1.version
+          AND pv2.lifecycle_state = 'active'
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM batches b
+        WHERE b.design_version_id = pv1.id
+          AND b.status IN ('in_production', 'planned')
+      )
+  `;
+
+  // 3. DEPRECATED → ARCHIVED (after 6 months with no active references)
+  await prisma.$executeRaw`
+    UPDATE product_versions
+    SET lifecycle_state = 'archived',
+        archived_at = NOW()
+    WHERE lifecycle_state = 'deprecated'
+      AND deprecated_at < NOW() - INTERVAL '6 months'
+      AND NOT EXISTS (
+        SELECT 1 FROM passports p
+        WHERE p.design_version_id = product_versions.id
+          AND p.status = 'published'
+          AND p.revoked_at IS NULL
+      )
+  `;
+
+  // 4. ARCHIVED → RETIRED (after 10-year retention)
+  await prisma.$executeRaw`
+    UPDATE product_versions
+    SET lifecycle_state = 'retired',
+        retired_at = NOW()
+    WHERE lifecycle_state = 'archived'
+      AND archived_at < NOW() - INTERVAL '10 years'
+  `;
+}
+```
+
+**Reference Protection:**
+
+```typescript
+// Prevent deletion of referenced versions
+async function deleteVersion(versionId: string): Promise<void> {
+  const version = await prisma.productVersion.findUnique({
+    where: { id: versionId },
+    include: {
+      _count: {
+        select: {
+          batches: true,
+          passports: true,
+        },
+      },
+    },
+  });
+
+  if (!version) {
+    throw new NotFoundError('Version not found');
+  }
+
+  // Check lifecycle state
+  if (version.lifecycleState !== 'retired') {
+    throw new ConflictError(
+      `Cannot delete version in ${version.lifecycleState} state. Only RETIRED versions can be deleted.`,
+      { currentState: version.lifecycleState }
+    );
+  }
+
+  // Double-check no references (defensive)
+  if (version._count.batches > 0 || version._count.passports > 0) {
+    throw new ConflictError(
+      'Cannot delete version with active references',
+      {
+        batchCount: version._count.batches,
+        passportCount: version._count.passports,
+      }
+    );
+  }
+
+  // Safe to delete
+  await prisma.productVersion.delete({ where: { id: versionId } });
+
+  await auditLog.record({
+    action: 'VERSION_DELETED',
+    resourceType: 'product_version',
+    resourceId: versionId,
+    details: {
+      productId: version.productId,
+      versionNumber: version.version,
+      previousState: 'retired',
+    },
+  });
 }
 ```
 

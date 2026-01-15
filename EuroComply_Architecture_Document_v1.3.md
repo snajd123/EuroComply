@@ -221,7 +221,205 @@ class TenantRouter {
 }
 ```
 
-### 3.5 Tenant Provisioning
+### 3.5 Connection Pooling Strategy (Scale-Critical)
+
+Multi-tenant databases with schema-per-tenant face connection exhaustion at scale. With 200 tenants × 10 connections each = 2,000 connections against a PostgreSQL limit of ~300-500, we need external connection pooling.
+
+#### PgBouncer Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    CONNECTION POOLING ARCHITECTURE                           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  APPLICATION LAYER (ECS Fargate)                                            │
+│  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐                               │
+│  │ Task 1 │ │ Task 2 │ │ Task 3 │ │ Task N │  (Each: 5-10 local conns)     │
+│  └───┬────┘ └───┬────┘ └───┬────┘ └───┬────┘                               │
+│      │          │          │          │                                      │
+│      └──────────┴──────────┴──────────┘                                      │
+│                      │                                                       │
+│                      ▼                                                       │
+│  PGBOUNCER LAYER (Per Cell)                                                 │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │  PgBouncer Instance (ECS or EC2)                                     │    │
+│  │  • Mode: transaction (return conn after each transaction)            │    │
+│  │  • max_client_conn: 2,500                                            │    │
+│  │  • default_pool_size: 20 per database (shared across tenants)        │    │
+│  │  • reserve_pool_size: 5 (burst handling)                             │    │
+│  │  • server_idle_timeout: 600s                                         │    │
+│  └────────────────────────────────┬────────────────────────────────────┘    │
+│                                   │                                          │
+│                                   ▼                                          │
+│  POSTGRESQL (Aurora)                                                        │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │  max_connections: 400 (reserved: 50 for admin/monitoring)            │    │
+│  │  Effective pool: 350 connections                                     │    │
+│  │  schema_tenant_001 ──┐                                               │    │
+│  │  schema_tenant_002 ──┼── Shared connection pool                      │    │
+│  │  schema_tenant_NNN ──┘                                               │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### PgBouncer Configuration
+
+```ini
+; /etc/pgbouncer/pgbouncer.ini
+[databases]
+; Single database, schema-per-tenant model
+eurocomply_cell1 = host=cell1.cluster-xxx.eu-central-1.rds.amazonaws.com port=5432 dbname=eurocomply
+
+[pgbouncer]
+; Connection limits
+max_client_conn = 2500          ; Total application connections allowed
+default_pool_size = 20          ; Connections per database (not per tenant!)
+reserve_pool_size = 5           ; Extra connections for burst
+reserve_pool_timeout = 3        ; Seconds to wait before using reserve
+
+; Pooling mode - CRITICAL: must be 'transaction' for SET search_path
+pool_mode = transaction
+
+; Timeouts
+server_idle_timeout = 600       ; Close idle backend connections after 10min
+server_connect_timeout = 15     ; Timeout for new backend connections
+client_idle_timeout = 300       ; Close idle client connections
+
+; Security
+auth_type = scram-sha-256
+auth_file = /etc/pgbouncer/userlist.txt
+
+; Monitoring
+stats_period = 60
+admin_users = pgbouncer_admin
+stats_users = pgbouncer_stats
+```
+
+#### Connection Math at Scale
+
+| Scale Point | Tenants | ECS Tasks | Conn/Task | Total Client Conns | PgBouncer Pool | Backend Conns |
+|-------------|---------|-----------|-----------|--------------------|--------------------|---------------|
+| Launch | 10 | 2 | 10 | 20 | 20 | 20 |
+| Growth | 50 | 4 | 10 | 40 | 20 | 20 |
+| Scale | 200 | 8 | 10 | 80 | 25 | 25 |
+| High Load | 200 | 20 | 10 | 200 | 50 | 50 |
+| Burst | 200 | 50 | 10 | 500 | 80 | 80 |
+
+**Key Insight:** PgBouncer's transaction mode multiplexes many client connections onto few backend connections. The pool size is per-database, not per-tenant, so 200 tenants share 25-50 connections.
+
+#### Application-Level Pooling (Prisma/Node.js)
+
+```typescript
+// prisma/schema.prisma - connection limit per container
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL") // Points to PgBouncer
+}
+
+// Connection string format
+// postgresql://user:pass@pgbouncer.internal:6432/eurocomply_cell1
+//   ?connection_limit=10        // Per-container limit
+//   &pool_timeout=10            // Wait 10s for connection
+//   &pgbouncer=true             // Disable prepared statements (required!)
+
+// CRITICAL: pgbouncer=true disables prepared statements
+// Transaction pooling breaks prepared statements because different
+// requests may get different backend connections
+```
+
+#### Schema Context in Transaction Pooling Mode
+
+With transaction pooling, each transaction may get a different backend connection. The schema context MUST be set at the start of each transaction:
+
+```typescript
+class TenantConnection {
+  async executeInTenantContext<T>(
+    organizationId: string,
+    operation: (client: PrismaClient) => Promise<T>
+  ): Promise<T> {
+    const config = await this.getTenantConfig(organizationId);
+
+    // CRITICAL: Set schema at transaction start
+    return await prisma.$transaction(async (tx) => {
+      // Set schema context for this transaction
+      await tx.$executeRawUnsafe(
+        `SET search_path = ${config.schemaName}, public`
+      );
+      await tx.$executeRaw`SET app.current_org = ${organizationId}`;
+
+      // Execute the operation
+      return await operation(tx);
+    });
+  }
+}
+```
+
+#### Health Monitoring
+
+```sql
+-- PgBouncer admin console queries
+-- Connect: psql -h localhost -p 6432 -U pgbouncer_admin pgbouncer
+
+-- Current connection status
+SHOW POOLS;
+-- database | user | cl_active | cl_waiting | sv_active | sv_idle | sv_used | ...
+
+-- Alert thresholds
+-- cl_waiting > 10: Pool exhaustion imminent
+-- sv_active near pool_size: Consider increasing pool_size
+
+-- Client connections
+SHOW CLIENTS;
+-- Track connections per application instance
+```
+
+#### Circuit Breaker for Connection Exhaustion
+
+```typescript
+// Prevent cascading failures when pool is exhausted
+class ConnectionCircuitBreaker {
+  private failures = 0;
+  private lastFailure: Date | null = null;
+  private state: 'closed' | 'open' | 'half-open' = 'closed';
+
+  async getConnection(): Promise<Connection> {
+    if (this.state === 'open') {
+      if (Date.now() - this.lastFailure!.getTime() > 30000) {
+        this.state = 'half-open'; // Try one request
+      } else {
+        throw new ServiceUnavailableError('Database connection pool exhausted');
+      }
+    }
+
+    try {
+      const conn = await pool.connect({ timeout: 5000 });
+      this.onSuccess();
+      return conn;
+    } catch (error) {
+      this.onFailure();
+      throw error;
+    }
+  }
+
+  private onSuccess(): void {
+    this.failures = 0;
+    this.state = 'closed';
+  }
+
+  private onFailure(): void {
+    this.failures++;
+    this.lastFailure = new Date();
+    if (this.failures >= 5) {
+      this.state = 'open';
+      // Alert: Pool exhaustion detected
+      metrics.increment('db.circuit_breaker.opened');
+    }
+  }
+}
+```
+
+### 3.6 Tenant Provisioning
 
 On signup, the system automatically:
 
@@ -543,6 +741,217 @@ Before provisioning a new cell, the configuration database must be healthy:
 | Config DB error rate | > 0.1% | > 1% | Page on-call |
 | Routing cache miss rate | > 10% | > 30% | Check Redis health |
 
+### 3.8 Circuit Breakers for External Services
+
+External API dependencies (walt.id, Shopify, GLEIF, etc.) can cause cascading failures if they become unavailable or slow. Circuit breakers prevent this by failing fast when dependencies are unhealthy.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    CIRCUIT BREAKER PATTERN                                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  STATES:                                                                     │
+│                                                                              │
+│  ┌─────────┐       failures >= threshold        ┌─────────┐                │
+│  │ CLOSED  │ ──────────────────────────────────▶│  OPEN   │                │
+│  │(Normal) │                                     │ (Fast   │                │
+│  └────┬────┘                                     │  Fail)  │                │
+│       │                                          └────┬────┘                │
+│       │                                               │                      │
+│       │           success                    timeout elapsed                │
+│       │              │                               │                      │
+│       │              │    ┌─────────────┐           │                      │
+│       │              └────│ HALF-OPEN   │◀──────────┘                      │
+│       │                   │ (Test One)  │                                   │
+│       │                   └──────┬──────┘                                   │
+│       │                          │ failure                                  │
+│       │                          ▼                                          │
+│       │                   Back to OPEN                                      │
+│       │                                                                      │
+│       └──────────────────────────────────────────────────────────────────   │
+│                                                                              │
+│  CLOSED: Normal operation, requests pass through                            │
+│  OPEN: Fail immediately, don't call external service                        │
+│  HALF-OPEN: Allow one request to test if service recovered                  │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### External Service Configuration
+
+```typescript
+// Circuit breaker configuration per external service
+const circuitBreakerConfigs: Record<string, CircuitBreakerConfig> = {
+  // walt.id VC signing - critical path
+  'walt.id': {
+    failureThreshold: 5,          // Failures before opening
+    successThreshold: 2,          // Successes to close
+    timeout: 30000,               // Time in OPEN state before testing (ms)
+    requestTimeout: 10000,        // Individual request timeout
+    volumeThreshold: 10,          // Minimum requests before evaluating
+    fallback: 'queue',            // Queue for later retry
+  },
+
+  // Shopify integration - non-critical
+  'shopify': {
+    failureThreshold: 3,
+    successThreshold: 1,
+    timeout: 60000,
+    requestTimeout: 15000,
+    volumeThreshold: 5,
+    fallback: 'degraded',         // Return partial data
+  },
+
+  // GLEIF/VIES verification - can be deferred
+  'gleif': {
+    failureThreshold: 5,
+    successThreshold: 2,
+    timeout: 120000,              // 2 minutes (lower priority)
+    requestTimeout: 30000,
+    volumeThreshold: 5,
+    fallback: 'skip',             // Skip verification, flag for later
+  },
+
+  // Redis cache - fast fail
+  'redis': {
+    failureThreshold: 3,
+    successThreshold: 1,
+    timeout: 5000,                // 5 seconds
+    requestTimeout: 500,          // Very low timeout
+    volumeThreshold: 10,
+    fallback: 'bypass',           // Bypass cache, hit database
+  },
+};
+```
+
+#### Implementation
+
+```typescript
+import CircuitBreaker from 'opossum';
+
+class ExternalServiceClient {
+  private breakers: Map<string, CircuitBreaker> = new Map();
+
+  constructor(private readonly metrics: MetricsClient) {}
+
+  getBreaker(serviceName: string): CircuitBreaker {
+    if (this.breakers.has(serviceName)) {
+      return this.breakers.get(serviceName)!;
+    }
+
+    const config = circuitBreakerConfigs[serviceName];
+    const breaker = new CircuitBreaker(
+      async (request: () => Promise<unknown>) => request(),
+      {
+        timeout: config.requestTimeout,
+        errorThresholdPercentage: 50,
+        resetTimeout: config.timeout,
+        volumeThreshold: config.volumeThreshold,
+      }
+    );
+
+    // Metrics integration
+    breaker.on('success', () => {
+      this.metrics.increment(`circuit.${serviceName}.success`);
+    });
+
+    breaker.on('failure', () => {
+      this.metrics.increment(`circuit.${serviceName}.failure`);
+    });
+
+    breaker.on('open', () => {
+      this.metrics.increment(`circuit.${serviceName}.opened`);
+      // Alert on-call
+      alerting.warn({
+        service: serviceName,
+        event: 'circuit_breaker_opened',
+        message: `Circuit breaker opened for ${serviceName}`,
+      });
+    });
+
+    breaker.on('halfOpen', () => {
+      this.metrics.increment(`circuit.${serviceName}.half_open`);
+    });
+
+    breaker.on('close', () => {
+      this.metrics.increment(`circuit.${serviceName}.closed`);
+    });
+
+    this.breakers.set(serviceName, breaker);
+    return breaker;
+  }
+}
+
+// Usage in services
+class CredentialService {
+  constructor(
+    private readonly waltIdClient: WaltIdClient,
+    private readonly circuitBreaker: ExternalServiceClient
+  ) {}
+
+  async signCredential(credential: Credential): Promise<SignedCredential> {
+    const breaker = this.circuitBreaker.getBreaker('walt.id');
+
+    try {
+      return await breaker.fire(async () => {
+        return await this.waltIdClient.sign(credential);
+      });
+    } catch (error) {
+      if (error.message === 'Breaker is open') {
+        // Circuit is open - use fallback
+        return await this.queueForLaterSigning(credential);
+      }
+      throw error;
+    }
+  }
+
+  private async queueForLaterSigning(credential: Credential): Promise<SignedCredential> {
+    // Store in outbox for retry when service recovers
+    await this.outbox.create({
+      type: 'credential.sign',
+      payload: credential,
+      status: 'pending_external_service',
+    });
+
+    return {
+      ...credential,
+      status: 'pending_signature',
+      message: 'Credential queued for signing, will complete shortly',
+    };
+  }
+}
+```
+
+#### Fallback Strategies
+
+| Service | Fallback | User Impact |
+|---------|----------|-------------|
+| **walt.id** | Queue for later | DPP issuance delayed, user notified |
+| **Shopify** | Return cached/partial | Some data may be stale |
+| **GLEIF** | Skip verification | LEI not verified, flagged for review |
+| **Redis** | Bypass cache | Higher database load, slower response |
+| **PgBouncer** | Reject requests | 503 Service Unavailable |
+
+#### Monitoring Dashboard
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    CIRCUIT BREAKER STATUS                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  SERVICE         STATE      FAILURES    SUCCESS RATE    LAST ERROR          │
+│  ───────────────────────────────────────────────────────────────────────    │
+│  walt.id         CLOSED     0/5         99.8%           -                   │
+│  shopify         CLOSED     1/3         98.2%           2m ago              │
+│  gleif           HALF-OPEN  4/5         72.1%           30s ago             │
+│  redis           CLOSED     0/3         99.99%          -                   │
+│  pgbouncer       CLOSED     0/5         100%            -                   │
+│                                                                              │
+│  ⚠️ GLEIF circuit breaker in HALF-OPEN state - testing recovery             │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
 ---
 
 ## 4. Security Architecture
@@ -665,9 +1074,27 @@ Seven layers of security protect tenant data:
 
 ### 5.2 PostgreSQL Schema
 
-```sql
--- Core tables (created per tenant schema)
+The complete tenant schema includes tables for products, versioning, users, attestations, audit, and DPP issuance. All tables include standard audit columns for compliance.
 
+#### 5.2.1 Standard Audit Columns
+
+Every table includes these columns for compliance and debugging:
+
+```sql
+-- Applied to ALL tables
+created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+created_by UUID NOT NULL,
+updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+updated_by UUID NOT NULL,
+deleted_at TIMESTAMPTZ,           -- Soft delete timestamp
+deleted_by UUID,                  -- Who deleted
+version INTEGER NOT NULL DEFAULT 1  -- Optimistic locking
+```
+
+#### 5.2.2 Core Product Tables
+
+```sql
+-- Products: Central product registry
 CREATE TABLE products (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL,
@@ -676,52 +1103,499 @@ CREATE TABLE products (
     sku TEXT,
     category TEXT,
     product_type TEXT,
-    status TEXT DEFAULT 'draft' 
+    status TEXT DEFAULT 'draft'
         CHECK (status IN ('draft', 'active', 'archived')),
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    created_by UUID,
+    -- Audit columns
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_by UUID NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_by UUID NOT NULL,
+    deleted_at TIMESTAMPTZ,
+    deleted_by UUID,
+    version INTEGER NOT NULL DEFAULT 1,
+    CONSTRAINT org_check CHECK (organization_id = current_setting('app.tenant_id')::uuid),
+    CONSTRAINT unique_gtin_per_org UNIQUE (organization_id, gtin),
+    CONSTRAINT unique_sku_per_org UNIQUE (organization_id, sku)
+);
+
+-- Product Versions: Version control per workspace
+-- Marketing can ONLY create versions for Design versions in RELEASED_TO_OPS state
+CREATE TABLE product_versions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL,
+    product_id UUID NOT NULL REFERENCES products(id),
+    workspace TEXT NOT NULL CHECK (workspace IN ('design', 'operations', 'marketing', 'compliance')),
+    version_number INTEGER NOT NULL,
+    status TEXT NOT NULL CHECK (status IN (
+        'draft',           -- Initial state
+        'checked_out',     -- Being edited (locked)
+        'checked_in',      -- Edit complete, immutable
+        'released_to_ops', -- Design: available for batches
+        'released_for_dpp' -- Marketing: available for DPP
+    )),
+    data JSONB NOT NULL,
+    -- Version linkage
+    based_on_design_version_id UUID REFERENCES product_versions(id),  -- For Marketing versions
+    -- Checkout tracking
+    checked_out_by UUID,
+    checked_out_at TIMESTAMPTZ,
+    checkout_expires_at TIMESTAMPTZ,
+    -- Release tracking
+    released_by UUID,
+    released_at TIMESTAMPTZ,
+    release_note TEXT,
+    -- Audit columns
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_by UUID NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_by UUID NOT NULL,
+    deleted_at TIMESTAMPTZ,
+    deleted_by UUID,
+    version INTEGER NOT NULL DEFAULT 1,
+    CONSTRAINT unique_version_per_workspace UNIQUE (product_id, workspace, version_number),
+    CONSTRAINT org_check CHECK (organization_id = current_setting('app.tenant_id')::uuid)
+);
+```
+
+#### 5.2.3 Operations Tables
+
+```sql
+-- Batches: Production batches (Operations workspace)
+-- Immutable from creation, references a released Design version
+CREATE TABLE batches (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL,
+    product_id UUID NOT NULL REFERENCES products(id),
+    batch_number TEXT NOT NULL,
+    design_version_id UUID NOT NULL REFERENCES product_versions(id),
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN (
+        'pending',          -- Draft, editable
+        'committed',        -- Locked, inventory deducted
+        'released_for_dpp'  -- Ready for DPP issuance
+    )),
+    quantity INTEGER NOT NULL,
+    serial_range_start TEXT,
+    serial_range_end TEXT,
+    production_date DATE,
+    facility_id TEXT,
+    -- Commit/Release tracking
+    committed_at TIMESTAMPTZ,
+    committed_by UUID,
+    released_at TIMESTAMPTZ,
+    released_by UUID,
+    -- Audit columns
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_by UUID NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_by UUID NOT NULL,
+    deleted_at TIMESTAMPTZ,
+    deleted_by UUID,
+    version INTEGER NOT NULL DEFAULT 1,
+    CONSTRAINT unique_batch_number_per_org UNIQUE (organization_id, batch_number),
     CONSTRAINT org_check CHECK (organization_id = current_setting('app.tenant_id')::uuid)
 );
 
+-- EPCIS Events: Supply chain events (immutable)
+CREATE TABLE epcis_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL,
+    batch_id UUID NOT NULL REFERENCES batches(id),
+    event_type TEXT NOT NULL CHECK (event_type IN (
+        'object', 'aggregation', 'transaction', 'transformation'
+    )),
+    action TEXT NOT NULL CHECK (action IN ('ADD', 'OBSERVE', 'DELETE')),
+    biz_step TEXT,
+    disposition TEXT,
+    read_point TEXT,
+    biz_location TEXT,
+    event_time TIMESTAMPTZ NOT NULL,
+    event_timezone TEXT,
+    epcis_data JSONB NOT NULL,
+    -- Audit columns (immutable - no updated_by)
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_by UUID NOT NULL,
+    CONSTRAINT org_check CHECK (organization_id = current_setting('app.tenant_id')::uuid)
+);
+```
+
+#### 5.2.4 DPP & Passport Tables
+
+```sql
+-- Passports: DPP issuance records
 CREATE TABLE passports (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL,
     product_id UUID NOT NULL REFERENCES products(id),
-    version INTEGER DEFAULT 1,
-    status TEXT DEFAULT 'draft'
-        CHECK (status IN ('draft', 'review', 'published', 'archived')),
-    dpp_data JSONB,
+    batch_id UUID NOT NULL REFERENCES batches(id),
+    design_version_id UUID NOT NULL REFERENCES product_versions(id),
+    marketing_version_id UUID REFERENCES product_versions(id),
+    passport_version INTEGER NOT NULL DEFAULT 1,
+    status TEXT DEFAULT 'draft' CHECK (status IN (
+        'draft', 'snapshot_created', 'approved', 'published', 'revoked'
+    )),
     template_id TEXT,
     static_url_base TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
+    -- Snapshot reference
+    snapshot_id UUID,
+    -- Publishing
     published_at TIMESTAMPTZ,
+    published_by UUID,
+    -- Revocation
+    revoked_at TIMESTAMPTZ,
+    revoked_by UUID,
+    revocation_reason TEXT,
+    -- Audit columns
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_by UUID NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_by UUID NOT NULL,
+    deleted_at TIMESTAMPTZ,
+    deleted_by UUID,
+    version INTEGER NOT NULL DEFAULT 1,
     CONSTRAINT org_check CHECK (organization_id = current_setting('app.tenant_id')::uuid)
 );
 
-CREATE TABLE batch_jobs (
+-- DPP Sustainability: Decomposed from JSONB for queryability
+CREATE TABLE dpp_sustainability (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    passport_id UUID NOT NULL REFERENCES passports(id) ON DELETE CASCADE,
+    carbon_footprint_kg_co2e DECIMAL,
+    carbon_scope TEXT CHECK (carbon_scope IN ('cradle-to-gate', 'cradle-to-grave', 'gate-to-gate')),
+    recyclability_percent DECIMAL CHECK (recyclability_percent BETWEEN 0 AND 100),
+    recycled_content_percent DECIMAL CHECK (recycled_content_percent BETWEEN 0 AND 100),
+    durability_score INTEGER CHECK (durability_score BETWEEN 1 AND 10),
+    repairability_score INTEGER CHECK (repairability_score BETWEEN 1 AND 10),
+    energy_efficiency_class TEXT,
+    water_usage_liters DECIMAL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- DPP Materials: Material composition (decomposed from JSONB)
+CREATE TABLE dpp_materials (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    passport_id UUID NOT NULL REFERENCES passports(id) ON DELETE CASCADE,
+    material_name TEXT NOT NULL,
+    percentage DECIMAL NOT NULL CHECK (percentage BETWEEN 0 AND 100),
+    material_type TEXT,  -- 'primary', 'secondary', 'packaging'
+    recycled BOOLEAN DEFAULT false,
+    certified BOOLEAN DEFAULT false,
+    certification_name TEXT,
+    country_of_origin TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- DPP Certifications: Product certifications (decomposed from JSONB)
+CREATE TABLE dpp_certifications (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    passport_id UUID NOT NULL REFERENCES passports(id) ON DELETE CASCADE,
+    certification_name TEXT NOT NULL,
+    issuing_body TEXT NOT NULL,
+    certificate_number TEXT,
+    issue_date DATE,
+    expiry_date DATE,
+    verification_url TEXT,
+    verified BOOLEAN DEFAULT false,
+    verified_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Compliance Snapshots: Immutable snapshots for approval workflow
+CREATE TABLE compliance_snapshots (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL,
     passport_id UUID NOT NULL REFERENCES passports(id),
-    type TEXT NOT NULL CHECK (type IN ('generate_dpps', 'import_items', 'export')),
-    status TEXT DEFAULT 'pending'
-        CHECK (status IN ('pending', 'processing', 'completed', 'failed')),
+    content_hash TEXT NOT NULL,  -- SHA-256 of snapshot content
+    snapshot_data JSONB NOT NULL,  -- Frozen copy of all workspace data
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN (
+        'pending', 'approved', 'rejected'
+    )),
+    submitted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    submitted_by UUID NOT NULL,
+    reviewed_at TIMESTAMPTZ,
+    reviewed_by UUID,
+    rejection_reason TEXT,
+    -- Audit columns
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_by UUID NOT NULL,
+    CONSTRAINT org_check CHECK (organization_id = current_setting('app.tenant_id')::uuid)
+);
+```
+
+#### 5.2.5 User & Access Tables
+
+```sql
+-- Users: User accounts within tenant
+CREATE TABLE users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL,
+    email TEXT NOT NULL,
+    name TEXT NOT NULL,
+    user_type TEXT NOT NULL CHECK (user_type IN ('internal', 'guest_partner', 'transactional')),
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('invited', 'active', 'suspended', 'deactivated')),
+    is_admin BOOLEAN NOT NULL DEFAULT false,
+    -- Guest partner specific
+    invitation_expires_at TIMESTAMPTZ,
+    access_expires_at TIMESTAMPTZ,  -- 90 days default for guests
+    -- DID management
+    did_key TEXT,
+    did_method TEXT CHECK (did_method IN ('key', 'web', 'ion')),
+    -- MFA
+    mfa_enabled BOOLEAN NOT NULL DEFAULT false,
+    mfa_method TEXT CHECK (mfa_method IN ('totp', 'webauthn')),
+    -- Audit columns
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_by UUID NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_by UUID NOT NULL,
+    deleted_at TIMESTAMPTZ,
+    deleted_by UUID,
+    version INTEGER NOT NULL DEFAULT 1,
+    CONSTRAINT unique_email_per_org UNIQUE (organization_id, email),
+    CONSTRAINT org_check CHECK (organization_id = current_setting('app.tenant_id')::uuid)
+);
+
+-- Workspace Access: User permissions per workspace
+CREATE TABLE workspace_access (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    workspace TEXT NOT NULL CHECK (workspace IN ('design', 'operations', 'marketing', 'compliance')),
+    authority TEXT NOT NULL CHECK (authority IN ('viewer', 'contributor', 'editor', 'manager')),
+    -- For Compliance workspace, different roles
+    compliance_role TEXT CHECK (compliance_role IN ('viewer', 'reviewer', 'approver')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_by UUID NOT NULL,
+    CONSTRAINT unique_user_workspace UNIQUE (user_id, workspace)
+);
+
+-- API Keys: Machine authentication
+CREATE TABLE api_keys (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL,
+    name TEXT NOT NULL,
+    key_hash TEXT NOT NULL,  -- SHA-256 of the key
+    key_prefix TEXT NOT NULL,  -- First 8 chars for identification
+    scopes TEXT[] NOT NULL,  -- Array of scopes
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'revoked')),
+    last_used_at TIMESTAMPTZ,
+    expires_at TIMESTAMPTZ,
+    revoked_at TIMESTAMPTZ,
+    revoked_by UUID,
+    -- Audit columns
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_by UUID NOT NULL,
+    CONSTRAINT org_check CHECK (organization_id = current_setting('app.tenant_id')::uuid)
+);
+
+-- DIDs: Decentralized Identifier storage
+CREATE TABLE dids (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL,
+    owner_type TEXT NOT NULL CHECK (owner_type IN ('user', 'organization')),
+    owner_id UUID NOT NULL,
+    did_key TEXT NOT NULL UNIQUE,
+    did_method TEXT NOT NULL CHECK (did_method IN ('key', 'web', 'ion')),
+    public_key_jwk JSONB NOT NULL,
+    -- walt.id custodian reference
+    custodian_key_id TEXT,
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'rotated', 'revoked')),
+    -- Audit columns
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_by UUID NOT NULL,
+    CONSTRAINT org_check CHECK (organization_id = current_setting('app.tenant_id')::uuid)
+);
+```
+
+#### 5.2.6 Attestation Tables
+
+```sql
+-- Attestations: Third-party attestations and claims
+CREATE TABLE attestations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL,
+    product_id UUID NOT NULL REFERENCES products(id),
+    attestation_type TEXT NOT NULL CHECK (attestation_type IN (
+        'certification', 'test_result', 'supplier_declaration', 'audit_report'
+    )),
+    signer_type TEXT NOT NULL CHECK (signer_type IN ('user', 'organization', 'contributor')),
+    signer_id UUID NOT NULL,
+    signer_did TEXT NOT NULL,
+    claim_data JSONB NOT NULL,
+    signature TEXT NOT NULL,  -- VC proof
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN (
+        'pending', 'verified', 'rejected', 'expired'
+    )),
+    verified_at TIMESTAMPTZ,
+    expires_at TIMESTAMPTZ,
+    -- Audit columns
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_by UUID NOT NULL,
+    CONSTRAINT org_check CHECK (organization_id = current_setting('app.tenant_id')::uuid)
+);
+
+-- Contributors: External attestation providers
+CREATE TABLE contributors (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL,
+    name TEXT NOT NULL,
+    email TEXT NOT NULL,
+    company_name TEXT,
+    contributor_type TEXT NOT NULL CHECK (contributor_type IN (
+        'supplier', 'lab', 'certifier', 'auditor'
+    )),
+    did_key TEXT,
+    status TEXT NOT NULL DEFAULT 'invited' CHECK (status IN ('invited', 'active', 'suspended')),
+    -- Audit columns
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_by UUID NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_by UUID NOT NULL,
+    CONSTRAINT org_check CHECK (organization_id = current_setting('app.tenant_id')::uuid)
+);
+```
+
+#### 5.2.7 Audit & Event Tables
+
+```sql
+-- Audit Log: Compliance audit trail (append-only)
+CREATE TABLE audit_log (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL,
+    user_id UUID,
+    action TEXT NOT NULL,  -- 'product.created', 'passport.published', etc.
+    resource_type TEXT NOT NULL,
+    resource_id UUID NOT NULL,
+    old_values JSONB,
+    new_values JSONB,
+    ip_address INET,
+    user_agent TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT org_check CHECK (organization_id = current_setting('app.tenant_id')::uuid)
+);
+
+-- Event Outbox: Transactional outbox pattern for reliable event delivery
+CREATE TABLE event_outbox (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL,
+    event_type TEXT NOT NULL,
+    event_version TEXT NOT NULL DEFAULT '1.0',
+    entity_type TEXT NOT NULL,
+    entity_id UUID NOT NULL,
+    payload JSONB NOT NULL,
+    idempotency_key TEXT NOT NULL UNIQUE,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'published', 'failed')),
+    retry_count INTEGER NOT NULL DEFAULT 0,
+    max_retries INTEGER NOT NULL DEFAULT 3,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    published_at TIMESTAMPTZ,
+    failed_at TIMESTAMPTZ,
+    error_message TEXT,
+    CONSTRAINT org_check CHECK (organization_id = current_setting('app.tenant_id')::uuid)
+);
+
+-- Status Lists: VC revocation status (StatusList2021)
+CREATE TABLE status_lists (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL,
+    list_type TEXT NOT NULL CHECK (list_type IN ('revocation', 'suspension')),
+    encoded_list TEXT NOT NULL,  -- Base64-encoded bitstring
+    list_size INTEGER NOT NULL DEFAULT 131072,  -- 16KB = 131072 credentials
+    next_index INTEGER NOT NULL DEFAULT 0,
+    credential_url TEXT NOT NULL,  -- URL where this list is published
+    last_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    -- Audit columns
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_by UUID NOT NULL,
+    CONSTRAINT org_check CHECK (organization_id = current_setting('app.tenant_id')::uuid)
+);
+
+-- Webhooks: Webhook configuration
+CREATE TABLE webhooks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL,
+    name TEXT NOT NULL,
+    url TEXT NOT NULL,
+    secret_hash TEXT NOT NULL,  -- SHA-256 of webhook secret
+    events TEXT[] NOT NULL,  -- Array of event types to subscribe to
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'paused', 'failed')),
+    failure_count INTEGER NOT NULL DEFAULT 0,
+    last_triggered_at TIMESTAMPTZ,
+    last_success_at TIMESTAMPTZ,
+    last_failure_at TIMESTAMPTZ,
+    -- Audit columns
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_by UUID NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_by UUID NOT NULL,
+    CONSTRAINT org_check CHECK (organization_id = current_setting('app.tenant_id')::uuid)
+);
+
+-- Batch Jobs: Background job tracking
+CREATE TABLE batch_jobs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL,
+    passport_id UUID REFERENCES passports(id),
+    job_type TEXT NOT NULL CHECK (job_type IN ('generate_dpps', 'import_items', 'export', 'bulk_update')),
+    status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'completed', 'failed', 'cancelled')),
+    idempotency_key TEXT UNIQUE,
     total_items INTEGER NOT NULL,
     processed_items INTEGER DEFAULT 0,
     failed_items INTEGER DEFAULT 0,
     error_log JSONB,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
+    progress_checkpoint JSONB,  -- For resumable jobs
+    -- Audit columns
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_by UUID NOT NULL,
     started_at TIMESTAMPTZ,
     completed_at TIMESTAMPTZ,
     CONSTRAINT org_check CHECK (organization_id = current_setting('app.tenant_id')::uuid)
 );
+```
 
--- Indexes
-CREATE INDEX idx_products_gtin ON products(gtin) WHERE gtin IS NOT NULL;
-CREATE INDEX idx_products_status ON products(status);
+#### 5.2.8 Indexes for Scale
+
+```sql
+-- Composite indexes for common queries (org_id + status pattern)
+CREATE INDEX idx_products_org_status ON products(organization_id, status) WHERE deleted_at IS NULL;
+CREATE INDEX idx_products_gtin ON products(gtin) WHERE gtin IS NOT NULL AND deleted_at IS NULL;
+CREATE INDEX idx_products_sku ON products(sku) WHERE sku IS NOT NULL AND deleted_at IS NULL;
+
+CREATE INDEX idx_product_versions_org_status ON product_versions(organization_id, status) WHERE deleted_at IS NULL;
+CREATE INDEX idx_product_versions_product_workspace ON product_versions(product_id, workspace, status);
+CREATE INDEX idx_product_versions_checkout ON product_versions(checked_out_by, checkout_expires_at)
+    WHERE status = 'checked_out';
+
+CREATE INDEX idx_batches_org_status ON batches(organization_id, status) WHERE deleted_at IS NULL;
+CREATE INDEX idx_batches_design_version ON batches(design_version_id);
+
+CREATE INDEX idx_passports_org_status ON passports(organization_id, status) WHERE deleted_at IS NULL;
+CREATE INDEX idx_passports_batch ON passports(batch_id);
 CREATE INDEX idx_passports_product ON passports(product_id);
-CREATE INDEX idx_passports_status ON passports(status);
-CREATE INDEX idx_batch_jobs_status ON batch_jobs(status) WHERE status IN ('pending', 'processing');
+
+CREATE INDEX idx_dpp_sustainability_passport ON dpp_sustainability(passport_id);
+CREATE INDEX idx_dpp_sustainability_carbon ON dpp_sustainability(carbon_footprint_kg_co2e)
+    WHERE carbon_footprint_kg_co2e IS NOT NULL;
+CREATE INDEX idx_dpp_materials_passport ON dpp_materials(passport_id);
+CREATE INDEX idx_dpp_certifications_passport ON dpp_certifications(passport_id);
+CREATE INDEX idx_dpp_certifications_expiry ON dpp_certifications(expiry_date) WHERE expiry_date IS NOT NULL;
+
+CREATE INDEX idx_users_org_status ON users(organization_id, status) WHERE deleted_at IS NULL;
+CREATE INDEX idx_users_email ON users(email);
+
+CREATE INDEX idx_audit_log_org_created ON audit_log(organization_id, created_at DESC);
+CREATE INDEX idx_audit_log_resource ON audit_log(resource_type, resource_id);
+CREATE INDEX idx_audit_log_user ON audit_log(user_id, created_at DESC);
+
+CREATE INDEX idx_event_outbox_pending ON event_outbox(created_at) WHERE status = 'pending';
+CREATE INDEX idx_event_outbox_failed ON event_outbox(failed_at) WHERE status = 'failed' AND retry_count < max_retries;
+
+CREATE INDEX idx_batch_jobs_org_status ON batch_jobs(organization_id, status);
+CREATE INDEX idx_batch_jobs_pending ON batch_jobs(created_at) WHERE status IN ('pending', 'processing');
+
+CREATE INDEX idx_epcis_events_batch ON epcis_events(batch_id);
+CREATE INDEX idx_epcis_events_time ON epcis_events(event_time);
+
+CREATE INDEX idx_attestations_product ON attestations(product_id);
+CREATE INDEX idx_attestations_status ON attestations(status, expires_at);
 ```
 
 ### 5.3 DynamoDB Schema

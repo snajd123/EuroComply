@@ -1146,6 +1146,125 @@ LEFT JOIN audit_entries ae
 WHERE ae.resource_id IS NULL;
 ```
 
+#### 8.4.4 CI/CD Enforcement (Pipeline Gate)
+
+The ESLint rule alone provides development-time feedback, but CI/CD must block merges that violate the rule:
+
+```yaml
+# .github/workflows/ci.yml
+
+name: CI Pipeline
+on: [push, pull_request]
+
+jobs:
+  audit-enforcement:
+    name: Raw SQL Audit Enforcement
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check for direct raw SQL usage
+        run: |
+          # Run ESLint with only the raw SQL rule
+          npx eslint . --rule '@eurocomply/no-direct-raw-sql: error' \
+            --format json --output-file eslint-raw-sql.json || true
+
+          # Parse results and fail if violations found
+          VIOLATIONS=$(jq '[.[] | select(.errorCount > 0)] | length' eslint-raw-sql.json)
+
+          if [ "$VIOLATIONS" -gt 0 ]; then
+            echo "::error::Found $VIOLATIONS file(s) with direct raw SQL usage"
+            echo "Raw SQL must use AuditedRawSQL wrapper for audit trail compliance"
+            jq '.[] | select(.errorCount > 0) | {file: .filePath, errors: [.messages[] | .message]}' eslint-raw-sql.json
+            exit 1
+          fi
+
+          echo "No direct raw SQL violations found"
+
+      - name: Run audit trail tests
+        run: npm run test:audit-trail
+
+  # This job must pass before merge
+  require-audit-compliance:
+    name: Audit Compliance Gate
+    needs: [audit-enforcement]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "All audit enforcement checks passed"
+```
+
+**Pre-commit Hook (Local Enforcement):**
+
+```bash
+#!/bin/bash
+# .husky/pre-commit
+
+# Check for direct raw SQL usage before commit
+echo "Checking for direct raw SQL usage..."
+
+VIOLATIONS=$(git diff --cached --name-only --diff-filter=ACM | \
+  grep -E '\.(ts|tsx|js|jsx)$' | \
+  xargs grep -l '\.\$executeRaw\|\.\$queryRaw\|\.\$executeRawUnsafe' 2>/dev/null || true)
+
+if [ -n "$VIOLATIONS" ]; then
+  echo "ERROR: Direct raw SQL usage detected in staged files:"
+  echo "$VIOLATIONS"
+  echo ""
+  echo "Use AuditedRawSQL wrapper instead:"
+  echo "  const auditedSQL = getAuditedRawSQL(prisma);"
+  echo "  await auditedSQL.executeRaw(query, auditConfig);"
+  exit 1
+fi
+
+echo "No direct raw SQL violations"
+```
+
+**Branch Protection Rules (GitHub/GitLab):**
+
+```yaml
+# Required status checks before merge
+# Configure in repository settings
+
+required_status_checks:
+  strict: true
+  contexts:
+    - "audit-enforcement"
+    - "require-audit-compliance"
+
+# Ensure no bypass without review
+require_code_owner_reviews: true
+dismiss_stale_reviews: true
+```
+
+#### 8.4.5 Enforcement Summary
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    RAW SQL AUDIT ENFORCEMENT LAYERS                          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  LAYER           WHEN              BLOCKS          BYPASS                   │
+│  ──────────────────────────────────────────────────────────────────────     │
+│  Pre-commit      Before commit     Commit fails    git commit --no-verify   │
+│  ESLint (IDE)    During coding     Red squiggles   Disable rule (flagged)   │
+│  CI Pipeline     On PR             Merge blocked   Admin override (logged)  │
+│  Tests           CI + nightly      Pipeline fails  None                     │
+│  Reconciliation  Daily             Alert on-call   None                     │
+│                                                                              │
+│  Result: Multiple layers ensure audit trail compliance even if one fails    │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
 ---
 
 ## 9. Incident Response

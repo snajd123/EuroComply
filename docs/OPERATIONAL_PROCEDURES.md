@@ -517,6 +517,240 @@ The monitoring module sends scaling alerts to Slack. Each alert links to the rel
 
 ---
 
+## Background Job Deduplication (Scale-Critical)
+
+At scale, multiple worker instances may attempt to run the same scheduled job simultaneously. This section documents distributed locking patterns to prevent duplicate execution.
+
+### Job Types Requiring Deduplication
+
+| Job | Schedule | Impact of Duplicate | Locking Strategy |
+|-----|----------|---------------------|------------------|
+| Expired checkout release | Every 15m | Double notifications | Redis `SETNX` |
+| Outbox event processing | Every 1m | Duplicate events | `FOR UPDATE SKIP LOCKED` |
+| Version state transitions | Every 1h | Wrong reference counts | Row-level locks |
+| Metrics aggregation | Every 5m | Inflated metrics | Redis `SETNX` |
+| Certificate expiry checks | Daily | Duplicate alerts | Redis `SETNX` |
+| Stale draft cleanup | Daily | N/A (idempotent) | None needed |
+
+### Redis-Based Distributed Locking
+
+For scheduled jobs that run periodically across multiple workers:
+
+```typescript
+// Redis distributed lock for periodic jobs
+class DistributedJobLock {
+  constructor(private readonly redis: Redis) {}
+
+  /**
+   * Acquire lock for a periodic job
+   * @param jobName Unique job identifier
+   * @param ttlSeconds Lock duration (should exceed max job runtime)
+   * @returns Lock token if acquired, null if already running
+   */
+  async acquire(jobName: string, ttlSeconds: number): Promise<string | null> {
+    const lockKey = `job:lock:${jobName}`;
+    const lockToken = crypto.randomUUID();
+
+    // SETNX with expiry - atomic operation
+    const acquired = await this.redis.set(
+      lockKey,
+      lockToken,
+      'NX',  // Only set if not exists
+      'EX',  // Set expiry
+      ttlSeconds
+    );
+
+    if (acquired === 'OK') {
+      return lockToken;
+    }
+
+    // Lock already held by another worker
+    return null;
+  }
+
+  /**
+   * Release lock (only if we still own it)
+   */
+  async release(jobName: string, lockToken: string): Promise<boolean> {
+    const lockKey = `job:lock:${jobName}`;
+
+    // Lua script for atomic check-and-delete
+    const script = `
+      if redis.call("get", KEYS[1]) == ARGV[1] then
+        return redis.call("del", KEYS[1])
+      else
+        return 0
+      end
+    `;
+
+    const result = await this.redis.eval(script, 1, lockKey, lockToken);
+    return result === 1;
+  }
+
+  /**
+   * Extend lock TTL (for long-running jobs)
+   */
+  async extend(jobName: string, lockToken: string, ttlSeconds: number): Promise<boolean> {
+    const lockKey = `job:lock:${jobName}`;
+
+    const script = `
+      if redis.call("get", KEYS[1]) == ARGV[1] then
+        return redis.call("expire", KEYS[1], ARGV[2])
+      else
+        return 0
+      end
+    `;
+
+    const result = await this.redis.eval(script, 1, lockKey, lockToken, ttlSeconds);
+    return result === 1;
+  }
+}
+```
+
+### Job Wrapper Implementation
+
+```typescript
+// Wrapper that handles locking automatically
+class DistributedJob {
+  constructor(
+    private readonly lock: DistributedJobLock,
+    private readonly metrics: MetricsClient,
+    private readonly logger: Logger
+  ) {}
+
+  async run(
+    jobName: string,
+    job: () => Promise<void>,
+    options: { ttlSeconds?: number; extendInterval?: number } = {}
+  ): Promise<void> {
+    const ttl = options.ttlSeconds || 300; // 5 minute default
+    const extendInterval = options.extendInterval || 60000; // 1 minute
+
+    // Attempt to acquire lock
+    const lockToken = await this.lock.acquire(jobName, ttl);
+
+    if (!lockToken) {
+      this.logger.info('Job already running on another worker', { jobName });
+      this.metrics.increment(`job.${jobName}.skipped`);
+      return;
+    }
+
+    this.logger.info('Acquired lock, starting job', { jobName });
+    this.metrics.increment(`job.${jobName}.started`);
+
+    // Set up lock extension for long-running jobs
+    const extendTimer = setInterval(async () => {
+      const extended = await this.lock.extend(jobName, lockToken, ttl);
+      if (!extended) {
+        this.logger.warn('Failed to extend lock', { jobName });
+      }
+    }, extendInterval);
+
+    try {
+      await job();
+      this.metrics.increment(`job.${jobName}.completed`);
+      this.logger.info('Job completed successfully', { jobName });
+    } catch (error) {
+      this.metrics.increment(`job.${jobName}.failed`);
+      this.logger.error('Job failed', { jobName, error: error.message });
+      throw error;
+    } finally {
+      clearInterval(extendTimer);
+      await this.lock.release(jobName, lockToken);
+    }
+  }
+}
+
+// Usage
+const distributedJob = new DistributedJob(lock, metrics, logger);
+
+// Scheduled with cron or similar
+async function runExpiredCheckoutRelease() {
+  await distributedJob.run(
+    'expired-checkout-release',
+    async () => {
+      await releaseExpiredCheckouts();
+    },
+    { ttlSeconds: 600 } // 10 minute max runtime
+  );
+}
+```
+
+### Database Row-Level Locking (Alternative)
+
+For jobs that process specific rows, use `FOR UPDATE SKIP LOCKED`:
+
+```sql
+-- Worker 1 and Worker 2 can run simultaneously
+-- Each processes different rows
+
+-- Worker 1 gets rows 1-100
+SELECT id FROM batch_jobs
+WHERE status = 'pending'
+ORDER BY created_at
+LIMIT 100
+FOR UPDATE SKIP LOCKED;
+
+-- Worker 2 gets rows 101-200 (skips Worker 1's locked rows)
+SELECT id FROM batch_jobs
+WHERE status = 'pending'
+ORDER BY created_at
+LIMIT 100
+FOR UPDATE SKIP LOCKED;
+```
+
+### Monitoring Job Health
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    BACKGROUND JOB HEALTH                                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  JOB                          LAST RUN    STATUS    DURATION   NEXT RUN     │
+│  ────────────────────────────────────────────────────────────────────────   │
+│  expired-checkout-release     2m ago      SUCCESS   12s        13m          │
+│  outbox-processor             30s ago     SUCCESS   3s         30s          │
+│  version-state-transition     45m ago     SUCCESS   8m         15m          │
+│  metrics-aggregation          2m ago      SUCCESS   45s        3m           │
+│  certificate-expiry-check     18h ago     SUCCESS   2m         6h           │
+│                                                                              │
+│  LOCK STATUS:                                                               │
+│  • expired-checkout-release: unlocked                                        │
+│  • outbox-processor: locked by worker-3 (12s ago)                           │
+│  • version-state-transition: unlocked                                        │
+│                                                                              │
+│  ALERTS:                                                                    │
+│  • None                                                                      │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Alert Conditions
+
+| Condition | Severity | Action |
+|-----------|----------|--------|
+| Job not run in 2x schedule | Warning | Check worker health |
+| Job not run in 5x schedule | Critical | Page on-call |
+| Lock held > 2x TTL | Warning | Check for stuck job |
+| Consecutive failures > 3 | Critical | Page on-call |
+| Lock acquisition failures > 10/min | Warning | Check Redis |
+
+### Debugging Stuck Locks
+
+```bash
+# Check current locks
+redis-cli KEYS "job:lock:*"
+
+# Check lock holder and TTL
+redis-cli GET "job:lock:expired-checkout-release"
+redis-cli TTL "job:lock:expired-checkout-release"
+
+# Force release stuck lock (emergency only)
+redis-cli DEL "job:lock:expired-checkout-release"
+```
+
+---
+
 ## Common Operational Tasks
 
 ### Reset User Password
@@ -1368,6 +1602,292 @@ Performance baselines for monitoring and alerting. All metrics measured at P50, 
 | Monthly baseline recalibration | Monthly | Platform Lead | Update baselines based on growth |
 | Quarterly capacity planning | Quarterly | Engineering + Ops | Plan infrastructure changes |
 | Post-incident review | After incidents | Engineering | Update baselines if needed |
+
+---
+
+## Distributed Tracing (OpenTelemetry)
+
+### Overview
+
+EuroComply uses OpenTelemetry for distributed tracing across services, enabling end-to-end visibility for debugging issues at scale.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    DISTRIBUTED TRACING ARCHITECTURE                          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐  │
+│  │   Client    │───▶│   API GW    │───▶│  Service    │───▶│  Database   │  │
+│  │  (Browser)  │    │  (ALB/CF)   │    │   (ECS)     │    │  (Aurora)   │  │
+│  └─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘  │
+│                                                                              │
+│       trace_id: abc123 ─────────────────────────────────────────▶           │
+│       span_id:  span1 ──▶ span2 ────▶ span3 ────────▶ span4                 │
+│                                                                              │
+│  All spans share trace_id for correlation                                   │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Instrumentation Setup
+
+```typescript
+// src/instrumentation.ts
+import { NodeSDK } from '@opentelemetry/sdk-node';
+import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
+import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
+import { Resource } from '@opentelemetry/resources';
+import { SemanticResourceAttributes } from '@opentelemetry/semantic-conventions';
+
+const sdk = new NodeSDK({
+  resource: new Resource({
+    [SemanticResourceAttributes.SERVICE_NAME]: 'eurocomply-api',
+    [SemanticResourceAttributes.SERVICE_VERSION]: process.env.APP_VERSION,
+    [SemanticResourceAttributes.DEPLOYMENT_ENVIRONMENT]: process.env.NODE_ENV,
+  }),
+  traceExporter: new OTLPTraceExporter({
+    url: process.env.OTEL_EXPORTER_OTLP_ENDPOINT || 'http://otel-collector:4318/v1/traces',
+  }),
+  instrumentations: [
+    getNodeAutoInstrumentations({
+      '@opentelemetry/instrumentation-http': {
+        ignoreIncomingRequestHook: (req) =>
+          req.url?.includes('/health') || req.url?.includes('/ready'),
+      },
+      '@opentelemetry/instrumentation-pg': {
+        enhancedDatabaseReporting: true,
+      },
+    }),
+  ],
+});
+
+sdk.start();
+```
+
+### Custom Spans for Business Operations
+
+```typescript
+import { trace, SpanStatusCode, context } from '@opentelemetry/api';
+
+const tracer = trace.getTracer('eurocomply-api');
+
+class ProductService {
+  async createDPPSnapshot(params: SnapshotParams): Promise<DPPSnapshot> {
+    return tracer.startActiveSpan('dpp.create_snapshot', async (span) => {
+      try {
+        // Add business context to span
+        span.setAttributes({
+          'eurocomply.organization_id': params.organizationId,
+          'eurocomply.batch_id': params.batchId,
+          'eurocomply.design_version_id': params.designVersionId,
+        });
+
+        // Nested spans for sub-operations
+        const designData = await tracer.startActiveSpan(
+          'dpp.fetch_design_data',
+          async (childSpan) => {
+            const data = await this.designRepository.getView(params.designVersionId);
+            childSpan.setAttributes({ 'design.version_number': data.versionNumber });
+            childSpan.end();
+            return data;
+          }
+        );
+
+        const opsData = await tracer.startActiveSpan(
+          'dpp.fetch_operations_data',
+          async (childSpan) => {
+            const data = await this.opsRepository.getView(params.batchId);
+            childSpan.setAttributes({
+              'batch.quantity': data.quantity,
+              'batch.epcis_events_count': data.epcisEvents.length,
+            });
+            childSpan.end();
+            return data;
+          }
+        );
+
+        // Verify attestations
+        await tracer.startActiveSpan('dpp.verify_attestations', async (childSpan) => {
+          const attestations = [...designData.attestations, ...opsData.attestations];
+          childSpan.setAttributes({ 'attestations.count': attestations.length });
+
+          for (const att of attestations) {
+            await this.verifyAttestation(att);
+          }
+          childSpan.end();
+        });
+
+        // Create snapshot
+        const snapshot = await this.snapshotRepository.create({
+          designData,
+          operationsData: opsData,
+        });
+
+        span.setAttributes({ 'snapshot.id': snapshot.id });
+        span.setStatus({ code: SpanStatusCode.OK });
+
+        return snapshot;
+      } catch (error) {
+        span.setStatus({
+          code: SpanStatusCode.ERROR,
+          message: error.message,
+        });
+        span.recordException(error);
+        throw error;
+      } finally {
+        span.end();
+      }
+    });
+  }
+}
+```
+
+### Trace Context Propagation
+
+```typescript
+// Middleware: Extract trace context from incoming requests
+import { propagation, context } from '@opentelemetry/api';
+
+function traceContextMiddleware(req: Request, res: Response, next: NextFunction) {
+  // Extract trace context from headers (W3C Trace Context)
+  const ctx = propagation.extract(context.active(), req.headers);
+
+  // Run rest of request in extracted context
+  context.with(ctx, () => {
+    // Add trace ID to response headers for debugging
+    const span = trace.getActiveSpan();
+    if (span) {
+      const traceId = span.spanContext().traceId;
+      res.setHeader('X-Trace-Id', traceId);
+    }
+
+    next();
+  });
+}
+
+// Event emission: Include trace context
+async function emitEvent(event: DomainEvent): Promise<void> {
+  const span = trace.getActiveSpan();
+  if (span) {
+    event.correlationId = span.spanContext().traceId;
+  }
+
+  await eventBus.emit(event);
+}
+```
+
+### Tenant Context in Traces
+
+```typescript
+// Add tenant context to all spans
+class TenantContextMiddleware {
+  handle(req: Request, res: Response, next: NextFunction) {
+    const span = trace.getActiveSpan();
+
+    if (span && req.context?.organizationId) {
+      span.setAttributes({
+        'eurocomply.tenant_id': req.context.organizationId,
+        'eurocomply.user_id': req.context.userId,
+        'eurocomply.tier': req.context.tier,
+      });
+    }
+
+    next();
+  }
+}
+```
+
+### Querying Traces
+
+**By Trace ID (from X-Trace-Id header):**
+```bash
+# AWS X-Ray Console or Grafana Tempo
+# Filter: trace_id = "abc123def456..."
+```
+
+**By Tenant:**
+```bash
+# Filter spans by tenant
+# eurocomply.tenant_id = "org-12345"
+```
+
+**Slow Requests:**
+```bash
+# Find requests > 5 seconds
+# duration > 5000ms AND service.name = "eurocomply-api"
+```
+
+**Error Traces:**
+```bash
+# Find all errors
+# status.code = ERROR AND eurocomply.tenant_id = "org-12345"
+```
+
+### Integration with Logging
+
+```typescript
+// Correlate logs with traces
+import { context, trace } from '@opentelemetry/api';
+import pino from 'pino';
+
+const logger = pino({
+  mixin() {
+    const span = trace.getActiveSpan();
+    if (span) {
+      const ctx = span.spanContext();
+      return {
+        trace_id: ctx.traceId,
+        span_id: ctx.spanId,
+      };
+    }
+    return {};
+  },
+});
+
+// Usage - logs automatically include trace context
+logger.info({ productId: '123' }, 'Creating product');
+// Output: {"trace_id":"abc...","span_id":"def...","productId":"123","msg":"Creating product"}
+```
+
+### Sampling Strategy
+
+```typescript
+// Production: Sample 10% of traces, but always sample errors
+import { TraceIdRatioBasedSampler, ParentBasedSampler } from '@opentelemetry/sdk-trace-base';
+
+const sampler = new ParentBasedSampler({
+  root: new TraceIdRatioBasedSampler(0.1), // 10% of root spans
+});
+
+// Custom sampler: always sample specific operations
+class EuroComplySampler {
+  shouldSample(context: Context, traceId: string, spanName: string): SamplingResult {
+    // Always sample DPP issuance
+    if (spanName.startsWith('dpp.')) {
+      return { decision: SamplingDecision.RECORD_AND_SAMPLED };
+    }
+
+    // Always sample errors (detected in parent)
+    // (errors are recorded even if sampling says no)
+
+    // 10% for everything else
+    return this.ratioSampler.shouldSample(context, traceId, spanName);
+  }
+}
+```
+
+### Debugging Checklist
+
+When investigating issues at scale:
+
+| Step | Tool | Query |
+|------|------|-------|
+| 1. Find trace ID | Logs/Error | Get X-Trace-Id from response or error log |
+| 2. View full trace | Trace UI | Search by trace_id |
+| 3. Identify slow span | Trace UI | Sort spans by duration |
+| 4. Check span attributes | Trace UI | Look for error messages, tenant context |
+| 5. Correlate with logs | Log UI | Filter by trace_id |
+| 6. Check metrics | Metrics UI | Filter by tenant_id, time range |
 
 ---
 

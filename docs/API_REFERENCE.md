@@ -1239,6 +1239,199 @@ Response (async):
 }
 ```
 
+#### Bulk Operation Idempotency (Scale-Critical)
+
+All bulk operations MUST include an idempotency key to prevent duplicate processing on retries. This is critical for:
+- Network timeouts where client doesn't receive response
+- Client-side retries
+- Load balancer failovers
+
+```http
+POST /api/v1/passports/bulk
+Content-Type: application/json
+X-Idempotency-Key: bulk_2026-01-15_batch-12345_abc123
+
+{
+  "productId": "prod_abc123",
+  "serialNumbers": ["SN-001", "SN-002", "SN-003"],
+  "options": {
+    "async": true
+  }
+}
+```
+
+**Idempotency Key Requirements:**
+
+| Requirement | Details |
+|-------------|---------|
+| **Format** | String, 1-256 characters, alphanumeric + `-_` |
+| **Uniqueness** | Must be unique per operation intent |
+| **Reuse** | Same key + same payload = return cached result |
+| **Conflict** | Same key + different payload = 409 Conflict |
+| **TTL** | Keys stored for 24 hours |
+
+**Idempotency Behavior:**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    IDEMPOTENCY KEY HANDLING                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Request arrives with X-Idempotency-Key                                     │
+│          │                                                                   │
+│          ▼                                                                   │
+│  ┌─────────────────┐                                                        │
+│  │ Key exists in   │────── NO ─────▶ Execute operation                      │
+│  │ cache?          │                  │                                      │
+│  └────────┬────────┘                  │                                      │
+│           │ YES                       │                                      │
+│           ▼                           │                                      │
+│  ┌─────────────────┐                  │                                      │
+│  │ Payload hash    │                  │                                      │
+│  │ matches?        │                  │                                      │
+│  └────────┬────────┘                  │                                      │
+│           │                           │                                      │
+│      YES  │  NO                       │                                      │
+│           │  │                        │                                      │
+│           ▼  ▼                        ▼                                      │
+│  Return   Return              Store key + hash + result                     │
+│  cached   409                         │                                      │
+│  result   Conflict                    │                                      │
+│                                       ▼                                      │
+│                               Return result                                  │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Server Implementation:**
+
+```typescript
+// Idempotency middleware
+async function idempotencyMiddleware(req: Request, res: Response, next: NextFunction) {
+  const idempotencyKey = req.headers['x-idempotency-key'];
+
+  if (!idempotencyKey) {
+    // Bulk operations require idempotency key
+    if (BULK_OPERATION_PATHS.includes(req.path)) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'IDEMPOTENCY_KEY_REQUIRED',
+          message: 'Bulk operations require X-Idempotency-Key header',
+        },
+      });
+    }
+    return next();
+  }
+
+  // Check cache
+  const cacheKey = `idempotency:${req.context.organizationId}:${idempotencyKey}`;
+  const cached = await redis.get(cacheKey);
+
+  if (cached) {
+    const { payloadHash, response, statusCode } = JSON.parse(cached);
+    const currentHash = hash(JSON.stringify(req.body));
+
+    if (payloadHash !== currentHash) {
+      return res.status(409).json({
+        success: false,
+        error: {
+          code: 'IDEMPOTENCY_KEY_CONFLICT',
+          message: 'Idempotency key already used with different payload',
+        },
+      });
+    }
+
+    // Return cached response
+    return res.status(statusCode).json(response);
+  }
+
+  // Store result after operation completes
+  const originalJson = res.json.bind(res);
+  res.json = (body: unknown) => {
+    redis.setex(
+      cacheKey,
+      86400, // 24 hours
+      JSON.stringify({
+        payloadHash: hash(JSON.stringify(req.body)),
+        response: body,
+        statusCode: res.statusCode,
+      })
+    );
+    return originalJson(body);
+  };
+
+  next();
+}
+```
+
+**Client Best Practices:**
+
+```typescript
+// Generate idempotency key from operation context
+function generateIdempotencyKey(context: {
+  operation: string;
+  date: string;
+  batchId?: string;
+  uniqueId: string;
+}): string {
+  return `${context.operation}_${context.date}_${context.batchId || 'na'}_${context.uniqueId}`;
+}
+
+// Example usage
+const key = generateIdempotencyKey({
+  operation: 'bulk_passport_issue',
+  date: '2026-01-15',
+  batchId: 'batch-12345',
+  uniqueId: crypto.randomUUID(),
+});
+
+// Retry with same key
+async function bulkIssueWithRetry(payload: BulkIssuePayload, idempotencyKey: string) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await api.post('/api/v1/passports/bulk', payload, {
+        headers: { 'X-Idempotency-Key': idempotencyKey },
+      });
+    } catch (error) {
+      if (error.status === 409) {
+        throw new Error('Idempotency key conflict - operation may have changed');
+      }
+      if (attempt === 2) throw error;
+      await sleep(1000 * Math.pow(2, attempt)); // Exponential backoff
+    }
+  }
+}
+```
+
+**Partial Failure Handling:**
+
+For bulk operations that partially succeed:
+
+```json
+{
+  "success": false,
+  "data": {
+    "jobId": "job_xyz789",
+    "status": "partial_failure",
+    "results": {
+      "total": 100,
+      "succeeded": 95,
+      "failed": 5,
+      "failures": [
+        { "index": 23, "serialNumber": "SN-023", "error": "Duplicate serial" },
+        { "index": 45, "serialNumber": "SN-045", "error": "Invalid format" }
+      ]
+    }
+  },
+  "meta": {
+    "idempotencyKey": "bulk_2026-01-15_batch-12345_abc123",
+    "canRetry": true,
+    "retryHint": "Retry with same key after fixing failed items"
+  }
+}
+```
+
 ### 6.5 Bulk Export
 
 #### Request Full Organization Export
