@@ -28,7 +28,7 @@
 
 ## 1. Executive Summary
 
-EuroComply is a B2B SaaS platform for EU Digital Product Passport (DPP) compliance under the ESPR regulation. The platform uses a Base Fee + Per-DPP pricing model, with tiers from €79/month (Starter) to custom Enterprise/Platform pricing.
+EuroComply is a B2B SaaS platform for EU Digital Product Passport (DPP) compliance under the ESPR regulation. The platform uses a Base Fee + Per-DPP pricing model, with tiers from €149/month (Starter) to custom Enterprise/Platform pricing.
 
 ### Key Architecture Decisions
 
@@ -52,13 +52,13 @@ EuroComply is a B2B SaaS platform for EU Digital Product Passport (DPP) complian
 
 ### Realistic Gross Margin by Tier
 
-| Tier | Base Fee | Infra | Payment (3%) | API/Support | Total COGS | Base Margin | DPP Margin |
-|------|----------|-------|--------------|-------------|------------|-------------|------------|
-| Starter (€79) | €79/mo | €3 | €2.50 | €5 | €10.50 | **87%** | **99%** |
-| Growth (€199) | €199/mo | €5 | €6 | €10 | €21 | **89%** | **98%** |
-| Scale (€599) | €599/mo | €15 | €18 | €25 | €58 | **90%** | **95%** |
-| Enterprise (€1,499) | €1,499/mo | €100 | €45 | €75 | €220 | **85%** | **87%** |
-| Platform (Custom) | Custom | €400+ | Custom | Custom | Custom | **70-80%** | **0-67%** |
+| Tier | Base Fee | Storage | Infra | Payment (3%) | API/Support | Total COGS | Base Margin | DPP Margin |
+|------|----------|---------|-------|--------------|-------------|------------|-------------|------------|
+| Starter (€149) | €149/mo | 500 GB | €3 | €4.50 | €5 | €12.50 | **92%** | **99%** |
+| Growth (€299) | €299/mo | 1 TB | €5 | €9 | €10 | €24 | **92%** | **98%** |
+| Scale (€749) | €749/mo | 2 TB | €15 | €22.50 | €25 | €62.50 | **92%** | **95%** |
+| Enterprise (€1,999) | €1,999/mo | 5 TB | €100 | €60 | €75 | €235 | **88%** | **87%** |
+| Platform (Custom) | Custom | Custom | €400+ | Custom | Custom | Custom | **70-80%** | **0-67%** |
 
 **Cost Components:**
 - **Infrastructure**: AWS (RDS, ECS, ElastiCache) + Cloudflare (R2, Workers)
@@ -95,17 +95,17 @@ EuroComply consists of four integrated workspaces:
 
 ### 2.2 Pricing Tiers
 
-| Tier | Base Fee | DPP Price | Volume Discounts | Target Customer |
-|------|----------|-----------|------------------|-----------------|
-| Starter | €79/month | €0.10/DPP | 10K+: €0.08 | Micro-businesses, testing |
-| Growth | €199/month | €0.05/DPP | 50K+: €0.03, 100K+: €0.02 | Small brands |
-| Scale | €599/month | €0.02/DPP | 500K+: €0.01, 1M+: €0.008 | Mid-market manufacturers |
-| Enterprise | €1,499/month | €0.008/DPP | 5M+: €0.005, 10M+: €0.003 | Large brands |
-| Platform | Custom | €0.001-0.003 | Negotiated | Fortune 500 |
+| Tier | Base Fee | Storage | DPP Price | Volume Discounts | Target Customer |
+|------|----------|---------|-----------|------------------|-----------------|
+| Starter | €149/month | 500 GB | €0.10/DPP | 10K+: €0.08 | Micro-businesses, testing |
+| Growth | €299/month | 1 TB | €0.05/DPP | 50K+: €0.03, 100K+: €0.02 | Small brands |
+| Scale | €749/month | 2 TB | €0.02/DPP | 500K+: €0.01, 1M+: €0.008 | Mid-market manufacturers |
+| Enterprise | €1,999/month | 5 TB | €0.008/DPP | 5M+: €0.005, 10M+: €0.003 | Large brands |
+| Platform | Custom | Custom | €0.001-0.003 | Negotiated | Fortune 500 |
 
-*All tiers include unlimited storage for products, images, PDFs, and all workspace data.*
+*Storage is for media files (images, PDFs, videos). Product data and DPP metadata are unlimited.*
 
-All tiers include unlimited products/SKUs, unlimited users, and unlimited storage. Per-DPP pricing includes EPCIS events and 10-year hosting.
+All tiers include unlimited products/SKUs, unlimited users, and generous storage. Per-DPP pricing includes EPCIS events and 10-year hosting.
 
 ### 2.3 Traffic Patterns
 
@@ -1016,6 +1016,62 @@ Seven layers of security protect tenant data:
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+### 4.2.1 Data Key Caching
+
+To support bulk operations (1M+ DPPs) without hitting KMS rate limits or costs, EuroComply uses the **AWS Encryption SDK data key caching** pattern:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    DATA KEY CACHING ARCHITECTURE                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  AWS KMS (CMK)                                                              │
+│      │                                                                      │
+│      └─► GenerateDataKey (once per cache period)                           │
+│              │                                                              │
+│              ▼                                                              │
+│      Tenant DEK (plaintext + encrypted)                                    │
+│              │                                                              │
+│              ├─► Worker Memory Cache (5-10 min TTL)                        │
+│              │       • Max 1M operations per cached key                    │
+│              │       • Isolated per tenant                                 │
+│              │                                                              │
+│              └─► Redis Shared Cache (5 min TTL)                            │
+│                      • Fallback for new workers                            │
+│                      • Encrypted at rest                                    │
+│                                                                              │
+│  BULK OPERATION FLOW:                                                      │
+│  1. Worker starts → check memory cache                                     │
+│  2. Cache miss → check Redis cache                                         │
+│  3. Redis miss → KMS GenerateDataKey → cache everywhere                    │
+│  4. Process 1M items using cached DEK                                      │
+│  5. Zero additional KMS calls                                              │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Why This Matters:**
+
+| Scenario | Without Cache | With Cache | Savings |
+|----------|--------------|------------|---------|
+| 1M DPPs | 2M+ KMS calls ($6) | ~10 KMS calls ($0.00003) | 99.9995% |
+| 10M DPPs | 20M+ KMS calls ($60) | ~10 KMS calls ($0.00003) | 99.9999% |
+| Rate limit risk | High (5,500/sec limit) | None | - |
+
+**Caching Strategy:**
+
+| Context | Cache Location | TTL | Max Uses |
+|---------|---------------|-----|----------|
+| API workers | In-memory | 5 minutes | 10,000 |
+| Bulk workers | In-memory | 10 minutes | 1,000,000 |
+| Redis (shared) | Redis | 5 minutes | Unlimited |
+
+**Security Constraints:**
+- DEK cached for max 10 minutes
+- Max 1M operations per cached key (whichever comes first)
+- Cache cleared on worker restart
+- Tenant isolation enforced (separate cache entries per org)
 
 ### 4.3 Attack Scenarios
 
@@ -1952,6 +2008,48 @@ A sequential approach (100ms per DPP) would take 27+ hours for 1 million items. 
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
+### 7.2.1 DEK Handling in Bulk Workers
+
+Each bulk worker pre-warms the DEK cache before processing chunks to avoid KMS rate limits (see §4.2.1 Data Key Caching):
+
+```
+PER-CHUNK DEK FLOW:
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                                                                              │
+│  1. Receive chunk message with organizationId            [0ms]              │
+│                    │                                                        │
+│                    ▼                                                        │
+│  2. Check worker memory cache for tenant DEK             [<1ms]             │
+│                    │                                                        │
+│        ┌──────────┴──────────┐                                             │
+│        │ Cache Hit           │ Cache Miss                                  │
+│        ▼                     ▼                                              │
+│     Use cached DEK     3. Check Redis cache              [5ms]             │
+│        │                     │                                              │
+│        │             ┌───────┴───────┐                                     │
+│        │             │ Redis Hit     │ Redis Miss                          │
+│        │             ▼               ▼                                      │
+│        │         Use Redis DEK   4. KMS GenerateDataKey  [50-200ms]        │
+│        │             │               │                                      │
+│        │             │               └─► Cache in memory + Redis           │
+│        │             │                                                      │
+│        └─────────────┴───────────────┘                                     │
+│                    │                                                        │
+│                    ▼                                                        │
+│  5. Process 1,000 items with cached DEK                  [1,100ms]         │
+│  6. DEK remains cached for next chunk                    [0ms lookup]      │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+RESULT: First chunk pays ~200ms KMS cost, subsequent chunks pay 0ms.
+
+WORST CASE (new worker, empty cache):
+- 1M items = 1,000 chunks
+- First chunk: 1 KMS call
+- Remaining 999 chunks: 0 KMS calls
+- Total KMS calls: 1 (vs 2M+ without caching)
+```
+
 ### 7.3 Performance Targets
 
 With deduplicated storage (DynamoDB writes only, no per-item R2 uploads):
@@ -2530,6 +2628,16 @@ The per-DPP pricing provides healthy margins at all tiers. Even at the lowest Pl
 
 **Note:** Bulk worker costs scale to zero when not in use. Typical monthly addition: €20-50 for active usage.
 
+**KMS Cost with Data Key Caching (see §4.2.1):**
+
+| DPP Volume/Month | KMS Calls (Without Cache) | KMS Calls (With Cache) | Cost |
+|------------------|---------------------------|------------------------|------|
+| Base (no bulk) | ~10,000 | ~10,000 | €0.03 |
+| 1M DPPs | 2M+ | ~10,100 | €0.03 |
+| 100M DPPs | 200M+ ($600) | ~11,000 | €0.03 |
+
+Data key caching reduces KMS costs to near-zero regardless of DPP volume. The €4/month KMS line item covers the CMK plus all API requests even at 100M+ DPPs.
+
 **¹ Per-Tenant Secrets Manager Cost:** Each tenant requires a dedicated database credential stored in Secrets Manager for [Cell-Level Hardening](./docs/SECURITY.md#1310-cell-level-hardening). Cost scales with tenant count:
 
 | Tenants per Cell | Secrets Manager Cost | Cost per Tenant |
@@ -2589,17 +2697,17 @@ At €129/tenant/month (Growth tier), the $0.40 secrets cost is <0.4% of revenue
 
 #### Milestone 3: First Scale Customer
 
-**Trigger:** Customer signs Scale tier (€599/month base + per-DPP)
+**Trigger:** Customer signs Scale tier (€749/month base + per-DPP)
 **Action:** Deploy Scale cell with per-tenant credentials
 **Cost Impact:** +€95/month
-**Net:** +€504/month base profit + DPP revenue
+**Net:** +€654/month base profit + DPP revenue
 
 #### Milestone 4: First Enterprise Customer
 
-**Trigger:** Customer signs Enterprise tier (€1,499/month base + per-DPP)
+**Trigger:** Customer signs Enterprise tier (€1,999/month base + per-DPP)
 **Action:** Provision dedicated RDS instance
 **Cost Impact:** +€110/month per customer
-**Net:** +€1,389/month base profit per customer + DPP revenue
+**Net:** +€1,764/month base profit per customer + DPP revenue
 
 #### Milestone 5: High Availability + NAT Upgrade
 
@@ -3102,7 +3210,7 @@ aws elasticache modify-replication-group \
 
 #### 9.6.3 Provisioning Enterprise Dedicated RDS
 
-**When to trigger:** New Enterprise tier customer signs up (€1,499/month base)
+**When to trigger:** New Enterprise tier customer signs up (€1,999/month base)
 
 **Prerequisites:**
 - Customer onboarding complete
@@ -3244,8 +3352,8 @@ curl -s -H "X-Tenant-ID: ${TENANT_ID}" \
 | Performance Insights | €2 |
 | **Total** | **~€110/month** |
 
-**Customer revenue:** €1,499/month base + per-DPP fees
-**Net margin:** €1,389/month base profit + DPP revenue
+**Customer revenue:** €1,999/month base + per-DPP fees
+**Net margin:** €1,764/month base profit + DPP revenue
 
 ---
 

@@ -506,9 +506,18 @@ const CORS_CONFIG = {
 │  AWS KMS                                                        │
 │  └── Master Key (CMK) - never leaves KMS                       │
 │      │                                                          │
-│      ├── Data Encryption Keys (DEKs)                           │
-│      │   └── Database field encryption                         │
-│      │   └── Backup encryption                                 │
+│      ├── Data Encryption Keys (DEKs) - per organization        │
+│      │   │                                                      │
+│      │   ├─► Local Cache (worker memory, 5-10 min TTL)         │
+│      │   │       └── Used for bulk operations                  │
+│      │   │       └── Max 1M operations per cached key          │
+│      │   │                                                      │
+│      │   ├─► Redis Cache (shared, 5 min TTL)                   │
+│      │   │       └── Fallback for new workers                  │
+│      │   │                                                      │
+│      │   └── Operations:                                       │
+│      │       ├── Database field encryption                     │
+│      │       └── Backup encryption                             │
 │      │                                                          │
 │      └── Key Encryption Key (KEK)                              │
 │          └── Encrypts signing keys in walt.id                  │
@@ -525,6 +534,10 @@ const CORS_CONFIG = {
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+**DEK Caching for Bulk Operations:**
+
+Data key caching reduces KMS API calls by 99.9999% during bulk DPP generation. See Architecture Document §4.2.1 for details.
 
 ### 6.2 Key Rotation
 
