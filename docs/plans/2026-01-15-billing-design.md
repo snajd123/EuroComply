@@ -8,7 +8,7 @@
 
 ## 1. Overview
 
-EuroComply uses Stripe for all billing operations with a **Base Fee + Per-DPP + User Overage** model.
+EuroComply uses Stripe for all billing operations with a **Base Fee + Per-DPP + User Overage + Shipping** model.
 
 ### Billing Components
 
@@ -17,10 +17,13 @@ EuroComply uses Stripe for all billing operations with a **Base Fee + Per-DPP + 
 | **Base Fee** | Monthly/annual platform subscription (tier-based) |
 | **Per-DPP** | Usage-based fee for each DPP issued |
 | **User Overage** | €10/user/month for users beyond tier limit |
+| **Shipping & Logistics** | Transaction fees for Compliant Highway services |
+
+> **Shipping Details:** See [Operations Workspace Design](./2026-01-15-operations-workspace-design.md#16-shipping--logistics-module) for complete shipping architecture.
 
 ### Key Principles
 
-1. **Transparent Pricing**: Three clear line items on every invoice
+1. **Transparent Pricing**: Up to four categories on every invoice (Base + DPP + Users + Shipping)
 2. **Fair Prorating**: Upgrades and downgrades prorated to the day
 3. **Volume Rewards**: Automatic DPP discounts as volume increases
 4. **MAU-Based Users**: Monthly Active Users counted to align with Clerk costs
@@ -153,10 +156,159 @@ Every invoice contains up to three line items:
 | Base Plan | Monthly/annual subscription | Fixed by tier |
 | DPP Usage | Per-DPP fees with volume discounts | Count × rate (tiered) |
 | User Overage | Users beyond tier limit | (MAU - limit) × €10 |
+| Shipping | Compliant Highway fees | Per consignment/EPC/filing |
 
 ---
 
-## 4. Billing Access Control
+## 4. Shipping & Logistics Billing
+
+EuroComply's "Compliant Highway" generates transaction-based revenue through logistics services. These fees appear as additional line items alongside base fees, DPP usage, and user overage.
+
+### Shipping Revenue Streams
+
+| Fee Type | Description | When Charged |
+|----------|-------------|--------------|
+| **Compliance Unlock** | Per-consignment verification fee | When compliance gate passes |
+| **EPCIS Events** | Per-EPC tracking in aggregation events | When EPCIS event generated |
+| **Customs Filing** | Evidence Package with official PDF | When Evidence Package requested |
+| **Label Markup** | 10% margin on carrier rates | When shipping label purchased |
+
+### Shipping Pricing by Tier
+
+| Fee Type | Starter | Growth | Scale | Enterprise | Platform |
+|----------|---------|--------|-------|------------|----------|
+| Compliance Unlock | €25.00 | €20.00 | €15.00 | €10.00 | €5.00 |
+| EPCIS Event (per EPC) | €0.05 | €0.04 | €0.03 | €0.02 | €0.01 |
+| Customs Filing | €50.00 | €40.00 | €35.00 | €25.00 | €15.00 |
+| Label Markup | 10% | 10% | 10% | 10% | 10% |
+
+### Shipping Storage Costs (10-Year TCO)
+
+Unlike DPPs where we deduplicate (30KB template shared across 1,000 items), shipping artifacts are **unique per consignment** and cannot be templated.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    SHIPPING ARTIFACT STORAGE                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ARTIFACT SIZES (per consignment):                                          │
+│  • Evidence Package JSON:     ~150KB (Four Pillars, EPCs, signatures)       │
+│  • Customs PDF (5 pages):     ~1MB (official template with QR codes)        │
+│  • EPCIS Events:              ~3KB each × 5 avg = 15KB per consignment      │
+│  • Shipping Label:            ~100KB (carrier PDF, 90-day retention)        │
+│  • RFC 3161 Timestamp Token:  ~2KB (Enterprise+ only)                       │
+│  ──────────────────────────────────────────────────────────────────────────│
+│  TOTAL PER CONSIGNMENT:       ~1.3MB (without customs PDF: ~270KB)          │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 10-Year TCO Breakdown
+
+| Component | Calculation | Cost |
+|-----------|-------------|------|
+| Evidence Package JSON (R2) | 150KB × 120mo × $0.015/GB | €0.00025 |
+| Customs PDF (R2) | 1MB × 120mo × $0.015/GB | €0.0017 |
+| EPCIS Events (DynamoDB) | 15KB × 120mo × $0.25/GB | €0.0004 |
+| Shipping Label (R2, 90-day) | 100KB × 3mo × $0.015/GB | €0.000004 |
+| RFC 3161 Token (R2) | 2KB × 120mo × $0.015/GB | €0.00004 |
+| **Storage Subtotal** | | **€0.0024** |
+| Generation compute | PDF rendering, signing, QR codes | €0.0022 |
+| TSA API call (Enterprise+) | RFC 3161 timestamp request | €0.01 |
+| Operational reserves | Format migration, inflation buffer | €0.0015 |
+
+**Total 10-Year TCO:**
+- Without Customs PDF: **€0.01** (with 3x buffer)
+- With Customs PDF: **€0.02** (with 3x buffer)
+- With TSA (Enterprise+): **€0.05** (with 3x buffer)
+
+#### Gross Margin by Tier
+
+| Fee Type | Tier | Price | 10-Year TCO | Gross Margin |
+|----------|------|-------|-------------|--------------|
+| Compliance Unlock | Starter | €25.00 | €0.01 | 99.96% |
+| Compliance Unlock | Platform | €5.00 | €0.01 | **99.80%** |
+| Customs Filing | Starter | €50.00 | €0.02 | 99.96% |
+| Customs Filing + TSA | Platform | €15.00 | €0.05 | **99.67%** |
+| EPCIS Event (per EPC) | Starter | €0.05 | €0.0001 | 99.80% |
+| EPCIS Event (per EPC) | Platform | €0.01 | €0.0001 | **99.00%** |
+
+**Key Insight:** Even at Platform floor pricing, all shipping artifacts maintain 99%+ gross margins. Storage costs are negligible relative to the value delivered.
+
+### Invoice with Shipping
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              INVOICE                                         │
+│                                                                              │
+│  EuroComply GmbH                            Invoice #: INV-2026-0087        │
+│  Frankfurt, Germany                         Date: January 31, 2026          │
+│                                                                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  DESCRIPTION                               QTY        PRICE       AMOUNT    │
+│  ────────────────────────────────────────────────────────────────────────── │
+│  Scale Plan (Monthly Base Fee)               1     €749.00      €749.00    │
+│                                                                              │
+│  DPP Usage                                                                  │
+│   - 750,000 DPPs at €0.02                                     €12,500.00    │
+│                                                                              │
+│  User Overage (115 MAU, 100 included)       15      €10.00      €150.00    │
+│                                                                              │
+│  SHIPPING & LOGISTICS                                                       │
+│   - Carrier Costs (pass-through)           450     varies     €4,500.00    │
+│   - Label Markup (10%)                     450        10%       €450.00    │
+│   - Compliance Unlock                      450      €15.00    €6,750.00    │
+│   - EPCIS Events (125,000 EPCs)        125,000       €0.03    €3,750.00    │
+│   - Customs Filings                         12      €35.00      €420.00    │
+│  ────────────────────────────────────────────────────────────────────────── │
+│  Shipping Subtotal:                                           €15,870.00    │
+│                                                                              │
+│                                             Subtotal:         €29,269.00    │
+│                                             VAT (19%):         €5,561.11    │
+│                                             ─────────────────────────────── │
+│                                             Total:            €34,830.11    │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Shipping Usage Tracking
+
+```sql
+-- Shipping usage tracking (extends billing model)
+CREATE TABLE shipping_usage (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id     UUID NOT NULL REFERENCES organizations(id),
+    period_start        DATE NOT NULL,
+    period_end          DATE NOT NULL,
+
+    -- Compliance Unlock (per consignment)
+    shipments_count     INT DEFAULT 0,
+    compliance_fee_rate DECIMAL(10,2),
+
+    -- Label Markup
+    carrier_costs       DECIMAL(10,2) DEFAULT 0,
+    label_markup_rate   DECIMAL(5,4) DEFAULT 0.10,
+
+    -- EPCIS Events (per EPC)
+    epcis_epc_count     INT DEFAULT 0,
+    epcis_fee_rate      DECIMAL(10,4),
+
+    -- Customs Filings
+    customs_filings     INT DEFAULT 0,
+    customs_fee_rate    DECIMAL(10,2),
+
+    -- Stripe reporting
+    reported_to_stripe  BOOLEAN DEFAULT FALSE,
+    reported_at         TIMESTAMPTZ,
+
+    UNIQUE(organization_id, period_start)
+);
+```
+
+---
+
+## 5. Billing Access Control
 
 ### Who Can Manage Billing
 
@@ -229,7 +381,7 @@ Billing management requires **Organization Admin** status:
 
 ---
 
-## 5. Data Model
+## 6. Data Model
 
 ### Organization Billing Fields
 
@@ -357,7 +509,7 @@ async function calculateMAU(
 
 ---
 
-## 6. Stripe Integration
+## 7. Stripe Integration
 
 ### Subscription Structure
 
@@ -427,7 +579,7 @@ async function reportMonthlyUsage(orgId: string) {
 
 ---
 
-## 7. Webhook Handling
+## 8. Webhook Handling
 
 ```typescript
 // Handle Stripe webhooks
@@ -489,7 +641,7 @@ async function handlePaymentSucceeded(invoice: Stripe.Invoice) {
 
 ---
 
-## 8. Changes from Original BILLING.md
+## 9. Changes from Original BILLING.md
 
 | Aspect | Original | Updated |
 |--------|----------|---------|
@@ -501,11 +653,12 @@ async function handlePaymentSucceeded(invoice: Stripe.Invoice) {
 
 ---
 
-## 9. Related Documents
+## 10. Related Documents
 
 | Document | Purpose |
 |----------|---------|
 | [Business Model Design](./2026-01-15-business-model-design.md) | Pricing tiers, unit economics |
+| [Operations Workspace Design](./2026-01-15-operations-workspace-design.md) | Shipping & Logistics, EPCIS, Evidence Package |
 | [User Management Design](./2026-01-15-user-management-design.md) | Organization Admin definition |
 | [Architecture Design](./2026-01-15-architecture-design.md) | System architecture |
 
@@ -515,5 +668,6 @@ async function handlePaymentSucceeded(invoice: Stripe.Invoice) {
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 0.2 | 2026-01-15 | Added Section 4: Shipping & Logistics Billing with storage costs and margins |
 | 0.1 | 2026-01-15 | Initial draft from BILLING.md review |
 

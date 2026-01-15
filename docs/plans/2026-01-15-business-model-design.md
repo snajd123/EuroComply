@@ -23,7 +23,7 @@ EuroComply is a Unified Product Lifecycle & Compliance Platform combining PLM, E
 
 ## 2. Pricing Structure
 
-### Base Fee + Per-DPP Model
+### Base Fee + Per-DPP + Shipping Model
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -46,6 +46,13 @@ EuroComply is a Unified Product Lifecycle & Compliance Platform combining PLM, E
 │  • 10-year hosting included in price                            │
 │  • EPCIS lifecycle events included                              │
 │  • Scales with actual compliance output                         │
+│                                                                  │
+│  SHIPPING & LOGISTICS ("Compliant Highway")                     │
+│  ──────────────────────────────────────────                      │
+│  • Compliance Unlock fee (per consignment)                      │
+│  • EPCIS event tracking (per EPC)                               │
+│  • Customs filing with Evidence Package (per filing)            │
+│  • Label markup (10% on carrier rates)                          │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -238,9 +245,97 @@ DPP pricing already includes 10-year hosting costs. When a customer cancels:
 - No "dormant hosting" fee needed
 - Customer can export data during 30-day grace period
 
+### DPP vs Evidence Package Economics
+
+Evidence Packages (shipping compliance bundles) have different economics than DPPs:
+
+| Metric | DPP | Evidence Package | Notes |
+|--------|-----|------------------|-------|
+| Storage architecture | Deduplicated | Unique per consignment | EPkg can't share templates |
+| Average size | ~500 bytes + shared template | ~1.3MB full package | 2,600x larger |
+| 10-year TCO | €0.00035 | €0.02 (with PDF) | 57x more expensive |
+| Floor price | €0.001/DPP | €5.00/consignment | 5,000x higher revenue |
+| Gross margin (floor) | 65% | **99.7%** | EPkg margins are healthier |
+| Volume (Year 5) | 12B DPPs | ~7M consignments | DPPs drive volume, EPkg drives margin |
+
+**Key Insight:** Evidence Package storage is more expensive than DPPs (no deduplication possible), but the pricing easily covers costs with 99%+ margins. DPPs drive volume; Evidence Packages drive high-margin revenue.
+
 ---
 
-## 6. Subscription Lifecycle
+## 6. Shipping Revenue ("Compliant Highway")
+
+EuroComply's "Compliant Highway" integrates shipping with compliance verification. The key insight: **ship only after proving compliance, not the reverse**.
+
+> **Full Details:** See [Operations Workspace Design](./2026-01-15-operations-workspace-design.md#16-shipping--logistics-module) for complete shipping architecture and [Billing Design](./2026-01-15-billing-design.md#4-shipping--logistics-billing) for pricing details.
+
+### Shipping Revenue Model
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    COMPLIANT HIGHWAY MODEL                       │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  STAGE → VERIFY → SEAL → SHIP                                   │
+│                                                                  │
+│  1. STAGE: Aggregate serials into consignment                   │
+│  2. VERIFY: Automated compliance check (all DPPs valid)         │
+│  3. SEAL: Generate EPCIS aggregation event + Evidence Package   │
+│  4. SHIP: Label generated only after compliance verified        │
+│                                                                  │
+│  KEY INSIGHT: Control the label, control the highway.           │
+│  No label without passing compliance verification.              │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Shipping Pricing by Tier
+
+| Fee Type | Starter | Growth | Scale | Enterprise | Platform |
+|----------|---------|--------|-------|------------|----------|
+| Compliance Unlock | €25.00 | €20.00 | €15.00 | €10.00 | €5.00 |
+| EPCIS Event (per EPC) | €0.05 | €0.04 | €0.03 | €0.02 | €0.01 |
+| Customs Filing | €50.00 | €40.00 | €35.00 | €25.00 | €15.00 |
+| Label Markup | 10% | 10% | 10% | 10% | 10% |
+
+### Revenue Composition (Year 5)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    REVENUE COMPOSITION (Year 5)                  │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  28% Base Subscription Revenue                                  │
+│  ├── Monthly/Annual platform fees                               │
+│  └── Predictable, recurring foundation                          │
+│                                                                  │
+│  58% Per-DPP Revenue                                            │
+│  ├── Volume-based DPP issuance fees                            │
+│  ├── Scales with customer compliance output                     │
+│  └── Primary growth driver                                      │
+│                                                                  │
+│  12% Shipping & Logistics Revenue                               │
+│  ├── Compliance Unlock fees (per consignment)                   │
+│  ├── EPCIS event fees (per EPC tracked)                        │
+│  ├── Customs filing fees (Evidence Package generation)          │
+│  └── Label markup (10% on carrier rates)                        │
+│                                                                  │
+│  2% Services Revenue                                            │
+│  ├── Enterprise onboarding                                      │
+│  ├── Custom integrations                                        │
+│  └── One-time or project-based                                  │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Shipping Revenue Projection
+
+- Year 5: 6,000 customers × 20% using shipping = 1,200 active shipping customers
+- Average 500 shipments/month × €5 blended shipping fee = €3M/month
+- **Shipping ARR (Year 5): ~€36M** (12% of total €175M ARR)
+
+---
+
+## 7. Subscription Lifecycle
 
 ### When Subscription Ends
 
@@ -276,7 +371,7 @@ DPP pricing already includes 10-year hosting costs. When a customer cancels:
 
 ---
 
-## 7. Retailer Access (Free)
+## 8. Retailer Access (Free)
 
 ESPR Article 31 mandates free DPP access for economic operators.
 
@@ -297,7 +392,7 @@ ESPR Article 31 mandates free DPP access for economic operators.
 
 ---
 
-## 8. Revenue Examples
+## 9. Revenue Examples
 
 ### Example 1: Small Fashion Brand (Growth)
 
@@ -344,7 +439,7 @@ Annual:             €429,588
 
 ---
 
-## 9. Competitive Positioning
+## 10. Competitive Positioning
 
 ### Cost Comparison
 
@@ -386,7 +481,7 @@ Annual:             €429,588
 
 ---
 
-## 10. Infrastructure Economics
+## 11. Infrastructure Economics
 
 ### Base Cost
 
@@ -410,7 +505,7 @@ Personnel is the real cost driver.
 
 ---
 
-## 11. Changes from Original Document
+## 12. Changes from Original Document
 
 | Aspect | Original | Updated |
 |--------|----------|---------|
@@ -421,13 +516,14 @@ Personnel is the real cost driver.
 
 ---
 
-## 12. Related Documents
+## 13. Related Documents
 
 | Document | Purpose |
 |----------|---------|
 | [Architecture Design](./2026-01-15-architecture-design.md) | Technical infrastructure |
+| [Operations Workspace Design](./2026-01-15-operations-workspace-design.md) | Shipping & Logistics, EPCIS, Evidence Package |
+| [Billing Design](./2026-01-15-billing-design.md) | Stripe integration, invoicing, shipping billing |
 | [User Management Design](./2026-01-15-user-management-design.md) | RBAC, permissions |
-| BILLING.md | Stripe integration, invoicing |
 
 ---
 
@@ -435,4 +531,5 @@ Personnel is the real cost driver.
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 0.2 | 2026-01-15 | Added Section 6: Shipping Revenue, DPP vs Evidence Package economics |
 | 0.1 | 2026-01-15 | Initial draft from BUSINESS_MODEL.md review |
