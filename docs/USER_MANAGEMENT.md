@@ -131,6 +131,9 @@ Admins can set custom expiration periods per invitation:
 
 ## 2. Authority Levels
 
+> **Canonical Reference:** This is the definitive source for role/authority definitions.
+> Other documents (SECURITY.md, AUTHENTICATION.md, PASSPORT_TRUST_MODEL.md) reference this section.
+
 Authority determines what actions a user can perform **within a workspace**. Users have a separate authority level for each workspace they can access. There are four levels:
 
 ```

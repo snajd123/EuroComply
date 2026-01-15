@@ -400,41 +400,18 @@ async function authorize(req: Request): Promise<boolean> {
 
 ## 4. Role Hierarchy
 
+> **Canonical Reference:** See [Authority Levels](./USER_MANAGEMENT.md#2-authority-levels)
+> for complete role definitions and capabilities.
+
 EuroComply has **five authority levels** that apply **per workspace**:
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      AUTHORITY HIERARCHY                         │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  ADMIN (organization-level)                                     │
-│  └── Manage users, billing, API keys, org settings             │
-│      Note: Admin is org-wide, not per-workspace                │
-│                                                                  │
-│  MANAGER (workspace-level)                                      │
-│  └── Full control: edit, approve, publish, delete              │
-│      └── EDITOR (workspace-level)                              │
-│          └── Edit and create, requires approval for publish    │
-│              └── VIEWER (workspace-level)                      │
-│                  └── Read-only access to workspace data        │
-│                                                                  │
-│  CONTRIBUTOR (external, limited)                               │
-│  └── Submit data for specific products only                    │
-│  └── Cannot view other organization data                       │
-│  └── Used for: Agencies, suppliers, third-party attestors     │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Authority Definitions
-
-| Level | Description | Typical Users |
-|-------|-------------|---------------|
-| **ADMIN** | Organization administrator. Can manage users, billing, API keys. Has implicit VIEWER access to all workspaces for oversight. | Founders, IT admins, CTOs |
-| **MANAGER** | Full control within workspace. Can approve changes, publish versions, issue DPPs. | Department heads, team leads |
-| **EDITOR** | Can create and edit within workspace. Changes require MANAGER approval before publishing. | Product designers, content creators |
-| **VIEWER** | Read-only access. Can view all data but cannot modify. | Stakeholders, auditors, contractors |
-| **CONTRIBUTOR** | External users. Can only submit attestations for products they're invited to. | Suppliers, certifiers, agencies |
+| Level | Scope | Description |
+|-------|-------|-------------|
+| **ADMIN** | Organization | Manage users, billing, API keys |
+| **MANAGER** | Workspace | Full control, approve, publish |
+| **EDITOR** | Workspace | Create/edit, requires approval |
+| **VIEWER** | Workspace | Read-only access |
+| **CONTRIBUTOR** | External | Submit attestations only |
 
 ### Workspace Authority is Independent
 

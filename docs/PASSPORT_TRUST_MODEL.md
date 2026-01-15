@@ -2010,27 +2010,16 @@ Trust is built progressively through four workspaces, all connected to the Hub:
 
 ### Workspace Roles
 
-Each workspace has role-based access control. **This is the single source of truth for workspace permissions** - other documents reference this matrix.
+Each workspace has role-based access control with four authority levels.
 
-#### Role Hierarchy
+> **Canonical Reference:** See [Authority Levels](./USER_MANAGEMENT.md#2-authority-levels)
+> for general role definitions. The matrices below define workspace-specific permissions.
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                     WORKSPACE ROLE HIERARCHY                                 │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  ALL WORKSPACES (Design, Marketing, Operations, Compliance):                │
-│                                                                              │
-│  MANAGER ← Has all EDITOR permissions                                       │
-│    │       (In Compliance: acts as "Approver" - can approve/reject DPPs)   │
-│  EDITOR ← Has all VIEWER permissions                                        │
-│    │       (In Compliance: acts as "Reviewer" - can create snapshots)      │
-│  VIEWER ← Base read-only access                                             │
-│                                                                              │
-│  CONTRIBUTOR (external) ← Limited access for attestation submission only   │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+**Role Summary:**
+- **MANAGER:** Full control + approval rights (in Compliance: acts as "Approver")
+- **EDITOR:** Create/edit content (in Compliance: acts as "Reviewer")
+- **VIEWER:** Read-only access
+- **CONTRIBUTOR:** External - attestation submission only
 
 #### Comprehensive Permissions Matrix
 

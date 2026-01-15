@@ -287,26 +287,11 @@ SSO users bypass magic link flow entirely - authentication delegated to IdP.
 
 ### 3.1 Role-Based Access Control (RBAC)
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    ROLE HIERARCHY                                │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  ADMIN                                                          │
-│  └── Org settings, user management, billing, API keys          │
-│      └── MANAGER                                                │
-│          └── Approve/reject edits, manage products, attestations│
-│              └── EDITOR                                         │
-│                  └── Edit products, request approval            │
-│                      └── VIEWER                                 │
-│                          └── Read-only access                   │
-│                                                                  │
-│  CONTRIBUTOR (external)                                         │
-│  └── Submit attestations for specific products only             │
-│  └── Cannot view other organization data                        │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
+> **Canonical Reference:** See [Authority Levels](./USER_MANAGEMENT.md#2-authority-levels)
+> for complete role definitions and workspace-specific permissions.
+
+**Summary:** Four workspace authority levels (MANAGER > EDITOR > CONTRIBUTOR > VIEWER)
+plus organization-level ADMIN role. CONTRIBUTOR is a special external role for suppliers.
 
 ### 3.2 Permission Matrix
 
