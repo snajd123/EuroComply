@@ -25,7 +25,7 @@ SMEs don't want to manage AWS accounts, Kubernetes clusters, or IPFS nodes. They
 - Data ownership ("I own my data")
 - Survival guarantee ("works if you disappear")
 
-**Target Solution**: We host everything (simple), but the Verifiable Credential IS the sovereign asset. It's self-contained, cryptographically signed, and works forever without us.
+**Target Solution**: We host everything (simple), but the Verifiable Credential IS the sovereign asset. It's self-contained, cryptographically signed, and signature verification works forever without us. (Revocation checking requires a status list server - we host it, or you can self-host.)
 
 ---
 

@@ -57,6 +57,7 @@ Benefits:
 • Issuer traceability (did:key identifies which keypair signed)*
 • Portable (supplier owns it, can host anywhere)
 • Signature works forever (even if EuroComply shuts down)
+• Revocation checking requires status list hosting (we host it, or self-host)
 
 *IMPORTANT: did:key proves WHICH KEYPAIR signed, not WHO owns that keypair.
 Real-world identity verification requires additional checks. See Section 17.
