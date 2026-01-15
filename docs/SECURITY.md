@@ -457,6 +457,261 @@ Rate limits are **tier-based** - higher tiers get higher limits. The limit appli
 
 > **Note:** Rate limits are tracked per organization, not per API key. Multiple API keys share the same limit pool.
 
+### 5.1.1 AI Token Budgets and Cost Controls
+
+The AI import feature uses Anthropic Claude and incurs per-token costs. Beyond request rate limits, we enforce **token budgets** to prevent runaway costs.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    AI TOKEN BUDGET SYSTEM                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  MONTHLY TOKEN BUDGETS BY TIER:                                             │
+│  ──────────────────────────────                                             │
+│                                                                              │
+│  │ Tier       │ Input Tokens │ Output Tokens │ Approx. Documents │         │
+│  │────────────│──────────────│───────────────│───────────────────│         │
+│  │ Starter    │ 100,000      │ 25,000        │ ~50 documents     │         │
+│  │ Growth     │ 500,000      │ 125,000       │ ~250 documents    │         │
+│  │ Scale      │ 2,000,000    │ 500,000       │ ~1,000 documents  │         │
+│  │ Enterprise │ 10,000,000   │ 2,500,000     │ ~5,000 documents  │         │
+│  │ Platform   │ Custom       │ Custom        │ Negotiated        │         │
+│                                                                              │
+│  TOKEN TRACKING:                                                            │
+│  ───────────────                                                            │
+│  • Tracked per organization per calendar month                              │
+│  • Resets on 1st of each month (UTC)                                       │
+│  • Usage visible in Settings → Usage → AI Import                           │
+│                                                                              │
+│  WHAT COUNTS TOWARD BUDGET:                                                 │
+│  ──────────────────────────                                                 │
+│  • Document content (PDFs, spreadsheets, images)                           │
+│  • System prompts and extraction schemas                                    │
+│  • Model responses (extracted data)                                         │
+│                                                                              │
+│  WHAT DOESN'T COUNT:                                                        │
+│  ───────────────────                                                        │
+│  • Cached extractions (same document hash = free)                          │
+│  • Failed requests (only successful extractions billed)                    │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Token Budget Enforcement
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    BUDGET ENFORCEMENT BEHAVIOR                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  USAGE THRESHOLDS:                                                          │
+│  ─────────────────                                                          │
+│                                                                              │
+│  │ Usage │ Action                                                         │
+│  │───────│────────────────────────────────────────────────────────────────│
+│  │ 75%   │ Email notification to org admins                               │
+│  │ 90%   │ Dashboard warning banner                                        │
+│  │ 100%  │ AI import disabled until next month (or upgrade)               │
+│  │ 100%+ │ Requests return 429 with specific error code                   │
+│                                                                              │
+│  BUDGET EXCEEDED RESPONSE:                                                  │
+│  ─────────────────────────                                                  │
+│                                                                              │
+│  HTTP/1.1 429 Too Many Requests                                            │
+│  Content-Type: application/json                                             │
+│  X-RateLimit-Type: token-budget                                            │
+│  X-TokenBudget-Limit: 500000                                               │
+│  X-TokenBudget-Used: 500000                                                │
+│  X-TokenBudget-Reset: 2026-02-01T00:00:00Z                                 │
+│                                                                              │
+│  {                                                                          │
+│    "success": false,                                                        │
+│    "error": {                                                               │
+│      "code": "AI_TOKEN_BUDGET_EXCEEDED",                                   │
+│      "message": "Monthly AI token budget exhausted",                       │
+│      "details": {                                                          │
+│        "budgetLimit": 500000,                                              │
+│        "budgetUsed": 500000,                                               │
+│        "resetDate": "2026-02-01T00:00:00Z",                                │
+│        "upgradeUrl": "https://app.eurocomply.eu/settings/billing/upgrade" │
+│      }                                                                      │
+│    }                                                                        │
+│  }                                                                          │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Cost Model and Pass-Through
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    AI COST MODEL                                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  PRICING STRUCTURE:                                                         │
+│  ──────────────────                                                         │
+│                                                                              │
+│  AI import is INCLUDED in subscription tiers (not metered).                │
+│  Token budgets are generous enough for typical usage.                      │
+│                                                                              │
+│  │ Tier       │ Monthly Cost │ AI Budget Value* │ Effective AI Cost │      │
+│  │────────────│──────────────│──────────────────│───────────────────│      │
+│  │ Starter    │ €99/month    │ ~€1.50           │ Included          │      │
+│  │ Growth     │ €299/month   │ ~€7.50           │ Included          │      │
+│  │ Scale      │ €799/month   │ ~€30.00          │ Included          │      │
+│  │ Enterprise │ €2,499/month │ ~€150.00         │ Included          │      │
+│                                                                              │
+│  *Based on Claude Haiku pricing: $0.25/M input, $1.25/M output             │
+│                                                                              │
+│  OVERAGE OPTIONS (Enterprise only):                                         │
+│  ──────────────────────────────────                                         │
+│                                                                              │
+│  Enterprise customers can enable pay-as-you-go overage:                    │
+│                                                                              │
+│  {                                                                          │
+│    "aiOverage": {                                                          │
+│      "enabled": true,                                                       │
+│      "maxMonthlySpend": 500,  // EUR cap                                   │
+│      "pricePerMillionInputTokens": 0.30,   // 20% markup on Anthropic     │
+│      "pricePerMillionOutputTokens": 1.50                                   │
+│    }                                                                        │
+│  }                                                                          │
+│                                                                              │
+│  Non-enterprise tiers: No overage. Upgrade tier for more tokens.           │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Anthropic Rate Limit Handling
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    ANTHROPIC API RATE LIMIT HANDLING                         │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  SCENARIO: Anthropic returns 429 (rate limited)                            │
+│  ───────────────────────────────────────────────                            │
+│                                                                              │
+│  Our Response:                                                              │
+│  1. Queue the request for automatic retry (exponential backoff)            │
+│  2. Return 202 Accepted to client with job ID                              │
+│  3. Notify via webhook when extraction completes                           │
+│                                                                              │
+│  Client receives:                                                           │
+│  ────────────────                                                           │
+│  HTTP/1.1 202 Accepted                                                     │
+│  {                                                                          │
+│    "success": true,                                                         │
+│    "data": {                                                                │
+│      "jobId": "job_abc123",                                                │
+│      "status": "queued",                                                    │
+│      "reason": "upstream_rate_limit",                                      │
+│      "estimatedCompletion": "2026-01-15T12:05:00Z",                        │
+│      "webhookUrl": "Will notify when complete"                             │
+│    }                                                                        │
+│  }                                                                          │
+│                                                                              │
+│  RETRY STRATEGY:                                                            │
+│  ───────────────                                                            │
+│  Attempt 1: Immediate                                                       │
+│  Attempt 2: 30 seconds                                                      │
+│  Attempt 3: 2 minutes                                                       │
+│  Attempt 4: 10 minutes                                                      │
+│  Attempt 5: 1 hour                                                          │
+│  After 5 failures: Job marked failed, tokens not charged                   │
+│                                                                              │
+│  MONITORING:                                                                │
+│  ───────────                                                                │
+│  • Anthropic rate limit events logged to CloudWatch                        │
+│  • Alert if >10% of requests hit upstream limits                           │
+│  • Dashboard shows current Anthropic quota utilization                     │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Token Usage API
+
+```http
+GET /api/v1/usage/ai-tokens
+Authorization: Bearer ec_live_...
+```
+
+Response:
+```json
+{
+  "success": true,
+  "data": {
+    "period": "2026-01",
+    "tier": "Growth",
+    "budget": {
+      "inputTokens": { "limit": 500000, "used": 234567, "remaining": 265433 },
+      "outputTokens": { "limit": 125000, "used": 58642, "remaining": 66358 }
+    },
+    "usage": {
+      "requests": 127,
+      "documentsProcessed": 89,
+      "avgTokensPerDocument": 2635,
+      "cacheHits": 12
+    },
+    "projectedUsage": {
+      "endOfMonth": 468000,
+      "willExceedBudget": false
+    },
+    "history": [
+      { "date": "2026-01-14", "inputTokens": 45000, "outputTokens": 11250 },
+      { "date": "2026-01-13", "inputTokens": 38000, "outputTokens": 9500 }
+    ]
+  }
+}
+```
+
+#### Implementation Notes
+
+```typescript
+// Token budget middleware
+async function checkAITokenBudget(req: Request): Promise<void> {
+  const org = req.organization;
+  const usage = await getMonthlyTokenUsage(org.id);
+  const limits = getTokenLimitsForTier(org.tier);
+
+  if (usage.inputTokens >= limits.inputTokens) {
+    throw new TokenBudgetExceededError({
+      limit: limits.inputTokens,
+      used: usage.inputTokens,
+      resetDate: getNextMonthStart(),
+    });
+  }
+
+  // Estimate tokens for this request (pre-flight check)
+  const estimatedTokens = estimateDocumentTokens(req.body.document);
+  if (usage.inputTokens + estimatedTokens > limits.inputTokens * 1.1) {
+    // Allow 10% overage to avoid cutting off mid-batch
+    throw new TokenBudgetExceededError({ /* ... */ });
+  }
+}
+
+// Post-request token tracking
+async function trackTokenUsage(
+  orgId: string,
+  anthropicResponse: AnthropicResponse
+): Promise<void> {
+  const { input_tokens, output_tokens } = anthropicResponse.usage;
+
+  await prisma.aiTokenUsage.create({
+    data: {
+      organizationId: orgId,
+      inputTokens: input_tokens,
+      outputTokens: output_tokens,
+      model: 'claude-3-haiku',
+      timestamp: new Date(),
+    },
+  });
+
+  // Check thresholds and send notifications
+  await checkUsageThresholds(orgId);
+}
+```
+
 ### 5.2 Input Validation
 
 All inputs validated at API boundary using Zod schemas:
