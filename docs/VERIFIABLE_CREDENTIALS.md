@@ -1461,11 +1461,11 @@ We use [Status List 2021](https://www.w3.org/TR/vc-status-list/) - the W3C stand
   "credentialSubject": { ... },
 
   "credentialStatus": {
-    "id": "https://api.eurocomply.eu/v1/status/org_abc123#42",
+    "id": "https://api.eurocomply.eu/v1/status/sl_a1b2c3d4e5f6#42",
     "type": "StatusList2021Entry",
     "statusPurpose": "revocation",
     "statusListIndex": "42",
-    "statusListCredential": "https://api.eurocomply.eu/v1/status/org_abc123"
+    "statusListCredential": "https://api.eurocomply.eu/v1/status/sl_a1b2c3d4e5f6"
   },
 
   "proof": { ... }
@@ -1486,7 +1486,7 @@ The status list itself is a signed VC:
   "issuer": "did:key:z6MkOrg...",
   "issuanceDate": "2026-01-10T12:00:00Z",
   "credentialSubject": {
-    "id": "https://api.eurocomply.eu/v1/status/org_abc123",
+    "id": "https://api.eurocomply.eu/v1/status/sl_a1b2c3d4e5f6",
     "type": "StatusList2021",
     "statusPurpose": "revocation",
     "encodedList": "H4sIAAAAAAAA/2NgGAWjYBSMglEwCkYBEwMAAAD//wMA..."
@@ -1541,10 +1541,12 @@ The status list itself is a signed VC:
 
 | Mode | Status List URL | Who Updates |
 |------|-----------------|-------------|
-| **Active Subscription** | `https://api.eurocomply.eu/v1/status/{orgId}` | EuroComply |
+| **Active Subscription** | `https://api.eurocomply.eu/v1/status/{statusListId}` | EuroComply |
 | **Dormant Hosting** | Same URL (preserved) | EuroComply (read-only) |
 | **Self-Managed** | Customer's domain | Customer |
 | **GS1 Resolver** | Redirects to customer's hosted list | Customer |
+
+**Security Note:** Status list URLs use opaque identifiers (`sl_a1b2c3d4`) rather than organization IDs to prevent enumeration attacks and competitive intelligence gathering.
 
 **Important:** After subscription cancellation:
 - **Dormant Hosting**: Status list remains frozen (no new revocations possible, existing revocations preserved)
@@ -1574,7 +1576,7 @@ did:key provides offline signature verification, but Status List 2021 requires n
 │  ✗ Cannot change URL without re-issuing all VCs                             │
 │                                                                              │
 │  ISSUED VC CONTAINS:                                                        │
-│  "statusListCredential": "https://api.eurocomply.eu/v1/status/org_abc123"   │
+│  "statusListCredential": "https://api.eurocomply.eu/v1/status/sl_a1b2c3d4"   │
 │                          ─────────────────────────────────────────────────  │
 │                          This URL is IMMUTABLE after issuance               │
 │                                                                              │
@@ -1605,7 +1607,7 @@ For organizations that want full independence **before** issuing VCs:
 // 1. Configure your status list URL at setup time
 const orgSettings = {
   statusListBaseUrl: 'https://your-domain.com/credentials/status',
-  // NOT https://api.eurocomply.eu/v1/status/{orgId}
+  // NOT https://api.eurocomply.eu/v1/status/{statusListId}
 };
 
 // 2. VCs will be issued with YOUR URL
@@ -1812,9 +1814,9 @@ Large organizations may issue millions of credentials. A single status list beco
 │  ────────────────────────────────────                                       │
 │  Each month/quarter gets a separate status list:                            │
 │                                                                              │
-│  /v1/status/org_abc123/2026-Q1  → Credentials issued Jan-Mar 2026          │
-│  /v1/status/org_abc123/2026-Q2  → Credentials issued Apr-Jun 2026          │
-│  /v1/status/org_abc123/2026-Q3  → Credentials issued Jul-Sep 2026          │
+│  /v1/status/sl_a1b2c3d4/2026-Q1  → Credentials issued Jan-Mar 2026          │
+│  /v1/status/sl_a1b2c3d4/2026-Q2  → Credentials issued Apr-Jun 2026          │
+│  /v1/status/sl_a1b2c3d4/2026-Q3  → Credentials issued Jul-Sep 2026          │
 │                                                                              │
 │  Benefits:                                                                  │
 │  • Older lists become static (no updates, perfect caching)                 │
@@ -1825,9 +1827,9 @@ Large organizations may issue millions of credentials. A single status list beco
 │  ───────────────────────────────                                            │
 │  Separate lists by credential type:                                         │
 │                                                                              │
-│  /v1/status/org_abc123/dpp        → Digital Product Passports              │
-│  /v1/status/org_abc123/attestation → Supplier attestations                 │
-│  /v1/status/org_abc123/batch      → Batch-level credentials                │
+│  /v1/status/sl_a1b2c3d4/dpp        → Digital Product Passports              │
+│  /v1/status/sl_a1b2c3d4/attestation → Supplier attestations                 │
+│  /v1/status/sl_a1b2c3d4/batch      → Batch-level credentials                │
 │                                                                              │
 │  Benefits:                                                                  │
 │  • High-volume types isolated from low-volume                              │
@@ -1837,8 +1839,8 @@ Large organizations may issue millions of credentials. A single status list beco
 │  ──────────────────                                                         │
 │  Combine time + type for very large deployments:                            │
 │                                                                              │
-│  /v1/status/org_abc123/dpp/2026-Q1                                         │
-│  /v1/status/org_abc123/attestation/2026-Q1                                 │
+│  /v1/status/sl_a1b2c3d4/dpp/2026-Q1                                         │
+│  /v1/status/sl_a1b2c3d4/attestation/2026-Q1                                 │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1848,11 +1850,11 @@ Large organizations may issue millions of credentials. A single status list beco
 ```json
 {
   "credentialStatus": {
-    "id": "https://api.eurocomply.eu/v1/status/org_abc123/2026-Q1#42857",
+    "id": "https://api.eurocomply.eu/v1/status/sl_a1b2c3d4/2026-Q1#42857",
     "type": "StatusList2021Entry",
     "statusPurpose": "revocation",
     "statusListIndex": "42857",
-    "statusListCredential": "https://api.eurocomply.eu/v1/status/org_abc123/2026-Q1"
+    "statusListCredential": "https://api.eurocomply.eu/v1/status/sl_a1b2c3d4/2026-Q1"
   }
 }
 ```
