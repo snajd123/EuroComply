@@ -815,7 +815,365 @@ Before provisioning a new cell, the configuration database must be healthy:
 | Config DB error rate | > 0.1% | > 1% | Page on-call |
 | Routing cache miss rate | > 10% | > 30% | Check Redis health |
 
-### 3.8 Circuit Breakers for External Services
+### 3.8 Tenant Cell Migration Procedure
+
+When a tenant needs to move between cells (tier upgrade, load balancing, or cell decommissioning), this procedure ensures zero data loss and minimal downtime.
+
+#### Migration Scenarios
+
+| Scenario | Trigger | Typical Downtime | Priority |
+|----------|---------|------------------|----------|
+| Tier upgrade (Growth → Scale) | Customer upgrades | < 30 seconds | Normal |
+| Load balancing | Cell > 85% capacity | < 30 seconds | Normal |
+| Cell decommissioning | Infrastructure change | < 2 minutes | Planned |
+| Emergency evacuation | Cell compromise/failure | < 5 minutes | Critical |
+
+#### Migration Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    TENANT CELL MIGRATION FLOW                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  SOURCE CELL                              TARGET CELL                       │
+│  ───────────                              ───────────                       │
+│  ┌─────────────────┐                      ┌─────────────────┐              │
+│  │ PostgreSQL      │                      │ PostgreSQL      │              │
+│  │ schema_tenant_X │ ═══════════════════▶ │ schema_tenant_X │              │
+│  └─────────────────┘     pg_dump/restore  └─────────────────┘              │
+│                                                                              │
+│  ┌─────────────────┐                      ┌─────────────────┐              │
+│  │ S3 Assets       │                      │ S3 Assets       │              │
+│  │ /tenant_X/*     │ ═══════════════════▶ │ /tenant_X/*     │              │
+│  └─────────────────┘     S3 sync          └─────────────────┘              │
+│                                                                              │
+│  ┌─────────────────┐                      ┌─────────────────┐              │
+│  │ Redis Cache     │                      │ Redis Cache     │              │
+│  │ tenant:X:*      │        (rebuilt)     │ tenant:X:*      │              │
+│  └─────────────────┘ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─▶ └─────────────────┘              │
+│                                                                              │
+│  ROUTING TABLE (DynamoDB)                                                   │
+│  ────────────────────────                                                   │
+│  │ Phase      │ cellId    │ status     │                                   │
+│  │────────────│───────────│────────────│                                   │
+│  │ Before     │ cell-1    │ active     │                                   │
+│  │ During     │ cell-1    │ migrating  │  ← Requests queued               │
+│  │ After      │ cell-2    │ active     │  ← Requests resume               │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Migration Procedure (Runbook)
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    CELL MIGRATION RUNBOOK                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  PHASE 1: PRE-MIGRATION (T-24h to T-0)                                      │
+│  ─────────────────────────────────────                                      │
+│                                                                              │
+│  □ 1.1 Verify target cell has capacity                                     │
+│        aws cloudwatch get-metric-statistics \                              │
+│          --namespace EuroComply --metric-name TenantCount                  │
+│        Requirement: Target cell < 80% capacity                             │
+│                                                                              │
+│  □ 1.2 Verify source data integrity                                        │
+│        ./scripts/verify-tenant-data.sh --tenant-id ${TENANT_ID}            │
+│        Output: Checksum of all tables, row counts                          │
+│                                                                              │
+│  □ 1.3 Estimate migration duration                                         │
+│        ./scripts/estimate-migration.sh --tenant-id ${TENANT_ID}            │
+│        Output: Estimated time based on data size                           │
+│                                                                              │
+│  □ 1.4 Notify customer (for planned migrations)                            │
+│        Send: "Scheduled maintenance: Brief service interruption expected"   │
+│        Timeline: At least 24h before planned migration                     │
+│                                                                              │
+│  □ 1.5 Create rollback snapshot                                            │
+│        pg_dump -Fc -h ${SOURCE_DB} -n schema_tenant_${TENANT_ID} \        │
+│          > /backups/pre-migration-${TENANT_ID}-${TIMESTAMP}.dump          │
+│                                                                              │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│                                                                              │
+│  PHASE 2: MIGRATION EXECUTION (T-0)                                         │
+│  ──────────────────────────────────                                         │
+│                                                                              │
+│  □ 2.1 Set tenant status to 'migrating'                                    │
+│        aws dynamodb update-item \                                          │
+│          --table-name eurocomply-routing \                                 │
+│          --key '{"pk":"ORG#${TENANT_ID}","sk":"ROUTING"}' \               │
+│          --update-expression "SET #s = :s, migratingTo = :t" \            │
+│          --expression-attribute-names '{"#s":"status"}' \                 │
+│          --expression-attribute-values '{":s":{"S":"migrating"},":t":{"S":"${TARGET_CELL}"}}'
+│                                                                              │
+│        EFFECT: New requests return 503 with retry-after header             │
+│        DURATION: This is the downtime window                               │
+│                                                                              │
+│  □ 2.2 Wait for in-flight requests to complete                             │
+│        ./scripts/wait-for-drain.sh --tenant-id ${TENANT_ID} --timeout 30   │
+│        Timeout: 30 seconds (fail if requests still active)                │
+│                                                                              │
+│  □ 2.3 Export schema from source cell                                      │
+│        pg_dump -Fc -h ${SOURCE_DB} -n schema_tenant_${TENANT_ID} \        │
+│          --no-owner --no-privileges \                                      │
+│          > /tmp/migration-${TENANT_ID}.dump                                │
+│        DURATION: ~1 second per 10MB of data                                │
+│                                                                              │
+│  □ 2.4 Create schema on target cell                                        │
+│        psql -h ${TARGET_DB} -c \                                           │
+│          "CREATE SCHEMA IF NOT EXISTS schema_tenant_${TENANT_ID}"         │
+│                                                                              │
+│  □ 2.5 Restore schema to target cell                                       │
+│        pg_restore -h ${TARGET_DB} -d eurocomply \                          │
+│          -n schema_tenant_${TENANT_ID} \                                   │
+│          /tmp/migration-${TENANT_ID}.dump                                  │
+│        DURATION: ~2 seconds per 10MB of data                               │
+│                                                                              │
+│  □ 2.6 Sync S3 assets                                                      │
+│        aws s3 sync \                                                        │
+│          s3://${SOURCE_BUCKET}/tenants/${TENANT_ID}/ \                    │
+│          s3://${TARGET_BUCKET}/tenants/${TENANT_ID}/ \                    │
+│          --source-region ${SOURCE_REGION} \                                │
+│          --region ${TARGET_REGION}                                         │
+│        DURATION: Depends on asset size, typically < 10 seconds            │
+│                                                                              │
+│  □ 2.7 Update routing table to target cell                                 │
+│        aws dynamodb update-item \                                          │
+│          --table-name eurocomply-routing \                                 │
+│          --key '{"pk":"ORG#${TENANT_ID}","sk":"ROUTING"}' \               │
+│          --update-expression "SET cellId = :c, #s = :s, migratedAt = :t"  │
+│          --expression-attribute-names '{"#s":"status"}' \                 │
+│          --expression-attribute-values \                                   │
+│            '{":c":{"S":"${TARGET_CELL}"},":s":{"S":"active"},":t":{"S":"${ISO_TIMESTAMP}"}}'
+│                                                                              │
+│        EFFECT: New requests route to target cell immediately               │
+│                                                                              │
+│  □ 2.8 Invalidate routing cache                                            │
+│        redis-cli -h ${REDIS_HOST} DEL "tenant:routing:${TENANT_ID}"       │
+│                                                                              │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│                                                                              │
+│  PHASE 3: VERIFICATION (T+0 to T+5m)                                        │
+│  ───────────────────────────────────                                        │
+│                                                                              │
+│  □ 3.1 Verify data integrity on target                                     │
+│        ./scripts/verify-tenant-data.sh --tenant-id ${TENANT_ID} \         │
+│          --cell ${TARGET_CELL}                                             │
+│        COMPARE: Checksums must match pre-migration values                  │
+│                                                                              │
+│  □ 3.2 Test API functionality                                              │
+│        ./scripts/smoke-test.sh --tenant-id ${TENANT_ID}                   │
+│        Tests: Login, product list, DPP fetch, write operation              │
+│                                                                              │
+│  □ 3.3 Verify webhook delivery                                             │
+│        Create test event, confirm webhook received                        │
+│                                                                              │
+│  □ 3.4 Check error rates                                                   │
+│        aws cloudwatch get-metric-statistics \                              │
+│          --namespace EuroComply --metric-name ErrorRate \                  │
+│          --dimensions Name=TenantId,Value=${TENANT_ID}                    │
+│        Threshold: Error rate < 1%                                          │
+│                                                                              │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│                                                                              │
+│  PHASE 4: CLEANUP (T+24h)                                                   │
+│  ────────────────────────                                                   │
+│                                                                              │
+│  □ 4.1 Delete source schema (after 24h observation)                        │
+│        psql -h ${SOURCE_DB} -c \                                           │
+│          "DROP SCHEMA schema_tenant_${TENANT_ID} CASCADE"                  │
+│                                                                              │
+│  □ 4.2 Delete source S3 assets (optional, after 7 days)                    │
+│        aws s3 rm s3://${SOURCE_BUCKET}/tenants/${TENANT_ID}/ --recursive   │
+│                                                                              │
+│  □ 4.3 Update migration log                                                 │
+│        Record: tenant_id, source_cell, target_cell, duration, status       │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Downtime Estimation
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    MIGRATION DOWNTIME CALCULATION                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  DOWNTIME = Drain wait + Export + Import + Routing update                  │
+│                                                                              │
+│  │ Tenant Size │ Data Volume │ Assets │ Estimated Downtime │               │
+│  │─────────────│─────────────│────────│────────────────────│               │
+│  │ Small       │ < 100MB     │ < 1GB  │ 10-20 seconds      │               │
+│  │ Medium      │ 100MB-1GB   │ 1-10GB │ 20-45 seconds      │               │
+│  │ Large       │ 1GB-10GB    │ 10-50GB│ 1-3 minutes        │               │
+│  │ Enterprise  │ > 10GB      │ > 50GB │ 3-10 minutes       │               │
+│                                                                              │
+│  BREAKDOWN:                                                                 │
+│  ───────────                                                                │
+│  • Drain wait: 5-30 seconds (depends on in-flight requests)                │
+│  • pg_dump: ~1 second per 10MB                                              │
+│  • pg_restore: ~2 seconds per 10MB                                          │
+│  • S3 sync: Variable, typically 5-30 seconds                               │
+│  • Routing update: < 1 second                                               │
+│                                                                              │
+│  DURING DOWNTIME:                                                           │
+│  ────────────────                                                           │
+│  • API returns: 503 Service Unavailable                                    │
+│  • Header: Retry-After: 60                                                 │
+│  • Body: { "code": "TENANT_MIGRATING", "message": "...", "retryAfter": 60 }│
+│  • Webhooks: Queued, delivered after migration completes                   │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Rollback Procedure
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    MIGRATION ROLLBACK PROCEDURE                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  TRIGGER ROLLBACK IF:                                                       │
+│  ────────────────────                                                       │
+│  • Data verification fails (checksum mismatch)                             │
+│  • Smoke tests fail                                                         │
+│  • Error rate > 5% after migration                                         │
+│  • Target cell becomes unhealthy during migration                          │
+│                                                                              │
+│  ROLLBACK PROCEDURE:                                                        │
+│  ───────────────────                                                        │
+│                                                                              │
+│  □ R.1 Keep tenant in 'migrating' status                                   │
+│        (Requests stay queued)                                              │
+│                                                                              │
+│  □ R.2 Restore routing to source cell                                      │
+│        aws dynamodb update-item \                                          │
+│          --table-name eurocomply-routing \                                 │
+│          --key '{"pk":"ORG#${TENANT_ID}","sk":"ROUTING"}' \               │
+│          --update-expression "SET cellId = :c, #s = :s" \                 │
+│          --expression-attribute-values \                                   │
+│            '{":c":{"S":"${SOURCE_CELL}"},":s":{"S":"active"}}'            │
+│                                                                              │
+│  □ R.3 Invalidate routing cache                                            │
+│        redis-cli -h ${REDIS_HOST} DEL "tenant:routing:${TENANT_ID}"       │
+│                                                                              │
+│  □ R.4 Verify source cell is serving requests                              │
+│        ./scripts/smoke-test.sh --tenant-id ${TENANT_ID}                   │
+│                                                                              │
+│  □ R.5 Drop partially-restored schema on target                            │
+│        psql -h ${TARGET_DB} -c \                                           │
+│          "DROP SCHEMA IF EXISTS schema_tenant_${TENANT_ID} CASCADE"        │
+│                                                                              │
+│  □ R.6 Document rollback reason                                             │
+│        Record: tenant_id, failure_reason, rollback_timestamp               │
+│                                                                              │
+│  □ R.7 Notify customer (if they were informed of migration)                │
+│        "Migration postponed. We'll reschedule and notify you."             │
+│                                                                              │
+│  ROLLBACK DURATION: < 30 seconds                                           │
+│  (Source data was never deleted, just route back)                          │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Data Verification Checksums
+
+```typescript
+// Pre-migration verification script
+interface TenantDataChecksum {
+  tenantId: string;
+  timestamp: Date;
+  tables: {
+    name: string;
+    rowCount: number;
+    checksum: string;  // MD5 of sorted primary keys
+  }[];
+  totalSize: number;  // bytes
+}
+
+async function verifyTenantData(tenantId: string, cell: string): Promise<TenantDataChecksum> {
+  const schema = `schema_tenant_${tenantId}`;
+  const tables = await db.query(`
+    SELECT table_name FROM information_schema.tables
+    WHERE table_schema = $1
+  `, [schema]);
+
+  const checksums = await Promise.all(tables.map(async (t) => {
+    const [countResult] = await db.query(
+      `SELECT COUNT(*) as count FROM ${schema}.${t.table_name}`
+    );
+
+    // Checksum of primary key column(s) - deterministic ordering
+    const [checksumResult] = await db.query(`
+      SELECT MD5(STRING_AGG(id::text, ',' ORDER BY id)) as checksum
+      FROM ${schema}.${t.table_name}
+    `);
+
+    return {
+      name: t.table_name,
+      rowCount: parseInt(countResult.count),
+      checksum: checksumResult.checksum,
+    };
+  }));
+
+  return {
+    tenantId,
+    timestamp: new Date(),
+    tables: checksums,
+    totalSize: await getSchemaSize(schema),
+  };
+}
+
+// Compare pre and post migration
+function validateMigration(
+  preMigration: TenantDataChecksum,
+  postMigration: TenantDataChecksum
+): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+
+  for (const preTable of preMigration.tables) {
+    const postTable = postMigration.tables.find(t => t.name === preTable.name);
+
+    if (!postTable) {
+      errors.push(`Missing table: ${preTable.name}`);
+      continue;
+    }
+
+    if (preTable.rowCount !== postTable.rowCount) {
+      errors.push(`Row count mismatch in ${preTable.name}: ${preTable.rowCount} vs ${postTable.rowCount}`);
+    }
+
+    if (preTable.checksum !== postTable.checksum) {
+      errors.push(`Checksum mismatch in ${preTable.name}`);
+    }
+  }
+
+  return { valid: errors.length === 0, errors };
+}
+```
+
+#### Migration Automation
+
+For bulk migrations (cell decommissioning), automated orchestration is available:
+
+```bash
+# Migrate all tenants from cell-1 to cell-2
+./scripts/bulk-migrate.sh \
+  --source-cell growth-cell-1 \
+  --target-cell growth-cell-2 \
+  --concurrency 5 \
+  --pause-between 30 \
+  --dry-run false
+
+# Output:
+# [1/50] Migrating org_abc123... SUCCESS (18s)
+# [2/50] Migrating org_def456... SUCCESS (23s)
+# ...
+# Summary: 50/50 successful, 0 failed, total time: 45 minutes
+```
+
+### 3.9 Circuit Breakers for External Services
 
 External API dependencies (walt.id, Shopify, GLEIF, etc.) can cause cascading failures if they become unavailable or slow. Circuit breakers prevent this by failing fast when dependencies are unhealthy.
 
