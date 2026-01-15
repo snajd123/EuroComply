@@ -770,6 +770,293 @@ Complete state machine for attestation requests:
 
 ---
 
+## Attestation Version Binding
+
+### The Problem: Stale Attestations
+
+Attestations reference product data. If that data changes, the attestation may become stale or invalid:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    ATTESTATION STALENESS SCENARIOS                           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  SCENARIO 1: Product Changed After Attestation                              │
+│  ──────────────────────────────────────────────                             │
+│  1. Supplier attests: "Materials: 95% cotton, 5% elastane"                  │
+│  2. Brand later changes product: "Materials: 90% cotton, 10% elastane"     │
+│  3. Attestation is now STALE - supplier never saw 10% elastane             │
+│                                                                              │
+│  SCENARIO 2: Attestation on Data Supplier Can't See                        │
+│  ───────────────────────────────────────────────────                        │
+│  1. Brand requests carbon footprint attestation (REQUESTED_FIELDS_ONLY)    │
+│  2. Supplier can't see materials (hidden for confidentiality)               │
+│  3. Supplier provides carbon calculation based on... what?                  │
+│                                                                              │
+│  SCENARIO 3: Referenced Version Archived                                    │
+│  ─────────────────────────────────────────                                  │
+│  1. Attestation references product version v3                               │
+│  2. Brand archives v3, publishes v4                                         │
+│  3. Attestation orphaned - references non-current version                   │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Solution: Version-Bound Attestations
+
+Attestations are bound to a **specific product data snapshot** via content hash:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    VERSION BINDING MODEL                                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ATTESTATION CREATION:                                                      │
+│  ─────────────────────                                                      │
+│  1. When contributor views product, system captures:                        │
+│     • Product version ID (e.g., pv_abc123)                                  │
+│     • Content hash of VISIBLE fields (sha256)                              │
+│     • Timestamp of view                                                     │
+│                                                                              │
+│  2. Attestation VC includes:                                                │
+│     {                                                                        │
+│       "productReference": {                                                  │
+│         "productId": "prod_xyz",                                            │
+│         "versionId": "pv_abc123",                                           │
+│         "visibleFieldsHash": "sha256:e3b0c44...",                           │
+│         "viewedAt": "2026-01-10T12:00:00Z"                                  │
+│       },                                                                     │
+│       "attestedFields": ["materials", "carbonFootprint"],                   │
+│       ...                                                                    │
+│     }                                                                        │
+│                                                                              │
+│  STALENESS DETECTION:                                                       │
+│  ────────────────────                                                       │
+│  On every product update, system checks:                                    │
+│                                                                              │
+│  for each approved attestation:                                             │
+│    newHash = hash(product.fields[attestation.visibleFields])               │
+│    if (newHash !== attestation.visibleFieldsHash):                         │
+│      mark attestation as STALE                                              │
+│      notify customer: "Product changed since attestation"                   │
+│                                                                              │
+│  STALE ATTESTATION HANDLING:                                                │
+│  ───────────────────────────                                                │
+│  Stale attestations are:                                                    │
+│  • Flagged in UI with warning                                               │
+│  • Excluded from NEW DPPs (optional, configurable)                         │
+│  • Customer prompted to request fresh attestation                          │
+│                                                                              │
+│  Already-issued DPPs are UNAFFECTED (immutable, valid at issuance)         │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Data Model Additions
+
+```typescript
+// ContributionVersion (extended)
+interface ContributionVersion {
+  // ... existing fields ...
+
+  // Version binding (NEW)
+  productVersionId: string;              // Product version when contributor viewed
+  visibleFieldsHash: string;             // Hash of visible fields at view time
+  visibleFields: string[];               // Which fields were visible
+  viewedAt: DateTime;                    // When contributor viewed product
+
+  // Staleness tracking (NEW)
+  staleAt?: DateTime;                    // When marked stale (null = current)
+  staleReason?: string;                  // What changed
+  staleFields?: string[];                // Which fields changed
+}
+```
+
+### Visibility and Attestation Scope
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    VISIBILITY RULES FOR ATTESTATION SCOPE                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  RULE: Contributors can ONLY attest fields they can SEE.                    │
+│                                                                              │
+│  FULL_PRODUCT visibility:                                                   │
+│  ─────────────────────────                                                  │
+│  • Contributor sees ALL product data                                        │
+│  • Can attest ANY field (if requested)                                      │
+│  • Hash includes all fields                                                 │
+│                                                                              │
+│  REQUESTED_FIELDS_ONLY visibility:                                          │
+│  ─────────────────────────────────                                          │
+│  • Contributor sees ONLY requested fields + basic info                     │
+│  • Can attest ONLY those fields                                             │
+│  • Hash includes only visible fields                                        │
+│  • BLOCKED: Cannot attest derived data (e.g., carbon footprint              │
+│    calculation that depends on hidden materials)                            │
+│                                                                              │
+│  FIELD DEPENDENCY CHECK:                                                    │
+│  ───────────────────────                                                    │
+│  Some fields depend on others for meaningful attestation:                   │
+│                                                                              │
+│  │ Field             │ Requires Visibility Of           │                   │
+│  │───────────────────│──────────────────────────────────│                   │
+│  │ carbonFootprint   │ materials, weight, transport     │                   │
+│  │ recyclability     │ materials, bom                   │                   │
+│  │ repairScore       │ bom, disassemblyGuide            │                   │
+│                                                                              │
+│  If requesting carbonFootprint but hiding materials:                        │
+│  • System warns: "Carbon calculation requires materials visibility"        │
+│  • Customer can override (their responsibility)                             │
+│  • Attestation flagged: "Attested without full context"                    │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Product Change Handling
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    WHEN PRODUCT DATA CHANGES                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  1. DETECT CHANGE                                                           │
+│     On product update (any field save):                                     │
+│     • New version created with incremented version number                   │
+│     • All approved attestations checked for staleness                       │
+│                                                                              │
+│  2. CATEGORIZE CHANGE                                                       │
+│                                                                              │
+│     │ Change Type         │ Effect on Attestations                        │
+│     │─────────────────────│───────────────────────────────────────────────│
+│     │ Non-attested field  │ No effect - attestation still valid           │
+│     │ (e.g., price)       │                                               │
+│     │─────────────────────│───────────────────────────────────────────────│
+│     │ Attested field      │ Attestation marked STALE                      │
+│     │ (e.g., materials)   │ Customer notified                             │
+│     │                     │ Must re-request or acknowledge stale          │
+│     │─────────────────────│───────────────────────────────────────────────│
+│     │ Dependency field    │ Derived attestations marked STALE             │
+│     │ (materials changed, │ (e.g., carbon footprint depends on materials) │
+│     │  affects carbon)    │                                               │
+│                                                                              │
+│  3. CUSTOMER OPTIONS                                                        │
+│                                                                              │
+│     ┌──────────────────────────────────────────────────────────────────┐   │
+│     │ ⚠️ Attestation Stale                                             │   │
+│     │                                                                   │   │
+│     │ "Materials" attestation from EcoTextiles GmbH is stale.         │   │
+│     │ Product materials were modified since attestation.               │   │
+│     │                                                                   │   │
+│     │ Changed: materials.fiberComposition                              │   │
+│     │ Before: 95% cotton, 5% elastane                                  │   │
+│     │ After:  90% cotton, 10% elastane                                 │   │
+│     │                                                                   │   │
+│     │ [Request New Attestation] [Keep Stale] [Remove Attestation]     │   │
+│     └──────────────────────────────────────────────────────────────────┘   │
+│                                                                              │
+│     • Request New: Sends new request to same contributor                    │
+│     • Keep Stale: Attestation stays but flagged (excluded from new DPPs)   │
+│     • Remove: Attestation deleted, field unattested                        │
+│                                                                              │
+│  4. DPP ISSUANCE WITH STALE ATTESTATIONS                                   │
+│                                                                              │
+│     Default: Stale attestations BLOCKED from new DPPs                       │
+│     Override: Customer can force-include with acknowledgment:               │
+│     "I confirm this stale attestation is still accurate for this DPP"      │
+│     (Logged for audit)                                                      │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Implementation: Staleness Check
+
+```typescript
+async function checkAttestationStaleness(
+  productId: string,
+  changedFields: string[]
+): Promise<void> {
+  // Get all approved attestations for this product
+  const attestations = await prisma.contribution.findMany({
+    where: {
+      productId,
+      status: 'APPROVED',
+    },
+    include: {
+      currentVersion: true,
+    },
+  });
+
+  for (const attestation of attestations) {
+    const version = attestation.currentVersion;
+
+    // Check if any changed field was visible to contributor
+    const affectedFields = changedFields.filter(f =>
+      version.visibleFields.includes(f)
+    );
+
+    // Check if any changed field affects attested fields (dependencies)
+    const dependencyAffected = checkFieldDependencies(
+      version.attestedFields,
+      changedFields
+    );
+
+    if (affectedFields.length > 0 || dependencyAffected) {
+      // Mark as stale
+      await prisma.contributionVersion.update({
+        where: { id: version.id },
+        data: {
+          staleAt: new Date(),
+          staleReason: 'Product data changed since attestation',
+          staleFields: [...affectedFields, ...(dependencyAffected ? ['(dependencies)'] : [])],
+        },
+      });
+
+      // Notify customer
+      await createNotification({
+        type: 'ATTESTATION_STALE',
+        organizationId: attestation.organizationId,
+        contributionId: attestation.id,
+        message: `Attestation from ${attestation.contributorName} is stale. ` +
+                 `Changed fields: ${affectedFields.join(', ')}`,
+      });
+    }
+  }
+}
+
+// Field dependency map
+const FIELD_DEPENDENCIES: Record<string, string[]> = {
+  carbonFootprint: ['materials', 'weight', 'transportMode', 'manufacturingLocation'],
+  recyclability: ['materials', 'bom'],
+  repairScore: ['bom', 'disassemblyGuide'],
+  durability: ['materials', 'testResults'],
+};
+
+function checkFieldDependencies(
+  attestedFields: string[],
+  changedFields: string[]
+): boolean {
+  for (const attested of attestedFields) {
+    const deps = FIELD_DEPENDENCIES[attested] || [];
+    if (deps.some(dep => changedFields.includes(dep))) {
+      return true;
+    }
+  }
+  return false;
+}
+```
+
+### Summary: Preventing Orphaned/Stale Attestations
+
+| Scenario | Prevention | Handling |
+|----------|------------|----------|
+| Product changed after attestation | Version binding + staleness check | Mark stale, notify, require re-attestation |
+| Supplier attests to unseen data | Visibility + dependency checking | Block or warn when dependencies hidden |
+| Referenced version archived | Version ID in attestation VC | Attestation remains valid for that version; stale for new versions |
+| Field removed from product | Field deletion check | Remove attestation for deleted field |
+
+---
+
 ## Verifiable Credential Structures
 
 ### Attestation VC
