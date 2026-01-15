@@ -3985,6 +3985,180 @@ async function recordShippingTransaction(input: {
 }
 ```
 
+### 19.5 Shipping Storage Cost Analysis (10-Year TCO)
+
+Unlike DPPs where we deduplicate (30KB template shared across 1,000 items), shipping artifacts are **unique per consignment** and cannot be templated. Each Evidence Package, Customs PDF, and EPCIS event chain must be stored individually.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    SHIPPING ARTIFACT STORAGE COSTS                           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ARTIFACT SIZES (per consignment):                                          │
+│  ─────────────────────────────────                                          │
+│  • Evidence Package JSON:     ~150KB (Four Pillars, EPCs, signatures)       │
+│  • Customs PDF (5 pages):     ~1MB (official template with QR codes)        │
+│  • EPCIS Events:              ~3KB each × 5 avg = 15KB per consignment      │
+│  • Shipping Label:            ~100KB (carrier PDF/PNG)                       │
+│  • RFC 3161 Timestamp Token:  ~2KB (Enterprise+ only)                        │
+│  ──────────────────────────────────────────────────────────────────────────│
+│  TOTAL PER CONSIGNMENT:       ~1.3MB (without customs PDF: ~270KB)          │
+│                                                                              │
+│  STORAGE PRICING (R2/DynamoDB):                                             │
+│  ──────────────────────────────                                             │
+│  • Cloudflare R2: $0.015/GB/month                                           │
+│  • DynamoDB: $0.25/GB/month                                                 │
+│  • R2 egress: $0 (zero egress fees - critical advantage)                    │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 10-Year TCO Calculation
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    10-YEAR TCO PER EVIDENCE PACKAGE                          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  STORAGE (10 years = 120 months):                                           │
+│  ─────────────────────────────────                                          │
+│  Evidence Package JSON (R2):                                                │
+│  • 150KB × 120 months × $0.015/GB/month                                     │
+│  • = 0.00015GB × $0.015 × 120 = $0.00027                                   │
+│  • = €0.00025                                                               │
+│                                                                              │
+│  Customs PDF (R2):                                                          │
+│  • 1MB × 120 months × $0.015/GB/month                                       │
+│  • = 0.001GB × $0.015 × 120 = $0.0018                                      │
+│  • = €0.0017                                                                │
+│                                                                              │
+│  EPCIS Events (DynamoDB):                                                   │
+│  • 15KB × 120 months × $0.25/GB/month                                       │
+│  • = 0.000015GB × $0.25 × 120 = $0.00045                                   │
+│  • = €0.0004                                                                │
+│                                                                              │
+│  Shipping Label (R2, 90-day retention):                                     │
+│  • 100KB × 3 months × $0.015/GB/month                                       │
+│  • = 0.0001GB × $0.015 × 3 = $0.0000045                                    │
+│  • = €0.000004 (negligible)                                                 │
+│                                                                              │
+│  RFC 3161 Token (R2, Enterprise+ only):                                     │
+│  • 2KB × 120 months × $0.015/GB/month                                       │
+│  • = €0.00004 (negligible)                                                  │
+│                                                                              │
+│  ──────────────────────────────────────────────────────────────────────────│
+│  STORAGE SUBTOTAL: €0.0024 (with Customs PDF)                               │
+│                    €0.0007 (without Customs PDF)                            │
+│                                                                              │
+│  GENERATION & COMPUTE:                                                      │
+│  ─────────────────────                                                      │
+│  • Evidence Package generation (JSON):   €0.0005                            │
+│  • Customs PDF rendering (PDFKit):       €0.001                             │
+│  • Cryptographic signing (EdDSA):        €0.0001                            │
+│  • EPCIS event generation (5 events):    €0.0005                            │
+│  • QR code generation (2 codes):         €0.0001                            │
+│  ──────────────────────────────────────────────────────────────────────────│
+│  COMPUTE SUBTOTAL: €0.0022                                                  │
+│                                                                              │
+│  THIRD-PARTY SERVICES (Enterprise+ only):                                   │
+│  ─────────────────────────────────────────                                  │
+│  • RFC 3161 TSA API call: €0.005-0.01 per timestamp                         │
+│  ──────────────────────────────────────────────────────────────────────────│
+│  TSA SUBTOTAL: €0.01 (Enterprise+)                                          │
+│                                                                              │
+│  OPERATIONAL RESERVES (10-year horizon):                                    │
+│  ───────────────────────────────────────                                    │
+│  • Format migration reserve: €0.001                                         │
+│  • Inflation buffer (3%/yr): €0.0005                                        │
+│  ──────────────────────────────────────────────────────────────────────────│
+│  RESERVES SUBTOTAL: €0.0015                                                 │
+│                                                                              │
+│  ══════════════════════════════════════════════════════════════════════════│
+│  TOTAL 10-YEAR TCO:                                                         │
+│                                                                              │
+│  WITHOUT CUSTOMS PDF (Compliance Unlock only):                              │
+│  Storage €0.0007 + Compute €0.0012 + Reserves €0.0015 = €0.0034            │
+│  WITH 3x BUFFER: €0.01                                                      │
+│                                                                              │
+│  WITH CUSTOMS PDF (Full Evidence Package):                                  │
+│  Storage €0.0024 + Compute €0.0022 + Reserves €0.0015 = €0.0061            │
+│  WITH 3x BUFFER: €0.02                                                      │
+│                                                                              │
+│  WITH TSA (Enterprise+ Full Package):                                       │
+│  Storage €0.0024 + Compute €0.0022 + TSA €0.01 + Reserves €0.0015 = €0.016 │
+│  WITH 3x BUFFER: €0.05                                                      │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Gross Margin Analysis
+
+| Artifact | Price (Platform) | 10-Year TCO | Gross Margin |
+|----------|------------------|-------------|--------------|
+| **Compliance Unlock** | €5.00 | €0.01 | **99.8%** |
+| **Customs Filing (full PDF)** | €15.00 | €0.02 | **99.9%** |
+| **Customs Filing + TSA** | €15.00 | €0.05 | **99.7%** |
+| **EPCIS Event (per EPC)** | €0.01 | €0.0001 | **99.0%** |
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    MARGIN ANALYSIS BY TIER                                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  COMPLIANCE UNLOCK (per consignment):                                       │
+│  ┌────────────┬─────────┬──────────┬────────────┐                          │
+│  │ Tier       │ Price   │ TCO      │ Margin     │                          │
+│  ├────────────┼─────────┼──────────┼────────────┤                          │
+│  │ Starter    │ €25.00  │ €0.01    │ 99.96%     │                          │
+│  │ Growth     │ €20.00  │ €0.01    │ 99.95%     │                          │
+│  │ Scale      │ €15.00  │ €0.01    │ 99.93%     │                          │
+│  │ Enterprise │ €10.00  │ €0.01    │ 99.90%     │                          │
+│  │ Platform   │ €5.00   │ €0.01    │ 99.80%     │                          │
+│  └────────────┴─────────┴──────────┴────────────┘                          │
+│                                                                              │
+│  CUSTOMS FILING (per Evidence Package with PDF):                            │
+│  ┌────────────┬─────────┬──────────┬────────────┐                          │
+│  │ Tier       │ Price   │ TCO*     │ Margin     │                          │
+│  ├────────────┼─────────┼──────────┼────────────┤                          │
+│  │ Starter    │ €50.00  │ €0.02    │ 99.96%     │                          │
+│  │ Growth     │ €40.00  │ €0.02    │ 99.95%     │                          │
+│  │ Scale      │ €35.00  │ €0.02    │ 99.94%     │                          │
+│  │ Enterprise │ €25.00  │ €0.05**  │ 99.80%     │                          │
+│  │ Platform   │ €15.00  │ €0.05**  │ 99.67%     │                          │
+│  └────────────┴─────────┴──────────┴────────────┘                          │
+│  * Without TSA  ** With TSA (€0.01 API cost + buffer)                      │
+│                                                                              │
+│  EPCIS EVENTS (per EPC):                                                    │
+│  ┌────────────┬─────────┬──────────┬────────────┐                          │
+│  │ Tier       │ Price   │ TCO      │ Margin     │                          │
+│  ├────────────┼─────────┼──────────┼────────────┤                          │
+│  │ Starter    │ €0.05   │ €0.0001  │ 99.80%     │                          │
+│  │ Growth     │ €0.04   │ €0.0001  │ 99.75%     │                          │
+│  │ Scale      │ €0.03   │ €0.0001  │ 99.67%     │                          │
+│  │ Enterprise │ €0.02   │ €0.0001  │ 99.50%     │                          │
+│  │ Platform   │ €0.01   │ €0.0001  │ 99.00%     │                          │
+│  └────────────┴─────────┴──────────┴────────────┘                          │
+│                                                                              │
+│  KEY INSIGHT: Even at Platform floor pricing, all shipping artifacts       │
+│  maintain 99%+ gross margins. Storage costs are negligible relative to     │
+│  the value delivered (compliance proof, customs clearance, legal defense). │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Comparison: DPP vs Evidence Package Economics
+
+| Metric | DPP | Evidence Package | Notes |
+|--------|-----|------------------|-------|
+| Storage architecture | Deduplicated | Unique per consignment | EPkg can't share templates |
+| Average size | ~500 bytes item + shared template | ~1.3MB full package | 2,600x larger |
+| 10-year TCO | €0.00035 | €0.02 (with PDF) | 57x more expensive |
+| Floor price | €0.001/DPP | €5.00/consignment | 5,000x higher revenue |
+| Gross margin (floor) | 65% | 99.7% | EPkg margins are healthier |
+| Volume (Year 5) | 12B DPPs | ~7M consignments | DPPs drive volume, EPkg drives margin |
+
+**Conclusion:** Evidence Package storage is more expensive than DPPs (no deduplication), but the pricing easily covers costs with 99%+ margins. The "Download PDF" button alone justifies the Customs Filing fee many times over.
+
 ---
 
 ## 20. Shipping API Endpoints
@@ -4058,6 +4232,7 @@ GET    /api/v1/operations/shipping/customs/:id               # Get filing status
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 0.5 | 2026-01-15 | Added Shipping Storage Cost Analysis (10-year TCO, gross margin analysis by tier) |
 | 0.4 | 2026-01-15 | Added Selective Disclosure Resolver, RFC 3161 TSA Integration, Customs PDF Template |
 | 0.3 | 2026-01-15 | Added Shipping & Logistics: Consignments, EPCIS, Evidence Package, Billing |
 | 0.2 | 2026-01-15 | Added Execution Engine: Orders, Events, Lots, Batches, Serials, Consumption |

@@ -489,12 +489,17 @@ EuroComply's shipping module ("Compliant Highway") generates transaction-based r
 
 ### Shipping Pricing by Tier
 
+> **Canonical Reference:** See [Operations Workspace Design](./plans/2026-01-15-operations-workspace-design.md#192-shipping-pricing-by-tier)
+> for the authoritative shipping pricing and 10-year TCO analysis.
+
 | Fee Type | Starter | Growth | Scale | Enterprise | Platform |
 |----------|---------|--------|-------|------------|----------|
-| Label Markup | 15% | 12% | 10% | 7% | 5% |
-| Compliance Unlock | €2.00 | €1.50 | €1.00 | €0.75 | €0.50 |
-| EPCIS Event (per EPC) | €0.01 | €0.008 | €0.005 | €0.002 | €0.001 |
-| Customs Filing | €25.00 | €20.00 | €15.00 | €10.00 | €5.00 |
+| Label Markup | 10% | 10% | 10% | 10% | 10% |
+| Compliance Unlock | €25.00 | €20.00 | €15.00 | €10.00 | €5.00 |
+| EPCIS Event (per EPC) | €0.05 | €0.04 | €0.03 | €0.02 | €0.01 |
+| Customs Filing | €50.00 | €40.00 | €35.00 | €25.00 | €15.00 |
+
+*All shipping fees maintain 99%+ gross margins even at Platform floor pricing. See Operations Workspace for TCO breakdown.*
 
 ### Invoice Line Items (with Shipping)
 
@@ -519,16 +524,16 @@ When an organization uses shipping services, their invoice includes additional l
 │  ──────────────────────────────────────────────────────────────│
 │   - Carrier Costs (pass-through)       450   varies   €4,500.00 │
 │   - Label Markup (10%)                 450     10%      €450.00 │
-│   - Compliance Unlock                  450    €1.00     €450.00 │
-│   - EPCIS Events (125,000 EPCs)    125,000   €0.005    €625.00 │
-│   - Customs Filings                     12   €15.00     €180.00 │
+│   - Compliance Unlock                  450   €15.00   €6,750.00 │
+│   - EPCIS Events (125,000 EPCs)    125,000    €0.03   €3,750.00 │
+│   - Customs Filings                     12   €35.00     €420.00 │
 │  ──────────────────────────────────────────────────────────────│
-│  Shipping Subtotal:                                   €6,205.00 │
+│  Shipping Subtotal:                                  €15,870.00 │
 │                                                                  │
-│                                         Subtotal:    €19,454.00 │
-│                                         VAT (19%):    €3,696.26 │
+│                                         Subtotal:    €29,119.00 │
+│                                         VAT (19%):    €5,532.61 │
 │                                         ───────────────────────│
-│                                         Total:       €23,150.26 │
+│                                         Total:       €34,651.61 │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -1639,6 +1644,7 @@ function getCurrentRate(plan: Plan, dppCount: number): number {
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.3 | 2026-01-15 | Updated shipping pricing to match canonical source (Operations Workspace TCO analysis) |
 | 2.2 | 2026-01-15 | Added Shipping & Logistics Billing section (Compliant Highway revenue streams) |
 | 2.1 | 2026-01-15 | Updated pricing (€149/€299/€749/€1,999) and added storage limits (500GB-5TB) |
 | 2.0 | 2026-01-14 | Major update: Base Fee + Per-DPP pricing model |
