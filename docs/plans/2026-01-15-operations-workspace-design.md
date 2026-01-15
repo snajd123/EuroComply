@@ -178,6 +178,201 @@ CREATE INDEX idx_supplier_risk ON supplier (risk_level);
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
+### 4.3 Country Risk Index (CSDDD Compliance)
+
+Geographic risk auto-elevation based on external indices (Transparency International, UN reports).
+
+```sql
+CREATE TABLE country_risk_index (
+    country_code        CHAR(2) PRIMARY KEY,
+    country_name        VARCHAR(100) NOT NULL,
+
+    -- Risk scores (0-100, higher = more risk)
+    corruption_index    DECIMAL,               -- Transparency International CPI (inverted)
+    labor_risk_index    DECIMAL,               -- ILO/ITUC labor rights
+    environmental_risk  DECIMAL,               -- Environmental Performance Index (inverted)
+    conflict_risk       DECIMAL,               -- Armed Conflict Location & Event Data
+
+    -- Composite score
+    composite_risk      DECIMAL GENERATED ALWAYS AS (
+        COALESCE(corruption_index, 0) * 0.3 +
+        COALESCE(labor_risk_index, 0) * 0.3 +
+        COALESCE(environmental_risk, 0) * 0.25 +
+        COALESCE(conflict_risk, 0) * 0.15
+    ) STORED,
+
+    -- Auto-elevation threshold
+    min_risk_level      VARCHAR(20),           -- If set, facilities here can't go below this
+
+    -- Metadata
+    source_year         INT,
+    last_updated        TIMESTAMPTZ DEFAULT now()
+);
+
+-- Seed with example high-risk countries (CSDDD focus)
+INSERT INTO country_risk_index (country_code, country_name, corruption_index, labor_risk_index, min_risk_level) VALUES
+    ('MM', 'Myanmar', 85, 90, 'CRITICAL'),
+    ('CD', 'DR Congo', 80, 75, 'HIGH'),
+    ('CN', 'China', 55, 65, 'MEDIUM'),
+    ('BD', 'Bangladesh', 60, 70, 'MEDIUM'),
+    ('VN', 'Vietnam', 50, 55, NULL),
+    ('IN', 'India', 45, 50, NULL),
+    ('DE', 'Germany', 10, 5, NULL),
+    ('NL', 'Netherlands', 8, 5, NULL);
+```
+
+### 4.4 Risk Calculation Service
+
+```typescript
+interface FacilityRiskAssessment {
+  facilityId: string;
+  calculatedRisk: number;       // 0-100
+  riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  factors: RiskFactor[];
+  countryFloor: string | null;  // Min risk from country index
+}
+
+interface RiskFactor {
+  factor: string;
+  score: number;
+  weight: number;
+  source: string;
+}
+
+async function calculateFacilityRisk(facilityId: string): Promise<FacilityRiskAssessment> {
+  const facility = await getFacility(facilityId);
+  const countryRisk = await getCountryRisk(facility.country_code);
+  const certs = await getFacilityCertifications(facilityId);
+
+  const factors: RiskFactor[] = [];
+
+  // Factor 1: Country risk (30% weight)
+  if (countryRisk) {
+    factors.push({
+      factor: 'Country Risk',
+      score: countryRisk.composite_risk,
+      weight: 0.30,
+      source: `${countryRisk.country_name} (${countryRisk.source_year})`
+    });
+  }
+
+  // Factor 2: Certification coverage (25% weight)
+  const certScore = calculateCertCoverage(certs);
+  factors.push({
+    factor: 'Certification Coverage',
+    score: 100 - certScore,  // Invert: more certs = less risk
+    weight: 0.25,
+    source: `${certs.length} active certifications`
+  });
+
+  // Factor 3: Certification freshness (20% weight)
+  const expiryRisk = calculateExpiryRisk(certs);
+  factors.push({
+    factor: 'Cert Expiry Risk',
+    score: expiryRisk,
+    weight: 0.20,
+    source: 'Days until nearest expiry'
+  });
+
+  // Factor 4: Verification age (15% weight)
+  const verificationAge = daysSince(facility.verified_at);
+  const ageScore = Math.min(verificationAge / 365 * 100, 100);
+  factors.push({
+    factor: 'Verification Age',
+    score: ageScore,
+    weight: 0.15,
+    source: `Verified ${verificationAge} days ago`
+  });
+
+  // Factor 5: Historical issues (10% weight)
+  const issueScore = await calculateHistoricalIssueScore(facilityId);
+  factors.push({
+    factor: 'Historical Issues',
+    score: issueScore,
+    weight: 0.10,
+    source: 'Past suspensions/rejections'
+  });
+
+  // Calculate weighted score
+  const calculatedRisk = factors.reduce(
+    (sum, f) => sum + (f.score * f.weight), 0
+  );
+
+  // Determine risk level
+  let riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  if (calculatedRisk >= 75) riskLevel = 'CRITICAL';
+  else if (calculatedRisk >= 50) riskLevel = 'HIGH';
+  else if (calculatedRisk >= 25) riskLevel = 'MEDIUM';
+  else riskLevel = 'LOW';
+
+  // Apply country floor (CSDDD requirement)
+  const countryFloor = countryRisk?.min_risk_level;
+  if (countryFloor) {
+    const floorOrder = { LOW: 0, MEDIUM: 1, HIGH: 2, CRITICAL: 3 };
+    if (floorOrder[riskLevel] < floorOrder[countryFloor]) {
+      riskLevel = countryFloor as typeof riskLevel;
+    }
+  }
+
+  return {
+    facilityId,
+    calculatedRisk,
+    riskLevel,
+    factors,
+    countryFloor
+  };
+}
+```
+
+### 4.5 UI: Risk Indicator with Country Floor
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ FACILITY RISK ASSESSMENT                                                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ACME Textile Plant - Vietnam                                               │
+│                                                                              │
+│  RISK LEVEL: ██████████░░░░░░░░░░  MEDIUM (47/100)                         │
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────────┐│
+│  │ Factor               │ Score │ Weight │ Source                         ││
+│  │──────────────────────│───────│────────│────────────────────────────────││
+│  │ Country Risk         │ 55    │ 30%    │ Vietnam (2025 TI/ILO)          ││
+│  │ Certification Coverage│ 20   │ 25%    │ 4 active certifications        ││
+│  │ Cert Expiry Risk     │ 35    │ 20%    │ Nearest: 89 days               ││
+│  │ Verification Age     │ 45    │ 15%    │ Verified 164 days ago          ││
+│  │ Historical Issues    │ 10    │ 10%    │ No past suspensions            ││
+│  └─────────────────────────────────────────────────────────────────────────┘│
+│                                                                              │
+│  ⚠️ No country floor applied (Vietnam has no minimum risk level)            │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ FACILITY RISK ASSESSMENT                                                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Pacific Metals - Myanmar                                                   │
+│                                                                              │
+│  RISK LEVEL: ████████████████████  CRITICAL (82/100)                       │
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────────┐│
+│  │ Factor               │ Score │ Weight │ Source                         ││
+│  │──────────────────────│───────│────────│────────────────────────────────││
+│  │ Country Risk         │ 88    │ 30%    │ Myanmar (2025 TI/ILO)          ││
+│  │ Certification Coverage│ 70   │ 25%    │ 1 active certification         ││
+│  │ Cert Expiry Risk     │ 85    │ 20%    │ Nearest: 12 days (!)           ││
+│  │ Verification Age     │ 80    │ 15%    │ Verified 292 days ago          ││
+│  │ Historical Issues    │ 50    │ 10%    │ 1 past suspension              ││
+│  └─────────────────────────────────────────────────────────────────────────┘│
+│                                                                              │
+│  🚨 COUNTRY FLOOR APPLIED: Myanmar minimum risk = CRITICAL (CSDDD)          │
+│     Even with perfect scores, this facility cannot drop below CRITICAL      │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
 ---
 
 ## 5. Facility Registry (Physical Sites)
