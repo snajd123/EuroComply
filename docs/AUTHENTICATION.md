@@ -191,16 +191,17 @@ Both magic link and password authentication produce identical JWT tokens:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        JWT TOKENS                                │
+│                   HYBRID JWT + CACHE MODEL                       │
 ├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  JWT contains IDENTITY ONLY (no permissions):                   │
 │                                                                  │
 │  Access Token (1 hour):                                         │
 │  {                                                               │
 │    sub: user.id,                                                │
 │    org: user.organizationId,                                    │
-│    workspaces: { design: "EDITOR", compliance: "VIEWER" },      │
-│    admin: true/false,                                           │
 │    authMethod: "magic_link" | "password" | "sso",               │
+│    iat: issued_at,                                              │
 │    exp: now + 1 hour                                            │
 │  }                                                               │
 │                                                                  │
@@ -210,6 +211,23 @@ Both magic link and password authentication produce identical JWT tokens:
 │    jti: unique_token_id,                                        │
 │    exp: now + 30 days                                           │
 │  }                                                               │
+│                                                                  │
+│  PERMISSIONS IN REDIS CACHE (not JWT):                          │
+│  ──────────────────────────────────────                         │
+│  Key: permissions:{userId}                                      │
+│  Value: {                                                        │
+│    workspaces: { design: "EDITOR", compliance: "VIEWER" },      │
+│    admin: true/false,                                           │
+│    version: 3                                                   │
+│  }                                                               │
+│  TTL: 5 minutes                                                 │
+│                                                                  │
+│  WHY HYBRID?                                                    │
+│  ───────────                                                    │
+│  • Permission changes take effect within 5 min (not 1 hour)    │
+│  • User demotion reflected immediately if cache invalidated    │
+│  • Fixed JWT size regardless of workspace count                │
+│  • Sub-millisecond Redis lookup (already used for sessions)    │
 │                                                                  │
 │  DELIVERY                                                       │
 │  ────────                                                       │
@@ -730,6 +748,10 @@ async function validateApiKey(req: Request, res: Response, next: NextFunction) {
 
 ## 8. JWT Token Structure
 
+### Hybrid Model: Identity in JWT, Permissions in Cache
+
+We use a **hybrid model** where JWTs contain identity only, and permissions are fetched from Redis cache. This ensures permission changes (including demotions) take effect within 5 minutes rather than waiting for token expiry.
+
 ### Access Token (1 hour lifetime)
 
 ```json
@@ -739,15 +761,12 @@ async function validateApiKey(req: Request, res: Response, next: NextFunction) {
   "org": "org_01h8x9y2z3a4b5c6d7e8f9g0h2",
   "email": "designer@acme.com",
   "name": "Jane Designer",
-  "workspaces": {
-    "design": "EDITOR",
-    "compliance": "VIEWER"
-  },
-  "admin": false,
   "iat": 1704067200,
   "exp": 1704070800
 }
 ```
+
+> **Note:** Permissions (`workspaces`, `admin`) are NOT in the JWT. They're fetched from Redis on each request.
 
 ### Refresh Token (30 days lifetime)
 
@@ -761,6 +780,27 @@ async function validateApiKey(req: Request, res: Response, next: NextFunction) {
 }
 ```
 
+### Permission Cache (Redis)
+
+```
+Key: permissions:{userId}
+TTL: 5 minutes (or invalidated on change)
+
+{
+  "workspaces": {
+    "design": "EDITOR",
+    "compliance": "VIEWER"
+  },
+  "admin": false,
+  "version": 3
+}
+```
+
+**Cache invalidation triggers:**
+- User role changed → `DEL permissions:{userId}`
+- User removed from workspace → `DEL permissions:{userId}`
+- User granted admin → `DEL permissions:{userId}`
+
 ### JWT Claims Reference
 
 | Claim | Type | Description |
@@ -770,11 +810,11 @@ async function validateApiKey(req: Request, res: Response, next: NextFunction) {
 | `org` | string | Organization ID (for tenant isolation) |
 | `email` | string | User email (for logging, not authorization) |
 | `name` | string | User display name |
-| `workspaces` | object | Workspace access map `{ workspace: authority }` |
-| `admin` | boolean | Organization admin flag |
 | `iat` | number | Issued at (Unix timestamp) |
 | `exp` | number | Expiration (Unix timestamp) |
 | `jti` | string | JWT ID (for refresh tokens, used to track revocation) |
+
+> **Why not in JWT?** Embedding permissions in JWT means demoted users retain elevated access until token expires (1 hour). With Redis cache, permission changes take effect within 5 minutes, and immediate invalidation is possible for security-critical changes.
 
 ---
 
@@ -1485,6 +1525,8 @@ All authentication events are logged to audit trail:
 // middleware/authenticate.ts
 import jwt from 'jsonwebtoken';
 import { Request, Response, NextFunction } from 'express';
+import { redis } from '../lib/redis';
+import { prisma } from '../lib/prisma';
 
 export interface AuthenticatedRequest extends Request {
   user?: {
@@ -1494,6 +1536,43 @@ export interface AuthenticatedRequest extends Request {
     workspaceAccess: Record<string, AuthorityLevel>;
     isAdmin: boolean;
   };
+}
+
+// Fetch permissions from Redis cache (or DB if cache miss)
+async function getPermissions(userId: string): Promise<{
+  workspaces: Record<string, AuthorityLevel>;
+  admin: boolean;
+}> {
+  const cacheKey = `permissions:${userId}`;
+
+  // Try cache first
+  const cached = await redis.get(cacheKey);
+  if (cached) {
+    return JSON.parse(cached);
+  }
+
+  // Cache miss: fetch from database
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    include: { workspaceAccess: true },
+  });
+
+  if (!user) {
+    throw new Error('User not found');
+  }
+
+  const permissions = {
+    workspaces: user.workspaceAccess.reduce((acc, wa) => {
+      acc[wa.workspace] = wa.authority;
+      return acc;
+    }, {} as Record<string, AuthorityLevel>),
+    admin: user.isAdmin,
+  };
+
+  // Cache for 5 minutes
+  await redis.setex(cacheKey, 300, JSON.stringify(permissions));
+
+  return permissions;
 }
 
 export async function authenticate(
@@ -1513,19 +1592,22 @@ export async function authenticate(
       });
     }
 
-    // Verify JWT
+    // Verify JWT (identity only - no permissions in token)
     const decoded = jwt.verify(token, PUBLIC_KEY, {
       algorithms: ['RS256'],
       issuer: 'https://api.eurocomply.eu',
     }) as JWTPayload;
+
+    // Fetch permissions from Redis cache
+    const permissions = await getPermissions(decoded.sub);
 
     // Attach user to request
     req.user = {
       id: decoded.sub,
       organizationId: decoded.org,
       email: decoded.email,
-      workspaceAccess: decoded.workspaces,
-      isAdmin: decoded.admin,
+      workspaceAccess: permissions.workspaces,
+      isAdmin: permissions.admin,
     };
 
     next();
@@ -1542,6 +1624,11 @@ export async function authenticate(
       error: { code: 'INVALID_TOKEN', message: 'Invalid token' },
     });
   }
+}
+
+// Call this when user permissions change to ensure immediate effect
+export async function invalidatePermissionCache(userId: string): Promise<void> {
+  await redis.del(`permissions:${userId}`);
 }
 ```
 
