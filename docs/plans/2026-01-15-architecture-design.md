@@ -66,18 +66,28 @@ EuroComply is a unified Product Lifecycle & Compliance Platform combining PLM, E
 
 ### The Hub (Product as Shared Entity)
 
-Product is the central entity that all workspaces reference:
+Product is the central entity that all workspaces reference. Products include finished goods, raw materials, and components - unified under a single entity for BOM relationships and compliance tracking.
+
+> **See Also:** [Taxonomy Engine Design](./2026-01-15-taxonomy-engine-design.md) for complete data model including categories, attributes, and materials.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                         PRODUCT (Hub)                            │
 ├─────────────────────────────────────────────────────────────────┤
 │  id: UUID                                                        │
-│  gtin: VARCHAR(14)          -- Primary identifier                │
 │  organization_id: UUID                                           │
+│  category_id: UUID             -- FK to category table           │
+│  parent_id: UUID               -- For variants                   │
+│  product_type: ENUM            -- FINISHED_GOOD, RAW_MATERIAL,   │
+│                                -- COMPONENT, VARIANT             │
 │  name: VARCHAR(255)                                              │
-│  category: VARCHAR(100)                                          │
+│  status: ENUM                  -- ACTIVE, ARCHIVED               │
 │  created_at: TIMESTAMPTZ                                         │
+│                                                                  │
+│  -- Current versions per workspace                               │
+│  current_design_version_id: UUID                                 │
+│  current_marketing_version_id: UUID                              │
+│  current_operations_version_id: UUID                             │
 │                                                                  │
 │  -- Checkout locks (per-workspace)                               │
 │  design_checked_out_by: UUID                                     │
@@ -86,14 +96,35 @@ Product is the central entity that all workspaces reference:
 │  marketing_checked_out_at: TIMESTAMPTZ                           │
 └─────────────────────────────────────────────────────────────────┘
          │
-         ├──────────────────┬──────────────────┬──────────────────┐
-         ▼                  ▼                  ▼                  ▼
-┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
-│ design_versions │ │marketing_vers.  │ │     batches     │ │      dpps       │
-│ (owned by       │ │ (owned by       │ │ (owned by       │ │ (owned by       │
-│  Design)        │ │  Marketing)     │ │  Operations)    │ │  Compliance)    │
-└─────────────────┘ └─────────────────┘ └─────────────────┘ └─────────────────┘
+         ├──────────────┬──────────────┬──────────────┬──────────────┐
+         ▼              ▼              ▼              ▼              ▼
+┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
+│ identifiers  │ │   versions   │ │  bom_entries │ │    dpps      │ │  attributes  │
+│ (GTIN, SKU,  │ │ (per-workspace│ │ (materials   │ │ (Compliance) │ │ (per-version)│
+│  Internal)   │ │  lifecycle)  │ │  & components)│ │              │ │              │
+└──────────────┘ └──────────────┘ └──────────────┘ └──────────────┘ └──────────────┘
 ```
+
+**Product Identity Model:**
+
+Products evolve through lifecycle stages, each adding identifiers:
+
+| Identifier | Stage | Purpose |
+|------------|-------|---------|
+| System UUID | Creation | Internal database key |
+| Internal ID | R&D | Human-readable project code |
+| SKU | Manufacturing | ERP/warehouse sync |
+| GTIN | Commercialization | Retail barcode |
+| DPP URI | Compliance | Permanent passport URL |
+
+**Product Types:**
+
+| Type | Description | Example |
+|------|-------------|---------|
+| FINISHED_GOOD | End product for sale | T-Shirt, Laptop |
+| RAW_MATERIAL | Base material | Cotton, Steel |
+| COMPONENT | Assembled part | Zipper, Battery |
+| VARIANT | Size/color variant | T-Shirt (Large, Blue) |
 
 ---
 
@@ -610,13 +641,25 @@ CREATE TABLE credential_status (
 
 ### PostgreSQL Schema (Per-Tenant)
 
+> **Complete Schema:** See [Taxonomy Engine Design](./2026-01-15-taxonomy-engine-design.md) for full schema including categories, attributes, materials, and BOM.
+
 ```sql
--- Core product (the hub)
-CREATE TABLE products (
+-- Core product (the hub) - includes finished goods, materials, and components
+CREATE TABLE product (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    gtin VARCHAR(14) NOT NULL,
+    organization_id UUID NOT NULL,
+    category_id UUID NOT NULL REFERENCES category(id),
+    parent_id UUID REFERENCES product(id),  -- For variants
+    product_type product_type NOT NULL DEFAULT 'FINISHED_GOOD',
+    -- FINISHED_GOOD, RAW_MATERIAL, COMPONENT, VARIANT
     name VARCHAR(255) NOT NULL,
-    category VARCHAR(100),
+    status product_status NOT NULL DEFAULT 'ACTIVE',
+    -- ACTIVE, ARCHIVED
+
+    -- Current versions per workspace
+    current_design_version_id UUID,
+    current_marketing_version_id UUID,
+    current_operations_version_id UUID,
 
     -- Checkout locks
     design_checked_out_by UUID REFERENCES users(id),
@@ -625,65 +668,72 @@ CREATE TABLE products (
     marketing_checked_out_at TIMESTAMPTZ,
 
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-
-    UNIQUE(gtin)
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Design versions
-CREATE TABLE design_versions (
+-- Product identifiers (multi-identifier model)
+CREATE TABLE product_identifier (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    product_id UUID NOT NULL REFERENCES products(id),
-    version_number INT NOT NULL,
-    status VARCHAR(30) NOT NULL DEFAULT 'DRAFT',
-    -- DRAFT, APPROVAL_REQUESTED, APPROVED, RELEASED
+    product_id UUID NOT NULL REFERENCES product(id) ON DELETE CASCADE,
+    type identifier_type NOT NULL,  -- INTERNAL, SKU, GTIN, DPP_URI
+    value VARCHAR(255) NOT NULL,
+    is_primary BOOLEAN DEFAULT false,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
-    -- Technical data
-    specifications JSONB,
-    materials JSONB,
-    bom JSONB,
+    UNIQUE(product_id, type)
+);
+
+-- Workspace versions (unified for all workspaces)
+CREATE TABLE workspace_version (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    product_id UUID NOT NULL REFERENCES product(id),
+    workspace workspace_type NOT NULL,  -- DESIGN, MARKETING, OPERATIONS, COMPLIANCE
+    version_number INT NOT NULL,
+    status version_status NOT NULL DEFAULT 'DRAFT',
+    -- DRAFT, PENDING_REVIEW, IN_REVIEW, REJECTED, RELEASED
 
     -- Workflow
     created_by UUID NOT NULL REFERENCES users(id),
-    submitted_at TIMESTAMPTZ,
-    submitted_by UUID REFERENCES users(id),
-    approved_at TIMESTAMPTZ,
-    approved_by UUID REFERENCES users(id),
-    released_at TIMESTAMPTZ,
-    released_by UUID REFERENCES users(id),
+    published_by UUID REFERENCES users(id),
+    published_at TIMESTAMPTZ,
 
-    -- Signature
+    -- Signature (for released versions)
     signature_did VARCHAR(255),
     signature_jws TEXT,
 
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
-    UNIQUE(product_id, version_number)
+    UNIQUE(product_id, workspace, version_number)
 );
 
--- Marketing versions
-CREATE TABLE marketing_versions (
+-- Bill of Materials (links products to materials/components)
+CREATE TABLE bom_entry (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    product_id UUID NOT NULL REFERENCES products(id),
-    version_number INT NOT NULL,
-    status VARCHAR(30) NOT NULL DEFAULT 'DRAFT',
-
-    -- Content
-    title VARCHAR(255),
-    description TEXT,
-    features JSONB,
-
-    -- Based on which design version
-    based_on_design_version_id UUID REFERENCES design_versions(id),
-
-    -- Workflow (same pattern as design_versions)
-    created_by UUID NOT NULL REFERENCES users(id),
-    released_at TIMESTAMPTZ,
-    released_by UUID REFERENCES users(id),
-
+    parent_product_id UUID NOT NULL REFERENCES product(id),
+    child_product_id UUID NOT NULL REFERENCES product(id),
+    design_version_id UUID NOT NULL REFERENCES workspace_version(id),
+    quantity DECIMAL NOT NULL,
+    unit VARCHAR(20) NOT NULL,  -- "kg", "pcs", "m"
+    position INT DEFAULT 0,
+    notes TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
-    UNIQUE(product_id, version_number)
+    UNIQUE(parent_product_id, child_product_id, design_version_id),
+    CHECK(parent_product_id != child_product_id)
+);
+
+-- Product attribute values (linked to version)
+CREATE TABLE product_attribute_value (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    product_id UUID NOT NULL REFERENCES product(id),
+    template_id UUID NOT NULL REFERENCES attribute_template(id),
+    version_id UUID NOT NULL REFERENCES workspace_version(id),
+    value JSONB NOT NULL,
+    created_by UUID NOT NULL REFERENCES users(id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    UNIQUE(product_id, template_id, version_id)
 );
 
 -- Batches (Operations)
