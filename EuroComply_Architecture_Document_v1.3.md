@@ -2186,691 +2186,288 @@ When item status changes (e.g., recall), update both status and GSI5 keys:
 This ensures the item appears in the correct GSI5 partition immediately.
 ```
 
-### 5.4 Search Index Architecture
+### 5.4 Search Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                          SEARCH INDEX STRATEGY                               │
+│                          SEARCH STRATEGY                                     │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  TECHNOLOGY: OpenSearch Serverless                                           │
-│  ───────────────────────────────────                                         │
+│  TECHNOLOGY: PostgreSQL Full-Text Search                                    │
+│  ───────────────────────────────────────                                     │
 │                                                                              │
-│  Why OpenSearch Serverless:                                                  │
-│  • No cluster management (scales automatically)                             │
-│  • Pay-per-use (OCU-hours, not instances)                                   │
-│  • Native AWS integration (VPC, IAM, CloudWatch)                            │
-│  • Full-text search with relevance scoring                                  │
-│  • Compatible with Elasticsearch APIs                                       │
+│  Why PostgreSQL FTS (not a dedicated search engine):                        │
 │                                                                              │
-│  Alternatives Considered:                                                    │
-│  ┌───────────────────┬───────────────────────┬───────────────────────────┐  │
-│  │ Technology        │ Pros                  │ Why Not                   │  │
-│  ├───────────────────┼───────────────────────┼───────────────────────────┤  │
-│  │ PostgreSQL FTS    │ No new infra          │ Poor relevance, no facets │  │
-│  │ Algolia           │ Great UX, fast        │ €€€ at scale, vendor lock │  │
-│  │ Meilisearch       │ Simple, fast          │ Self-hosted complexity    │  │
-│  │ OpenSearch (EC2)  │ Full control          │ Cluster management burden │  │
-│  │ OpenSearch Sless  │ Managed, scalable     │ ✓ Selected                │  │
-│  └───────────────────┴───────────────────────┴───────────────────────────┘  │
+│  1. SCALE FITS:                                                              │
+│     • Typical tenant: 100-10,000 products                                   │
+│     • Large enterprise: up to 50,000 products                               │
+│     • PostgreSQL FTS handles this easily                                    │
 │                                                                              │
-│  COST MODEL:                                                                 │
-│  ───────────                                                                 │
-│  • Indexing OCU: $0.24/OCU-hour (scales to 0 when idle)                     │
-│  • Search OCU: $0.24/OCU-hour (minimum 0.5 OCU while in use)                │
-│  • Storage: $0.024/GB-month                                                  │
-│  • Estimated: ~$50-150/month at Growth tier volumes                         │
+│  2. USE CASE IS SIMPLE:                                                      │
+│     • Users search THEIR OWN products (not discovery)                       │
+│     • They know what they're looking for                                    │
+│     • Exact/near-exact matches, not fuzzy relevance                        │
+│                                                                              │
+│  3. NO NEW INFRASTRUCTURE:                                                   │
+│     • Already have PostgreSQL                                               │
+│     • No additional cost                                                    │
+│     • No sync complexity                                                    │
+│                                                                              │
+│  COST: €0/month (included in existing PostgreSQL)                           │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-#### 5.4.1 Index Schema
+#### 5.4.1 PostgreSQL FTS Implementation
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                          INDEX DEFINITIONS                                   │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  INDEX: eurocomply-products                                                  │
-│  ──────────────────────────                                                  │
-│  Purpose: Product catalog search within organization                        │
-│                                                                              │
-│  {                                                                           │
-│    "mappings": {                                                             │
-│      "properties": {                                                         │
-│        // ROUTING & FILTERING (not analyzed)                                │
-│        "organization_id": { "type": "keyword" },                            │
-│        "product_id": { "type": "keyword" },                                 │
-│        "workspace": { "type": "keyword" },                                  │
-│        "status": { "type": "keyword" },                                     │
-│        "category": { "type": "keyword" },                                   │
-│        "product_type": { "type": "keyword" },                               │
-│                                                                              │
-│        // SEARCHABLE TEXT (analyzed)                                        │
-│        "name": {                                                             │
-│          "type": "text",                                                    │
-│          "analyzer": "standard",                                            │
-│          "fields": {                                                         │
-│            "keyword": { "type": "keyword" },  // For exact match/sort      │
-│            "autocomplete": {                   // For prefix search         │
-│              "type": "text",                                                │
-│              "analyzer": "autocomplete"                                     │
-│            }                                                                 │
-│          }                                                                   │
-│        },                                                                    │
-│        "description": { "type": "text", "analyzer": "standard" },          │
-│        "sku": { "type": "keyword" },                                        │
-│        "gtin": { "type": "keyword" },                                       │
-│        "brand": { "type": "text", "fields": { "keyword": {"type":"keyword"}}},│
-│        "tags": { "type": "keyword" },  // Multi-valued                      │
-│                                                                              │
-│        // DATES (for range queries)                                         │
-│        "created_at": { "type": "date" },                                    │
-│        "updated_at": { "type": "date" },                                    │
-│        "published_at": { "type": "date" },                                  │
-│                                                                              │
-│        // NESTED: Workspace-specific data                                   │
-│        "workspaces": {                                                       │
-│          "type": "nested",                                                  │
-│          "properties": {                                                     │
-│            "workspace": { "type": "keyword" },                              │
-│            "version": { "type": "integer" },                                │
-│            "status": { "type": "keyword" },                                 │
-│            "updated_at": { "type": "date" }                                 │
-│          }                                                                   │
-│        }                                                                     │
-│      }                                                                       │
-│    },                                                                        │
-│    "settings": {                                                             │
-│      "analysis": {                                                           │
-│        "analyzer": {                                                         │
-│          "autocomplete": {                                                  │
-│            "type": "custom",                                                │
-│            "tokenizer": "standard",                                         │
-│            "filter": ["lowercase", "autocomplete_filter"]                  │
-│          }                                                                   │
-│        },                                                                    │
-│        "filter": {                                                           │
-│          "autocomplete_filter": {                                           │
-│            "type": "edge_ngram",                                            │
-│            "min_gram": 2,                                                   │
-│            "max_gram": 20                                                   │
-│          }                                                                   │
-│        }                                                                     │
-│      }                                                                       │
-│    }                                                                         │
-│  }                                                                           │
-│                                                                              │
-│  ═══════════════════════════════════════════════════════════════════════    │
-│                                                                              │
-│  INDEX: eurocomply-dpps                                                      │
-│  ─────────────────────                                                       │
-│  Purpose: DPP/credential search for compliance dashboard                    │
-│                                                                              │
-│  {                                                                           │
-│    "mappings": {                                                             │
-│      "properties": {                                                         │
-│        "organization_id": { "type": "keyword" },                            │
-│        "passport_id": { "type": "keyword" },                                │
-│        "product_id": { "type": "keyword" },                                 │
-│        "credential_id": { "type": "keyword" },                              │
-│        "status": { "type": "keyword" },  // draft, issued, revoked         │
-│                                                                              │
-│        "product_name": { "type": "text", "fields": {"keyword":{"type":"keyword"}}},│
-│        "gtin": { "type": "keyword" },                                       │
-│        "issuer_did": { "type": "keyword" },                                 │
-│                                                                              │
-│        "issued_at": { "type": "date" },                                     │
-│        "valid_from": { "type": "date" },                                    │
-│        "valid_until": { "type": "date" },                                   │
-│                                                                              │
-│        "item_count": { "type": "integer" },  // Serialized items           │
-│        "compliance_score": { "type": "float" }                              │
-│      }                                                                       │
-│    }                                                                         │
-│  }                                                                           │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
+```sql
+-- Enable trigram extension for fuzzy matching
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+-- Full-text search index on products
+CREATE INDEX idx_products_fts ON products USING GIN (
+  to_tsvector('english', coalesce(name, '') || ' ' || coalesce(description, ''))
+);
+
+-- Trigram index for autocomplete/partial matching
+CREATE INDEX idx_products_name_trgm ON products USING GIN (name gin_trgm_ops);
+
+-- SKU/GTIN exact match (already indexed via unique constraints)
+-- organization_id filter uses existing index
 ```
 
-#### 5.4.2 Multi-Tenancy Approach
+**Search Query Implementation:**
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    SEARCH MULTI-TENANCY: FILTERED QUERIES                    │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  APPROACH: Single Index + Filtered Queries                                   │
-│  ──────────────────────────────────────────                                  │
-│                                                                              │
-│  All tenants share indices with mandatory organization_id filter:           │
-│                                                                              │
-│  Alternatives Considered:                                                    │
-│  ┌───────────────────┬───────────────────────┬───────────────────────────┐  │
-│  │ Approach          │ Pros                  │ Why Not                   │  │
-│  ├───────────────────┼───────────────────────┼───────────────────────────┤  │
-│  │ Index per tenant  │ Full isolation        │ Index limit (1000), cost  │  │
-│  │ Alias per tenant  │ Logical separation    │ No real isolation         │  │
-│  │ Filtered queries  │ Simple, scalable      │ ✓ Selected                │  │
-│  └───────────────────┴───────────────────────┴───────────────────────────┘  │
-│                                                                              │
-│  WHY FILTERED QUERIES ARE SAFE:                                             │
-│  ─────────────────────────────                                               │
-│  1. organization_id is ALWAYS injected server-side                         │
-│  2. Client cannot override or omit the filter                               │
-│  3. IAM policy restricts direct OpenSearch access                           │
-│  4. All queries routed through API with tenant context                      │
-│                                                                              │
-│  ═══════════════════════════════════════════════════════════════════════    │
-│                                                                              │
-│  QUERY CONSTRUCTION:                                                         │
-│  ──────────────────                                                          │
-│                                                                              │
-│  // Search service - organization_id injected from auth context             │
-│  async searchProducts(                                                       │
-│    organizationId: string,  // From JWT, NOT from request                   │
-│    query: ProductSearchQuery                                                │
-│  ): Promise<SearchResult<Product>> {                                        │
-│                                                                              │
-│    const searchBody = {                                                      │
-│      query: {                                                                │
-│        bool: {                                                               │
-│          // MANDATORY: Tenant isolation filter (always applied)             │
-│          filter: [                                                           │
-│            { term: { organization_id: organizationId } }                    │
-│          ],                                                                  │
-│                                                                              │
-│          // OPTIONAL: User search query                                      │
-│          must: query.text ? [{                                              │
-│            multi_match: {                                                   │
-│              query: query.text,                                             │
-│              fields: ['name^3', 'description', 'brand', 'sku'],            │
-│              type: 'best_fields',                                           │
-│              fuzziness: 'AUTO'                                              │
-│            }                                                                 │
-│          }] : [{ match_all: {} }],                                          │
-│                                                                              │
-│          // OPTIONAL: Additional filters from user                          │
-│          ...(query.status && {                                              │
-│            filter: [                                                         │
-│              { term: { organization_id: organizationId } },                 │
-│              { term: { status: query.status } }                             │
-│            ]                                                                 │
-│          })                                                                  │
-│        }                                                                     │
-│      },                                                                      │
-│      size: query.limit || 20,                                               │
-│      from: query.offset || 0,                                               │
-│      sort: [                                                                 │
-│        { _score: 'desc' },                                                  │
-│        { updated_at: 'desc' }                                               │
-│      ]                                                                       │
-│    };                                                                        │
-│                                                                              │
-│    return this.opensearch.search({                                          │
-│      index: 'eurocomply-products',                                          │
-│      body: searchBody                                                        │
-│    });                                                                       │
-│  }                                                                           │
-│                                                                              │
-│  ═══════════════════════════════════════════════════════════════════════    │
-│                                                                              │
-│  PERFORMANCE OPTIMIZATION:                                                   │
-│  ────────────────────────                                                    │
-│  • organization_id is keyword type (not analyzed) for fast filtering       │
-│  • Routing key = organization_id (documents co-located per tenant)         │
-│  • At scale: Consider index per cell (cell-001-products) for isolation     │
-│                                                                              │
-│  // Index with routing for performance                                      │
-│  await opensearch.index({                                                   │
-│    index: 'eurocomply-products',                                            │
-│    id: product.id,                                                          │
-│    routing: product.organization_id,  // Co-locate tenant docs             │
-│    body: productDocument                                                    │
-│  });                                                                         │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+```typescript
+// Product search service
+class ProductSearchService {
+  async search(
+    organizationId: string,  // From JWT, NOT from request
+    query: {
+      text?: string;
+      status?: string;
+      category?: string;
+      limit?: number;
+      offset?: number;
+    }
+  ): Promise<SearchResult<Product>> {
 
-#### 5.4.3 Index Synchronization
+    const { text, status, category, limit = 20, offset = 0 } = query;
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    EVENT-DRIVEN INDEX SYNCHRONIZATION                        │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  SYNC ARCHITECTURE:                                                          │
-│  ─────────────────                                                           │
-│                                                                              │
-│  ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────────────┐      │
-│  │ Product  │───▶│  Event   │───▶│   SQS    │───▶│  Search Indexer  │      │
-│  │ Service  │    │  Outbox  │    │  Queue   │    │     Worker       │      │
-│  └──────────┘    └──────────┘    └──────────┘    └────────┬─────────┘      │
-│       │                                                    │                │
-│       │  Same Transaction                                  ▼                │
-│       ▼                                           ┌──────────────────┐      │
-│  ┌──────────┐                                    │    OpenSearch    │      │
-│  │PostgreSQL│                                    │    Serverless    │      │
-│  └──────────┘                                    └──────────────────┘      │
-│                                                                              │
-│  EVENTS THAT TRIGGER INDEX UPDATES:                                         │
-│  ──────────────────────────────────                                          │
-│  │ Event                    │ Index Action        │ Latency Target │        │
-│  ├──────────────────────────┼─────────────────────┼────────────────┤        │
-│  │ product.created          │ Index new document  │ < 5 seconds    │        │
-│  │ product.updated          │ Update document     │ < 5 seconds    │        │
-│  │ product.deleted          │ Delete document     │ < 5 seconds    │        │
-│  │ product.version.released │ Update nested data  │ < 5 seconds    │        │
-│  │ passport.approved        │ Index DPP document  │ < 10 seconds   │        │
-│  │ credential.revoked       │ Update DPP status   │ < 5 seconds    │        │
-│                                                                              │
-│  ═══════════════════════════════════════════════════════════════════════    │
-│                                                                              │
-│  INDEXER IMPLEMENTATION:                                                     │
-│  ──────────────────────                                                      │
-│                                                                              │
-│  class ProductSearchIndexer implements EventConsumer<ProductEvent> {        │
-│    constructor(private opensearch: OpenSearchClient) {}                     │
-│                                                                              │
-│    async handle(event: ProductEvent): Promise<void> {                       │
-│      switch (event.type) {                                                  │
-│        case 'product.created':                                              │
-│        case 'product.updated':                                              │
-│          await this.indexProduct(event.payload);                            │
-│          break;                                                              │
-│                                                                              │
-│        case 'product.deleted':                                              │
-│          await this.deleteProduct(event.payload.id);                        │
-│          break;                                                              │
-│      }                                                                       │
-│    }                                                                         │
-│                                                                              │
-│    private async indexProduct(product: Product): Promise<void> {            │
-│      const document = {                                                      │
-│        organization_id: product.organizationId,                             │
-│        product_id: product.id,                                              │
-│        name: product.name,                                                  │
-│        description: product.description,                                    │
-│        sku: product.sku,                                                    │
-│        gtin: product.gtin,                                                  │
-│        brand: product.brand,                                                │
-│        category: product.category,                                          │
-│        product_type: product.productType,                                   │
-│        status: product.status,                                              │
-│        tags: product.tags || [],                                            │
-│        created_at: product.createdAt,                                       │
-│        updated_at: product.updatedAt,                                       │
-│        published_at: product.publishedAt,                                   │
-│        workspaces: product.versions.map(v => ({                            │
-│          workspace: v.workspace,                                            │
-│          version: v.versionNumber,                                          │
-│          status: v.status,                                                  │
-│          updated_at: v.updatedAt                                            │
-│        }))                                                                   │
-│      };                                                                      │
-│                                                                              │
-│      await this.opensearch.index({                                          │
-│        index: 'eurocomply-products',                                        │
-│        id: product.id,                                                      │
-│        routing: product.organizationId,                                     │
-│        body: document,                                                       │
-│        refresh: 'wait_for'  // Ensure searchable immediately               │
-│      });                                                                     │
-│    }                                                                         │
-│  }                                                                           │
-│                                                                              │
-│  ═══════════════════════════════════════════════════════════════════════    │
-│                                                                              │
-│  IDEMPOTENCY:                                                                │
-│  ───────────                                                                 │
-│  • Document ID = product.id (upsert semantics)                              │
-│  • Event deduplication via event.eventId in Redis                          │
-│  • Safe to replay events (index operation is idempotent)                    │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+    // Build WHERE clause - organization_id ALWAYS included
+    const conditions = ['organization_id = $1', 'deleted_at IS NULL'];
+    const params: any[] = [organizationId];
+    let paramIndex = 2;
 
-#### 5.4.4 Index Rebuild Procedure
+    // Full-text search if query provided
+    if (text) {
+      conditions.push(`(
+        to_tsvector('english', coalesce(name, '') || ' ' || coalesce(description, ''))
+        @@ plainto_tsquery('english', $${paramIndex})
+        OR name ILIKE $${paramIndex + 1}
+        OR sku ILIKE $${paramIndex + 1}
+        OR gtin = $${paramIndex + 2}
+      )`);
+      params.push(text, `%${text}%`, text);
+      paramIndex += 3;
+    }
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    INDEX REBUILD PROCEDURE                                   │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  WHEN TO REBUILD:                                                            │
-│  ────────────────                                                            │
-│  • Schema change (new fields, mapping updates)                              │
-│  • Index corruption (rare)                                                   │
-│  • Disaster recovery                                                         │
-│  • Major version upgrade                                                     │
-│                                                                              │
-│  REBUILD STRATEGY: Blue-Green Index Swap                                    │
-│  ────────────────────────────────────────                                    │
-│                                                                              │
-│  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │                                                                      │    │
-│  │  1. Create new index       eurocomply-products-v2                   │    │
-│  │                               │                                      │    │
-│  │  2. Bulk reindex          ┌───┴───┐                                 │    │
-│  │     (PostgreSQL → new)    │ v2    │ ← Reindex from source          │    │
-│  │                           └───────┘                                  │    │
-│  │                               │                                      │    │
-│  │  3. Verify counts            ▼                                      │    │
-│  │     & spot check          ┌───────┐                                 │    │
-│  │                           │ Verify │                                │    │
-│  │                           └───┬───┘                                 │    │
-│  │                               │                                      │    │
-│  │  4. Swap alias            ┌───┴───┐                                 │    │
-│  │     (atomic)              │ Alias │──► eurocomply-products          │    │
-│  │                           └───────┘                                  │    │
-│  │                               │                                      │    │
-│  │  5. Delete old index      eurocomply-products-v1 (after 24h)       │    │
-│  │                                                                      │    │
-│  └─────────────────────────────────────────────────────────────────────┘    │
-│                                                                              │
-│  ═══════════════════════════════════════════════════════════════════════    │
-│                                                                              │
-│  REBUILD SCRIPT:                                                             │
-│  ──────────────                                                              │
-│                                                                              │
-│  #!/bin/bash                                                                 │
-│  # rebuild-search-index.sh                                                   │
-│                                                                              │
-│  set -euo pipefail                                                           │
-│                                                                              │
-│  INDEX_NAME="eurocomply-products"                                           │
-│  NEW_VERSION=$(date +%Y%m%d%H%M%S)                                          │
-│  NEW_INDEX="${INDEX_NAME}-${NEW_VERSION}"                                   │
-│                                                                              │
-│  echo "=== Step 1: Create new index ${NEW_INDEX} ==="                       │
-│  aws opensearchserverless create-index \                                    │
-│    --collection-id $COLLECTION_ID \                                         │
-│    --index-name $NEW_INDEX \                                                │
-│    --mappings file://mappings/products.json                                 │
-│                                                                              │
-│  echo "=== Step 2: Reindex from PostgreSQL ==="                             │
-│  node scripts/reindex-products.js \                                         │
-│    --target-index $NEW_INDEX \                                              │
-│    --batch-size 1000 \                                                      │
-│    --parallelism 4                                                          │
-│                                                                              │
-│  echo "=== Step 3: Verify document counts ==="                              │
-│  PG_COUNT=$(psql -t -c "SELECT COUNT(*) FROM products WHERE deleted_at IS NULL")│
-│  OS_COUNT=$(curl -s "$OPENSEARCH_ENDPOINT/${NEW_INDEX}/_count" | jq '.count')│
-│                                                                              │
-│  if [ "$PG_COUNT" -ne "$OS_COUNT" ]; then                                   │
-│    echo "ERROR: Count mismatch! PostgreSQL: $PG_COUNT, OpenSearch: $OS_COUNT"│
-│    exit 1                                                                    │
-│  fi                                                                          │
-│                                                                              │
-│  echo "=== Step 4: Swap alias (atomic) ==="                                 │
-│  # Get current index behind alias                                           │
-│  OLD_INDEX=$(curl -s "$OPENSEARCH_ENDPOINT/_alias/${INDEX_NAME}" | jq -r 'keys[0]')│
-│                                                                              │
-│  curl -X POST "$OPENSEARCH_ENDPOINT/_aliases" -H 'Content-Type: application/json' -d '{│
-│    "actions": [                                                              │
-│      { "remove": { "index": "'$OLD_INDEX'", "alias": "'$INDEX_NAME'" } },   │
-│      { "add": { "index": "'$NEW_INDEX'", "alias": "'$INDEX_NAME'" } }       │
-│    ]                                                                         │
-│  }'                                                                          │
-│                                                                              │
-│  echo "=== Step 5: Schedule old index deletion ==="                         │
-│  echo "DELETE $OLD_INDEX after 24h: $(date -d '+24 hours')"                 │
-│  # Old index kept for 24h rollback window                                   │
-│                                                                              │
-│  echo "=== Rebuild complete! ==="                                            │
-│                                                                              │
-│  ═══════════════════════════════════════════════════════════════════════    │
-│                                                                              │
-│  REINDEX SCRIPT (Node.js):                                                   │
-│  ────────────────────────                                                    │
-│                                                                              │
-│  // scripts/reindex-products.js                                              │
-│  async function reindexProducts(targetIndex: string, options: ReindexOptions) {│
-│    const batchSize = options.batchSize || 1000;                             │
-│    let offset = 0;                                                           │
-│    let indexed = 0;                                                          │
-│                                                                              │
-│    // Process all tenants (no tenant context needed - admin operation)      │
-│    while (true) {                                                            │
-│      const products = await prisma.product.findMany({                       │
-│        where: { deletedAt: null },                                          │
-│        include: { versions: true },                                         │
-│        skip: offset,                                                         │
-│        take: batchSize,                                                      │
-│        orderBy: { id: 'asc' }                                               │
-│      });                                                                     │
-│                                                                              │
-│      if (products.length === 0) break;                                      │
-│                                                                              │
-│      // Bulk index                                                           │
-│      const body = products.flatMap(p => [                                   │
-│        { index: { _index: targetIndex, _id: p.id, routing: p.organizationId } },│
-│        transformToSearchDocument(p)                                         │
-│      ]);                                                                     │
-│                                                                              │
-│      const result = await opensearch.bulk({ body, refresh: false });        │
-│                                                                              │
-│      if (result.errors) {                                                   │
-│        const errors = result.items.filter(i => i.index?.error);             │
-│        console.error('Bulk index errors:', errors);                         │
-│        throw new Error('Bulk index failed');                                │
-│      }                                                                       │
-│                                                                              │
-│      indexed += products.length;                                            │
-│      offset += batchSize;                                                   │
-│      console.log(`Indexed ${indexed} products...`);                         │
-│    }                                                                         │
-│                                                                              │
-│    // Final refresh                                                          │
-│    await opensearch.indices.refresh({ index: targetIndex });                │
-│    console.log(`Reindex complete: ${indexed} products`);                    │
-│  }                                                                           │
-│                                                                              │
-│  ═══════════════════════════════════════════════════════════════════════    │
-│                                                                              │
-│  REBUILD TIMING:                                                             │
-│  ──────────────                                                              │
-│  │ Document Count │ Estimated Time │ Notes                        │         │
-│  ├────────────────┼────────────────┼──────────────────────────────┤         │
-│  │ 10,000         │ < 1 minute     │ Single batch                 │         │
-│  │ 100,000        │ 5-10 minutes   │ Parallelism helps            │         │
-│  │ 1,000,000      │ 30-60 minutes  │ Schedule off-peak            │         │
-│  │ 10,000,000     │ 4-8 hours      │ Consider incremental rebuild │         │
-│                                                                              │
-│  ZERO-DOWNTIME REBUILD:                                                      │
-│  ─────────────────────                                                       │
-│  • Alias swap is atomic - no query failures                                 │
-│  • During rebuild, old index serves all queries                             │
-│  • New writes go to both old and new index (dual-write)                     │
-│  • After swap, event replay catches up any missed updates                   │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+    // Optional filters
+    if (status) {
+      conditions.push(`status = $${paramIndex++}`);
+      params.push(status);
+    }
+    if (category) {
+      conditions.push(`category = $${paramIndex++}`);
+      params.push(category);
+    }
 
-#### 5.4.5 Search API Endpoints
+    // Execute query with relevance ranking
+    const sql = `
+      SELECT
+        *,
+        CASE WHEN $2 IS NOT NULL THEN
+          ts_rank(
+            to_tsvector('english', coalesce(name, '') || ' ' || coalesce(description, '')),
+            plainto_tsquery('english', $2)
+          )
+        ELSE 0 END as relevance
+      FROM products
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY
+        CASE WHEN $2 IS NOT NULL THEN relevance ELSE 0 END DESC,
+        updated_at DESC
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+    `;
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    SEARCH API REFERENCE                                      │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  GET /v1/products/search                                                    │
-│  ───────────────────────                                                    │
-│  Full-text product search within organization                               │
-│                                                                              │
-│  Query Parameters:                                                           │
-│  │ Parameter   │ Type     │ Description                          │          │
-│  ├─────────────┼──────────┼──────────────────────────────────────┤          │
-│  │ q           │ string   │ Search query (name, description, etc)│          │
-│  │ status      │ string   │ Filter: draft, active, archived      │          │
-│  │ category    │ string   │ Filter by category                   │          │
-│  │ workspace   │ string   │ Filter by workspace                  │          │
-│  │ sort        │ string   │ relevance, name, updated_at, created_at│        │
-│  │ order       │ string   │ asc, desc (default: desc)            │          │
-│  │ limit       │ integer  │ Results per page (max 100)           │          │
-│  │ offset      │ integer  │ Pagination offset                    │          │
-│                                                                              │
-│  Response:                                                                   │
-│  {                                                                           │
-│    "data": [                                                                 │
-│      {                                                                       │
-│        "id": "prod_abc123",                                                 │
-│        "name": "Organic Cotton T-Shirt",                                    │
-│        "sku": "OCT-001",                                                    │
-│        "status": "active",                                                  │
-│        "category": "apparel",                                               │
-│        "highlight": {                                                        │
-│          "name": ["Organic <em>Cotton</em> T-Shirt"],                      │
-│          "description": ["Made from 100% organic <em>cotton</em>..."]      │
-│        },                                                                    │
-│        "score": 12.45                                                       │
-│      }                                                                       │
-│    ],                                                                        │
-│    "meta": {                                                                 │
-│      "total": 142,                                                          │
-│      "limit": 20,                                                           │
-│      "offset": 0,                                                           │
-│      "took_ms": 23                                                          │
-│    },                                                                        │
-│    "facets": {                                                               │
-│      "status": { "active": 120, "draft": 20, "archived": 2 },              │
-│      "category": { "apparel": 80, "footwear": 62 }                         │
-│    }                                                                         │
-│  }                                                                           │
-│                                                                              │
-│  GET /v1/products/autocomplete                                              │
-│  ─────────────────────────────                                               │
-│  Prefix-based autocomplete for product names                                │
-│                                                                              │
-│  Query Parameters:                                                           │
-│  │ Parameter   │ Type     │ Description                          │          │
-│  ├─────────────┼──────────┼──────────────────────────────────────┤          │
-│  │ q           │ string   │ Prefix to match (min 2 chars)        │          │
-│  │ limit       │ integer  │ Max suggestions (default 10)         │          │
-│                                                                              │
-│  Response:                                                                   │
-│  {                                                                           │
-│    "suggestions": [                                                          │
-│      { "id": "prod_abc", "name": "Organic Cotton T-Shirt", "sku": "OCT-001" },│
-│      { "id": "prod_def", "name": "Organic Linen Pants", "sku": "OLP-001" }  │
-│    ]                                                                         │
-│  }                                                                           │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+    params.push(limit, offset);
 
-#### 5.4.6 Terraform Configuration
+    const results = await this.db.query(sql, params);
+    const countResult = await this.db.query(
+      `SELECT COUNT(*) FROM products WHERE ${conditions.join(' AND ')}`,
+      params.slice(0, -2)
+    );
 
-```hcl
-# OpenSearch Serverless Collection for search
-resource "aws_opensearchserverless_collection" "search" {
-  name        = "eurocomply-search"
-  type        = "SEARCH"
-  description = "Product and DPP search index"
-
-  tags = {
-    Environment = var.environment
-    Service     = "search"
-  }
-}
-
-# Security policy - encryption
-resource "aws_opensearchserverless_security_policy" "search_encryption" {
-  name = "eurocomply-search-encryption"
-  type = "encryption"
-  policy = jsonencode({
-    Rules = [{
-      ResourceType = "collection"
-      Resource     = ["collection/eurocomply-search"]
-    }]
-    AWSOwnedKey = true
-  })
-}
-
-# Security policy - network (VPC access only)
-resource "aws_opensearchserverless_security_policy" "search_network" {
-  name = "eurocomply-search-network"
-  type = "network"
-  policy = jsonencode([{
-    Rules = [{
-      ResourceType = "collection"
-      Resource     = ["collection/eurocomply-search"]
-    }]
-    AllowFromPublic = false
-    SourceVPCEs     = [aws_opensearchserverless_vpc_endpoint.search.id]
-  }])
-}
-
-# VPC Endpoint for OpenSearch Serverless
-resource "aws_opensearchserverless_vpc_endpoint" "search" {
-  name               = "eurocomply-search-vpce"
-  vpc_id             = module.vpc.vpc_id
-  subnet_ids         = module.vpc.private_subnet_ids
-  security_group_ids = [aws_security_group.opensearch.id]
-}
-
-# Data access policy - API service role
-resource "aws_opensearchserverless_access_policy" "search_access" {
-  name = "eurocomply-search-access"
-  type = "data"
-  policy = jsonencode([{
-    Rules = [
-      {
-        ResourceType = "index"
-        Resource     = ["index/eurocomply-search/*"]
-        Permission   = ["aoss:ReadDocument", "aoss:WriteDocument", "aoss:CreateIndex", "aoss:DeleteIndex", "aoss:UpdateIndex"]
-      },
-      {
-        ResourceType = "collection"
-        Resource     = ["collection/eurocomply-search"]
-        Permission   = ["aoss:DescribeCollectionItems"]
+    return {
+      data: results.rows,
+      meta: {
+        total: parseInt(countResult.rows[0].count),
+        limit,
+        offset
       }
-    ]
-    Principal = [
-      aws_iam_role.api_service.arn,
-      aws_iam_role.worker_service.arn
-    ]
-  }])
-}
-
-# Security group for OpenSearch access
-resource "aws_security_group" "opensearch" {
-  name_prefix = "eurocomply-opensearch-"
-  vpc_id      = module.vpc.vpc_id
-
-  ingress {
-    from_port       = 443
-    to_port         = 443
-    protocol        = "tcp"
-    security_groups = [aws_security_group.api.id, aws_security_group.worker.id]
+    };
   }
 
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+  // Autocomplete for product names
+  async autocomplete(
+    organizationId: string,
+    prefix: string,
+    limit: number = 10
+  ): Promise<{ id: string; name: string; sku: string }[]> {
+
+    const sql = `
+      SELECT id, name, sku
+      FROM products
+      WHERE organization_id = $1
+        AND deleted_at IS NULL
+        AND (
+          name ILIKE $2
+          OR sku ILIKE $2
+        )
+      ORDER BY
+        similarity(name, $3) DESC,
+        name ASC
+      LIMIT $4
+    `;
+
+    const results = await this.db.query(sql, [
+      organizationId,
+      `${prefix}%`,
+      prefix,
+      limit
+    ]);
+
+    return results.rows;
+  }
+}
+```
+
+#### 5.4.2 Search API Endpoints
+
+```
+GET /v1/products/search
+─────────────────────────
+Full-text product search within organization
+
+Query Parameters:
+│ Parameter │ Type    │ Description                           │
+├───────────┼─────────┼───────────────────────────────────────┤
+│ q         │ string  │ Search query (name, description, SKU) │
+│ status    │ string  │ Filter: draft, active, archived       │
+│ category  │ string  │ Filter by category                    │
+│ sort      │ string  │ relevance, name, updated_at           │
+│ limit     │ integer │ Results per page (max 100)            │
+│ offset    │ integer │ Pagination offset                     │
+
+Response:
+{
+  "data": [
+    {
+      "id": "prod_abc123",
+      "name": "Organic Cotton T-Shirt",
+      "sku": "OCT-001",
+      "status": "active",
+      "category": "apparel"
+    }
+  ],
+  "meta": {
+    "total": 142,
+    "limit": 20,
+    "offset": 0
   }
 }
 
-# CloudWatch alarm for search latency
-resource "aws_cloudwatch_metric_alarm" "search_latency" {
-  alarm_name          = "eurocomply-search-latency-high"
-  comparison_operator = "GreaterThanThreshold"
-  evaluation_periods  = 3
-  metric_name         = "SearchLatency"
-  namespace           = "AWS/AOSS"
-  period              = 300
-  statistic           = "p99"
-  threshold           = 500  # 500ms
-  alarm_description   = "Search latency P99 exceeds 500ms"
-  alarm_actions       = [aws_sns_topic.alerts.arn]
+GET /v1/products/autocomplete
+─────────────────────────────
+Prefix-based autocomplete for product names
 
-  dimensions = {
-    CollectionId = aws_opensearchserverless_collection.search.id
-  }
+Query Parameters:
+│ Parameter │ Type    │ Description                 │
+├───────────┼─────────┼─────────────────────────────┤
+│ q         │ string  │ Prefix to match (min 2 chr) │
+│ limit     │ integer │ Max suggestions (default 10)│
+
+Response:
+{
+  "suggestions": [
+    { "id": "prod_abc", "name": "Organic Cotton T-Shirt", "sku": "OCT-001" },
+    { "id": "prod_def", "name": "Organic Linen Pants", "sku": "OLP-001" }
+  ]
 }
+```
+
+#### 5.4.3 Performance Characteristics
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    POSTGRESQL FTS PERFORMANCE                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  EXPECTED LATENCY:                                                           │
+│  │ Tenant Size    │ Search Latency │ Autocomplete │                         │
+│  ├────────────────┼────────────────┼──────────────┤                         │
+│  │ 100 products   │ < 10ms         │ < 5ms        │                         │
+│  │ 1,000 products │ < 20ms         │ < 10ms       │                         │
+│  │ 10,000 products│ < 50ms         │ < 20ms       │                         │
+│  │ 50,000 products│ < 100ms        │ < 50ms       │                         │
+│                                                                              │
+│  WHY THIS IS SUFFICIENT:                                                     │
+│  • Per-tenant queries (organization_id filter uses index)                   │
+│  • GIN indexes make FTS fast                                                │
+│  • No cross-tenant search needed                                            │
+│  • Users searching their own known products                                 │
+│                                                                              │
+│  MONITORING:                                                                 │
+│  • pg_stat_statements for slow query detection                              │
+│  • Alert if search P95 > 200ms                                              │
+│  • EXPLAIN ANALYZE on slow queries                                          │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 5.4.4 Future: Dedicated Search Engine
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    WHEN TO ADD OPENSEARCH/ALGOLIA                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  PostgreSQL FTS is sufficient for B2B product management. Consider a        │
+│  dedicated search engine only when building CONSUMER-FACING features:       │
+│                                                                              │
+│  TRIGGERS FOR UPGRADE:                                                       │
+│  ─────────────────────                                                       │
+│  │ Feature                        │ Why Dedicated Search Helps    │         │
+│  ├────────────────────────────────┼───────────────────────────────┤         │
+│  │ Public DPP discovery portal    │ Typo tolerance, relevance     │         │
+│  │ Cross-org supply chain search  │ Federated search, scale       │         │
+│  │ Consumer product lookup        │ Fast autocomplete, synonyms   │         │
+│  │ Regulatory audit search        │ Faceted filtering, analytics  │         │
+│                                                                              │
+│  NOT TRIGGERS:                                                               │
+│  ─────────────                                                               │
+│  • "Search feels slow" → First check indexes, EXPLAIN ANALYZE               │
+│  • "Need better relevance" → Users search their own products                │
+│  • "Enterprise customer wants it" → PostgreSQL handles 50K products         │
+│                                                                              │
+│  IF/WHEN WE ADD IT:                                                          │
+│  ──────────────────                                                          │
+│  • OpenSearch Serverless (AWS native, pay-per-use)                          │
+│  • Event-driven sync via existing outbox pattern                            │
+│  • Estimated cost: €50-150/month additional                                 │
+│  • Only for consumer-facing features, not core B2B product management       │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
