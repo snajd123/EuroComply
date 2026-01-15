@@ -145,6 +145,12 @@ variable "redis_engine_version" {
   default     = "7.1"
 }
 
+variable "redis_auth_rotation_days" {
+  description = "Number of days between automatic Redis auth token rotations"
+  type        = number
+  default     = 30
+}
+
 # ==============================================================================
 # KMS
 # ==============================================================================
