@@ -155,6 +155,258 @@ did:key:z6MkhaXgBZDvvvRhta4LjXRJzL...
 
 **We chose did:key because suppliers own their identity, not EuroComply.**
 
+### 3.1 did:key Limitation: No Key Rotation
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    did:key KEY ROTATION LIMITATION                           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  THE PROBLEM:                                                               │
+│  ────────────                                                               │
+│  did:key encodes the public key directly in the identifier:                 │
+│                                                                              │
+│    did:key:z6MkhaXgBZDvvvRhta4LjXRJzL...                                   │
+│            └── This IS the key. The key IS the identity.                   │
+│                                                                              │
+│  CONSEQUENCE:                                                               │
+│  ────────────                                                               │
+│  • Cannot "rotate" to a new key while keeping the same DID                 │
+│  • If private key is compromised, that DID is permanently compromised      │
+│  • Old DPPs signed by compromised key cannot be "re-signed"                │
+│  • Only option is revocation + re-issuance with NEW DID                    │
+│                                                                              │
+│  COMPARISON:                                                                │
+│  ───────────                                                                │
+│  │ DID Method │ Key Rotation │ Trade-off                                  │
+│  │────────────│──────────────│───────────────────────────────────────────│
+│  │ did:key    │ ✗ No         │ Self-verifying, no infrastructure needed  │
+│  │ did:web    │ ✓ Yes        │ Requires web server, creates dependency   │
+│  │ did:ion    │ ✓ Yes        │ Requires blockchain, complex operation    │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 3.2 Key Lifecycle Management Strategy
+
+Since did:key cannot rotate, we implement a **proactive key lifecycle** strategy:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    KEY LIFECYCLE STRATEGY                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  1. PROACTIVE KEY RETIREMENT (before compromise)                            │
+│  ───────────────────────────────────────────────                            │
+│                                                                              │
+│     Year 0        Year 2         Year 3         Year 4                      │
+│     ┌─────┐       ┌─────┐        ┌─────┐        ┌─────┐                     │
+│     │Key A│──────▶│Key A│───────▶│Key B│───────▶│Key B│                     │
+│     │ACTIVE│      │RETIRING│     │ACTIVE│       │ACTIVE│                    │
+│     └─────┘       └─────┘        └─────┘        └─────┘                     │
+│                      │              ▲                                        │
+│                      │   New DPPs   │                                        │
+│                      └──────────────┘                                        │
+│                                                                              │
+│     • Generate new key 1 year before planned retirement                     │
+│     • Transition new DPPs to new key during overlap period                  │
+│     • Old key signs nothing new after retirement date                       │
+│     • Old DPPs remain valid (signed by old key, still verifiable)          │
+│                                                                              │
+│  2. KEY REGISTRY (public record of organization keys)                       │
+│  ────────────────────────────────────────────────────                       │
+│                                                                              │
+│     Organization publishes key history (not DID rotation, key registry):   │
+│                                                                              │
+│     {                                                                        │
+│       "organization": "did:web:acme-corp.com",  // Human-readable identity  │
+│       "signingKeys": [                                                       │
+│         {                                                                    │
+│           "did": "did:key:z6Mk...",                                         │
+│           "status": "retired",                                              │
+│           "validFrom": "2024-01-01",                                        │
+│           "validUntil": "2026-12-31",                                       │
+│           "retirementReason": "scheduled_rotation"                          │
+│         },                                                                   │
+│         {                                                                    │
+│           "did": "did:key:z6Mn...",                                         │
+│           "status": "active",                                               │
+│           "validFrom": "2026-01-01",                                        │
+│           "validUntil": null                                                │
+│         }                                                                    │
+│       ]                                                                      │
+│     }                                                                        │
+│                                                                              │
+│  3. COMPROMISE RESPONSE PLAN                                                │
+│  ───────────────────────────                                                │
+│                                                                              │
+│     If private key is compromised:                                          │
+│                                                                              │
+│     ┌──────────────┐    ┌──────────────┐    ┌──────────────┐               │
+│     │ 1. DETECT    │───▶│ 2. REVOKE    │───▶│ 3. RE-ISSUE  │               │
+│     │              │    │              │    │              │               │
+│     │ • Anomaly    │    │ • Mark key   │    │ • Generate   │               │
+│     │   detection  │    │   compromised│    │   new key    │               │
+│     │ • Security   │    │ • Revoke ALL │    │ • Re-issue   │               │
+│     │   audit      │    │   DPPs from  │    │   affected   │               │
+│     │              │    │   that key   │    │   DPPs       │               │
+│     └──────────────┘    └──────────────┘    └──────────────┘               │
+│                                                                              │
+│     Timeline targets:                                                       │
+│     • Detection → Revocation: < 4 hours                                    │
+│     • Revocation → Re-issuance start: < 24 hours                           │
+│     • Full re-issuance: depends on DPP volume (bulk re-issue workflow)     │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 3.3 Implementation Details
+
+```typescript
+// Key lifecycle tracking
+interface OrganizationSigningKey {
+  did: string;                    // did:key:z6Mk...
+  publicKeyJwk: JsonWebKey;       // For verification
+  status: 'active' | 'retiring' | 'retired' | 'compromised';
+  validFrom: Date;
+  validUntil?: Date;
+  retirementReason?: 'scheduled_rotation' | 'security_incident' | 'algorithm_upgrade';
+
+  // If compromised
+  compromisedAt?: Date;
+  compromiseDetails?: string;
+}
+
+// Key rotation workflow
+async function rotateOrganizationKey(orgId: string): Promise<{
+  oldKey: OrganizationSigningKey;
+  newKey: OrganizationSigningKey;
+}> {
+  // 1. Generate new key
+  const newKeyPair = await generateEd25519KeyPair();
+  const newDid = createDidKey(newKeyPair.publicKey);
+
+  // 2. Mark old key as retiring
+  const oldKey = await prisma.organizationSigningKey.update({
+    where: { organizationId: orgId, status: 'active' },
+    data: {
+      status: 'retiring',
+      validUntil: addMonths(new Date(), 12),  // 1 year overlap
+    },
+  });
+
+  // 3. Register new key
+  const newKey = await prisma.organizationSigningKey.create({
+    data: {
+      organizationId: orgId,
+      did: newDid,
+      publicKeyJwk: newKeyPair.publicKeyJwk,
+      status: 'active',
+      validFrom: new Date(),
+    },
+  });
+
+  // 4. Update key registry (public endpoint)
+  await publishKeyRegistry(orgId);
+
+  // 5. Notify organization
+  await notifyKeyRotation(orgId, oldKey, newKey);
+
+  return { oldKey, newKey };
+}
+
+// Compromise response
+async function handleKeyCompromise(
+  orgId: string,
+  compromisedDid: string,
+  details: string
+): Promise<void> {
+  // 1. Immediately mark key as compromised
+  await prisma.organizationSigningKey.update({
+    where: { did: compromisedDid },
+    data: {
+      status: 'compromised',
+      compromisedAt: new Date(),
+      compromiseDetails: details,
+    },
+  });
+
+  // 2. Revoke ALL DPPs signed by this key
+  const affectedDpps = await prisma.dppSnapshot.findMany({
+    where: { signingKeyDid: compromisedDid },
+  });
+
+  for (const dpp of affectedDpps) {
+    await revokeCredential(dpp.credentialId, 'KEY_COMPROMISED');
+  }
+
+  // 3. Generate emergency replacement key
+  const { newKey } = await rotateOrganizationKey(orgId);
+
+  // 4. Queue bulk re-issuance
+  await queueBulkReissuance({
+    organizationId: orgId,
+    reason: 'KEY_COMPROMISE',
+    originalDpps: affectedDpps.map(d => d.id),
+    newSigningKey: newKey.did,
+  });
+
+  // 5. Security notification
+  await sendSecurityAlert({
+    type: 'KEY_COMPROMISE',
+    organizationId: orgId,
+    affectedDpps: affectedDpps.length,
+    action: 'All DPPs revoked, re-issuance queued',
+  });
+}
+```
+
+### 3.4 Verifier Guidance
+
+When verifying a DPP signed with did:key:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    VERIFIER CHECKLIST FOR did:key DPPs                       │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  1. ✓ Verify cryptographic signature (standard VC verification)             │
+│                                                                              │
+│  2. ✓ Check revocation status (Status List 2021)                            │
+│     └── If revoked, DPP is invalid regardless of signature                 │
+│                                                                              │
+│  3. ✓ Check key registry for signing key status                             │
+│     GET https://api.eurocomply.eu/keys/{did}                                │
+│     └── If key status = "compromised", treat DPP with suspicion            │
+│     └── If key status = "retired" but DPP issuedAt < validUntil, OK        │
+│                                                                              │
+│  4. ✓ Verify organization identity (see Section 17)                         │
+│     └── did:key proves which key signed, not who owns the key              │
+│                                                                              │
+│  TRUST DECISION MATRIX:                                                     │
+│  ──────────────────────                                                     │
+│  │ Signature │ Revocation │ Key Status  │ Trust Level                     │
+│  │───────────│────────────│─────────────│─────────────────────────────────│
+│  │ ✓ Valid   │ Not revoked│ Active      │ ✓ TRUSTED                       │
+│  │ ✓ Valid   │ Not revoked│ Retired     │ ✓ TRUSTED (if issued in window)│
+│  │ ✓ Valid   │ Not revoked│ Compromised │ ⚠️ SUSPICIOUS - verify with org │
+│  │ ✓ Valid   │ Revoked    │ Any         │ ✗ INVALID                       │
+│  │ ✗ Invalid │ Any        │ Any         │ ✗ INVALID                       │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 3.5 Future: Hybrid Identity Model
+
+Long-term, we plan a hybrid approach:
+
+| Identity Layer | DID Method | Purpose |
+|----------------|------------|---------|
+| **Organization Identity** | did:web | Human-readable, key-rotatable (`did:web:acme-corp.com`) |
+| **DPP Signatures** | did:key | Self-verifying, portable, immutable |
+
+The organization's did:web document would list their current and historical did:key signing keys, providing the best of both worlds: rotatable organizational identity with self-verifying DPP signatures.
+
 ---
 
 ## 4. Technical Architecture
