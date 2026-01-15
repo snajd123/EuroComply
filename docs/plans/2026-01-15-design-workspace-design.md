@@ -18,7 +18,7 @@ The Design Workspace is where products are "born" - from concept to release-read
 | **Version-Locked** | All changes tied to a design version; RELEASED = immutable |
 | **Diff-Before-Release** | System generates change summary before any release |
 | **Reason-Coded** | Every status transition requires documented reason |
-| **Evidence-Linked** | Documents and suppliers attached at version level |
+| **Evidence-Linked** | Documents and facilities attached at version level |
 
 ### Ownership
 
@@ -26,7 +26,7 @@ The Design Workspace is where products are "born" - from concept to release-read
 |------|-------------|
 | Design versions | Version lifecycle (DRAFT → RELEASED) |
 | Material library | Reusable materials as product entities |
-| BOM relationships | Bill of Materials with supplier links |
+| BOM relationships | Bill of Materials with facility links |
 | Technical specs | Category-driven attributes |
 | Technical documents | CAD, drawings, spec sheets |
 
@@ -76,7 +76,7 @@ The Design Workspace is where products are "born" - from concept to release-read
 │  │ Attachments │◄────────────────┤                                          │
 │  └─────────────┘                 │                                          │
 │  ┌─────────────┐                 │                                          │
-│  │  Supplier   │                 │                                          │
+│  │  Facility   │                 │                                          │
 │  │   Links     │◄────────────────┘                                          │
 │  └─────────────┘                                                            │
 │                                                                              │
@@ -141,8 +141,8 @@ CREATE TABLE bom_entry (
     position            INT DEFAULT 0,
     notes               TEXT,
 
-    -- Link to Operations (supplier evidence)
-    supplier_id         UUID REFERENCES supplier(id),
+    -- Link to Operations (facility-level traceability)
+    facility_id         UUID REFERENCES facility(id),
 
     created_at          TIMESTAMPTZ DEFAULT now(),
     updated_at          TIMESTAMPTZ DEFAULT now(),
@@ -156,7 +156,7 @@ CREATE TABLE bom_entry (
 CREATE INDEX idx_bom_parent ON bom_entry (parent_product_id);
 CREATE INDEX idx_bom_child ON bom_entry (child_product_id);
 CREATE INDEX idx_bom_version ON bom_entry (design_version_id);
-CREATE INDEX idx_bom_supplier ON bom_entry (supplier_id);
+CREATE INDEX idx_bom_facility ON bom_entry (facility_id);
 ```
 
 ### 4.3 Roll-up Calculation (Yield-Adjusted)
@@ -267,7 +267,7 @@ async function calculateAllRollups(
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  🔴 Material "Gold Plating" missing "conflict_minerals_status"              │
 │     → [Go to Material]                                                      │
-│  🔴 Material "Gold Plating" missing "supplier_id"                           │
+│  🔴 Material "Gold Plating" missing "facility_id"                           │
 │     → [Go to Material]                                                      │
 └─────────────────────────────────────────────────────────────────────────────┘
 
@@ -463,8 +463,8 @@ async function validateVersionCompleteness(versionId: string): Promise<Validatio
       }
     }
 
-    // 3. Check supplier links for regulated materials
-    await validateSupplierLinks(entry, material, errors);
+    // 3. Check facility links for regulated materials
+    await validateFacilityLinks(entry, material, errors);
   }
 
   // 4. Check required documents
@@ -583,137 +583,80 @@ CREATE INDEX idx_version_doc_version ON version_document (version_id);
 
 ---
 
-## 7. Supplier Links
+## 7. Facility Links (Bridge to Operations)
 
-### 7.1 The Bridge to Operations
+### 7.1 The Traceability Bridge
+
+BOM entries link to **facilities** (not suppliers) for EU-compliant geographic traceability.
 
 ```
   DESIGN WORKSPACE              OPERATIONS WORKSPACE
   ────────────────              ────────────────────
   ┌─────────────┐               ┌─────────────────┐
-  │  BOM Entry  │───────────────│    Supplier     │
-  │ (material)  │  supplier_id  │   (entity)      │
+  │  BOM Entry  │───────────────│    Facility     │
+  │ (material)  │  facility_id  │  (physical)     │
   └─────────────┘               └────────┬────────┘
                                          │
                                 ┌────────┴────────┐
-                                │ Supplier Docs   │
-                                │ • Certifications│
-                                │ • Audit reports │
-                                │ • ESG scores    │
+                                │    Supplier     │
+                                │  (legal entity) │
+                                └────────┬────────┘
+                                         │
+                                ┌────────┴────────┐
+                                │ Certifications  │
+                                │ (facility-level)│
                                 └─────────────────┘
 ```
 
-### 7.2 Supplier Data Model
+> **Note:** Full Supplier/Facility data model defined in
+> [Operations Workspace Design](./2026-01-15-operations-workspace-design.md)
 
-```sql
-CREATE TYPE supplier_status AS ENUM (
-    'PENDING_VERIFICATION',
-    'VERIFIED',
-    'SUSPENDED',
-    'INACTIVE'
-);
-
-CREATE TABLE supplier (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID NOT NULL,
-
-    -- Identity
-    name            VARCHAR(255) NOT NULL,
-    code            VARCHAR(50),
-
-    -- Location (for origin tracking)
-    country_code    CHAR(2) NOT NULL,
-    region          VARCHAR(100),
-    address         TEXT,
-
-    -- Compliance status
-    status          supplier_status NOT NULL DEFAULT 'PENDING_VERIFICATION',
-    verified_at     TIMESTAMPTZ,
-    verified_by     UUID REFERENCES users(id),
-
-    -- ESG/Risk scoring
-    esg_score       DECIMAL,
-    risk_level      VARCHAR(20),
-
-    -- Contact
-    contact_name    VARCHAR(255),
-    contact_email   VARCHAR(255),
-
-    created_at      TIMESTAMPTZ DEFAULT now(),
-    updated_at      TIMESTAMPTZ DEFAULT now()
-);
-
-CREATE TABLE supplier_certification (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    supplier_id     UUID NOT NULL REFERENCES supplier(id),
-
-    cert_type       VARCHAR(100) NOT NULL,
-    cert_number     VARCHAR(100),
-    issuing_body    VARCHAR(255),
-
-    valid_from      DATE NOT NULL,
-    valid_until     DATE NOT NULL,
-
-    document_id     UUID REFERENCES document(id),
-
-    is_verified     BOOLEAN DEFAULT false,
-    verified_by     UUID REFERENCES users(id),
-    verified_at     TIMESTAMPTZ,
-
-    created_at      TIMESTAMPTZ DEFAULT now()
-);
-
-CREATE INDEX idx_supplier_org ON supplier (organization_id);
-CREATE INDEX idx_supplier_status ON supplier (status);
-CREATE INDEX idx_supplier_country ON supplier (country_code);
-CREATE INDEX idx_supplier_cert_expiry ON supplier_certification (valid_until);
-```
-
-### 7.3 Supplier Validation
+### 7.2 Facility Validation
 
 ```typescript
-async function validateSupplierLinks(
+async function validateFacilityLinks(
   entry: BomEntry,
   material: Product,
   errors: ValidationError[]
 ): Promise<void> {
   const category = await getCategory(material.category_id);
 
-  // Check if category requires supplier traceability
+  // Check if category requires facility-level traceability
   const requiresTraceability =
     category.regulation_refs?.includes('CONFLICT_MINERALS') ||
     category.regulation_refs?.includes('EUDR') ||
     category.regulation_refs?.includes('REACH');
 
   if (requiresTraceability) {
-    if (!entry.supplier_id) {
+    if (!entry.facility_id) {
       errors.push({
         type: 'BOM_INCOMPLETE',
         severity: 'BLOCKER',
         entityType: 'bom_entry',
         entityId: entry.id,
         entityName: material.name,
-        field: 'supplier_id',
-        message: `"${material.name}" requires supplier traceability`
+        field: 'facility_id',
+        message: `"${material.name}" requires facility-level traceability`
       });
     } else {
-      const supplier = await getSupplier(entry.supplier_id);
+      const facility = await getFacility(entry.facility_id);
+      const supplier = await getSupplier(facility.supplier_id);
 
-      // Check supplier is verified
-      if (supplier.status !== 'VERIFIED') {
+      // Check facility is verified
+      if (facility.certification_status !== 'VERIFIED') {
         errors.push({
           type: 'BOM_INCOMPLETE',
           severity: 'WARNING',
           entityType: 'bom_entry',
           entityId: entry.id,
           entityName: material.name,
-          field: 'supplier_id',
-          message: `Supplier "${supplier.name}" is not verified`
+          field: 'facility_id',
+          message: `Facility "${facility.name}" (${supplier.name}) is not verified`
         });
       }
 
-      // Check for expiring certifications
-      const expiringCerts = await getExpiringCertifications(supplier.id, 60);
+      // Check for expiring facility certifications
+      const expiringCerts = await getExpiringFacilityCerts(facility.id, 60);
       for (const cert of expiringCerts) {
         errors.push({
           type: 'BOM_INCOMPLETE',
@@ -721,8 +664,8 @@ async function validateSupplierLinks(
           entityType: 'bom_entry',
           entityId: entry.id,
           entityName: material.name,
-          field: 'supplier_certification',
-          message: `Supplier "${supplier.name}" ${cert.cert_type} expires in ${cert.daysRemaining} days`
+          field: 'facility_certification',
+          message: `Facility "${facility.name}" ${cert.cert_type} expires in ${cert.daysRemaining} days`
         });
       }
     }
