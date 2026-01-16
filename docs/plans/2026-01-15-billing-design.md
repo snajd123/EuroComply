@@ -639,6 +639,9 @@ CREATE INDEX idx_recall_usage_recall ON recall_usage (recall_id);
 
 ## 7. Verification Proof Service Billing (Retailer Revenue)
 
+> **📌 Canonical Reference:** This is the authoritative source for Verification Proof Service pricing.
+> Other documents ([compliance-workspace-design.md](./2026-01-15-compliance-workspace-design.md#114-verification-proof-service-paid), [business-model-design.md](./2026-01-15-business-model-design.md#82-verification-proof-service-paid)) reference this section.
+
 The Verification Proof Service is a **separate revenue stream** from retailers and third parties who need cryptographic proof receipts for legal defense.
 
 ### ESPR Article 31 Compliance
@@ -1215,6 +1218,7 @@ async function handlePaymentSucceeded(invoice: Stripe.Invoice) {
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 0.8 | 2026-01-16 | Marked Section 7 as canonical source for Verification Proof Service pricing |
 | 0.7 | 2026-01-16 | ESPR Article 31 compliance: Renamed to "Verification Proof Service", status checks free, proof receipts paid |
 | 0.6 | 2026-01-16 | Added Section 7: Verification API Billing (retailer revenue stream, €49-€999/mo tiers) |
 | 0.5 | 2026-01-16 | RFC 3161 timestamps now included ALL tiers via Merkle batching (€0.00002/DPP vs €0.01 individual) |

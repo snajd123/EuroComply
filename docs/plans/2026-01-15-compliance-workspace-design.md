@@ -1852,12 +1852,8 @@ GET https://id.eurocomply.eu/api/v1/compliance/verify/01234567/SN-999
 
 **Verification Proof Service Tiers**
 
-| Tier | Price | What You Get |
-|------|-------|--------------|
-| **Free** | €0 | Basic status check only (see 11.3) - no proof receipt |
-| **Basic** | €49/mo | 10,000 proof receipts/mo + batch (100 items) + email support |
-| **Professional** | €199/mo | 50,000 proofs/mo + batch (1,000 items) + 99.9% SLA |
-| **Enterprise** | €999+/mo | Unlimited proofs + batch (10,000 items) + 99.99% SLA + webhooks |
+> **Pricing:** See [billing-design.md Section 7](./2026-01-15-billing-design.md#7-verification-proof-service-billing-retailer-revenue) for authoritative pricing.
+> **Summary:** Free (status only) → Basic €49/mo → Professional €199/mo → Enterprise €999+/mo
 
 **What you're paying for (NOT the status check):**
 - Cryptographic proof receipt with Merkle path
@@ -2161,6 +2157,7 @@ CREATE INDEX idx_recall_feed_manufacturer ON public_recall_feed (manufacturer_id
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.0 | 2026-01-16 | Deduplication: Verification Proof Service pricing now references billing-design.md as canonical |
 | 0.9 | 2026-01-16 | ESPR Article 31 compliance: Free status checks, paid proof receipts. Renamed to "Verification Proof Service" |
 | 0.8 | 2026-01-16 | Refined: Deterministic Merkle sorting, Combined Verification API (integrity+revocation), EPC URN identifiers |
 | 0.7 | 2026-01-16 | Added Section 5.5: Merkle Path Verification Ceremony - independent timestamp verification |

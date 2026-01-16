@@ -495,23 +495,8 @@ ESPR Article 31 mandates free DPP access for economic operators.
 
 ### Verification Proof Service Tiers
 
-| Tier | Price | Proof Receipts | Batch Size | Features |
-|------|-------|----------------|------------|----------|
-| **Free** | €0 | Status only | — | ESPR-mandated, unlimited |
-| **Basic** | €49/mo | 10,000/mo | 100 items | Email support |
-| **Professional** | €199/mo | 50,000/mo | 1,000 items | 99.9% SLA, webhooks |
-| **Enterprise** | €999+/mo | Unlimited | 10,000 items | 99.99% SLA, 7-year storage |
-
-### What Each Tier Gets
-
-| Feature | Free (ESPR) | Basic | Professional | Enterprise |
-|---------|-------------|-------|--------------|------------|
-| Status checks | ✓ Unlimited | ✓ Unlimited | ✓ Unlimited | ✓ Unlimited |
-| Proof receipts | ✗ | 10,000/mo | 50,000/mo | Unlimited |
-| Batch proofs | ✗ | 100 items | 1,000 items | 10,000 items |
-| Webhooks | ✗ | ✗ | ✓ | ✓ |
-| SLA | Best effort | Best effort | 99.9% | 99.99% |
-| Proof storage | ✗ | 30 days | 1 year | 7 years |
+> **Pricing:** See [billing-design.md Section 7](./2026-01-15-billing-design.md#7-verification-proof-service-billing-retailer-revenue) for authoritative tier pricing and features.
+> **Summary:** Free (status only) → Basic €49/mo → Professional €199/mo → Enterprise €999+/mo
 
 ### Value Proposition: "Zero Liability"
 
@@ -702,6 +687,7 @@ Personnel is the real cost driver.
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 0.8 | 2026-01-16 | Deduplication: Verification Proof Service pricing now references billing-design.md as canonical |
 | 0.7 | 2026-01-16 | ESPR Article 31 compliance: Status checks free, proof receipts paid. Renamed to "Verification Proof Service" |
 | 0.6 | 2026-01-16 | Expanded Section 8: Retailer Access with paid Verification API tiers (€49-€999/mo, €772K/yr potential) |
 | 0.5 | 2026-01-16 | RFC 3161 timestamps now included ALL tiers via Merkle batching (TCO €0.0024) |
