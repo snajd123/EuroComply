@@ -1,0 +1,63 @@
+# Dependencies (will be installed in container)
+node_modules
+**/node_modules
+
+# Build outputs (will be built in container)
+dist
+**/dist
+
+# Development files
+.git
+.gitignore
+.github
+.vscode
+.idea
+
+# Documentation
+docs
+*.md
+!README.md
+
+# Test files
+**/*.test.ts
+**/*.spec.ts
+**/test
+**/tests
+**/__tests__
+coverage
+.nyc_output
+
+# Environment files (secrets should come from env vars)
+.env
+.env.*
+!.env.example
+
+# Docker files (no need to copy into image)
+Dockerfile
+Dockerfile.*
+docker-compose*.yml
+.dockerignore
+
+# Terraform
+infrastructure
+
+# IDE and OS files
+.DS_Store
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+logs
+
+# Temporary files
+tmp
+temp
+.tmp
+.temp
+
+# Cache
+.cache
+.pnpm-store
+.turbo
