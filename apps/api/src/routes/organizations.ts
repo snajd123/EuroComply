@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { ok } from '@eurocomply/shared';
+import { ok, err } from '@eurocomply/shared';
 import { authMiddleware, userAuthMiddleware } from '../middleware/auth.js';
 import {
   createOrganization,
@@ -58,10 +58,7 @@ organizations.get('/:id', authMiddleware, async (c) => {
   const tenant = c.get('tenant');
 
   if (tenant.organizationId !== id) {
-    return c.json(
-      { success: false, error: { code: 'FORBIDDEN', message: 'Access denied' } },
-      403
-    );
+    return c.json(err('FORBIDDEN', 'Access denied'), 403);
   }
 
   const org = await getOrganization(id);

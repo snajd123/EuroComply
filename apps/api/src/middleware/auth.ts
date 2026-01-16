@@ -2,7 +2,7 @@ import { createMiddleware } from 'hono/factory';
 import { HTTPException } from 'hono/http-exception';
 import { verifyToken } from '@clerk/backend';
 import { prisma, getTenantConnectionManager } from '@eurocomply/db';
-import type { AppVariables } from '../types/context.js';
+import type { AppVariables, UserOnlyVariables } from '../types/context.js';
 
 const CLERK_SECRET_KEY = process.env['CLERK_SECRET_KEY'];
 
@@ -122,7 +122,7 @@ export const authMiddleware = createMiddleware<{ Variables: AppVariables }>(
  * Verifies JWT and loads user, but does NOT require organization context.
  * Use for endpoints that operate across organizations (create org, list orgs).
  */
-export const userAuthMiddleware = createMiddleware<{ Variables: AppVariables }>(
+export const userAuthMiddleware = createMiddleware<{ Variables: UserOnlyVariables }>(
   async (c, next) => {
     const authHeader = c.req.header('Authorization');
     if (!authHeader?.startsWith('Bearer ')) {

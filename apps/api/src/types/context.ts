@@ -30,4 +30,12 @@ export interface AppVariables {
   db: TenantPrismaClient;
 }
 
+/**
+ * Variables set by userAuthMiddleware (user-only auth, no organization context).
+ * Use for endpoints that operate across organizations (create org, list orgs).
+ */
+export interface UserOnlyVariables {
+  user: AuthUser;
+}
+
 export type AppContext = Context<{ Variables: AppVariables }>;
