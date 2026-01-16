@@ -1661,47 +1661,126 @@ GET    /api/v1/public/verify/:dpp_uri             # Public verification (no auth
 GET    /api/v1/public/dpps/:dpp_uri               # Public DPP data (no auth)
 ```
 
-### Combined Verification API (Integrity + Revocation)
+### Free Status API (ESPR Article 31 Compliant)
 
 ```
-GET    /api/v1/compliance/verify/:gtin/:serial    # Combined authenticity + recall check (primary)
+GET    /api/v1/public/status/:gtin/:serial        # Free recall status check (no rate limit)
+GET    /api/v1/public/recall/feed                 # RSS/Atom feed of active recalls (free)
+GET    /api/v1/public/recall/:recall_id           # Get recall details by ID (free)
 ```
 
-### Public Revocation API (Third-Party Access)
+### Verification Proof Service (Paid)
 
 ```
-GET    /api/v1/public/recall/check/:gtin/:serial  # Simple recall status check (no integrity proof)
-POST   /api/v1/public/recall/batch                # Batch check (up to 100 items)
-GET    /api/v1/public/recall/feed                 # RSS/Atom feed of active recalls
-GET    /api/v1/public/recall/:recall_id           # Get recall details by ID
+GET    /api/v1/compliance/verify/:gtin/:serial    # Proof receipt + status (paid tiers)
+POST   /api/v1/compliance/verify/batch            # Batch proof receipts (paid tiers)
 ```
 
 ---
 
-## 11. Public Revocation API
+## 11. Public Verification & Recall API
 
-Third-party systems (retailers, POS terminals, customs, marketplaces) need to verify product recall status without authentication. This API enables the "Deep Trust" ecosystem where any stakeholder can check compliance status.
+### 11.1 ESPR Compliance: Free vs Paid Services
 
-### 11.1 Design Principles
+**ESPR Article 31** mandates that economic operators have **free access to DPP data**, including recall status. We must not charge for basic DPP access or recall checks.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    FREE vs PAID SERVICE BOUNDARY                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  FREE (ESPR Mandated - No Rate Limits)                                      │
+│  ─────────────────────────────────────                                       │
+│  • DPP data access (product info, materials, sustainability)                │
+│  • Recall status check ("Is this product recalled?")                        │
+│  • Basic status: CLEAR / RECALLED / NOT_FOUND                               │
+│  → Endpoint: GET /api/v1/public/status/:gtin/:serial                        │
+│                                                                              │
+│  PAID (Value-Add Proof Service)                                             │
+│  ──────────────────────────────                                              │
+│  • Cryptographic proof receipt (Merkle path + TSA verification)             │
+│  • Signed audit trail ("I checked at 10:32:05 UTC, system said CLEAR")      │
+│  • Batch processing (1,000+ items per request)                              │
+│  • Webhook notifications for recall alerts                                  │
+│  • SLA guarantees (99.9% / 99.99% uptime)                                   │
+│  • Proof storage for legal defense                                          │
+│  → Endpoint: GET /api/v1/compliance/verify/:gtin/:serial                    │
+│                                                                              │
+│  THE DISTINCTION:                                                           │
+│  ────────────────                                                           │
+│  Free = "Is it recalled?" (the answer)                                      │
+│  Paid = "Prove that you checked" (the receipt)                              │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 11.2 Design Principles
 
 | Principle | Rationale |
 |-----------|-----------|
-| **No authentication required** | Recall status is public safety information |
-| **High availability** | Edge-cached via CDN, 99.9% uptime SLA |
-| **Rate-limited by IP** | 1000 req/min free tier, higher with API key |
+| **Status always free** | ESPR Article 31 + public safety mandate |
+| **No auth for basic checks** | Recall status is public safety information |
+| **Proof service is value-add** | Cryptographic receipts are extra work |
+| **High availability** | Edge-cached via CDN for both free and paid |
 | **Machine-readable** | JSON responses, standardized error codes |
-| **Privacy-preserving** | Returns status only, not consumer data |
 
-### 11.2 Primary Verification Endpoint (Combined Integrity + Revocation)
+### 11.3 Free Status Check (ESPR Compliant)
+
+**Endpoint:** `GET /api/v1/public/status/:gtin/:serial`
+
+**No authentication. No rate limits. Always free.**
+
+This endpoint satisfies ESPR Article 31 requirements for economic operator access.
+
+```typescript
+// Request
+GET https://id.eurocomply.eu/api/v1/public/status/01234567/SN-999
+
+// Response
+{
+  "gtin": "01234567",
+  "serial": "SN-999",
+  "status": "CLEAR",           // CLEAR | RECALLED | NOT_FOUND
+  "recall": null,              // Present if status is RECALLED
+  "dpp_url": "https://id.eurocomply.eu/01/01234567/21/SN-999",
+  "checked_at": "2026-01-16T10:30:00Z"
+}
+
+// Response (recalled product)
+{
+  "gtin": "01234567",
+  "serial": "SN-999",
+  "status": "RECALLED",
+  "recall": {
+    "id": "RCL-2026-001",
+    "severity": "CLASS_I",
+    "reason": "Chemical safety violation",
+    "instruction": "Do not sell. Return to distributor.",
+    "issued_at": "2026-01-16T08:00:00Z"
+  },
+  "dpp_url": "https://id.eurocomply.eu/01/01234567/21/SN-999",
+  "checked_at": "2026-01-16T10:30:00Z"
+}
+```
+
+**What's NOT included (paid service):**
+- Cryptographic proof (Merkle path, TSA verification)
+- Signed receipt for legal defense
+- Batch processing
+- SLA guarantees
+
+### 11.4 Verification Proof Service (Paid)
 
 **Endpoint:** `GET /api/v1/compliance/verify/:gtin/:serial`
 
-This is the **high-value endpoint** that retailers pay for via the Evidence API Fee. It returns both cryptographic authenticity proof AND recall status in a single call.
+This is the **paid value-add service**. It returns the same status information PLUS cryptographic proof that can be used for legal defense.
 
-**Why combined?**
-- POS systems need ONE call to answer: "Is this product real AND safe to sell?"
-- Integrity without revocation = incomplete (authentic but recalled)
-- Revocation without integrity = risky (could be checking a fake serial)
+**What you're paying for:**
+- Cryptographic proof receipt (Merkle path + RFC 3161 timestamp verification)
+- Signed response that proves you checked at a specific time
+- Audit trail storage (we retain proof of your check)
+- Batch processing capability
+- SLA guarantees
 
 ```typescript
 // Request
@@ -1771,72 +1850,36 @@ GET https://id.eurocomply.eu/api/v1/compliance/verify/01234567/SN-999
 }
 ```
 
-**Monetization Hook: "POS Integration" Tier**
+**Verification Proof Service Tiers**
 
-| Tier | Rate Limit | Use Case | Value Proposition |
-|------|-----------|----------|-------------------|
-| Free | 100/min | Consumer spot-checks | Brand trust building |
-| Basic (€49/mo) | 10,000/min | Small retailer POS | "Zero Liability" at checkout |
-| Enterprise | Unlimited | Large retail chains | Automated "Kill Switch" at register |
+| Tier | Price | What You Get |
+|------|-------|--------------|
+| **Free** | €0 | Basic status check only (see 11.3) - no proof receipt |
+| **Basic** | €49/mo | 10,000 proof receipts/mo + batch (100 items) + email support |
+| **Professional** | €199/mo | 50,000 proofs/mo + batch (1,000 items) + 99.9% SLA |
+| **Enterprise** | €999+/mo | Unlimited proofs + batch (10,000 items) + 99.99% SLA + webhooks |
 
-**The Value:** If a retailer sells a recalled product, they are legally liable. With EuroComply integration, they have an automated defense: "Our system checked - it was clear at time of sale."
+**What you're paying for (NOT the status check):**
+- Cryptographic proof receipt with Merkle path
+- Audit trail: "System returned CLEAR at 2026-01-16T10:32:05Z"
+- Proof storage for legal defense
+- Batch processing for inventory scans
+- SLA guarantees for mission-critical POS
 
-### 11.3 Simple Status Check (Lightweight)
+**The Legal Defense Value:**
 
-**Endpoint:** `GET /api/v1/public/recall/check/:gtin/:serial`
+If a retailer sells a recalled product, they are legally liable. The free status check tells you it's recalled. The **paid proof receipt** proves you checked BEFORE selling, providing legal defense: "We verified at 10:32 UTC. The system confirmed CLEAR. Here's the cryptographic receipt."
 
-For systems that only need recall status (no integrity proof):
+### 11.5 Batch Verification (Paid Tiers Only)
 
-```typescript
-// Request
-GET /api/v1/public/recall/check/01234567890123/ABC-001
+**Endpoint:** `POST /api/v1/compliance/verify/batch`
 
-// Response (no recall)
-{
-  "gtin": "01234567890123",
-  "serial": "ABC-001",
-  "status": "CLEAR",
-  "checked_at": "2026-01-16T10:30:00Z",
-  "cache_ttl": 300
-}
-
-// Response (active recall)
-{
-  "gtin": "01234567890123",
-  "serial": "ABC-001",
-  "status": "RECALLED",
-  "recall": {
-    "id": "RCL-2026-001",
-    "severity": "CLASS_I",
-    "reason": "Potential battery overheating",
-    "issued_at": "2026-01-15T08:00:00Z",
-    "consumer_action": "Stop using immediately. Return to retailer for full refund.",
-    "manufacturer": "TechCorp GmbH",
-    "official_notice_url": "https://techcorp.eu/recalls/RCL-2026-001"
-  },
-  "checked_at": "2026-01-16T10:30:00Z",
-  "cache_ttl": 60
-}
-
-// Response (product not found)
-{
-  "gtin": "01234567890123",
-  "serial": "UNKNOWN-999",
-  "status": "NOT_FOUND",
-  "message": "Product not registered in EuroComply system",
-  "checked_at": "2026-01-16T10:30:00Z"
-}
-```
-
-### 11.4 Batch Check (POS/Inventory Systems)
-
-**Endpoint:** `POST /api/v1/public/recall/batch`
-
-For retailers scanning inventory or POS systems checking cart contents.
+For retailers scanning inventory or POS systems checking cart contents. Returns proof receipts for each item.
 
 ```typescript
-// Request
-POST /api/v1/public/recall/batch
+// Request (requires paid API key)
+POST /api/v1/compliance/verify/batch
+Authorization: Bearer <api_key>
 Content-Type: application/json
 
 {
@@ -1844,29 +1887,57 @@ Content-Type: application/json
     { "gtin": "01234567890123", "serial": "ABC-001" },
     { "gtin": "01234567890123", "serial": "ABC-002" },
     { "gtin": "09876543210987", "serial": "XYZ-100" }
-  ]
+  ],
+  "include_proofs": true  // Include Merkle proofs for each item
 }
 
-// Response
+// Response (includes proof receipts)
 {
+  "batch_id": "batch_2026011610300001",
   "checked_at": "2026-01-16T10:30:00Z",
   "total": 3,
   "clear": 2,
   "recalled": 1,
   "not_found": 0,
   "results": [
-    { "gtin": "01234567890123", "serial": "ABC-001", "status": "CLEAR" },
-    { "gtin": "01234567890123", "serial": "ABC-002", "status": "RECALLED", "recall_id": "RCL-2026-001" },
-    { "gtin": "09876543210987", "serial": "XYZ-100", "status": "CLEAR" }
-  ]
+    {
+      "gtin": "01234567890123",
+      "serial": "ABC-001",
+      "status": "CLEAR",
+      "proof_receipt": {
+        "merkle_root": "8f3a2b1c...",
+        "timestamp": "2026-01-15T09:32:15Z",
+        "checked_at": "2026-01-16T10:30:00Z"
+      }
+    },
+    {
+      "gtin": "01234567890123",
+      "serial": "ABC-002",
+      "status": "RECALLED",
+      "recall_id": "RCL-2026-001",
+      "proof_receipt": { ... }
+    },
+    {
+      "gtin": "09876543210987",
+      "serial": "XYZ-100",
+      "status": "CLEAR",
+      "proof_receipt": { ... }
+    }
+  ],
+  // Download link for signed batch receipt (PDF for legal records)
+  "batch_receipt_url": "/api/v1/compliance/receipts/batch_2026011610300001.pdf"
 }
 ```
 
-**Limits:**
-- Free tier: 100 items per batch, 10 batches/minute
-- With API key: 1000 items per batch, 100 batches/minute
+**Tier Limits:**
 
-### 11.5 Active Recalls Feed
+| Tier | Items per Batch | Batches per Day |
+|------|-----------------|-----------------|
+| Basic (€49/mo) | 100 | 1,000 |
+| Professional (€199/mo) | 1,000 | 10,000 |
+| Enterprise (€999+/mo) | 10,000 | Unlimited |
+
+### 11.6 Active Recalls Feed (Free)
 
 **Endpoint:** `GET /api/v1/public/recall/feed`
 
@@ -1909,7 +1980,7 @@ GET /api/v1/public/recall/feed?format=json&since=2026-01-01
 - `severity`: `CLASS_I`, `CLASS_II`, `CLASS_III`
 - `manufacturer_id`: Filter by specific manufacturer
 
-### 11.6 Recall Detail
+### 11.7 Recall Detail (Free)
 
 **Endpoint:** `GET /api/v1/public/recall/:recall_id`
 
@@ -1963,7 +2034,7 @@ GET /api/v1/public/recall/RCL-2026-001
 }
 ```
 
-### 11.7 Implementation Architecture
+### 11.8 Implementation Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -2004,7 +2075,7 @@ GET /api/v1/public/recall/RCL-2026-001
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### 11.8 Materialized View Schema
+### 11.9 Materialized View Schema
 
 ```sql
 -- Optimized for fast public lookups
@@ -2045,19 +2116,32 @@ CREATE INDEX idx_recall_feed_active ON public_recall_feed (status, issued_at DES
 CREATE INDEX idx_recall_feed_manufacturer ON public_recall_feed (manufacturer_id);
 ```
 
-### 11.9 Monetization
+### 11.10 Monetization Summary
 
-The Public Revocation API is **free for basic use** (public safety) but offers premium tiers:
+**ESPR Article 31 Compliance:** Status checks are always free. We monetize the **proof receipt service**.
 
-| Feature | Free | API Key (€49/mo) | Enterprise |
-|---------|------|------------------|------------|
-| Single checks | 1000/min | 10,000/min | Unlimited |
-| Batch size | 100 items | 1000 items | 10,000 items |
-| Feed access | JSON only | All formats + webhooks | Custom |
-| SLA | Best effort | 99.9% | 99.99% |
-| Support | Community | Email | Dedicated |
+| Feature | Free (ESPR) | Basic €49/mo | Professional €199/mo | Enterprise €999+/mo |
+|---------|-------------|--------------|----------------------|---------------------|
+| **Status checks** | ✓ Unlimited | ✓ Unlimited | ✓ Unlimited | ✓ Unlimited |
+| **Proof receipts** | ✗ | 10,000/mo | 50,000/mo | Unlimited |
+| **Batch proofs** | ✗ | 100 items | 1,000 items | 10,000 items |
+| **Webhooks** | ✗ | ✗ | ✓ | ✓ |
+| **SLA** | Best effort | Best effort | 99.9% | 99.99% |
+| **Proof storage** | ✗ | 30 days | 1 year | 7 years |
+| **Support** | Community | Email | Priority | Dedicated |
 
-**Revenue opportunity:** Retailers with large inventories will upgrade for faster batch checks and webhook notifications.
+**What's free (ESPR mandated):**
+- "Is this product recalled?" → Always free, no rate limit
+- Recall feed subscription → Free
+- Recall detail lookup → Free
+
+**What's paid (value-add service):**
+- "Give me a cryptographic proof receipt that I checked" → Paid
+- "I need this for legal defense / compliance audit" → Paid
+- "I need batch processing for inventory scans" → Paid
+- "I need SLA guarantees for my POS system" → Paid
+
+**Revenue opportunity:** Retailers need the **proof** for legal defense, not just the answer. The proof receipt is the product.
 
 ---
 
@@ -2077,6 +2161,7 @@ The Public Revocation API is **free for basic use** (public safety) but offers p
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 0.9 | 2026-01-16 | ESPR Article 31 compliance: Free status checks, paid proof receipts. Renamed to "Verification Proof Service" |
 | 0.8 | 2026-01-16 | Refined: Deterministic Merkle sorting, Combined Verification API (integrity+revocation), EPC URN identifiers |
 | 0.7 | 2026-01-16 | Added Section 5.5: Merkle Path Verification Ceremony - independent timestamp verification |
 | 0.6 | 2026-01-16 | Added Section 11: Public Revocation API - third-party recall status checks |

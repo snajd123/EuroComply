@@ -637,51 +637,70 @@ CREATE INDEX idx_recall_usage_recall ON recall_usage (recall_id);
 
 ---
 
-## 7. Verification API Billing (Retailer Revenue)
+## 7. Verification Proof Service Billing (Retailer Revenue)
 
-The Verification API is a **separate revenue stream** from retailers and third parties who need to verify product authenticity and recall status at scale.
+The Verification Proof Service is a **separate revenue stream** from retailers and third parties who need cryptographic proof receipts for legal defense.
+
+### ESPR Article 31 Compliance
+
+**Critical distinction:** ESPR mandates **free access** to DPP data, including recall status. We cannot charge for status checks.
+
+| Service | What It Is | Price | ESPR Status |
+|---------|------------|-------|-------------|
+| **Status Check** | "Is this product recalled?" | **FREE** | Mandated free |
+| **Proof Receipt** | Cryptographic proof you checked | **PAID** | Value-add service |
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    FREE vs PAID SERVICE BOUNDARY                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  FREE (ESPR Article 31 - Must be free, no rate limits)                      │
+│  ─────────────────────────────────────────────────────                       │
+│  • GET /api/v1/public/status/:gtin/:serial  → "CLEAR" or "RECALLED"         │
+│  • GET /api/v1/public/recall/feed           → Active recalls list           │
+│  • GET /api/v1/public/recall/:id            → Recall details                │
+│                                                                              │
+│  PAID (Value-Add Proof Service)                                             │
+│  ──────────────────────────────                                              │
+│  • Cryptographic proof receipt (Merkle path + TSA verification)             │
+│  • Audit trail storage ("We checked at 10:32 UTC, system said CLEAR")       │
+│  • Batch proof processing (1,000+ items with receipts)                      │
+│  • Webhook notifications                                                    │
+│  • SLA guarantees                                                           │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
 ### Why This Is Different
 
 | Customer Type | What They Pay For | Billing Model |
 |---------------|-------------------|---------------|
 | **Brands** (manufacturers) | DPP creation, hosting, compliance | Per-DPP + subscription |
-| **Retailers** (verifiers) | Verification API access | Subscription tiers |
+| **Retailers** (verifiers) | Proof receipts for legal defense | Subscription tiers |
 
-Brands create DPPs. Retailers verify them. Both pay, but for different things.
+Brands create DPPs. Retailers verify them. **Status is free. Proof receipts are paid.**
 
-### Verification API Tiers
+### Verification Proof Service Tiers
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    VERIFICATION API PRICING                                  │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  TIER          PRICE         RATE LIMIT       USE CASE                      │
-│  ─────────────────────────────────────────────────────────────────────────  │
-│  Free          €0/mo         100/min          Consumer spot-checks          │
-│  Basic         €49/mo        10,000/min       Small retailer POS            │
-│  Professional  €199/mo       50,000/min       Mid-size retail chains        │
-│  Enterprise    €999+/mo      Unlimited        Large chains, warehouses      │
-│                                                                              │
-│  WHAT'S INCLUDED:                                                           │
-│  ───────────────                                                            │
-│  All tiers:    Single + batch checks, JSON responses                        │
-│  Basic+:       Webhook notifications for recalls                            │
-│  Professional+: Priority support, 99.9% SLA                                 │
-│  Enterprise:   Dedicated support, 99.99% SLA, custom integrations           │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+| Tier | Price | Proof Receipts | Batch Size | Features |
+|------|-------|----------------|------------|----------|
+| **Free** | €0 | Status only (no proofs) | — | ESPR-mandated free access |
+| **Basic** | €49/mo | 10,000/mo | 100 items | Email support |
+| **Professional** | €199/mo | 50,000/mo | 1,000 items | 99.9% SLA, webhooks |
+| **Enterprise** | €999+/mo | Unlimited | 10,000 items | 99.99% SLA, dedicated support |
 
 ### Value Proposition: "Zero Liability"
 
 **The problem:** If a retailer sells a recalled product, they are legally liable for damages.
 
-**The solution:** EuroComply Verification API provides:
-- Automated "kill switch" at the POS register
-- Audit trail proving the system showed CLEAR at time of sale
-- Legal defense: "We checked, it was verified safe"
+**The free status check tells you it's recalled.** But that's not enough for legal defense.
+
+**The paid proof receipt proves you checked BEFORE selling:**
+- Cryptographic receipt with timestamp
+- Merkle path proving the check happened
+- Audit trail storage (we retain proof for 7 years on Enterprise)
+- Legal defense: "We verified at 10:32 UTC. The system confirmed CLEAR. Here's the receipt."
 
 ### Billing Implementation
 
@@ -776,15 +795,17 @@ CREATE INDEX idx_verification_usage_retailer ON verification_api_usage (retailer
 
 ### Revenue Projection
 
-| Tier | Price | Est. Customers (Y1) | Monthly Revenue |
-|------|-------|---------------------|-----------------|
-| Free | €0 | 1,000+ | €0 (lead gen) |
-| Basic | €49 | 500 | €24,500 |
-| Professional | €199 | 100 | €19,900 |
-| Enterprise | €999 avg | 20 | €19,980 |
-| **Total** | | **620 paid** | **€64,380/mo** |
+| Tier | Price | Est. Customers (Y1) | Monthly Revenue | Notes |
+|------|-------|---------------------|-----------------|-------|
+| Free | €0 | 10,000+ | €0 | ESPR mandated - status checks always free |
+| Basic | €49 | 500 | €24,500 | Small retailers needing proof receipts |
+| Professional | €199 | 100 | €19,900 | Mid-size chains with SLA needs |
+| Enterprise | €999 avg | 20 | €19,980 | Large retailers, long-term proof storage |
+| **Total** | | **620 paid** | **€64,380/mo** | |
 
-**Annual potential: €772,560** - pure SaaS revenue independent of DPP volume.
+**Annual potential: €772,560** - pure SaaS revenue from proof receipts, independent of DPP volume.
+
+**Key insight:** The free tier is legally required (ESPR). The paid tiers monetize the **proof**, not the status check. Retailers who need legal defense documentation will upgrade.
 
 ---
 
@@ -1194,6 +1215,7 @@ async function handlePaymentSucceeded(invoice: Stripe.Invoice) {
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 0.7 | 2026-01-16 | ESPR Article 31 compliance: Renamed to "Verification Proof Service", status checks free, proof receipts paid |
 | 0.6 | 2026-01-16 | Added Section 7: Verification API Billing (retailer revenue stream, €49-€999/mo tiers) |
 | 0.5 | 2026-01-16 | RFC 3161 timestamps now included ALL tiers via Merkle batching (€0.00002/DPP vs €0.01 individual) |
 | 0.4 | 2026-01-16 | Added DPP Lifecycle Cost Analysis (10-Year TCO), gross margin analysis by tier, orphan DPP analysis |

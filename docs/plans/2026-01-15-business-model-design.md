@@ -475,38 +475,55 @@ ESPR Article 31 mandates free DPP access for economic operators.
 2. **Network effects** - Retailer adoption drives brand value
 3. **Zero marginal cost** - R2 egress is free
 
-### 8.2 Verification API (Paid)
+### 8.2 Verification Proof Service (Paid)
 
-High-volume authenticity and recall verification for POS systems, inventory management, and logistics.
+**ESPR Article 31 Compliance:** Status checks are **always free**. We charge for **proof receipts**.
 
-**Endpoint:** `GET /api/v1/compliance/verify/:gtin/:serial`
+| Service | Price | ESPR Status |
+|---------|-------|-------------|
+| "Is this product recalled?" | **FREE** | Mandated by Article 31 |
+| "Give me cryptographic proof I checked" | **PAID** | Value-add service |
 
-Returns both cryptographic authenticity proof AND recall status in one call.
+**Free Endpoint:** `GET /api/v1/public/status/:gtin/:serial`
+- Returns: CLEAR / RECALLED / NOT_FOUND
+- No authentication, no rate limits
+- Satisfies ESPR economic operator access requirement
 
-| Tier | Price | Rate Limit | Use Case |
-|------|-------|------------|----------|
-| **Free** | €0 | 100/min | Consumer spot-checks, brand trust |
-| **Basic** | €49/mo | 10,000/min | Small retailer POS |
-| **Enterprise** | Custom | Unlimited | Large retail chains, warehouses |
+**Paid Endpoint:** `GET /api/v1/compliance/verify/:gtin/:serial`
+- Returns: Status + Merkle proof + TSA verification + signed receipt
+- For legal defense and compliance audits
 
-**What's included:**
+### Verification Proof Service Tiers
 
-| Feature | Free | Basic | Enterprise |
-|---------|------|-------|------------|
-| Single product checks | ✓ | ✓ | ✓ |
-| Batch checks (up to 100) | ✓ | ✓ | ✓ |
-| Batch checks (up to 1,000) | — | ✓ | ✓ |
-| Batch checks (up to 10,000) | — | — | ✓ |
-| Webhook notifications | — | ✓ | ✓ |
-| SLA guarantee | — | 99.9% | 99.99% |
-| Dedicated support | — | Email | Phone + Slack |
+| Tier | Price | Proof Receipts | Batch Size | Features |
+|------|-------|----------------|------------|----------|
+| **Free** | €0 | Status only | — | ESPR-mandated, unlimited |
+| **Basic** | €49/mo | 10,000/mo | 100 items | Email support |
+| **Professional** | €199/mo | 50,000/mo | 1,000 items | 99.9% SLA, webhooks |
+| **Enterprise** | €999+/mo | Unlimited | 10,000 items | 99.99% SLA, 7-year storage |
 
-**Value Proposition: "Zero Liability"**
+### What Each Tier Gets
 
-If a retailer sells a recalled product, they are legally liable. With EuroComply Verification API:
-- Automated "kill switch" at the register
-- Audit trail: "System showed CLEAR at time of sale"
-- Defense against liability claims
+| Feature | Free (ESPR) | Basic | Professional | Enterprise |
+|---------|-------------|-------|--------------|------------|
+| Status checks | ✓ Unlimited | ✓ Unlimited | ✓ Unlimited | ✓ Unlimited |
+| Proof receipts | ✗ | 10,000/mo | 50,000/mo | Unlimited |
+| Batch proofs | ✗ | 100 items | 1,000 items | 10,000 items |
+| Webhooks | ✗ | ✗ | ✓ | ✓ |
+| SLA | Best effort | Best effort | 99.9% | 99.99% |
+| Proof storage | ✗ | 30 days | 1 year | 7 years |
+
+### Value Proposition: "Zero Liability"
+
+**The problem:** If a retailer sells a recalled product, they are legally liable.
+
+**The free status check tells you it's recalled.** That's not enough for legal defense.
+
+**The paid proof receipt proves you checked BEFORE selling:**
+- Cryptographic receipt with Merkle path and TSA timestamp
+- Audit trail: "System returned CLEAR at 2026-01-16T10:32:05Z"
+- Proof storage for legal defense (7 years on Enterprise)
+- Defense: "We verified. The system confirmed safe. Here's the receipt."
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -531,16 +548,18 @@ If a retailer sells a recalled product, they are legally liable. With EuroComply
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-**Revenue Potential:**
+**Revenue Potential (Proof Receipts Only - Status Checks Are Free):**
 
-| Segment | Est. Customers | Avg. Tier | Monthly Revenue |
-|---------|----------------|-----------|-----------------|
-| Small retailers (1-10 stores) | 500 | Basic €49 | €24,500 |
-| Mid-size chains (10-100 stores) | 50 | Enterprise €499 | €24,950 |
-| Large chains (100+ stores) | 10 | Enterprise €2,000 | €20,000 |
-| **Total** | **560** | | **€69,450/mo** |
+| Segment | Est. Customers | Avg. Tier | Monthly Revenue | Why They Pay |
+|---------|----------------|-----------|-----------------|--------------|
+| Small retailers | 500 | Basic €49 | €24,500 | Need proof receipts for audits |
+| Mid-size chains | 100 | Professional €199 | €19,900 | Need SLA + webhooks |
+| Large chains | 20 | Enterprise €999+ | €19,980 | Need 7-year proof storage |
+| **Total** | **620 paid** | | **€64,380/mo** | |
 
-This is a **recurring B2B SaaS revenue stream** independent of DPP creation volume.
+**Annual potential: €772,560** - recurring revenue from proof receipts, independent of DPP volume.
+
+**Key insight:** Free status checks drive adoption. Retailers who need legal protection upgrade for proof receipts.
 
 ---
 
@@ -683,6 +702,7 @@ Personnel is the real cost driver.
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 0.7 | 2026-01-16 | ESPR Article 31 compliance: Status checks free, proof receipts paid. Renamed to "Verification Proof Service" |
 | 0.6 | 2026-01-16 | Expanded Section 8: Retailer Access with paid Verification API tiers (€49-€999/mo, €772K/yr potential) |
 | 0.5 | 2026-01-16 | RFC 3161 timestamps now included ALL tiers via Merkle batching (TCO €0.0024) |
 | 0.4 | 2026-01-16 | Revised DPP margins (TCO €0.00035→€0.0023), added pricing floors |
