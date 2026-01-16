@@ -621,6 +621,435 @@ async function finalizeBatch(batchId: string): Promise<BatchTimestampResult> {
 | 500 DPPs | €5.00 | €0.01 | 99.8% |
 | 1,000 DPPs | €10.00 | €0.01 | 99.9% |
 
+### 5.5 Merkle Path Verification Ceremony
+
+The **Verification Ceremony** is the cryptographic proof that a specific DPP was timestamped at a specific moment. This enables third parties to independently verify authenticity without trusting EuroComply.
+
+#### 5.5.1 Verification Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    MERKLE PATH VERIFICATION CEREMONY                         │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  INPUTS (from DPP record):                                                  │
+│  ────────────────────────                                                   │
+│  • dpp_content_hash: "a1b2c3d4..."     (SHA-256 of frozen DPP data)        │
+│  • merkle_proof: ["d4e5f6...", "cd34ef..."]  (sibling hashes)              │
+│  • merkle_root: "x9y8z7w6..."          (root that was timestamped)          │
+│  • tsa_token: <binary>                  (RFC 3161 timestamp response)       │
+│                                                                              │
+│  CEREMONY STEPS:                                                            │
+│  ───────────────                                                            │
+│                                                                              │
+│  STEP 1: RECOMPUTE THE MERKLE ROOT                                          │
+│  ─────────────────────────────────                                          │
+│                                                                              │
+│     Start: a1b2c3d4 (DPP hash)                                              │
+│            │                                                                 │
+│            │  + d4e5f6... (proof[0], sibling)                               │
+│            ▼                                                                 │
+│     Hash: ab12ef78                                                          │
+│            │                                                                 │
+│            │  + cd34ef... (proof[1], sibling)                               │
+│            ▼                                                                 │
+│     Root: x9y8z7w6  ◄── Does this match stored merkle_root?                 │
+│                                                                              │
+│  STEP 2: VERIFY TSA TOKEN                                                   │
+│  ────────────────────────                                                   │
+│                                                                              │
+│     ┌────────────────────────────────────────┐                              │
+│     │  RFC 3161 Timestamp Token              │                              │
+│     ├────────────────────────────────────────┤                              │
+│     │  • Hash: x9y8z7w6 (merkle root)       │                              │
+│     │  • Time: 2026-01-15T10:30:00Z         │                              │
+│     │  • TSA: DigiCert Timestamp Authority  │                              │
+│     │  • Signature: <RSA/ECDSA signature>   │                              │
+│     └────────────────────────────────────────┘                              │
+│                                                                              │
+│     Verify:                                                                  │
+│     ✓ Token signature valid (using TSA public cert)                        │
+│     ✓ Hash in token == computed merkle root                                │
+│     ✓ TSA certificate chains to trusted root                               │
+│                                                                              │
+│  STEP 3: RETURN VERIFICATION RESULT                                         │
+│  ──────────────────────────────────                                         │
+│                                                                              │
+│     ┌────────────────────────────────────────┐                              │
+│     │  ✅ VERIFIED                            │                              │
+│     │                                        │                              │
+│     │  "This DPP was cryptographically       │                              │
+│     │   timestamped on 2026-01-15 at         │                              │
+│     │   10:30:00 UTC by DigiCert TSA.        │                              │
+│     │                                        │                              │
+│     │   The timestamp is mathematically      │                              │
+│     │   impossible to forge or backdate."    │                              │
+│     └────────────────────────────────────────┘                              │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 5.5.2 Implementation
+
+```typescript
+interface VerificationCeremonyResult {
+  verified: boolean;
+  dpp_id: string;
+
+  // Merkle proof details
+  merkle: {
+    content_hash: string;
+    computed_root: string;
+    stored_root: string;
+    proof_path: MerkleProofStep[];
+    root_matches: boolean;
+  };
+
+  // TSA verification details
+  timestamp: {
+    verified: boolean;
+    authority: string;
+    timestamp: Date;
+    hash_in_token: string;
+    hash_matches: boolean;
+    certificate_chain_valid: boolean;
+  };
+
+  // Human-readable summary
+  summary: {
+    status: 'VERIFIED' | 'INVALID_PROOF' | 'INVALID_TIMESTAMP' | 'TAMPERED';
+    message: string;
+    verified_at: Date;
+  };
+
+  // Error details (if verification failed)
+  error?: {
+    code: string;
+    step: 'MERKLE_PROOF' | 'TSA_VERIFICATION' | 'CERTIFICATE_CHAIN';
+    details: string;
+  };
+}
+
+interface MerkleProofStep {
+  position: 'left' | 'right';  // Which side is the sibling
+  sibling_hash: string;
+  combined_hash: string;       // Result after hashing with sibling
+}
+
+async function verifyTimestamp(dppId: string): Promise<VerificationCeremonyResult> {
+  // 1. Load DPP and its proof data
+  const dpp = await db.dppSnapshot.findUnique({
+    where: { id: dppId },
+    include: { batch_timestamp: true }
+  });
+
+  if (!dpp || !dpp.timestamp_proof) {
+    throw new Error('DPP not found or not yet timestamped');
+  }
+
+  const { content_hash, merkle_proof, timestamp_proof } = dpp;
+
+  // 2. Walk the Merkle path
+  const proofSteps: MerkleProofStep[] = [];
+  let currentHash = content_hash;
+
+  for (const proofNode of merkle_proof) {
+    const position = proofNode.position;  // 'left' or 'right'
+    const siblingHash = proofNode.hash;
+
+    // Combine in correct order (position indicates WHERE the sibling goes)
+    const combined = position === 'left'
+      ? sha256(siblingHash + currentHash)
+      : sha256(currentHash + siblingHash);
+
+    proofSteps.push({
+      position,
+      sibling_hash: siblingHash,
+      combined_hash: combined
+    });
+
+    currentHash = combined;
+  }
+
+  const computedRoot = currentHash;
+  const storedRoot = timestamp_proof.merkle_root;
+  const rootMatches = computedRoot === storedRoot;
+
+  // 3. Verify TSA token
+  const tsaVerification = await verifyRFC3161Token(
+    timestamp_proof.tsa_token,
+    storedRoot
+  );
+
+  // 4. Build result
+  const verified = rootMatches &&
+                   tsaVerification.valid &&
+                   tsaVerification.hash_matches;
+
+  return {
+    verified,
+    dpp_id: dppId,
+
+    merkle: {
+      content_hash,
+      computed_root: computedRoot,
+      stored_root: storedRoot,
+      proof_path: proofSteps,
+      root_matches: rootMatches
+    },
+
+    timestamp: {
+      verified: tsaVerification.valid,
+      authority: tsaVerification.authority,
+      timestamp: tsaVerification.timestamp,
+      hash_in_token: tsaVerification.hash,
+      hash_matches: tsaVerification.hash === storedRoot,
+      certificate_chain_valid: tsaVerification.chain_valid
+    },
+
+    summary: buildSummary(verified, rootMatches, tsaVerification),
+
+    error: verified ? undefined : buildError(rootMatches, tsaVerification)
+  };
+}
+
+// RFC 3161 token verification
+async function verifyRFC3161Token(
+  tokenBase64: string,
+  expectedHash: string
+): Promise<TSAVerificationResult> {
+  const token = Buffer.from(tokenBase64, 'base64');
+
+  // Parse the TST (Timestamp Token)
+  const tst = asn1.decode(token);
+
+  // Extract components
+  const tstInfo = tst.content.find(c => c.tag === 'TSTInfo');
+  const signature = tst.content.find(c => c.tag === 'SignerInfo');
+  const certificates = tst.content.find(c => c.tag === 'Certificates');
+
+  // Verify the hash matches
+  const hashInToken = tstInfo.messageImprint.hashedMessage.toString('hex');
+  const hashMatches = hashInToken === expectedHash;
+
+  // Verify the signature using the TSA certificate
+  const tsaCert = certificates[0];
+  const signatureValid = crypto.verify(
+    'SHA256',
+    tstInfo.toBuffer(),
+    tsaCert.publicKey,
+    signature.value
+  );
+
+  // Verify certificate chain to trusted root
+  const chainValid = await verifyCertificateChain(certificates, TRUSTED_TSA_ROOTS);
+
+  return {
+    valid: signatureValid && chainValid,
+    hash: hashInToken,
+    hash_matches: hashMatches,
+    timestamp: tstInfo.genTime,
+    authority: tsaCert.subject.commonName,
+    chain_valid: chainValid
+  };
+}
+```
+
+#### 5.5.3 Verification Failure Modes
+
+| Failure | Cause | User Message | Investigation |
+|---------|-------|--------------|---------------|
+| `INVALID_PROOF` | Merkle path doesn't compute to root | "Proof path corrupted" | Data migration issue, restore from backup |
+| `ROOT_MISMATCH` | Computed root ≠ stored root | "Data may have been modified" | Content hash changed post-timestamp |
+| `INVALID_SIGNATURE` | TSA signature doesn't verify | "Timestamp token invalid" | Token corrupted or forged |
+| `HASH_MISMATCH` | Root ≠ hash in TSA token | "Timestamp doesn't match data" | Wrong token associated with batch |
+| `EXPIRED_CERT` | TSA certificate expired | "Timestamp authority cert expired" | Normal - still valid if was valid at signing time |
+| `UNTRUSTED_TSA` | TSA not in trusted list | "Unknown timestamp authority" | Configuration issue or malicious token |
+
+#### 5.5.4 Public Verification Endpoint
+
+```typescript
+// GET /api/v1/public/verify/:dpp_uri
+//
+// Returns full verification ceremony result for public inspection
+
+router.get('/api/v1/public/verify/:dpp_uri', async (req, res) => {
+  const dppUri = decodeURIComponent(req.params.dpp_uri);
+
+  // Lookup DPP by URI
+  const dpp = await findDppByUri(dppUri);
+  if (!dpp) {
+    return res.status(404).json({
+      verified: false,
+      error: { code: 'NOT_FOUND', message: 'DPP not registered' }
+    });
+  }
+
+  // Run verification ceremony
+  const result = await verifyTimestamp(dpp.id);
+
+  // Add verification metadata
+  return res.json({
+    ...result,
+    verification_metadata: {
+      verified_at: new Date().toISOString(),
+      verified_by: 'EuroComply Public Verification Service',
+      api_version: '1.0',
+
+      // Links for independent verification
+      independent_verification: {
+        tsa_token_download: `/api/v1/public/dpps/${dpp.id}/tsa-token`,
+        merkle_proof_download: `/api/v1/public/dpps/${dpp.id}/merkle-proof`,
+        verification_guide: 'https://eurocomply.eu/docs/verify-yourself'
+      }
+    }
+  });
+});
+```
+
+#### 5.5.5 Independent Verification (No Trust Required)
+
+For maximum transparency, third parties can verify entirely offline:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    INDEPENDENT VERIFICATION FLOW                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  WHAT THEY DOWNLOAD:                                                        │
+│  ───────────────────                                                        │
+│                                                                              │
+│  1. DPP Content (JSON)          → dpp_content.json                          │
+│  2. Merkle Proof                → merkle_proof.json                         │
+│  3. TSA Token                   → timestamp.tsr                             │
+│  4. TSA Certificate Chain       → tsa_chain.pem                             │
+│                                                                              │
+│  WHAT THEY DO:                                                              │
+│  ─────────────                                                              │
+│                                                                              │
+│  $ # 1. Hash the DPP content                                                │
+│  $ sha256sum dpp_content.json                                               │
+│  a1b2c3d4e5f6...                                                            │
+│                                                                              │
+│  $ # 2. Walk the Merkle tree (using any Merkle library)                     │
+│  $ merkle-verify --leaf a1b2c3d4e5f6 --proof merkle_proof.json              │
+│  Computed root: x9y8z7w6...                                                 │
+│                                                                              │
+│  $ # 3. Verify TSA token with OpenSSL                                       │
+│  $ openssl ts -verify -data <(echo -n "x9y8z7w6..." | xxd -r -p) \          │
+│      -in timestamp.tsr -CAfile tsa_chain.pem                                │
+│  Verification: OK                                                           │
+│  Timestamp: Jan 15 10:30:00 2026 UTC                                        │
+│  TSA: DigiCert Timestamp Responder                                          │
+│                                                                              │
+│  RESULT:                                                                    │
+│  ───────                                                                    │
+│  ✅ DPP content hash matches Merkle leaf                                    │
+│  ✅ Merkle proof computes to timestamped root                               │
+│  ✅ TSA token is valid and signed by trusted authority                      │
+│  ✅ Data existed at 2026-01-15T10:30:00Z (mathematically proven)            │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Download Endpoints:**
+
+```
+GET /api/v1/public/dpps/:id/content      → DPP JSON (for hashing)
+GET /api/v1/public/dpps/:id/merkle-proof → Merkle proof JSON
+GET /api/v1/public/dpps/:id/tsa-token    → Raw RFC 3161 .tsr file
+GET /api/v1/public/dpps/:id/tsa-chain    → TSA certificate chain .pem
+GET /api/v1/public/dpps/:id/verify-kit   → ZIP of all above + instructions
+```
+
+#### 5.5.6 UI Presentation (Proof Ceremony)
+
+The public DPP page shows the verification ceremony in an accessible way:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                                                                              │
+│  🔐 CRYPTOGRAPHIC PROOF                                     [Expand Details] │
+│                                                                              │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ │
+│                                                                              │
+│   ✅ VERIFIED                                                               │
+│                                                                              │
+│   This product passport was cryptographically sealed on                     │
+│   January 15, 2026 at 10:30:00 UTC                                          │
+│                                                                              │
+│   Timestamp Authority: DigiCert                                             │
+│   Certificate: Valid until 2028                                             │
+│                                                                              │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ │
+│                                                                              │
+│  [📥 Download Proof Kit]   [🔍 Verify Independently]   [📋 Technical Details] │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+[Expanded Technical Details]
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  MERKLE TREE PATH                                                           │
+│                                                                              │
+│   Your DPP: a1b2c3d4...                                                     │
+│        │                                                                     │
+│        ├──┬── d4e5f6... (sibling)                                           │
+│        │  │                                                                  │
+│        │  ▼                                                                  │
+│        │  ab12ef78 (combined)                                               │
+│        │  │                                                                  │
+│        │  ├──┬── cd34gh... (sibling)                                        │
+│        │  │  │                                                               │
+│        │  │  ▼                                                               │
+│        │  │  x9y8z7w6 ◀── ROOT (timestamped)                                │
+│        │  │                                                                  │
+│  ─────────┴──────────────────────────────────────────────────               │
+│                                                                              │
+│  RFC 3161 TIMESTAMP                                                         │
+│  • Authority: DigiCert Timestamp Responder                                  │
+│  • Algorithm: SHA-256 with RSA-4096                                         │
+│  • Time: 2026-01-15T10:30:00.000Z                                           │
+│  • Serial: 0x1A2B3C4D5E6F...                                                │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 5.5.7 Verification Caching
+
+To avoid re-verifying on every page load:
+
+```typescript
+interface CachedVerification {
+  dpp_id: string;
+  verified: boolean;
+  verified_at: Date;
+  expires_at: Date;  // Re-verify after 24 hours
+  summary: string;
+}
+
+// Redis cache for verification results
+const VERIFICATION_TTL = 24 * 60 * 60;  // 24 hours
+
+async function getCachedOrVerify(dppId: string): Promise<VerificationCeremonyResult> {
+  const cacheKey = `verify:${dppId}`;
+
+  // Check cache
+  const cached = await redis.get(cacheKey);
+  if (cached) {
+    return JSON.parse(cached);
+  }
+
+  // Run full verification
+  const result = await verifyTimestamp(dppId);
+
+  // Cache result (verified or not)
+  await redis.setex(cacheKey, VERIFICATION_TTL, JSON.stringify(result));
+
+  return result;
+}
+```
+
 ---
 
 ```sql
@@ -1535,6 +1964,7 @@ The Public Revocation API is **free for basic use** (public safety) but offers p
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 0.7 | 2026-01-16 | Added Section 5.5: Merkle Path Verification Ceremony - independent timestamp verification |
 | 0.6 | 2026-01-16 | Added Section 11: Public Revocation API - third-party recall status checks |
 | 0.5 | 2026-01-16 | Added Section 6.4: Recall Propagation Service (Operations → Compliance handshake) |
 | 0.4 | 2026-01-16 | Added Merkle Tree Timestamp Service (Section 5.4) - RFC 3161 for all tiers via batching |
