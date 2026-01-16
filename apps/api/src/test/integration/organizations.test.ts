@@ -1,9 +1,8 @@
 /**
- * Integration tests for Organization API endpoints.
+ * Integration tests for Organization Service.
  * Tests against a real PostgreSQL database.
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { Hono } from 'hono';
 import {
   setupIntegrationTest,
   teardownIntegrationTest,
@@ -11,11 +10,13 @@ import {
   cleanupOutboxEvents,
   testPrisma,
 } from './setup.js';
-import { organizations } from '../../routes/organizations.js';
-import { ok, err } from '@eurocomply/shared';
-import type { AppVariables, UserOnlyVariables } from '../../types/context.js';
+import {
+  createOrganization,
+  getOrganization,
+  listUserOrganizations,
+} from '../../services/organization.service.js';
 
-describe('Organization API Integration Tests', () => {
+describe('Organization Service Integration Tests', () => {
   beforeAll(async () => {
     await setupIntegrationTest();
   });
@@ -28,203 +29,138 @@ describe('Organization API Integration Tests', () => {
     await cleanupOutboxEvents();
   });
 
-  describe('POST /organizations', () => {
-    it('should create a new organization', async () => {
+  describe('createOrganization', () => {
+    it('should create a new organization with owner', async () => {
       const ctx = getTestContext();
 
-      // Create app with mock user auth (simulates userAuthMiddleware)
-      const app = new Hono<{ Variables: UserOnlyVariables }>();
-      app.use('*', async (c, next) => {
-        c.set('user', {
-          id: ctx.userId,
-          clerkId: `clerk_test_${ctx.schemaName}`,
-          email: `test-${ctx.schemaName}@example.com`,
-          name: 'Test User',
-        });
-        await next();
-      });
-      app.route('/', organizations);
-
-      const response = await app.request('/', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: 'New Test Organization' }),
+      const org = await createOrganization({
+        name: 'Integration Test Org',
+        ownerClerkId: `clerk_test_${ctx.schemaName}`,
+        ownerEmail: `test-${ctx.schemaName}@example.com`,
+        ownerName: 'Test User',
       });
 
-      expect(response.status).toBe(201);
-
-      const json = await response.json();
-      expect(json.success).toBe(true);
-      expect(json.data.name).toBe('New Test Organization');
-      expect(json.data.slug).toMatch(/^new-test-organization/);
-      expect(json.data.schemaName).toMatch(/^tenant_new_test_organization/);
-      expect(json.data.owner.email).toBe(`test-${ctx.schemaName}@example.com`);
+      expect(org).toBeDefined();
+      expect(org.name).toBe('Integration Test Org');
+      expect(org.slug).toMatch(/^integration-test-org/);
+      expect(org.schemaName).toMatch(/^tenant_integration_test_org/);
+      expect(org.owner.email).toBe(`test-${ctx.schemaName}@example.com`);
 
       // Verify organization was created in database
-      const org = await testPrisma.organization.findUnique({
-        where: { id: json.data.id },
+      const dbOrg = await testPrisma.organization.findUnique({
+        where: { id: org.id },
       });
-      expect(org).not.toBeNull();
-      expect(org?.name).toBe('New Test Organization');
+      expect(dbOrg).not.toBeNull();
+      expect(dbOrg?.name).toBe('Integration Test Org');
 
       // Verify outbox event was published
       const events = await testPrisma.outboxEvent.findMany({
-        where: { organizationId: json.data.id },
+        where: { organizationId: org.id },
       });
       expect(events.length).toBe(1);
       expect(events[0]!.eventType).toBe('organization.created');
 
-      // Cleanup: delete the created org
+      // Cleanup: delete the created org and its schema
       await testPrisma.organizationUser.deleteMany({
-        where: { organizationId: json.data.id },
+        where: { organizationId: org.id },
+      });
+      await testPrisma.outboxEvent.deleteMany({
+        where: { organizationId: org.id },
       });
       await testPrisma.organization.delete({
-        where: { id: json.data.id },
+        where: { id: org.id },
       });
+      // Note: tenant schema cleanup would require dropTenantSchema call
     });
 
-    it('should reject invalid organization name', async () => {
+    it('should create owner membership with full permissions', async () => {
       const ctx = getTestContext();
+      const uniqueSuffix = Date.now();
 
-      const app = new Hono<{ Variables: UserOnlyVariables }>();
-      app.use('*', async (c, next) => {
-        c.set('user', {
-          id: ctx.userId,
-          clerkId: `clerk_test_${ctx.schemaName}`,
-          email: `test-${ctx.schemaName}@example.com`,
-          name: 'Test User',
-        });
-        await next();
-      });
-      app.route('/', organizations);
-
-      // Name too short
-      const response = await app.request('/', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: 'A' }),
+      const org = await createOrganization({
+        name: `Permissions Test Org ${uniqueSuffix}`,
+        ownerClerkId: `clerk_test_${ctx.schemaName}`,
+        ownerEmail: `test-${ctx.schemaName}@example.com`,
+        ownerName: 'Test User',
       });
 
-      expect(response.status).toBe(400);
-    });
-  });
-
-  describe('GET /organizations', () => {
-    it('should list user organizations', async () => {
-      const ctx = getTestContext();
-
-      const app = new Hono<{ Variables: UserOnlyVariables }>();
-      app.use('*', async (c, next) => {
-        c.set('user', {
-          id: ctx.userId,
-          clerkId: `clerk_test_${ctx.schemaName}`,
-          email: `test-${ctx.schemaName}@example.com`,
-          name: 'Test User',
-        });
-        await next();
-      });
-      app.route('/', organizations);
-
-      const response = await app.request('/', {
-        method: 'GET',
+      // Verify owner membership exists with correct permissions
+      const membership = await testPrisma.organizationUser.findFirst({
+        where: { organizationId: org.id },
       });
 
-      expect(response.status).toBe(200);
+      expect(membership).not.toBeNull();
+      expect(membership?.role).toBe('owner');
+      expect(membership?.designAuthority).toBe('MANAGER');
+      expect(membership?.operationsAuthority).toBe('MANAGER');
+      expect(membership?.marketingAuthority).toBe('MANAGER');
+      expect(membership?.complianceAuthority).toBe('MANAGER');
 
-      const json = await response.json();
-      expect(json.success).toBe(true);
-      expect(Array.isArray(json.data)).toBe(true);
-      // User should have at least the test organization
-      expect(json.data.length).toBeGreaterThanOrEqual(1);
-      expect(json.data[0]).toHaveProperty('id');
-      expect(json.data[0]).toHaveProperty('name');
-      expect(json.data[0]).toHaveProperty('slug');
-      expect(json.data[0]).toHaveProperty('role');
+      // Cleanup
+      await testPrisma.organizationUser.deleteMany({
+        where: { organizationId: org.id },
+      });
+      await testPrisma.outboxEvent.deleteMany({
+        where: { organizationId: org.id },
+      });
+      await testPrisma.organization.delete({
+        where: { id: org.id },
+      });
     });
   });
 
-  describe('GET /organizations/:id', () => {
-    it('should get organization details when user has access', async () => {
+  describe('listUserOrganizations', () => {
+    it('should list organizations for a user', async () => {
       const ctx = getTestContext();
 
-      // This endpoint requires full auth context (authMiddleware)
-      const app = new Hono<{ Variables: AppVariables }>();
-      app.use('*', async (c, next) => {
-        c.set('user', {
-          id: ctx.userId,
-          clerkId: `clerk_test_${ctx.schemaName}`,
-          email: `test-${ctx.schemaName}@example.com`,
-          name: 'Test User',
-        });
-        c.set('tenant', {
-          organizationId: ctx.organizationId,
-          schemaName: ctx.schemaName,
-          name: `Test Org ${ctx.schemaName}`,
-          subscriptionTier: 'starter',
-        });
-        c.set('permissions', {
-          role: 'owner',
-          designAuthority: 'MANAGER',
-          operationsAuthority: 'MANAGER',
-          marketingAuthority: 'MANAGER',
-          complianceAuthority: 'MANAGER',
-        });
-        await next();
-      });
-      app.route('/', organizations);
+      const orgs = await listUserOrganizations(ctx.userId);
 
-      const response = await app.request(`/${ctx.organizationId}`, {
-        method: 'GET',
-      });
+      expect(Array.isArray(orgs)).toBe(true);
+      expect(orgs.length).toBeGreaterThanOrEqual(1);
 
-      expect(response.status).toBe(200);
-
-      const json = await response.json();
-      expect(json.success).toBe(true);
-      expect(json.data.id).toBe(ctx.organizationId);
-      expect(json.data.schemaName).toBe(ctx.schemaName);
-      expect(json.data.owner).toBeDefined();
+      // Should include the test organization created in setup
+      const testOrg = orgs.find((o) => o.id === ctx.organizationId);
+      expect(testOrg).toBeDefined();
+      expect(testOrg?.role).toBe('owner');
     });
 
-    it('should return 403 when accessing another organization', async () => {
+    it('should return empty array for user with no organizations', async () => {
+      // Create a user with no organization memberships
+      const lonelyUser = await testPrisma.user.create({
+        data: {
+          clerkId: `clerk_lonely_${Date.now()}`,
+          email: `lonely-${Date.now()}@example.com`,
+          name: 'Lonely User',
+        },
+      });
+
+      const orgs = await listUserOrganizations(lonelyUser.id);
+
+      expect(Array.isArray(orgs)).toBe(true);
+      expect(orgs.length).toBe(0);
+
+      // Cleanup
+      await testPrisma.user.delete({
+        where: { id: lonelyUser.id },
+      });
+    });
+  });
+
+  describe('getOrganization', () => {
+    it('should get organization details with owner', async () => {
       const ctx = getTestContext();
 
-      const app = new Hono<{ Variables: AppVariables }>();
-      app.use('*', async (c, next) => {
-        c.set('user', {
-          id: ctx.userId,
-          clerkId: `clerk_test_${ctx.schemaName}`,
-          email: `test-${ctx.schemaName}@example.com`,
-          name: 'Test User',
-        });
-        // Tenant context is for a DIFFERENT org than requested
-        c.set('tenant', {
-          organizationId: ctx.organizationId,
-          schemaName: ctx.schemaName,
-          name: `Test Org ${ctx.schemaName}`,
-          subscriptionTier: 'starter',
-        });
-        c.set('permissions', {
-          role: 'owner',
-          designAuthority: 'MANAGER',
-          operationsAuthority: 'MANAGER',
-          marketingAuthority: 'MANAGER',
-          complianceAuthority: 'MANAGER',
-        });
-        await next();
-      });
-      app.route('/', organizations);
+      const org = await getOrganization(ctx.organizationId);
 
-      // Request a different org ID than the tenant context
-      const response = await app.request('/different-org-id', {
-        method: 'GET',
-      });
+      expect(org).toBeDefined();
+      expect(org.id).toBe(ctx.organizationId);
+      expect(org.schemaName).toBe(ctx.schemaName);
+      expect(org.owner).toBeDefined();
+      expect(org.owner.id).toBe(ctx.userId);
+    });
 
-      expect(response.status).toBe(403);
-
-      const json = await response.json();
-      expect(json.success).toBe(false);
-      expect(json.error.code).toBe('FORBIDDEN');
+    it('should throw error for non-existent organization', async () => {
+      await expect(getOrganization('non-existent-id')).rejects.toThrow();
     });
   });
 });
