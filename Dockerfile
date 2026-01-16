@@ -22,8 +22,8 @@ COPY apps/api/package.json ./apps/api/
 COPY packages/shared/package.json ./packages/shared/
 COPY packages/db/package.json ./packages/db/
 
-# Install all dependencies
-RUN pnpm install --frozen-lockfile
+# Install all dependencies with hoisting for Docker compatibility
+RUN pnpm install --frozen-lockfile --shamefully-hoist
 
 # =============================================================================
 # Stage 3: Builder - Build the application
