@@ -73,7 +73,7 @@ jobs:
         run: pnpm db:generate
 
       - name: Run unit tests
-        run: pnpm test
+        run: pnpm test:unit
 
   # ============================================
   # INTEGRATION TESTS (requires database)
@@ -137,8 +137,7 @@ jobs:
         run: pnpm db:push
 
       - name: Run integration tests
-        run: pnpm test
-        # TODO: Add dedicated integration test command when integration tests exist
+        run: pnpm test:integration
 
   # ============================================
   # BUILD VERIFICATION

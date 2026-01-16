@@ -16,7 +16,8 @@
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest",
-    "test:run": "vitest run"
+    "test:run": "vitest run",
+    "test:unit": "vitest run"
   },
   "devDependencies": {
     "typescript": "^5.3.0",
