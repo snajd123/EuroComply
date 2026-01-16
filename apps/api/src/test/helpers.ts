@@ -3,6 +3,9 @@ import type { AppVariables } from '../types/context.js';
 
 /**
  * Creates a mock authenticated context for testing.
+ *
+ * NOTE: The `db` property is a stub and will throw if accessed.
+ * For tests that need database access, use integration test helpers instead.
  */
 export function mockAuthContext(overrides?: Partial<AppVariables>): AppVariables {
   return {
@@ -25,7 +28,7 @@ export function mockAuthContext(overrides?: Partial<AppVariables>): AppVariables
       marketingAuthority: 'MANAGER',
       complianceAuthority: 'MANAGER',
     },
-    db: {} as AppVariables['db'], // Mock DB client
+    db: {} as AppVariables['db'], // Stub - will throw if accessed
     ...overrides,
   };
 }
@@ -75,7 +78,12 @@ export async function testRequest(
   }
 
   const response = await app.request(path, requestInit);
-  const json = await response.json();
+  let json = null;
+  try {
+    json = await response.json();
+  } catch {
+    // Non-JSON response, leave as null
+  }
 
   return { response, json };
 }
