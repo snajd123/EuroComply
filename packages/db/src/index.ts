@@ -1,6 +1,8 @@
 import { PrismaClient } from '@prisma/client';
 
 export * from '@prisma/client';
+export * from './tenant.js';
+export * from './client.js';
 
 // Singleton pattern for Prisma client
 const globalForPrisma = globalThis as unknown as {
