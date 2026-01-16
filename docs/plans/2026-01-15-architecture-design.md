@@ -982,7 +982,57 @@ AWS KMS Master Key (per-cell)
 
 ---
 
-## 12. Open Questions
+## 12. Future Scale Considerations
+
+These are known scaling challenges that don't need solving at launch but should be planned for.
+
+### 12.1 PgBouncer Connection Limits
+
+**Trigger:** Tens of thousands of concurrent connections across all tenants.
+
+**Current design:** Session-mode PgBouncer pools per tenant schema (persists `SET search_path`).
+
+**Scaling concern:** At high scale, session-mode PgBouncer holds connections longer than transaction-mode, limiting total throughput.
+
+**Future solution:**
+- Hybrid approach: Transaction-mode for read-heavy workloads, Session-mode for writes
+- Per-cell connection limits with automatic tenant redistribution
+- Consider PgCat or Supavisor as PgBouncer alternatives at scale
+
+**Monitoring trigger:** Alert when any cell exceeds 5,000 active connections.
+
+### 12.2 Cross-Tenant Analytics (Data Warehouse)
+
+**Trigger:** Need for platform-wide metrics (total DPPs issued, industry benchmarks, compliance trends).
+
+**Current design:** Schema-per-tenant isolation prevents cross-tenant queries by design.
+
+**Future solution:**
+Stream anonymized/aggregated data from Outbox to central data warehouse:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Outbox Events (per tenant)                                     │
+│        ↓                                                        │
+│  Kinesis Firehose (batched, 1-minute intervals)                │
+│        ↓                                                        │
+│  AWS Redshift / Snowflake (central analytics)                  │
+│        ↓                                                        │
+│  Internal dashboards (no tenant PII, aggregates only)          │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Data to stream:**
+- DPP issuance counts (no product details)
+- Recall frequency by industry
+- Platform usage patterns
+- Billing/revenue metrics
+
+**Privacy:** No PII, no product names, no supplier details. Aggregates and counts only.
+
+---
+
+## 13. Open Questions
 
 Resolved in this session:
 - [x] Authentication provider → Clerk
@@ -1002,7 +1052,7 @@ Still to resolve (in subsequent doc reviews):
 
 ---
 
-## 13. Related Documents
+## 14. Related Documents
 
 | Document | Status | Purpose |
 |----------|--------|---------|
@@ -1019,6 +1069,7 @@ Still to resolve (in subsequent doc reviews):
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 0.1 | 2026-01-15 | Initial draft from Architecture Doc review |
-| 0.2 | 2026-01-15 | Updated version states to full state machine, added Clerk ↔ walt.id integration |
+| 0.4 | 2026-01-16 | Added Section 12: Future Scale Considerations (PgBouncer limits, Cross-Tenant Analytics) |
 | 0.3 | 2026-01-15 | Simplified version states (no ACTIVE/ARCHIVED), added product-level archiving |
+| 0.2 | 2026-01-15 | Updated version states to full state machine, added Clerk ↔ walt.id integration |
+| 0.1 | 2026-01-15 | Initial draft from Architecture Doc review |
