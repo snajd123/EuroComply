@@ -30,10 +30,17 @@ RUN pnpm install --frozen-lockfile
 # =============================================================================
 FROM deps AS builder
 
+# Copy TypeScript configs
+COPY tsconfig.json ./
+COPY packages/shared/tsconfig.json ./packages/shared/
+COPY packages/db/tsconfig.json ./packages/db/
+COPY apps/api/tsconfig.json ./apps/api/
+
 # Copy source code
-COPY packages/shared ./packages/shared
-COPY packages/db ./packages/db
-COPY apps/api ./apps/api
+COPY packages/shared/src ./packages/shared/src
+COPY packages/db/src ./packages/db/src
+COPY packages/db/prisma ./packages/db/prisma
+COPY apps/api/src ./apps/api/src
 
 # Generate Prisma client
 RUN pnpm db:generate
