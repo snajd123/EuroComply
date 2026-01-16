@@ -1,5 +1,7 @@
 // Shared types and utilities
 
+export * from './authorities.js';
+
 export interface ApiResponse<T> {
   success: boolean;
   data?: T;

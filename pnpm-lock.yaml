@@ -16,6 +16,9 @@ importers:
       '@eurocomply/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@eurocomply/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       '@hono/node-server':
         specifier: ^1.8.0
         version: 1.19.9(hono@4.11.4)
