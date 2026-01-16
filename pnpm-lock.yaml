@@ -22,9 +22,15 @@ importers:
       '@hono/node-server':
         specifier: ^1.8.0
         version: 1.19.9(hono@4.11.4)
+      '@hono/zod-validator':
+        specifier: ^0.2.0
+        version: 0.2.2(hono@4.11.4)(zod@3.25.76)
       hono:
         specifier: ^4.0.0
         version: 4.11.4
+      zod:
+        specifier: ^3.22.0
+        version: 3.25.76
     devDependencies:
       '@types/node':
         specifier: ^20.11.0
@@ -387,6 +393,12 @@ packages:
     engines: {node: '>=18.14.1'}
     peerDependencies:
       hono: ^4
+
+  '@hono/zod-validator@0.2.2':
+    resolution: {integrity: sha512-dSDxaPV70Py8wuIU2QNpoVEIOSzSXZ/6/B/h4xA7eOMz7+AarKTSGV8E6QwrdcCbBLkpqfJ4Q2TmBO0eP1tCBQ==}
+    peerDependencies:
+      hono: '>=3.9.0'
+      zod: ^3.19.1
 
   '@jest/schemas@29.6.3':
     resolution: {integrity: sha512-mo5j5X+jIZmJQveBKeS/clAueipV7KgiX1vMgCxam1RNYiqE1w62n0/tJJnHtjW8ZHcQco5gY85jA3mi0L+nSA==}
@@ -953,6 +965,9 @@ packages:
     resolution: {integrity: sha512-4LCcse/U2MHZ63HAJVE+v71o7yOdIe4cZ70Wpf8D/IyjDKYQLV5GD46B+hSTjJsvV5PztjvHoU580EftxjDZFQ==}
     engines: {node: '>=12.20'}
 
+  zod@3.25.76:
+    resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
+
 snapshots:
 
   '@clerk/backend@1.34.0(react@19.2.3)':
@@ -1134,6 +1149,11 @@ snapshots:
   '@hono/node-server@1.19.9(hono@4.11.4)':
     dependencies:
       hono: 4.11.4
+
+  '@hono/zod-validator@0.2.2(hono@4.11.4)(zod@3.25.76)':
+    dependencies:
+      hono: 4.11.4
+      zod: 3.25.76
 
   '@jest/schemas@29.6.3':
     dependencies:
@@ -1692,3 +1712,5 @@ snapshots:
       stackback: 0.0.2
 
   yocto-queue@1.2.2: {}
+
+  zod@3.25.76: {}

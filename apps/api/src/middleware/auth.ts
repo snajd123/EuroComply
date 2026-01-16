@@ -118,6 +118,54 @@ export const authMiddleware = createMiddleware<{ Variables: AppVariables }>(
 );
 
 /**
+ * User-only authentication middleware.
+ * Verifies JWT and loads user, but does NOT require organization context.
+ * Use for endpoints that operate across organizations (create org, list orgs).
+ */
+export const userAuthMiddleware = createMiddleware<{ Variables: AppVariables }>(
+  async (c, next) => {
+    const authHeader = c.req.header('Authorization');
+    if (!authHeader?.startsWith('Bearer ')) {
+      throw new HTTPException(401, { message: 'Missing or invalid authorization header' });
+    }
+
+    const token = authHeader.slice(7);
+
+    try {
+      const payload = await verifyToken(token, {
+        secretKey: CLERK_SECRET_KEY!,
+      });
+
+      const clerkUserId = payload.sub;
+      if (!clerkUserId) {
+        throw new HTTPException(401, { message: 'Invalid token: missing user ID' });
+      }
+
+      const user = await prisma.user.findUnique({
+        where: { clerkId: clerkUserId },
+      });
+
+      if (!user) {
+        throw new HTTPException(401, { message: 'User not found' });
+      }
+
+      c.set('user', {
+        id: user.id,
+        clerkId: user.clerkId,
+        email: user.email,
+        name: user.name,
+      });
+
+      await next();
+    } catch (error) {
+      if (error instanceof HTTPException) throw error;
+      console.error('Auth error:', error);
+      throw new HTTPException(401, { message: 'Invalid or expired token' });
+    }
+  }
+);
+
+/**
  * Optional auth - sets user context if token present, continues otherwise.
  */
 export const optionalAuthMiddleware = createMiddleware<{ Variables: Partial<AppVariables> }>(
