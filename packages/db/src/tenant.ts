@@ -16,9 +16,8 @@ export async function createTenantSchema(
   // Create schema
   await prisma.$executeRawUnsafe(`CREATE SCHEMA IF NOT EXISTS "${schemaName}"`);
 
-  // Create tenant tables
+  // Create products table
   await prisma.$executeRawUnsafe(`
-    -- Products table
     CREATE TABLE IF NOT EXISTS "${schemaName}".products (
       id VARCHAR(30) PRIMARY KEY,
       sku VARCHAR(100) NOT NULL,
@@ -31,14 +30,18 @@ export async function createTenantSchema(
       updated_at TIMESTAMPTZ DEFAULT NOW(),
       archived_at TIMESTAMPTZ,
       UNIQUE(sku)
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_products_sku ON "${schemaName}".products(sku);
-    CREATE INDEX IF NOT EXISTS idx_products_status ON "${schemaName}".products(status);
+    )
   `);
 
+  await prisma.$executeRawUnsafe(
+    `CREATE INDEX IF NOT EXISTS idx_products_sku ON "${schemaName}".products(sku)`
+  );
+  await prisma.$executeRawUnsafe(
+    `CREATE INDEX IF NOT EXISTS idx_products_status ON "${schemaName}".products(status)`
+  );
+
+  // Create audit log table
   await prisma.$executeRawUnsafe(`
-    -- Audit log table (per-tenant)
     CREATE TABLE IF NOT EXISTS "${schemaName}".audit_log (
       id VARCHAR(30) PRIMARY KEY,
       user_id VARCHAR(30) NOT NULL,
@@ -50,13 +53,15 @@ export async function createTenantSchema(
       ip_address VARCHAR(45),
       user_agent TEXT,
       created_at TIMESTAMPTZ DEFAULT NOW()
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_audit_entity
-      ON "${schemaName}".audit_log(entity_type, entity_id);
-    CREATE INDEX IF NOT EXISTS idx_audit_user
-      ON "${schemaName}".audit_log(user_id, created_at DESC);
+    )
   `);
+
+  await prisma.$executeRawUnsafe(
+    `CREATE INDEX IF NOT EXISTS idx_audit_entity ON "${schemaName}".audit_log(entity_type, entity_id)`
+  );
+  await prisma.$executeRawUnsafe(
+    `CREATE INDEX IF NOT EXISTS idx_audit_user ON "${schemaName}".audit_log(user_id, created_at DESC)`
+  );
 }
 
 /**
