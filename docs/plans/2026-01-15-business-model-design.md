@@ -457,24 +457,90 @@ EuroComply's "Compliant Highway" integrates shipping with compliance verificatio
 
 ---
 
-## 8. Retailer Access (Free)
+## 8. Retailer Access
+
+### 8.1 DPP Display (Free)
 
 ESPR Article 31 mandates free DPP access for economic operators.
-
-### What Retailers Get (Free)
 
 | Feature | Description |
 |---------|-------------|
 | DPP Catalog Browser | Search by GTIN, brand, serial number |
 | Embeddable Widget | JavaScript snippet for product pages |
-| Public API | Programmatic DPP data access |
+| Public DPP API | Programmatic DPP data access |
 | Shopify Retailer App | Automatic GTIN matching |
 
-### Why Free?
-
+**Why free?**
 1. **Legal requirement** - ESPR Article 31 mandates free access
 2. **Network effects** - Retailer adoption drives brand value
 3. **Zero marginal cost** - R2 egress is free
+
+### 8.2 Verification API (Paid)
+
+High-volume authenticity and recall verification for POS systems, inventory management, and logistics.
+
+**Endpoint:** `GET /api/v1/compliance/verify/:gtin/:serial`
+
+Returns both cryptographic authenticity proof AND recall status in one call.
+
+| Tier | Price | Rate Limit | Use Case |
+|------|-------|------------|----------|
+| **Free** | €0 | 100/min | Consumer spot-checks, brand trust |
+| **Basic** | €49/mo | 10,000/min | Small retailer POS |
+| **Enterprise** | Custom | Unlimited | Large retail chains, warehouses |
+
+**What's included:**
+
+| Feature | Free | Basic | Enterprise |
+|---------|------|-------|------------|
+| Single product checks | ✓ | ✓ | ✓ |
+| Batch checks (up to 100) | ✓ | ✓ | ✓ |
+| Batch checks (up to 1,000) | — | ✓ | ✓ |
+| Batch checks (up to 10,000) | — | — | ✓ |
+| Webhook notifications | — | ✓ | ✓ |
+| SLA guarantee | — | 99.9% | 99.99% |
+| Dedicated support | — | Email | Phone + Slack |
+
+**Value Proposition: "Zero Liability"**
+
+If a retailer sells a recalled product, they are legally liable. With EuroComply Verification API:
+- Automated "kill switch" at the register
+- Audit trail: "System showed CLEAR at time of sale"
+- Defense against liability claims
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    RETAILER API RESPONSE                         │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  GET /api/v1/compliance/verify/01234567/SN-999                  │
+│                                                                  │
+│  {                                                               │
+│    "uid": "urn:epc:id:sgtin:0123456.789.SN-999",                │
+│    "status": "CLEAR",              ← Safe to sell               │
+│    "integrity": {                                                │
+│      "is_authentic": true,         ← Not counterfeit            │
+│      "merkle_root": "8f3a2b1c...",                              │
+│      "timestamp": "2026-01-15T09:32:15Z"                        │
+│    },                                                            │
+│    "revocation": null              ← No active recall           │
+│  }                                                               │
+│                                                                  │
+│  Status can be: CLEAR | RECALLED | NOT_FOUND | SUSPECT          │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Revenue Potential:**
+
+| Segment | Est. Customers | Avg. Tier | Monthly Revenue |
+|---------|----------------|-----------|-----------------|
+| Small retailers (1-10 stores) | 500 | Basic €49 | €24,500 |
+| Mid-size chains (10-100 stores) | 50 | Enterprise €499 | €24,950 |
+| Large chains (100+ stores) | 10 | Enterprise €2,000 | €20,000 |
+| **Total** | **560** | | **€69,450/mo** |
+
+This is a **recurring B2B SaaS revenue stream** independent of DPP creation volume.
 
 ---
 
@@ -617,6 +683,7 @@ Personnel is the real cost driver.
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 0.6 | 2026-01-16 | Expanded Section 8: Retailer Access with paid Verification API tiers (€49-€999/mo, €772K/yr potential) |
 | 0.5 | 2026-01-16 | RFC 3161 timestamps now included ALL tiers via Merkle batching (TCO €0.0024) |
 | 0.4 | 2026-01-16 | Revised DPP margins (TCO €0.00035→€0.0023), added pricing floors |
 | 0.3 | 2026-01-16 | Clarified DPP billing trigger (COMMISSIONED→PROVISIONED), added SKU hosting (€0.50/yr), added Recall operations (80% margin) |

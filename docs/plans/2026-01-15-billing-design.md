@@ -637,7 +637,158 @@ CREATE INDEX idx_recall_usage_recall ON recall_usage (recall_id);
 
 ---
 
-## 7. Complete Invoice Example
+## 7. Verification API Billing (Retailer Revenue)
+
+The Verification API is a **separate revenue stream** from retailers and third parties who need to verify product authenticity and recall status at scale.
+
+### Why This Is Different
+
+| Customer Type | What They Pay For | Billing Model |
+|---------------|-------------------|---------------|
+| **Brands** (manufacturers) | DPP creation, hosting, compliance | Per-DPP + subscription |
+| **Retailers** (verifiers) | Verification API access | Subscription tiers |
+
+Brands create DPPs. Retailers verify them. Both pay, but for different things.
+
+### Verification API Tiers
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    VERIFICATION API PRICING                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  TIER          PRICE         RATE LIMIT       USE CASE                      │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│  Free          €0/mo         100/min          Consumer spot-checks          │
+│  Basic         €49/mo        10,000/min       Small retailer POS            │
+│  Professional  €199/mo       50,000/min       Mid-size retail chains        │
+│  Enterprise    €999+/mo      Unlimited        Large chains, warehouses      │
+│                                                                              │
+│  WHAT'S INCLUDED:                                                           │
+│  ───────────────                                                            │
+│  All tiers:    Single + batch checks, JSON responses                        │
+│  Basic+:       Webhook notifications for recalls                            │
+│  Professional+: Priority support, 99.9% SLA                                 │
+│  Enterprise:   Dedicated support, 99.99% SLA, custom integrations           │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Value Proposition: "Zero Liability"
+
+**The problem:** If a retailer sells a recalled product, they are legally liable for damages.
+
+**The solution:** EuroComply Verification API provides:
+- Automated "kill switch" at the POS register
+- Audit trail proving the system showed CLEAR at time of sale
+- Legal defense: "We checked, it was verified safe"
+
+### Billing Implementation
+
+```typescript
+// Verification API subscription (separate from brand organization)
+interface VerificationAPISubscription {
+  id: string;
+  retailer_id: string;           // Separate from brand organization_id
+  tier: 'FREE' | 'BASIC' | 'PROFESSIONAL' | 'ENTERPRISE';
+  stripe_subscription_id: string | null;
+  rate_limit_per_minute: number;
+  batch_limit: number;
+
+  // Usage tracking
+  current_period_calls: number;
+  current_period_start: Date;
+
+  // Features
+  webhooks_enabled: boolean;
+  sla_percentage: number | null;
+
+  created_at: Date;
+  updated_at: Date;
+}
+
+// Usage metering for analytics (not billing - subscription-based)
+interface VerificationAPIUsage {
+  id: string;
+  retailer_id: string;
+  endpoint: 'single' | 'batch' | 'feed';
+  calls: number;
+  items_checked: number;  // For batch calls
+  date: Date;             // Daily aggregation
+}
+```
+
+### Database Schema
+
+```sql
+-- Retailer accounts (separate from brand organizations)
+CREATE TABLE retailer (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name                VARCHAR(255) NOT NULL,
+    contact_email       VARCHAR(255) NOT NULL,
+
+    -- Stripe
+    stripe_customer_id  VARCHAR(255),
+
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Verification API subscriptions
+CREATE TABLE verification_api_subscription (
+    id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    retailer_id             UUID NOT NULL REFERENCES retailer(id),
+
+    tier                    VARCHAR(20) NOT NULL DEFAULT 'FREE',
+    stripe_subscription_id  VARCHAR(255),
+
+    rate_limit_per_minute   INTEGER NOT NULL DEFAULT 100,
+    batch_limit             INTEGER NOT NULL DEFAULT 100,
+    webhooks_enabled        BOOLEAN NOT NULL DEFAULT false,
+    sla_percentage          DECIMAL(5,2),
+
+    -- Current period usage (reset monthly)
+    current_period_calls    BIGINT NOT NULL DEFAULT 0,
+    current_period_start    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_verification_sub_retailer ON verification_api_subscription (retailer_id);
+
+-- Daily usage aggregation (for analytics, not billing)
+CREATE TABLE verification_api_usage (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    retailer_id     UUID NOT NULL REFERENCES retailer(id),
+
+    endpoint        VARCHAR(20) NOT NULL,  -- 'single', 'batch', 'feed'
+    calls           INTEGER NOT NULL DEFAULT 0,
+    items_checked   INTEGER NOT NULL DEFAULT 0,
+
+    date            DATE NOT NULL,
+
+    UNIQUE (retailer_id, endpoint, date)
+);
+
+CREATE INDEX idx_verification_usage_retailer ON verification_api_usage (retailer_id, date);
+```
+
+### Revenue Projection
+
+| Tier | Price | Est. Customers (Y1) | Monthly Revenue |
+|------|-------|---------------------|-----------------|
+| Free | €0 | 1,000+ | €0 (lead gen) |
+| Basic | €49 | 500 | €24,500 |
+| Professional | €199 | 100 | €19,900 |
+| Enterprise | €999 avg | 20 | €19,980 |
+| **Total** | | **620 paid** | **€64,380/mo** |
+
+**Annual potential: €772,560** - pure SaaS revenue independent of DPP volume.
+
+---
+
+## 8. Complete Invoice Example
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -683,7 +834,7 @@ CREATE INDEX idx_recall_usage_recall ON recall_usage (recall_id);
 
 ---
 
-## 8. Billing Access Control
+## 9. Billing Access Control
 
 ### Who Can Manage Billing
 
@@ -756,7 +907,7 @@ Billing management requires **Organization Admin** status:
 
 ---
 
-## 9. Data Model
+## 10. Data Model
 
 ### Organization Billing Fields
 
@@ -884,7 +1035,7 @@ async function calculateMAU(
 
 ---
 
-## 10. Stripe Integration
+## 11. Stripe Integration
 
 ### Subscription Structure
 
@@ -954,7 +1105,7 @@ async function reportMonthlyUsage(orgId: string) {
 
 ---
 
-## 11. Webhook Handling
+## 12. Webhook Handling
 
 ```typescript
 // Handle Stripe webhooks
@@ -1016,7 +1167,7 @@ async function handlePaymentSucceeded(invoice: Stripe.Invoice) {
 
 ---
 
-## 12. Changes from Original BILLING.md
+## 13. Changes from Original BILLING.md
 
 | Aspect | Original | Updated |
 |--------|----------|---------|
@@ -1028,7 +1179,7 @@ async function handlePaymentSucceeded(invoice: Stripe.Invoice) {
 
 ---
 
-## 13. Related Documents
+## 14. Related Documents
 
 | Document | Purpose |
 |----------|---------|
@@ -1043,6 +1194,7 @@ async function handlePaymentSucceeded(invoice: Stripe.Invoice) {
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 0.6 | 2026-01-16 | Added Section 7: Verification API Billing (retailer revenue stream, €49-€999/mo tiers) |
 | 0.5 | 2026-01-16 | RFC 3161 timestamps now included ALL tiers via Merkle batching (€0.00002/DPP vs €0.01 individual) |
 | 0.4 | 2026-01-16 | Added DPP Lifecycle Cost Analysis (10-Year TCO), gross margin analysis by tier, orphan DPP analysis |
 | 0.3 | 2026-01-16 | Added DPP billing trigger (COMMISSIONED→PROVISIONED), SKU hosting fee (€0.50/yr), Recall operations billing (80% margin) |
