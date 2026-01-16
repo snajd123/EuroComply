@@ -2,7 +2,7 @@
 # Multi-stage build for optimal image size
 
 # =============================================================================
-# Stage 1: Base - Install dependencies
+# Stage 1: Base - Install pnpm
 # =============================================================================
 FROM node:20-alpine AS base
 
@@ -11,16 +11,16 @@ RUN corepack enable && corepack prepare pnpm@10.28.0 --activate
 
 WORKDIR /app
 
+# =============================================================================
+# Stage 2: Dependencies - Install all dependencies
+# =============================================================================
+FROM base AS deps
+
 # Copy package files for dependency installation
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/api/package.json ./apps/api/
 COPY packages/shared/package.json ./packages/shared/
 COPY packages/db/package.json ./packages/db/
-
-# =============================================================================
-# Stage 2: Dependencies - Install all dependencies
-# =============================================================================
-FROM base AS deps
 
 # Install all dependencies (including devDependencies for build)
 RUN pnpm install --frozen-lockfile
@@ -42,12 +42,28 @@ RUN pnpm db:generate
 RUN pnpm build
 
 # =============================================================================
-# Stage 4: Production dependencies only
+# Stage 4: Production - Install only production deps
 # =============================================================================
-FROM base AS prod-deps
+FROM base AS production
+
+# Copy package files
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/api/package.json ./apps/api/
+COPY packages/shared/package.json ./packages/shared/
+COPY packages/db/package.json ./packages/db/
 
 # Install production dependencies only
 RUN pnpm install --frozen-lockfile --prod
+
+# Copy built application from builder
+COPY --from=builder /app/apps/api/dist ./apps/api/dist
+COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
+COPY --from=builder /app/packages/db/dist ./packages/db/dist
+
+# Copy Prisma schema and generated client
+COPY --from=builder /app/packages/db/prisma ./packages/db/prisma
+COPY --from=builder /app/node_modules/.pnpm/@prisma+client@*/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 
 # =============================================================================
 # Stage 5: Runner - Final production image
@@ -60,30 +76,8 @@ RUN addgroup --system --gid 1001 nodejs && \
 
 WORKDIR /app
 
-# Copy production dependencies
-COPY --from=prod-deps /app/node_modules ./node_modules
-COPY --from=prod-deps /app/apps/api/node_modules ./apps/api/node_modules
-COPY --from=prod-deps /app/packages/shared/node_modules ./packages/shared/node_modules
-COPY --from=prod-deps /app/packages/db/node_modules ./packages/db/node_modules
-
-# Copy built application
-COPY --from=builder /app/apps/api/dist ./apps/api/dist
-COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
-COPY --from=builder /app/packages/db/dist ./packages/db/dist
-
-# Copy Prisma schema and generated client
-COPY --from=builder /app/packages/db/prisma ./packages/db/prisma
-COPY --from=builder /app/node_modules/.pnpm/@prisma+client*/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder /app/node_modules/.pnpm/@prisma+client*/node_modules/@prisma ./node_modules/@prisma
-
-# Copy package.json files (needed for module resolution)
-COPY --from=builder /app/package.json ./
-COPY --from=builder /app/apps/api/package.json ./apps/api/
-COPY --from=builder /app/packages/shared/package.json ./packages/shared/
-COPY --from=builder /app/packages/db/package.json ./packages/db/
-
-# Set ownership
-RUN chown -R eurocomply:nodejs /app
+# Copy everything from production stage
+COPY --from=production --chown=eurocomply:nodejs /app ./
 
 # Switch to non-root user
 USER eurocomply
