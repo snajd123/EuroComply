@@ -38,6 +38,9 @@ jobs:
       - name: Generate Prisma client
         run: pnpm db:generate
 
+      - name: Build packages
+        run: pnpm build
+
       - name: Typecheck
         run: pnpm typecheck
 
@@ -71,6 +74,9 @@ jobs:
 
       - name: Generate Prisma client
         run: pnpm db:generate
+
+      - name: Build packages
+        run: pnpm build
 
       - name: Run unit tests
         run: pnpm test:unit
@@ -132,6 +138,9 @@ jobs:
 
       - name: Generate Prisma client
         run: pnpm db:generate
+
+      - name: Build packages
+        run: pnpm build
 
       - name: Push database schema
         run: pnpm db:push
