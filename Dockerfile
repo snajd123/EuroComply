@@ -12,7 +12,7 @@ RUN corepack enable && corepack prepare pnpm@10.28.0 --activate
 WORKDIR /app
 
 # =============================================================================
-# Stage 2: Dependencies - Install all dependencies
+# Stage 2: Dependencies - Install all dependencies for build
 # =============================================================================
 FROM base AS deps
 
@@ -48,13 +48,27 @@ RUN pnpm db:generate
 # Build all packages
 RUN pnpm build
 
-# Prune dev dependencies after build
-RUN pnpm prune --prod
+# =============================================================================
+# Stage 4: Production deps - Fresh install with prod only
+# =============================================================================
+FROM base AS prod-deps
+
+# Copy package files
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/api/package.json ./apps/api/
+COPY packages/shared/package.json ./packages/shared/
+COPY packages/db/package.json ./packages/db/
+
+# Install production dependencies only
+RUN pnpm install --frozen-lockfile --prod
 
 # =============================================================================
-# Stage 4: Runner - Final production image
+# Stage 5: Runner - Final production image
 # =============================================================================
 FROM node:20-alpine AS runner
+
+# Install openssl for Prisma (Alpine needs it explicitly)
+RUN apk add --no-cache openssl
 
 # Add non-root user for security
 RUN addgroup --system --gid 1001 nodejs && \
@@ -68,16 +82,17 @@ COPY --from=builder /app/apps/api/package.json ./apps/api/
 COPY --from=builder /app/packages/shared/package.json ./packages/shared/
 COPY --from=builder /app/packages/db/package.json ./packages/db/
 
-# Copy node_modules (pruned to production only)
-COPY --from=builder /app/node_modules ./node_modules
+# Copy production node_modules
+COPY --from=prod-deps /app/node_modules ./node_modules
 
 # Copy built application
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
 COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
 COPY --from=builder /app/packages/db/dist ./packages/db/dist
 
-# Copy Prisma schema (needed for migrations)
+# Copy Prisma schema and generated client from builder
 COPY --from=builder /app/packages/db/prisma ./packages/db/prisma
+COPY --from=builder /app/node_modules/.pnpm ./node_modules/.pnpm
 
 # Set ownership
 RUN chown -R eurocomply:nodejs /app
