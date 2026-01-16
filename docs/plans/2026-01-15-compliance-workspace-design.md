@@ -731,9 +731,29 @@ interface VerificationCeremonyResult {
 }
 
 interface MerkleProofStep {
-  position: 'left' | 'right';  // Which side is the sibling
   sibling_hash: string;
-  combined_hash: string;       // Result after hashing with sibling
+  combined_hash: string;  // Result after hashing with sibling
+}
+
+// Client-side verification (runs in browser, no trust required)
+async function verifyMerkleProof(
+  serialHash: string,
+  proof: string[],
+  rootHash: string
+): Promise<boolean> {
+  let currentHash = serialHash;
+
+  for (const siblingHash of proof) {
+    // DETERMINISTIC: Sort and concatenate (no need to track left/right)
+    const combined = currentHash < siblingHash
+      ? currentHash + siblingHash
+      : siblingHash + currentHash;
+
+    currentHash = sha256(combined);
+  }
+
+  // If calculated top matches sealed Root Hash, the unit is authentic
+  return currentHash === rootHash;
 }
 
 async function verifyTimestamp(dppId: string): Promise<VerificationCeremonyResult> {
@@ -749,21 +769,17 @@ async function verifyTimestamp(dppId: string): Promise<VerificationCeremonyResul
 
   const { content_hash, merkle_proof, timestamp_proof } = dpp;
 
-  // 2. Walk the Merkle path
+  // 2. Walk the Merkle path (deterministic sorting - no position tracking needed)
   const proofSteps: MerkleProofStep[] = [];
   let currentHash = content_hash;
 
-  for (const proofNode of merkle_proof) {
-    const position = proofNode.position;  // 'left' or 'right'
-    const siblingHash = proofNode.hash;
-
-    // Combine in correct order (position indicates WHERE the sibling goes)
-    const combined = position === 'left'
-      ? sha256(siblingHash + currentHash)
-      : sha256(currentHash + siblingHash);
+  for (const siblingHash of merkle_proof) {
+    // Sort hashes lexicographically before concatenating
+    const combined = currentHash < siblingHash
+      ? sha256(currentHash + siblingHash)
+      : sha256(siblingHash + currentHash);
 
     proofSteps.push({
-      position,
       sibling_hash: siblingHash,
       combined_hash: combined
     });
@@ -1645,10 +1661,16 @@ GET    /api/v1/public/verify/:dpp_uri             # Public verification (no auth
 GET    /api/v1/public/dpps/:dpp_uri               # Public DPP data (no auth)
 ```
 
+### Combined Verification API (Integrity + Revocation)
+
+```
+GET    /api/v1/compliance/verify/:gtin/:serial    # Combined authenticity + recall check (primary)
+```
+
 ### Public Revocation API (Third-Party Access)
 
 ```
-GET    /api/v1/public/recall/check/:gtin/:serial  # Check single product recall status
+GET    /api/v1/public/recall/check/:gtin/:serial  # Simple recall status check (no integrity proof)
 POST   /api/v1/public/recall/batch                # Batch check (up to 100 items)
 GET    /api/v1/public/recall/feed                 # RSS/Atom feed of active recalls
 GET    /api/v1/public/recall/:recall_id           # Get recall details by ID
@@ -1670,9 +1692,100 @@ Third-party systems (retailers, POS terminals, customs, marketplaces) need to ve
 | **Machine-readable** | JSON responses, standardized error codes |
 | **Privacy-preserving** | Returns status only, not consumer data |
 
-### 11.2 Single Product Check
+### 11.2 Primary Verification Endpoint (Combined Integrity + Revocation)
+
+**Endpoint:** `GET /api/v1/compliance/verify/:gtin/:serial`
+
+This is the **high-value endpoint** that retailers pay for via the Evidence API Fee. It returns both cryptographic authenticity proof AND recall status in a single call.
+
+**Why combined?**
+- POS systems need ONE call to answer: "Is this product real AND safe to sell?"
+- Integrity without revocation = incomplete (authentic but recalled)
+- Revocation without integrity = risky (could be checking a fake serial)
+
+```typescript
+// Request
+GET https://id.eurocomply.eu/api/v1/compliance/verify/01234567/SN-999
+
+// Response (CLEAR - authentic and not recalled)
+{
+  "uid": "urn:epc:id:sgtin:0123456.789.SN-999",
+  "status": "CLEAR",
+  "integrity": {
+    "is_authentic": true,
+    "merkle_root": "8f3a2b1c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a",
+    "timestamp": "2026-01-15T09:32:15Z",
+    "timestamp_authority": "DigiCert"
+  },
+  "revocation": null,
+  "checked_at": "2026-01-16T10:30:00Z",
+  "cache_ttl": 300
+}
+
+// Response (RECALLED - authentic but recalled)
+{
+  "uid": "urn:epc:id:sgtin:0123456.789.SN-999",
+  "status": "RECALLED",
+  "integrity": {
+    "is_authentic": true,
+    "merkle_root": "8f3a2b1c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a",
+    "timestamp": "2026-01-15T09:32:15Z",
+    "timestamp_authority": "DigiCert"
+  },
+  "revocation": {
+    "reason": "Chemical safety violation (Article 4 - ESPR)",
+    "instruction": "Do not sell. Return to distributor for credit.",
+    "severity": "CLASS_I",
+    "issued_at": "2026-01-16T08:00:00Z",
+    "event_link": "https://id.eurocomply.eu/evidence/evt_8832"
+  },
+  "checked_at": "2026-01-16T10:30:00Z",
+  "cache_ttl": 60
+}
+
+// Response (NOT_FOUND - unknown serial)
+{
+  "uid": null,
+  "status": "NOT_FOUND",
+  "integrity": {
+    "is_authentic": false,
+    "reason": "Serial number not registered in EuroComply system"
+  },
+  "revocation": null,
+  "checked_at": "2026-01-16T10:30:00Z"
+}
+
+// Response (SUSPECT - hash mismatch, possible counterfeit)
+{
+  "uid": "urn:epc:id:sgtin:0123456.789.SN-999",
+  "status": "SUSPECT",
+  "integrity": {
+    "is_authentic": false,
+    "reason": "Data hash does not match sealed timestamp",
+    "expected_hash": "8f3a2b1c...",
+    "actual_hash": "1234abcd..."
+  },
+  "revocation": null,
+  "checked_at": "2026-01-16T10:30:00Z",
+  "alert": "This product may be counterfeit. Report to manufacturer."
+}
+```
+
+**Monetization Hook: "POS Integration" Tier**
+
+| Tier | Rate Limit | Use Case | Value Proposition |
+|------|-----------|----------|-------------------|
+| Free | 100/min | Consumer spot-checks | Brand trust building |
+| Basic (€49/mo) | 10,000/min | Small retailer POS | "Zero Liability" at checkout |
+| Enterprise | Unlimited | Large retail chains | Automated "Kill Switch" at register |
+
+**The Value:** If a retailer sells a recalled product, they are legally liable. With EuroComply integration, they have an automated defense: "Our system checked - it was clear at time of sale."
+
+### 11.3 Simple Status Check (Lightweight)
 
 **Endpoint:** `GET /api/v1/public/recall/check/:gtin/:serial`
+
+For systems that only need recall status (no integrity proof):
 
 ```typescript
 // Request
@@ -1715,7 +1828,7 @@ GET /api/v1/public/recall/check/01234567890123/ABC-001
 }
 ```
 
-### 11.3 Batch Check (POS/Inventory Systems)
+### 11.4 Batch Check (POS/Inventory Systems)
 
 **Endpoint:** `POST /api/v1/public/recall/batch`
 
@@ -1753,7 +1866,7 @@ Content-Type: application/json
 - Free tier: 100 items per batch, 10 batches/minute
 - With API key: 1000 items per batch, 100 batches/minute
 
-### 11.4 Active Recalls Feed
+### 11.5 Active Recalls Feed
 
 **Endpoint:** `GET /api/v1/public/recall/feed`
 
@@ -1796,7 +1909,7 @@ GET /api/v1/public/recall/feed?format=json&since=2026-01-01
 - `severity`: `CLASS_I`, `CLASS_II`, `CLASS_III`
 - `manufacturer_id`: Filter by specific manufacturer
 
-### 11.5 Recall Detail
+### 11.6 Recall Detail
 
 **Endpoint:** `GET /api/v1/public/recall/:recall_id`
 
@@ -1850,7 +1963,7 @@ GET /api/v1/public/recall/RCL-2026-001
 }
 ```
 
-### 11.6 Implementation Architecture
+### 11.7 Implementation Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -1891,7 +2004,7 @@ GET /api/v1/public/recall/RCL-2026-001
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### 11.7 Materialized View Schema
+### 11.8 Materialized View Schema
 
 ```sql
 -- Optimized for fast public lookups
@@ -1932,7 +2045,7 @@ CREATE INDEX idx_recall_feed_active ON public_recall_feed (status, issued_at DES
 CREATE INDEX idx_recall_feed_manufacturer ON public_recall_feed (manufacturer_id);
 ```
 
-### 11.8 Monetization
+### 11.9 Monetization
 
 The Public Revocation API is **free for basic use** (public safety) but offers premium tiers:
 
@@ -1964,6 +2077,7 @@ The Public Revocation API is **free for basic use** (public safety) but offers p
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 0.8 | 2026-01-16 | Refined: Deterministic Merkle sorting, Combined Verification API (integrity+revocation), EPC URN identifiers |
 | 0.7 | 2026-01-16 | Added Section 5.5: Merkle Path Verification Ceremony - independent timestamp verification |
 | 0.6 | 2026-01-16 | Added Section 11: Public Revocation API - third-party recall status checks |
 | 0.5 | 2026-01-16 | Added Section 6.4: Recall Propagation Service (Operations → Compliance handshake) |
