@@ -738,13 +738,26 @@ PUT    /api/v1/design/materials/:id               # Update material
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 0.2 | 2026-01-16 | Added cross-workspace flow diagram and related documents table |
 | 0.1 | 2026-01-15 | Initial draft from brainstorming session |
 
 ---
 
 ## 10. Related Documents
 
-- [Taxonomy Engine Design](./2026-01-15-taxonomy-engine-design.md) - Shared data model
-- [User Management Design](./2026-01-15-user-management-design.md) - Authority model
-- [Architecture Design](./2026-01-15-architecture-design.md) - System architecture
-- [Verifiable Credentials Design](./2026-01-15-verifiable-credentials-design.md) - DPP issuance
+| Document | Relationship |
+|----------|--------------|
+| [Marketing Workspace Design](./2026-01-15-marketing-workspace-design.md) | Downstream: Marketing enriches RELEASED design versions |
+| [Operations Workspace Design](./2026-01-15-operations-workspace-design.md) | Downstream: Operations produces batches from design versions |
+| [Compliance Workspace Design](./2026-01-15-compliance-workspace-design.md) | Downstream: Compliance snapshots Design data into DPPs |
+| [Taxonomy Engine Design](./2026-01-15-taxonomy-engine-design.md) | Shared data model |
+| [User Management Design](./2026-01-15-user-management-design.md) | Authority model |
+| [Architecture Design](./2026-01-15-architecture-design.md) | System architecture |
+| [Verifiable Credentials Design](./2026-01-15-verifiable-credentials-design.md) | DPP issuance |
+
+### Design Version → DPP Flow
+
+When a Design version is **RELEASED**, it becomes available for:
+1. **Marketing** to enrich with consumer content
+2. **Operations** to produce batches (with `design_version_id` reference)
+3. **Compliance** to snapshot into DPPs (design data frozen at batch RELEASED)

@@ -1582,6 +1582,212 @@ LOT (Input)           BATCH (Output)         SERIAL (Unit)         DPP
 └─────────┘
 ```
 
+### 12.4 DPP Lifecycle Integration
+
+Operations events trigger DPP state transitions in the Compliance Workspace. This is the **bridge** between logistics statuses and compliance statuses.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    OPERATIONS → COMPLIANCE BRIDGE                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  OPERATIONS EVENT              COMPLIANCE ACTION              BILLING       │
+│  ═══════════════════════════   ══════════════════════════   ═════════════  │
+│                                                                              │
+│  Serial Created (GENERATED)                                                 │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│  • serial_number record created                                             │
+│  • DPP URI reserved in Compliance                                           │
+│  • dpp_snapshot created in COMMISSIONED state                               │
+│  • QR label can be printed immediately                                      │
+│  • ❌ NO CHARGE - just URI reservation                                       │
+│                                                                              │
+│  Batch Released (RELEASED)                                                  │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│  • batch.status → RELEASED                                                  │
+│  • Triggers Snapshot Engine for ALL batch serials                           │
+│  • Each DPP transitions COMMISSIONED → PROVISIONED                          │
+│  • Design + Marketing + Operations data frozen                              │
+│  • ✅ PER-DPP FEE CHARGED (billing event)                                    │
+│                                                                              │
+│  Serial Delivered (DELIVERED)                                               │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│  • serial_number.status → DELIVERED                                         │
+│  • DPP transitions PROVISIONED → ACTIVE                                     │
+│  • Public landing page fully visible                                        │
+│  • ❌ NO CHARGE                                                              │
+│                                                                              │
+│  Batch Recalled (RECALLED)                                                  │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│  • batch.status → RECALLED                                                  │
+│  • ALL batch DPPs transition to RECALLED                                    │
+│  • Recall overlay injected on landing pages                                 │
+│  • Status List 2021 updated (revocation)                                    │
+│  • ✅ RECALL FEE CHARGED (€0.001/item)                                       │
+│                                                                              │
+│  Serial Scrapped (SCRAPPED)                                                 │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│  • serial_number.status → SCRAPPED                                          │
+│  • DPP transitions to DECOMMISSIONED                                        │
+│  • Landing page shows "Product Retired"                                     │
+│  • ❌ NO CHARGE                                                              │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 12.5 DPP Trigger Service
+
+```typescript
+// This service listens to Operations events and triggers Compliance actions
+
+interface DPPTriggerService {
+  // Called when serials are generated for a batch
+  onSerialsGenerated(batchId: string, serialIds: string[]): Promise<void>;
+
+  // Called when batch status changes to RELEASED
+  onBatchReleased(batchId: string): Promise<SnapshotResult>;
+
+  // Called when serial delivery is confirmed
+  onSerialDelivered(serialId: string): Promise<void>;
+
+  // Called when batch is recalled
+  onBatchRecalled(batchId: string, recallId: string): Promise<void>;
+
+  // Called when serial is scrapped
+  onSerialScrapped(serialId: string, reason: string): Promise<void>;
+}
+
+// Implementation
+async function onSerialsGenerated(batchId: string, serialIds: string[]): Promise<void> {
+  const batch = await getBatch(batchId);
+
+  for (const serialId of serialIds) {
+    const serial = await getSerial(serialId);
+
+    // Reserve DPP URI (Birth Certificate Model)
+    const dppUri = generateDigitalLinkURI(batch.gtin, serial.serial_number);
+
+    // Create DPP in COMMISSIONED state (empty shell)
+    const dpp = await createDPPSnapshot({
+      serial_id: serialId,
+      organization_id: batch.organization_id,
+      dpp_uri: dppUri,
+      gtin: batch.gtin,
+      serial_number: serial.serial_number,
+      status: 'COMMISSIONED',
+      // Data fields empty until PROVISIONED
+      design_data: {},
+      marketing_data: {},
+      operations_data: {},
+    });
+
+    // Link serial to DPP
+    await updateSerial(serialId, {
+      dpp_id: dpp.id,
+      dpp_uri: dppUri
+    });
+  }
+}
+
+async function onBatchReleased(batchId: string): Promise<SnapshotResult> {
+  // This triggers the Compliance Workspace's Snapshot Engine
+  // See: compliance-workspace-design.md Section 5
+
+  const batch = await getBatch(batchId);
+  const serials = await getBatchSerials(batchId);
+
+  const results = {
+    success: true,
+    dpps_created: 0,
+    dpps_failed: 0,
+    errors: []
+  };
+
+  for (const serial of serials) {
+    try {
+      // Trigger full snapshot (freezes Design + Marketing + Operations data)
+      await snapshotEngine.createDPPSnapshot(serial.id);
+      results.dpps_created++;
+    } catch (error) {
+      results.dpps_failed++;
+      results.errors.push({ serialId: serial.id, error: error.message });
+    }
+  }
+
+  // Record billing event
+  await recordDPPUsage({
+    organization_id: batch.organization_id,
+    batch_id: batchId,
+    dpps_provisioned: results.dpps_created,
+    billing_triggered: true
+  });
+
+  return results;
+}
+
+async function onSerialDelivered(serialId: string): Promise<void> {
+  const serial = await getSerial(serialId);
+
+  if (serial.dpp_id) {
+    await transitionDPPStatus(serial.dpp_id, 'ACTIVE', {
+      trigger: 'DELIVERY_CONFIRMED',
+      triggered_by: 'SYSTEM'
+    });
+  }
+}
+
+async function onBatchRecalled(batchId: string, recallId: string): Promise<void> {
+  const serials = await getBatchSerials(batchId);
+  const recall = await getRecall(recallId);
+
+  for (const serial of serials) {
+    if (serial.dpp_id) {
+      await transitionDPPStatus(serial.dpp_id, 'RECALLED', {
+        trigger: 'RECALL_ISSUED',
+        triggered_by: 'USER',
+        recall_id: recallId,
+        recall_overlay: {
+          severity: recall.severity,
+          title: recall.title,
+          consumer_action: recall.consumer_action
+        }
+      });
+    }
+  }
+
+  // Record recall billing event
+  await recordRecallUsage({
+    organization_id: recall.organization_id,
+    recall_id: recallId,
+    items_affected: serials.length
+  });
+}
+
+async function onSerialScrapped(serialId: string, reason: string): Promise<void> {
+  const serial = await getSerial(serialId);
+
+  if (serial.dpp_id) {
+    await transitionDPPStatus(serial.dpp_id, 'DECOMMISSIONED', {
+      trigger: 'END_OF_LIFE',
+      triggered_by: 'USER',
+      reason_code: reason
+    });
+  }
+}
+```
+
+### 12.6 Status Mapping Reference
+
+| Operations Status | Context | DPP Status | Trigger |
+|-------------------|---------|------------|---------|
+| serial `GENERATED` | Serial created | `COMMISSIONED` | `onSerialsGenerated()` |
+| batch `RELEASED` | Batch released | `PROVISIONED` | `onBatchReleased()` |
+| serial `DELIVERED` | Delivery confirmed | `ACTIVE` | `onSerialDelivered()` |
+| batch `RECALLED` | Quality issue | `RECALLED` | `onBatchRecalled()` |
+| serial `SCRAPPED` | End of life | `DECOMMISSIONED` | `onSerialScrapped()` |
+
+> **Reference:** See [Compliance Workspace Design](./2026-01-15-compliance-workspace-design.md#4-dpp-lifecycle-birth-certificate-model) for complete DPP lifecycle details.
+
 ---
 
 ## 13. Consumption Tracking & Mass Balance
@@ -4064,6 +4270,7 @@ GET    /api/v1/operations/shipping/customs/:id               # Get filing status
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 0.7 | 2026-01-16 | Added DPP Lifecycle Integration (Section 12.4-12.6): Operations→Compliance bridge, trigger service, status mapping |
 | 0.6 | 2026-01-15 | Moved storage cost analysis to BILLING.md and BUSINESS_MODEL.md (kept reference) |
 | 0.5 | 2026-01-15 | Added Shipping Storage Cost Analysis (10-year TCO, gross margin analysis by tier) |
 | 0.4 | 2026-01-15 | Added Selective Disclosure Resolver, RFC 3161 TSA Integration, Customs PDF Template |

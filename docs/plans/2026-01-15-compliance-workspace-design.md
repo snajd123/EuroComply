@@ -247,6 +247,7 @@ The DPP lifecycle has specific billing implications:
 4. Simple to track: one event per DPP, ever
 
 > **Reference:** See [Billing Design](./2026-01-15-billing-design.md#dpp-billing-trigger) for complete billing details.
+> **Reference:** See [Operations Workspace Design](./2026-01-15-operations-workspace-design.md#124-dpp-lifecycle-integration) for the Operations→Compliance trigger bridge.
 
 ---
 
@@ -931,5 +932,6 @@ GET    /api/v1/public/dpps/:dpp_uri               # Public DPP data (no auth)
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 0.3 | 2026-01-16 | Added cross-reference to Operations→Compliance bridge |
 | 0.2 | 2026-01-16 | Added Section 4.5: Billing Triggers (DPP provisioning, Recall fees) |
 | 0.1 | 2026-01-15 | Initial draft from brainstorming session |

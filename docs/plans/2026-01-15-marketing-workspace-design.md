@@ -943,13 +943,23 @@ GET    /api/v1/marketing/versions/:id/sync-history   # Get sync history
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 0.2 | 2026-01-16 | Added cross-workspace flow and related documents table |
 | 0.1 | 2026-01-15 | Initial draft from brainstorming session |
 
 ---
 
 ## 11. Related Documents
 
-- [Design Workspace Design](./2026-01-15-design-workspace-design.md) - Source of released versions
-- [Taxonomy Engine Design](./2026-01-15-taxonomy-engine-design.md) - Shared data model
-- [User Management Design](./2026-01-15-user-management-design.md) - Authority model
-- [Architecture Design](./2026-01-15-architecture-design.md) - System architecture
+| Document | Relationship |
+|----------|--------------|
+| [Design Workspace Design](./2026-01-15-design-workspace-design.md) | Upstream: Marketing enriches RELEASED design versions |
+| [Compliance Workspace Design](./2026-01-15-compliance-workspace-design.md) | Downstream: Compliance snapshots Marketing data into DPPs |
+| [Taxonomy Engine Design](./2026-01-15-taxonomy-engine-design.md) | Shared data model |
+| [User Management Design](./2026-01-15-user-management-design.md) | Authority model |
+| [Architecture Design](./2026-01-15-architecture-design.md) | System architecture |
+
+### Marketing Version → DPP Flow
+
+When a Marketing version status is **LIVE**, it becomes available for:
+1. **Channel Publishers** to sync to e-commerce platforms
+2. **Compliance** to snapshot marketing content into DPPs (frozen at batch RELEASED)
