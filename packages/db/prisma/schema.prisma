@@ -1,0 +1,111 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// SHARED SCHEMA (public) - Platform-wide tables
+// ============================================
+
+model Organization {
+  id                String   @id @default(cuid())
+  name              String
+  slug              String   @unique
+  schemaName        String   @unique @map("schema_name")
+
+  // Billing
+  stripeCustomerId  String?  @map("stripe_customer_id")
+  subscriptionTier  String   @default("starter") @map("subscription_tier")
+  subscriptionStatus String  @default("active") @map("subscription_status")
+
+  // Limits
+  userLimit         Int      @default(20) @map("user_limit")
+  storageLimit      BigInt   @default(536870912000) @map("storage_limit") // 500GB in bytes
+
+  // Timestamps
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  users             OrganizationUser[]
+
+  @@map("organizations")
+}
+
+model User {
+  id              String   @id @default(cuid())
+  clerkId         String   @unique @map("clerk_id")
+  email           String   @unique
+  name            String?
+  avatarUrl       String?  @map("avatar_url")
+
+  // Timestamps
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  lastLoginAt     DateTime? @map("last_login_at")
+
+  // Relations
+  organizations   OrganizationUser[]
+
+  @@map("users")
+}
+
+model OrganizationUser {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  userId         String   @map("user_id")
+
+  // Role and permissions
+  role           String   @default("member") // owner, admin, member
+
+  // Per-workspace authorities (VIEWER, CONTRIBUTOR, EDITOR, MANAGER)
+  designAuthority     String @default("VIEWER") @map("design_authority")
+  operationsAuthority String @default("VIEWER") @map("operations_authority")
+  marketingAuthority  String @default("VIEWER") @map("marketing_authority")
+  complianceAuthority String @default("VIEWER") @map("compliance_authority")
+
+  // Timestamps
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@map("organization_users")
+}
+
+// ============================================
+// OUTBOX - Event system
+// ============================================
+
+model OutboxEvent {
+  id            String   @id @default(cuid())
+  organizationId String  @map("organization_id")
+
+  // Event metadata
+  eventType     String   @map("event_type")
+  aggregateType String   @map("aggregate_type")
+  aggregateId   String   @map("aggregate_id")
+
+  // Payload
+  payload       Json
+
+  // Processing status
+  status        String   @default("PENDING") // PENDING, PROCESSING, DELIVERED, FAILED
+  attempts      Int      @default(0)
+  lastError     String?  @map("last_error")
+
+  // Timestamps
+  createdAt     DateTime @default(now()) @map("created_at")
+  processedAt   DateTime? @map("processed_at")
+
+  @@index([status, createdAt])
+  @@index([organizationId, eventType])
+  @@map("outbox_events")
+}
