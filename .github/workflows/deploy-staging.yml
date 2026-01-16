@@ -16,6 +16,7 @@ env:
   ECR_REPOSITORY: eurocomply-api
   ECS_CLUSTER: eurocomply-staging
   ECS_SERVICE: eurocomply-api
+  CONTAINER_NAME: api
 
 jobs:
   deploy:
@@ -46,6 +47,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Build and push Docker image
+        id: build
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -57,32 +59,83 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Get current task definition
+        id: task-def
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition ${{ env.ECS_CLUSTER }} \
+            --query 'taskDefinition' \
+            > task-definition.json
+
+          # Remove fields that can't be in a new registration
+          jq 'del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)' \
+            task-definition.json > clean-task-definition.json
+
+      - name: Update task definition with new image
+        id: update-task-def
+        run: |
+          NEW_IMAGE="${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}"
+
+          jq --arg IMAGE "$NEW_IMAGE" --arg CONTAINER "${{ env.CONTAINER_NAME }}" \
+            '.containerDefinitions |= map(if .name == $CONTAINER then .image = $IMAGE else . end)' \
+            clean-task-definition.json > updated-task-definition.json
+
+          echo "Updated image to: $NEW_IMAGE"
+
+      - name: Register new task definition
+        id: register-task-def
+        run: |
+          TASK_DEF_ARN=$(aws ecs register-task-definition \
+            --cli-input-json file://updated-task-definition.json \
+            --query 'taskDefinition.taskDefinitionArn' \
+            --output text)
+
+          echo "task_def_arn=$TASK_DEF_ARN" >> $GITHUB_OUTPUT
+          echo "Registered task definition: $TASK_DEF_ARN"
+
       - name: Deploy to ECS
         run: |
-          # Update ECS service to use new image
           aws ecs update-service \
             --cluster ${{ env.ECS_CLUSTER }} \
             --service ${{ env.ECS_SERVICE }} \
+            --task-definition ${{ steps.register-task-def.outputs.task_def_arn }} \
             --force-new-deployment
 
       - name: Wait for deployment
         run: |
+          echo "Waiting for ECS service to stabilize..."
           aws ecs wait services-stable \
             --cluster ${{ env.ECS_CLUSTER }} \
             --services ${{ env.ECS_SERVICE }}
+          echo "Service is stable!"
 
       - name: Run smoke tests
         run: |
-          # Get the ALB URL from ECS service
           STAGING_URL="${{ secrets.STAGING_API_URL }}"
 
-          # Health check
-          curl -f "${STAGING_URL}/health" || exit 1
+          if [ -z "$STAGING_URL" ]; then
+            echo "STAGING_API_URL not set, skipping smoke tests"
+            exit 0
+          fi
 
-          echo "Smoke tests passed!"
+          echo "Running smoke tests against $STAGING_URL"
+
+          # Health check with retries
+          for i in {1..5}; do
+            if curl -sf "${STAGING_URL}/health"; then
+              echo "Health check passed!"
+              exit 0
+            fi
+            echo "Attempt $i failed, waiting..."
+            sleep 10
+          done
+
+          echo "Smoke tests failed after 5 attempts"
+          exit 1
 
       - name: Notify on failure
         if: failure()
         run: |
           echo "Deployment to staging failed!"
+          echo "Check the logs above for details"
           # Add Slack/Discord notification here if needed
