@@ -394,10 +394,12 @@ async function createDPPSnapshot(serialId: string): Promise<DPPSnapshot> {
     snapshotHash
   );
 
-  // 6. TIMESTAMP: Get RFC 3161 proof (Enterprise+ only)
-  const timestampProof = await getTimestampProof(snapshotHash, batch.organization.plan);
+  // 6. TIMESTAMP: Collect hash for Merkle tree (all tiers)
+  // Actual RFC 3161 timestamp is obtained per-batch, not per-DPP
+  // See: batchTimestampService.addHash(batchId, snapshotHash)
+  await batchTimestampService.addHash(batch.id, snapshotHash);
 
-  // 7. PERSIST: Save the immutable record
+  // 7. PERSIST: Save the immutable record (timestamp_proof added after batch completes)
   return await db.dppSnapshot.create({
     serial_id: serialId,
     dpp_uri: generateDigitalLinkURI(serial),
@@ -445,8 +447,9 @@ CREATE TABLE dpp_snapshot (
     issuance_jws        TEXT NOT NULL,
     signer_did          VARCHAR(255) NOT NULL,
 
-    -- RFC 3161 Timestamp (Enterprise+ only)
-    timestamp_proof     JSONB,
+    -- RFC 3161 Timestamp (All tiers via Merkle batching)
+    timestamp_proof     JSONB,       -- Contains: merkle_root, merkle_proof[], tsa_token
+    merkle_proof        JSONB,       -- Path from this DPP hash to the timestamped root
 
     -- Lifecycle
     status              dpp_status NOT NULL DEFAULT 'COMMISSIONED',
@@ -471,6 +474,156 @@ CREATE INDEX idx_dpp_snapshot_serial ON dpp_snapshot (serial_number);
 CREATE INDEX idx_dpp_snapshot_status ON dpp_snapshot (status);
 CREATE INDEX idx_dpp_snapshot_uri ON dpp_snapshot (dpp_uri);
 
+-- Batch Timestamp Registry (Merkle roots)
+CREATE TABLE batch_timestamp (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    batch_id            UUID NOT NULL REFERENCES batch(id),
+
+    -- Merkle tree data
+    merkle_root         VARCHAR(64) NOT NULL,
+    dpp_count           INT NOT NULL,
+
+    -- RFC 3161 timestamp from TSA
+    tsa_token           BYTEA NOT NULL,
+    tsa_authority       VARCHAR(255) NOT NULL,  -- 'DigiCert', 'Sectigo', etc.
+    tsa_timestamp       TIMESTAMPTZ NOT NULL,
+
+    -- Verification
+    verified            BOOLEAN DEFAULT FALSE,
+
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_batch_timestamp_batch ON batch_timestamp (batch_id);
+```
+
+### 5.4 Merkle Tree Timestamp Service
+
+RFC 3161 timestamps are included for **all tiers** using Merkle tree batching:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    MERKLE TREE TIMESTAMPING                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Per-DPP: €0.01 × 500 = €5.00        Merkle: €0.01 total = €0.00002/DPP    │
+│                                                                              │
+│  HOW IT WORKS:                                                              │
+│  ─────────────                                                               │
+│                                                                              │
+│  1. COLLECT: Each DPP snapshot hash added to batch                          │
+│     DPP-001: a1b2c3...                                                      │
+│     DPP-002: d4e5f6...                                                      │
+│     DPP-003: g7h8i9...                                                      │
+│     ...                                                                      │
+│                                                                              │
+│  2. BUILD: Construct Merkle tree when batch RELEASED                        │
+│                                                                              │
+│                    [ROOT: x9y8z7...]  ◄── TSA timestamps this               │
+│                   /                  \                                       │
+│          [ab12...]                   [cd34...]                              │
+│         /        \                  /        \                              │
+│     [a1b2]     [d4e5]          [g7h8]     [...]                            │
+│                                                                              │
+│  3. TIMESTAMP: Single RFC 3161 call for the Merkle root                     │
+│     POST /tsa → { merkle_root: "x9y8z7...", ... }                          │
+│     Response: TSA token (signed timestamp)                                  │
+│                                                                              │
+│  4. STORE: Each DPP gets its Merkle proof                                   │
+│     DPP-001.merkle_proof = [d4e5..., cd34...]                              │
+│     (Path from a1b2 up to root x9y8z7)                                      │
+│                                                                              │
+│  5. VERIFY: Anyone can prove inclusion                                      │
+│     hash(a1b2 + d4e5) → ab12                                               │
+│     hash(ab12 + cd34) → x9y8z7 ← matches TSA-signed root ✓                 │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+```typescript
+// Merkle Tree Timestamp Service
+interface BatchTimestampService {
+  // Called for each DPP as it's created
+  addHash(batchId: string, snapshotHash: string): Promise<void>;
+
+  // Called when batch is RELEASED - builds tree and gets timestamp
+  finalizeBatch(batchId: string): Promise<BatchTimestampResult>;
+
+  // Called to verify a DPP's timestamp
+  verifyTimestamp(dppId: string): Promise<TimestampVerification>;
+}
+
+interface BatchTimestampResult {
+  merkle_root: string;
+  tsa_token: Buffer;
+  tsa_authority: string;
+  tsa_timestamp: Date;
+  dpp_proofs: Map<string, string[]>;  // dppId → merkle proof path
+}
+
+async function finalizeBatch(batchId: string): Promise<BatchTimestampResult> {
+  // 1. Get all snapshot hashes for this batch
+  const hashes = await getBatchSnapshotHashes(batchId);
+
+  // 2. Build Merkle tree
+  const tree = new MerkleTree(hashes, sha256);
+  const merkleRoot = tree.getRoot().toString('hex');
+
+  // 3. Get RFC 3161 timestamp from TSA
+  const tsaResponse = await requestTimestamp(merkleRoot, {
+    authority: 'DigiCert',  // or 'Sectigo', 'FreeTSA'
+    hashAlgorithm: 'SHA-256'
+  });
+
+  // 4. Store batch timestamp record
+  await db.batchTimestamp.create({
+    batch_id: batchId,
+    merkle_root: merkleRoot,
+    dpp_count: hashes.length,
+    tsa_token: tsaResponse.token,
+    tsa_authority: tsaResponse.authority,
+    tsa_timestamp: tsaResponse.timestamp
+  });
+
+  // 5. Update each DPP with its Merkle proof
+  const proofs = new Map<string, string[]>();
+  for (const hash of hashes) {
+    const proof = tree.getProof(hash).map(p => p.data.toString('hex'));
+    const dppId = await getDppIdByHash(hash);
+    proofs.set(dppId, proof);
+
+    await db.dppSnapshot.update(dppId, {
+      merkle_proof: proof,
+      timestamp_proof: {
+        merkle_root: merkleRoot,
+        tsa_token: tsaResponse.token.toString('base64'),
+        tsa_authority: tsaResponse.authority,
+        tsa_timestamp: tsaResponse.timestamp.toISOString()
+      }
+    });
+  }
+
+  return {
+    merkle_root: merkleRoot,
+    tsa_token: tsaResponse.token,
+    tsa_authority: tsaResponse.authority,
+    tsa_timestamp: tsaResponse.timestamp,
+    dpp_proofs: proofs
+  };
+}
+```
+
+**Cost Savings:**
+
+| Batch Size | Individual TSA | Merkle Batched | Savings |
+|------------|----------------|----------------|---------|
+| 100 DPPs | €1.00 | €0.01 | 99% |
+| 500 DPPs | €5.00 | €0.01 | 99.8% |
+| 1,000 DPPs | €10.00 | €0.01 | 99.9% |
+
+---
+
+```sql
 -- DPP State Transitions (audit log)
 CREATE TABLE dpp_transition (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -932,6 +1085,7 @@ GET    /api/v1/public/dpps/:dpp_uri               # Public DPP data (no auth)
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 0.4 | 2026-01-16 | Added Merkle Tree Timestamp Service (Section 5.4) - RFC 3161 for all tiers via batching |
 | 0.3 | 2026-01-16 | Added cross-reference to Operations→Compliance bridge |
 | 0.2 | 2026-01-16 | Added Section 4.5: Billing Triggers (DPP provisioning, Recall fees) |
 | 0.1 | 2026-01-15 | Initial draft from brainstorming session |

@@ -90,12 +90,15 @@ The two-phase DPP lifecycle (COMMISSIONED → PROVISIONED) introduces costs at e
 │  │ PHASE 2 SUBTOTAL (without TSA)   │                          │ €0.00075  │
 │  └──────────────────────────────────────────────────────────────────────────│
 │                                                                              │
-│  RFC 3161 TIMESTAMP (Add-on)                                                │
-│  ═══════════════════════════                                                 │
-│  │ TSA API call (DigiCert/Sectigo)  │ Per-DPP                  │ €0.01     │
-│  │ Token storage (R2)               │ 2KB × 120mo × $0.015/GB  │ €0.00004  │
+│  RFC 3161 TIMESTAMP (Merkle Batched - Included All Tiers)                   │
+│  ════════════════════════════════════════════════════════                    │
+│  │ Component                        │ Calculation              │ Cost      │
 │  ├──────────────────────────────────│──────────────────────────│───────────│
-│  │ TSA SUBTOTAL                     │                          │ €0.01004  │
+│  │ TSA API call (per batch)         │ €0.01 / 500 DPPs avg     │ €0.00002  │
+│  │ Merkle proof storage             │ 256 bytes × 120mo        │ €0.000003 │
+│  │ Token storage (R2)               │ 2KB shared × 120mo       │ €0.000001 │
+│  ├──────────────────────────────────│──────────────────────────│───────────│
+│  │ TSA SUBTOTAL (per DPP)           │                          │ €0.000024 │
 │  └──────────────────────────────────────────────────────────────────────────│
 │                                                                              │
 │  ACTIVE/DECOMMISSIONED (Lifecycle)                                          │
@@ -103,46 +106,77 @@ The two-phase DPP lifecycle (COMMISSIONED → PROVISIONED) introduces costs at e
 │  │ Status updates                   │ 1-2 per lifetime         │ €0.000002 │
 │  └──────────────────────────────────────────────────────────────────────────│
 │                                                                              │
-│  TOTAL 10-YEAR TCO SCENARIOS                                                │
-│  ═══════════════════════════                                                 │
-│  │ Basic DPP (no TSA)               │ €0.000013 + €0.00075     │ €0.00076  │
-│  │ With 3x safety buffer            │                          │ €0.0023   │
-│  │ With RFC 3161 TSA                │ + €0.01004               │ €0.0111   │
-│  │ With TSA + 3x buffer             │                          │ €0.033    │
+│  TOTAL 10-YEAR TCO (All DPPs include TSA via Merkle batching)               │
+│  ════════════════════════════════════════════════════════════                │
+│  │ COMMISSIONED phase               │                          │ €0.000013 │
+│  │ PROVISIONED phase                │                          │ €0.00075  │
+│  │ TSA (Merkle batched)             │                          │ €0.000024 │
+│  │ Lifecycle updates                │                          │ €0.000002 │
+│  ├──────────────────────────────────│──────────────────────────│───────────│
+│  │ TOTAL BASE COST                  │                          │ €0.00079  │
+│  │ WITH 3x SAFETY BUFFER            │                          │ €0.0024   │
 │  └──────────────────────────────────────────────────────────────────────────│
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Gross Margin Analysis by Tier
+### Gross Margin Analysis by Tier (TSA Included via Merkle Batching)
 
 | Tier | DPP Price | 10-Year TCO | Gross Margin | Status |
 |------|-----------|-------------|--------------|--------|
-| **Starter** | €0.10 | €0.0023 | **97.7%** | ✅ Healthy |
-| **Growth** | €0.05 | €0.0023 | **95.4%** | ✅ Healthy |
-| **Scale** | €0.02 | €0.0023 | **88.5%** | ✅ Healthy |
-| **Enterprise** | €0.008 | €0.0023 | **71.3%** | ✅ Acceptable |
-| **Platform (floor)** | €0.003 | €0.0023 | **23.3%** | ⚠️ Minimum viable |
-| **Platform (negotiated)** | €0.001 | €0.0023 | **-130%** | ❌ Below cost |
+| **Starter** | €0.10 | €0.0024 | **97.6%** | ✅ Healthy |
+| **Growth** | €0.05 | €0.0024 | **95.2%** | ✅ Healthy |
+| **Scale** | €0.02 | €0.0024 | **88.0%** | ✅ Healthy |
+| **Enterprise** | €0.008 | €0.0024 | **70.0%** | ✅ Acceptable |
+| **Platform (floor)** | €0.003 | €0.0024 | **20.0%** | ⚠️ Minimum viable |
 
 **Key Insights:**
-1. All standard tiers maintain healthy margins (71%+ even at Enterprise)
-2. Platform floor pricing at €0.003 is the minimum viable price
-3. **Never price below €0.0025/DPP** (break-even with buffer)
+1. **RFC 3161 timestamps included for ALL tiers** (via Merkle batching)
+2. All standard tiers maintain healthy margins (70%+ even at Enterprise)
+3. Platform floor pricing at €0.003 is the minimum viable price
+4. **Never price below €0.0025/DPP** (break-even with buffer)
 
-### RFC 3161 Timestamp Pricing
+### Merkle Tree Timestamping
 
-⚠️ **CRITICAL:** TSA timestamps cost €0.01 per call. This MUST be priced separately:
+RFC 3161 timestamps are included for all tiers using Merkle tree batching:
 
-| Scenario | TSA Cost | Minimum DPP Price | Margin |
-|----------|----------|-------------------|--------|
-| Without TSA | €0 | €0.003 | 23%+ |
-| With TSA | €0.01 | €0.015 | 33%+ |
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    MERKLE TREE TIMESTAMPING                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  INSTEAD OF:                          WE DO:                                │
+│  ────────────                         ──────                                 │
+│  DPP-001 ──► TSA ──► €0.01            DPP-001 ─┐                            │
+│  DPP-002 ──► TSA ──► €0.01            DPP-002 ─┼─► Merkle Root ──► TSA      │
+│  DPP-003 ──► TSA ──► €0.01            DPP-003 ─┤                  │         │
+│  ...                                  ...      │                  ▼         │
+│  DPP-500 ──► TSA ──► €0.01            DPP-500 ─┘              €0.01 total   │
+│  ─────────────────────────            ─────────────────────────────────────  │
+│  500 DPPs = €5.00                     500 DPPs = €0.01 = €0.00002/DPP       │
+│                                                                              │
+│  HOW IT WORKS:                                                              │
+│  1. Batch is RELEASED → collect all DPP snapshot hashes                     │
+│  2. Build Merkle tree from hashes                                           │
+│  3. Timestamp ONLY the Merkle root (one TSA call per batch)                 │
+│  4. Store Merkle proof with each DPP (256 bytes)                            │
+│  5. Any DPP can independently prove it was in the timestamped batch         │
+│                                                                              │
+│  LEGAL VALIDITY:                                                            │
+│  ✅ RFC 3161 compliant (TSA signs the root)                                  │
+│  ✅ eIDAS compatible (third-party timestamp)                                 │
+│  ✅ Each DPP has cryptographic proof of inclusion                            │
+│  ✅ Court-admissible evidence of timestamp                                   │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
-**Recommendation:** RFC 3161 timestamps should be:
-- **Included** for Enterprise tier (already priced at €0.008 = covers €0.0023 base, TSA extra)
-- **Add-on** at €0.015/DPP for Scale and below
-- **Negotiated** for Platform (bundle pricing)
+| Batch Size | TSA Cost | Per-DPP Cost | Savings vs Individual |
+|------------|----------|--------------|----------------------|
+| 100 DPPs | €0.01 | €0.0001 | 99% |
+| 500 DPPs | €0.01 | €0.00002 | 99.8% |
+| 1,000 DPPs | €0.01 | €0.00001 | 99.9% |
+| 10,000 DPPs | €0.01 | €0.000001 | 99.99% |
 
 ### Orphaned COMMISSIONED DPPs
 
@@ -1009,7 +1043,8 @@ async function handlePaymentSucceeded(invoice: Stripe.Invoice) {
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 0.4 | 2026-01-16 | Added DPP Lifecycle Cost Analysis (10-Year TCO), gross margin analysis by tier, TSA pricing recommendation, orphan DPP analysis |
+| 0.5 | 2026-01-16 | RFC 3161 timestamps now included ALL tiers via Merkle batching (€0.00002/DPP vs €0.01 individual) |
+| 0.4 | 2026-01-16 | Added DPP Lifecycle Cost Analysis (10-Year TCO), gross margin analysis by tier, orphan DPP analysis |
 | 0.3 | 2026-01-16 | Added DPP billing trigger (COMMISSIONED→PROVISIONED), SKU hosting fee (€0.50/yr), Recall operations billing (80% margin) |
 | 0.2 | 2026-01-15 | Added Section 4: Shipping & Logistics Billing with storage costs and margins |
 | 0.1 | 2026-01-15 | Initial draft from BILLING.md review |

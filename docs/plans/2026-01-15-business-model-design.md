@@ -245,36 +245,47 @@ Automatic discounts as monthly DPP volume increases:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### Gross Margins by Tier (Revised with Lifecycle Costs)
+### Gross Margins by Tier (TSA Included via Merkle Batching)
 
 | Tier | DPP Price | 10-Year TCO | Gross Margin | Status |
 |------|-----------|-------------|--------------|--------|
-| Starter | €0.10 | €0.0023 | **97.7%** | ✅ Healthy |
-| Growth | €0.05 | €0.0023 | **95.4%** | ✅ Healthy |
-| Scale | €0.02 | €0.0023 | **88.5%** | ✅ Healthy |
-| Enterprise | €0.008 | €0.0023 | **71.3%** | ✅ Acceptable |
-| Platform (floor) | €0.003 | €0.0023 | **23.3%** | ⚠️ Minimum viable |
+| Starter | €0.10 | €0.0024 | **97.6%** | ✅ Healthy |
+| Growth | €0.05 | €0.0024 | **95.2%** | ✅ Healthy |
+| Scale | €0.02 | €0.0024 | **88.0%** | ✅ Healthy |
+| Enterprise | €0.008 | €0.0024 | **70.0%** | ✅ Acceptable |
+| Platform (floor) | €0.003 | €0.0024 | **20.0%** | ⚠️ Minimum viable |
 
-> **Note:** TCO revised from €0.00035 to €0.0023 (with 3x buffer) based on DPP lifecycle analysis.
-> Includes: COMMISSIONED phase, PROVISIONED phase (snapshot + signing), 10-year storage.
-> See [Billing Design](./2026-01-15-billing-design.md#dpp-lifecycle-cost-analysis-10-year-tco) for detailed breakdown.
+> **Note:** TCO = €0.0024 (with 3x buffer). Includes:
+> - COMMISSIONED phase, PROVISIONED phase (snapshot + signing)
+> - **RFC 3161 timestamps via Merkle batching** (all tiers)
+> - 10-year storage
+>
+> See [Billing Design](./2026-01-15-billing-design.md#merkle-tree-timestamping) for Merkle batching details.
 
 **Critical Pricing Floors:**
-- **Minimum viable price:** €0.003/DPP (23% margin)
+- **Minimum viable price:** €0.003/DPP (20% margin)
 - **Break-even with buffer:** €0.0025/DPP
 - **Never price below:** €0.002/DPP (negative margin)
 
-### RFC 3161 Timestamp Add-on
+### RFC 3161 Timestamps Included (All Tiers)
 
-TSA timestamps cost €0.01 per call. Pricing strategy:
+Using Merkle tree batching, RFC 3161 timestamps cost only €0.00002/DPP instead of €0.01:
 
-| Tier | TSA Included? | TSA Add-on Price | Notes |
-|------|---------------|------------------|-------|
-| Starter | ❌ No | €0.015/DPP | Add-on only |
-| Growth | ❌ No | €0.015/DPP | Add-on only |
-| Scale | ❌ No | €0.015/DPP | Add-on only |
-| Enterprise | ✅ Yes | Included | Built into €0.008 pricing |
-| Platform | ✅ Yes | Negotiated | Bundle pricing |
+```
+┌────────────────────────────────────────────────────────────────┐
+│  MERKLE BATCHING: One TSA call per batch, not per DPP         │
+├────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  Batch of 500 DPPs:                                            │
+│  ├─ Individual TSA: 500 × €0.01 = €5.00                        │
+│  └─ Merkle batched: 1 × €0.01 = €0.01 (€0.00002/DPP)          │
+│                                                                 │
+│  ✅ Legally equivalent (eIDAS compliant)                        │
+│  ✅ 99.8% cost reduction                                        │
+│  ✅ Included for ALL tiers                                      │
+│                                                                 │
+└────────────────────────────────────────────────────────────────┘
+```
 
 ### Key Insight: 10-Year Hosting Included
 
@@ -606,7 +617,8 @@ Personnel is the real cost driver.
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 0.4 | 2026-01-16 | Revised DPP margins (TCO €0.00035→€0.0023), added pricing floors, added TSA add-on pricing strategy |
+| 0.5 | 2026-01-16 | RFC 3161 timestamps now included ALL tiers via Merkle batching (TCO €0.0024) |
+| 0.4 | 2026-01-16 | Revised DPP margins (TCO €0.00035→€0.0023), added pricing floors |
 | 0.3 | 2026-01-16 | Clarified DPP billing trigger (COMMISSIONED→PROVISIONED), added SKU hosting (€0.50/yr), added Recall operations (80% margin) |
 | 0.2 | 2026-01-15 | Added Section 6: Shipping Revenue, DPP vs Evidence Package economics |
 | 0.1 | 2026-01-15 | Initial draft from BUSINESS_MODEL.md review |
