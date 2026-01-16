@@ -55,6 +55,108 @@ EuroComply uses Stripe for all billing operations with a **Base Fee + Per-DPP + 
 
 > **Reference:** See [Compliance Workspace Design](./2026-01-15-compliance-workspace-design.md#4-dpp-lifecycle-birth-certificate-model) for complete lifecycle states.
 
+### DPP Lifecycle Cost Analysis (10-Year TCO)
+
+The two-phase DPP lifecycle (COMMISSIONED → PROVISIONED) introduces costs at each phase:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    DPP LIFECYCLE 10-YEAR TCO                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  PHASE 1: COMMISSIONED (Serial Created)                                     │
+│  ═══════════════════════════════════════                                     │
+│  │ Component                        │ Calculation              │ Cost      │
+│  ├──────────────────────────────────│──────────────────────────│───────────│
+│  │ PostgreSQL row (empty shell ~1KB)│ 1KB × 120mo × $0.10/GB   │ €0.000012 │
+│  │ Write operation                  │ One-time                 │ €0.000001 │
+│  ├──────────────────────────────────│──────────────────────────│───────────│
+│  │ PHASE 1 SUBTOTAL                 │                          │ €0.000013 │
+│  └──────────────────────────────────────────────────────────────────────────│
+│                                                                              │
+│  PHASE 2: PROVISIONED (Batch Released)                                      │
+│  ═════════════════════════════════════                                       │
+│  │ Component                        │ Calculation              │ Cost      │
+│  ├──────────────────────────────────│──────────────────────────│───────────│
+│  │ Design data fetch (reads)        │ 3 queries                │ €0.00001  │
+│  │ Marketing data fetch (reads)     │ 2 queries                │ €0.00001  │
+│  │ Operations data fetch (reads)    │ 5 queries                │ €0.00002  │
+│  │ JSONB snapshot storage (~50KB)   │ 50KB × 120mo × $0.10/GB  │ €0.0006   │
+│  │ SHA256 hash computation          │ CPU cycles               │ €0.000001 │
+│  │ JWS signing (KMS/Cloudflare)     │ Crypto operation         │ €0.0001   │
+│  │ DID resolution                   │ Cache hit 99%            │ €0.00001  │
+│  │ Database update                  │ One-time                 │ €0.000001 │
+│  ├──────────────────────────────────│──────────────────────────│───────────│
+│  │ PHASE 2 SUBTOTAL (without TSA)   │                          │ €0.00075  │
+│  └──────────────────────────────────────────────────────────────────────────│
+│                                                                              │
+│  RFC 3161 TIMESTAMP (Add-on)                                                │
+│  ═══════════════════════════                                                 │
+│  │ TSA API call (DigiCert/Sectigo)  │ Per-DPP                  │ €0.01     │
+│  │ Token storage (R2)               │ 2KB × 120mo × $0.015/GB  │ €0.00004  │
+│  ├──────────────────────────────────│──────────────────────────│───────────│
+│  │ TSA SUBTOTAL                     │                          │ €0.01004  │
+│  └──────────────────────────────────────────────────────────────────────────│
+│                                                                              │
+│  ACTIVE/DECOMMISSIONED (Lifecycle)                                          │
+│  ═════════════════════════════════                                           │
+│  │ Status updates                   │ 1-2 per lifetime         │ €0.000002 │
+│  └──────────────────────────────────────────────────────────────────────────│
+│                                                                              │
+│  TOTAL 10-YEAR TCO SCENARIOS                                                │
+│  ═══════════════════════════                                                 │
+│  │ Basic DPP (no TSA)               │ €0.000013 + €0.00075     │ €0.00076  │
+│  │ With 3x safety buffer            │                          │ €0.0023   │
+│  │ With RFC 3161 TSA                │ + €0.01004               │ €0.0111   │
+│  │ With TSA + 3x buffer             │                          │ €0.033    │
+│  └──────────────────────────────────────────────────────────────────────────│
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Gross Margin Analysis by Tier
+
+| Tier | DPP Price | 10-Year TCO | Gross Margin | Status |
+|------|-----------|-------------|--------------|--------|
+| **Starter** | €0.10 | €0.0023 | **97.7%** | ✅ Healthy |
+| **Growth** | €0.05 | €0.0023 | **95.4%** | ✅ Healthy |
+| **Scale** | €0.02 | €0.0023 | **88.5%** | ✅ Healthy |
+| **Enterprise** | €0.008 | €0.0023 | **71.3%** | ✅ Acceptable |
+| **Platform (floor)** | €0.003 | €0.0023 | **23.3%** | ⚠️ Minimum viable |
+| **Platform (negotiated)** | €0.001 | €0.0023 | **-130%** | ❌ Below cost |
+
+**Key Insights:**
+1. All standard tiers maintain healthy margins (71%+ even at Enterprise)
+2. Platform floor pricing at €0.003 is the minimum viable price
+3. **Never price below €0.0025/DPP** (break-even with buffer)
+
+### RFC 3161 Timestamp Pricing
+
+⚠️ **CRITICAL:** TSA timestamps cost €0.01 per call. This MUST be priced separately:
+
+| Scenario | TSA Cost | Minimum DPP Price | Margin |
+|----------|----------|-------------------|--------|
+| Without TSA | €0 | €0.003 | 23%+ |
+| With TSA | €0.01 | €0.015 | 33%+ |
+
+**Recommendation:** RFC 3161 timestamps should be:
+- **Included** for Enterprise tier (already priced at €0.008 = covers €0.0023 base, TSA extra)
+- **Add-on** at €0.015/DPP for Scale and below
+- **Negotiated** for Platform (bundle pricing)
+
+### Orphaned COMMISSIONED DPPs
+
+Serials created but never provisioned (failed batches, QC rejects) consume storage but generate no revenue:
+
+| Orphan Rate | Cost Impact per Provisioned DPP | Margin Impact |
+|-------------|--------------------------------|---------------|
+| 1% | €0.00000013 | Negligible |
+| 5% | €0.00000065 | Negligible |
+| 10% | €0.0000013 | Negligible |
+| 50% | €0.0000065 | < 0.01% |
+
+**Conclusion:** Orphaned DPPs have negligible cost impact. The lifecycle model is cost-efficient.
+
 ### Key Principles
 
 1. **Transparent Pricing**: Up to four categories on every invoice (Base + DPP + Users + Shipping)
@@ -907,6 +1009,7 @@ async function handlePaymentSucceeded(invoice: Stripe.Invoice) {
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 0.4 | 2026-01-16 | Added DPP Lifecycle Cost Analysis (10-Year TCO), gross margin analysis by tier, TSA pricing recommendation, orphan DPP analysis |
 | 0.3 | 2026-01-16 | Added DPP billing trigger (COMMISSIONED→PROVISIONED), SKU hosting fee (€0.50/yr), Recall operations billing (80% margin) |
 | 0.2 | 2026-01-15 | Added Section 4: Shipping & Logistics Billing with storage costs and margins |
 | 0.1 | 2026-01-15 | Initial draft from BILLING.md review |

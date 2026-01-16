@@ -245,15 +245,36 @@ Automatic discounts as monthly DPP volume increases:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### Gross Margins by Tier
+### Gross Margins by Tier (Revised with Lifecycle Costs)
 
-| Tier | DPP Price | 10-Year TCO | Gross Margin |
-|------|-----------|-------------|--------------|
-| Starter | €0.10 | €0.00035 | **99.7%** |
-| Growth | €0.05 | €0.00035 | **99.3%** |
-| Scale | €0.02 | €0.00035 | **98.3%** |
-| Enterprise | €0.008 | €0.00035 | **95.6%** |
-| Platform (floor) | €0.001 | €0.00035 | **65%** |
+| Tier | DPP Price | 10-Year TCO | Gross Margin | Status |
+|------|-----------|-------------|--------------|--------|
+| Starter | €0.10 | €0.0023 | **97.7%** | ✅ Healthy |
+| Growth | €0.05 | €0.0023 | **95.4%** | ✅ Healthy |
+| Scale | €0.02 | €0.0023 | **88.5%** | ✅ Healthy |
+| Enterprise | €0.008 | €0.0023 | **71.3%** | ✅ Acceptable |
+| Platform (floor) | €0.003 | €0.0023 | **23.3%** | ⚠️ Minimum viable |
+
+> **Note:** TCO revised from €0.00035 to €0.0023 (with 3x buffer) based on DPP lifecycle analysis.
+> Includes: COMMISSIONED phase, PROVISIONED phase (snapshot + signing), 10-year storage.
+> See [Billing Design](./2026-01-15-billing-design.md#dpp-lifecycle-cost-analysis-10-year-tco) for detailed breakdown.
+
+**Critical Pricing Floors:**
+- **Minimum viable price:** €0.003/DPP (23% margin)
+- **Break-even with buffer:** €0.0025/DPP
+- **Never price below:** €0.002/DPP (negative margin)
+
+### RFC 3161 Timestamp Add-on
+
+TSA timestamps cost €0.01 per call. Pricing strategy:
+
+| Tier | TSA Included? | TSA Add-on Price | Notes |
+|------|---------------|------------------|-------|
+| Starter | ❌ No | €0.015/DPP | Add-on only |
+| Growth | ❌ No | €0.015/DPP | Add-on only |
+| Scale | ❌ No | €0.015/DPP | Add-on only |
+| Enterprise | ✅ Yes | Included | Built into €0.008 pricing |
+| Platform | ✅ Yes | Negotiated | Bundle pricing |
 
 ### Key Insight: 10-Year Hosting Included
 
@@ -585,6 +606,7 @@ Personnel is the real cost driver.
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 0.4 | 2026-01-16 | Revised DPP margins (TCO €0.00035→€0.0023), added pricing floors, added TSA add-on pricing strategy |
 | 0.3 | 2026-01-16 | Clarified DPP billing trigger (COMMISSIONED→PROVISIONED), added SKU hosting (€0.50/yr), added Recall operations (80% margin) |
 | 0.2 | 2026-01-15 | Added Section 6: Shipping Revenue, DPP vs Evidence Package economics |
 | 0.1 | 2026-01-15 | Initial draft from BUSINESS_MODEL.md review |
