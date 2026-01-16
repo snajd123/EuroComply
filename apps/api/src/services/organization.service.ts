@@ -1,6 +1,9 @@
 import { prisma, createTenantSchema, publishEvent, EventTypes } from '@eurocomply/db';
 import { ConflictError, NotFoundError } from '../lib/errors.js';
 
+/** Default storage limit for new organizations: 500GB */
+const DEFAULT_STORAGE_LIMIT_BYTES = BigInt(500 * 1024 * 1024 * 1024);
+
 export interface CreateOrganizationInput {
   name: string;
   ownerClerkId: string;
@@ -21,6 +24,14 @@ export interface OrganizationWithOwner {
     email: string;
     name: string | null;
   };
+}
+
+export interface UserOrganizationSummary {
+  id: string;
+  name: string;
+  slug: string;
+  role: string;
+  subscriptionTier: string;
 }
 
 /**
@@ -83,7 +94,7 @@ export async function createOrganization(
         subscriptionTier: 'starter',
         subscriptionStatus: 'active',
         userLimit: 20,
-        storageLimit: BigInt(536870912000), // 500GB
+        storageLimit: DEFAULT_STORAGE_LIMIT_BYTES,
       },
     });
 
@@ -179,7 +190,7 @@ export async function getOrganization(id: string): Promise<OrganizationWithOwner
 /**
  * Lists organizations for a user.
  */
-export async function listUserOrganizations(userId: string) {
+export async function listUserOrganizations(userId: string): Promise<UserOrganizationSummary[]> {
   const memberships = await prisma.organizationUser.findMany({
     where: { userId },
     include: { organization: true },
