@@ -22,7 +22,7 @@ COPY apps/api/package.json ./apps/api/
 COPY packages/shared/package.json ./packages/shared/
 COPY packages/db/package.json ./packages/db/
 
-# Install all dependencies (including devDependencies for build)
+# Install all dependencies
 RUN pnpm install --frozen-lockfile
 
 # =============================================================================
@@ -48,32 +48,11 @@ RUN pnpm db:generate
 # Build all packages
 RUN pnpm build
 
-# =============================================================================
-# Stage 4: Production - Install only production deps
-# =============================================================================
-FROM base AS production
-
-# Copy package files
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY apps/api/package.json ./apps/api/
-COPY packages/shared/package.json ./packages/shared/
-COPY packages/db/package.json ./packages/db/
-
-# Install production dependencies only
-RUN pnpm install --frozen-lockfile --prod
-
-# Copy built application from builder
-COPY --from=builder /app/apps/api/dist ./apps/api/dist
-COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
-COPY --from=builder /app/packages/db/dist ./packages/db/dist
-
-# Copy Prisma schema and generated client
-COPY --from=builder /app/packages/db/prisma ./packages/db/prisma
-COPY --from=builder /app/node_modules/.pnpm/@prisma+client@*/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
+# Prune dev dependencies after build
+RUN pnpm prune --prod
 
 # =============================================================================
-# Stage 5: Runner - Final production image
+# Stage 4: Runner - Final production image
 # =============================================================================
 FROM node:20-alpine AS runner
 
@@ -83,8 +62,25 @@ RUN addgroup --system --gid 1001 nodejs && \
 
 WORKDIR /app
 
-# Copy everything from production stage
-COPY --from=production --chown=eurocomply:nodejs /app ./
+# Copy package files (needed for module resolution)
+COPY --from=builder /app/package.json ./
+COPY --from=builder /app/apps/api/package.json ./apps/api/
+COPY --from=builder /app/packages/shared/package.json ./packages/shared/
+COPY --from=builder /app/packages/db/package.json ./packages/db/
+
+# Copy node_modules (pruned to production only)
+COPY --from=builder /app/node_modules ./node_modules
+
+# Copy built application
+COPY --from=builder /app/apps/api/dist ./apps/api/dist
+COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
+COPY --from=builder /app/packages/db/dist ./packages/db/dist
+
+# Copy Prisma schema (needed for migrations)
+COPY --from=builder /app/packages/db/prisma ./packages/db/prisma
+
+# Set ownership
+RUN chown -R eurocomply:nodejs /app
 
 # Switch to non-root user
 USER eurocomply
