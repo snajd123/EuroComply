@@ -794,6 +794,163 @@ When a DPP's linked Batch is marked as RECALLED, the resolver injects a warning 
 | RECALLED | Full content + Recall Overlay at top |
 | DECOMMISSIONED | "This product has been retired." + Archive data |
 
+### 6.4 Recall Propagation Service (Operations → Compliance Handshake)
+
+When Operations marks a batch as RECALLED, the Compliance workspace must update all affected DPPs. This is the **Reverse Handshake** - Operations triggers, Compliance executes.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    RECALL PROPAGATION PATTERN                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  OPERATIONS (Source of Product Health)                                      │
+│  ═════════════════════════════════════                                       │
+│  1. User with MANAGER authority marks batch as RECALLED                     │
+│  2. Operations creates a signed Notary Event (audit proof)                  │
+│  3. Operations emits event: { type: 'BATCH_RECALLED', batchId, recallId }   │
+│                                                                              │
+│                              │                                               │
+│                              ▼                                               │
+│                                                                              │
+│  COMPLIANCE (Source of Public Truth)                                        │
+│  ════════════════════════════════════                                        │
+│  4. DPP Revocation Service receives event                                   │
+│  5. Query all dpp_snapshot WHERE batch_id = X                               │
+│  6. Batch update: status → RECALLED, inject overlay                         │
+│  7. Record billing event (recall fee per DPP)                               │
+│                                                                              │
+│  WHY EVENT-DRIVEN (not live join):                                          │
+│  • Consumer QR scans are fast (pre-computed state)                          │
+│  • No cross-workspace database joins at read time                           │
+│  • Recall state is cached in the dpp_snapshot record                        │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+```typescript
+// DPP Revocation Service (Compliance Workspace)
+// Triggered by Operations batch recall event
+
+interface RecallEvent {
+  type: 'BATCH_RECALLED';
+  batchId: string;
+  recallId: string;
+  reason: string;
+  severity: 'SAFETY' | 'QUALITY' | 'COMPLIANCE';
+  consumerAction: string;
+  issuedBy: string;
+  issuedAt: string;
+}
+
+async function handleBatchRecall(event: RecallEvent): Promise<RecallResult> {
+  const { batchId, recallId, reason, severity, consumerAction } = event;
+
+  // 1. Identify all affected DPPs
+  const affectedDpps = await db.dppSnapshot.findMany({
+    where: { batch_id: batchId }
+  });
+
+  if (affectedDpps.length === 0) {
+    return { success: true, affected: 0 };
+  }
+
+  // 2. Build the recall overlay content
+  const recallOverlay = {
+    recall_id: recallId,
+    reason: reason,
+    severity: severity,
+    consumer_action: consumerAction,
+    recalled_at: event.issuedAt,
+    issued_by: event.issuedBy,
+    // Link back to Operations for forensic audit
+    operations_event_link: `/api/v1/operations/events/${event.recallId}`
+  };
+
+  // 3. Batch update all affected DPPs
+  await db.dppSnapshot.updateMany({
+    where: { batch_id: batchId },
+    data: {
+      status: 'RECALLED',
+      recall_id: recallId,
+      recall_overlay: recallOverlay
+    }
+  });
+
+  // 4. Record state transition for each DPP (audit trail)
+  for (const dpp of affectedDpps) {
+    await db.dppTransition.create({
+      dpp_snapshot_id: dpp.id,
+      from_status: dpp.status,
+      to_status: 'RECALLED',
+      trigger: 'RECALL_ISSUED',
+      triggered_by: 'SYSTEM',
+      reason_code: reason,
+      metadata: { recall_id: recallId }
+    });
+  }
+
+  // 5. Trigger billing (recall fee per DPP)
+  // See: billing-design.md Section 6 (Recall Operations Billing)
+  await recordRecallUsage({
+    organization_id: affectedDpps[0].organization_id,
+    recall_id: recallId,
+    items_recalled: affectedDpps.length,
+    fee_rate: 0.001  // €0.001 per item
+  });
+
+  return {
+    success: true,
+    affected: affectedDpps.length,
+    recall_id: recallId
+  };
+}
+
+// Recall Resolution (when issue is fixed)
+async function handleRecallResolution(recallId: string): Promise<void> {
+  // 1. Get all DPPs with this recall
+  const affectedDpps = await db.dppSnapshot.findMany({
+    where: { recall_id: recallId, status: 'RECALLED' }
+  });
+
+  // 2. Restore to ACTIVE (or previous state)
+  await db.dppSnapshot.updateMany({
+    where: { recall_id: recallId },
+    data: {
+      status: 'ACTIVE',
+      recall_overlay: null  // Remove warning
+    }
+  });
+
+  // 3. Record resolution billing (€0.0005 per item)
+  await recordRecallUsage({
+    organization_id: affectedDpps[0].organization_id,
+    recall_id: recallId,
+    items_resolved: affectedDpps.length,
+    fee_rate: 0.0005
+  });
+}
+```
+
+**Verification Ceremony Impact:**
+
+When a DPP is RECALLED, the Verification Ceremony (Section 7) ends with a **Critical Failure**:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  ❌ VERIFICATION FAILED                                                      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  The cryptographic seal is intact, but this batch has been                  │
+│  RECALLED by the manufacturer.                                              │
+│                                                                              │
+│  Reason: [Consumer safety concern - potential allergen contamination]       │
+│                                                                              │
+│  [ VIEW RECALL DETAILS ]                                                    │
+│  [ VIEW FORENSIC EVIDENCE ]  ← Links to Operations Notary Event             │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
 ---
 
 ## 7. Verification Ceremony (Proof Ritual)
@@ -1059,13 +1216,306 @@ GET    /api/v1/public/verify/:dpp_uri             # Public verification (no auth
 GET    /api/v1/public/dpps/:dpp_uri               # Public DPP data (no auth)
 ```
 
+### Public Revocation API (Third-Party Access)
+
+```
+GET    /api/v1/public/recall/check/:gtin/:serial  # Check single product recall status
+POST   /api/v1/public/recall/batch                # Batch check (up to 100 items)
+GET    /api/v1/public/recall/feed                 # RSS/Atom feed of active recalls
+GET    /api/v1/public/recall/:recall_id           # Get recall details by ID
+```
+
 ---
 
-## 11. Changelog
+## 11. Public Revocation API
 
-| Version | Date | Changes |
-|---------|------|---------|
-| 0.1 | 2026-01-15 | Initial draft: Birth Certificate Model, Transparency Funnel, Proof Ceremony |
+Third-party systems (retailers, POS terminals, customs, marketplaces) need to verify product recall status without authentication. This API enables the "Deep Trust" ecosystem where any stakeholder can check compliance status.
+
+### 11.1 Design Principles
+
+| Principle | Rationale |
+|-----------|-----------|
+| **No authentication required** | Recall status is public safety information |
+| **High availability** | Edge-cached via CDN, 99.9% uptime SLA |
+| **Rate-limited by IP** | 1000 req/min free tier, higher with API key |
+| **Machine-readable** | JSON responses, standardized error codes |
+| **Privacy-preserving** | Returns status only, not consumer data |
+
+### 11.2 Single Product Check
+
+**Endpoint:** `GET /api/v1/public/recall/check/:gtin/:serial`
+
+```typescript
+// Request
+GET /api/v1/public/recall/check/01234567890123/ABC-001
+
+// Response (no recall)
+{
+  "gtin": "01234567890123",
+  "serial": "ABC-001",
+  "status": "CLEAR",
+  "checked_at": "2026-01-16T10:30:00Z",
+  "cache_ttl": 300
+}
+
+// Response (active recall)
+{
+  "gtin": "01234567890123",
+  "serial": "ABC-001",
+  "status": "RECALLED",
+  "recall": {
+    "id": "RCL-2026-001",
+    "severity": "CLASS_I",
+    "reason": "Potential battery overheating",
+    "issued_at": "2026-01-15T08:00:00Z",
+    "consumer_action": "Stop using immediately. Return to retailer for full refund.",
+    "manufacturer": "TechCorp GmbH",
+    "official_notice_url": "https://techcorp.eu/recalls/RCL-2026-001"
+  },
+  "checked_at": "2026-01-16T10:30:00Z",
+  "cache_ttl": 60
+}
+
+// Response (product not found)
+{
+  "gtin": "01234567890123",
+  "serial": "UNKNOWN-999",
+  "status": "NOT_FOUND",
+  "message": "Product not registered in EuroComply system",
+  "checked_at": "2026-01-16T10:30:00Z"
+}
+```
+
+### 11.3 Batch Check (POS/Inventory Systems)
+
+**Endpoint:** `POST /api/v1/public/recall/batch`
+
+For retailers scanning inventory or POS systems checking cart contents.
+
+```typescript
+// Request
+POST /api/v1/public/recall/batch
+Content-Type: application/json
+
+{
+  "items": [
+    { "gtin": "01234567890123", "serial": "ABC-001" },
+    { "gtin": "01234567890123", "serial": "ABC-002" },
+    { "gtin": "09876543210987", "serial": "XYZ-100" }
+  ]
+}
+
+// Response
+{
+  "checked_at": "2026-01-16T10:30:00Z",
+  "total": 3,
+  "clear": 2,
+  "recalled": 1,
+  "not_found": 0,
+  "results": [
+    { "gtin": "01234567890123", "serial": "ABC-001", "status": "CLEAR" },
+    { "gtin": "01234567890123", "serial": "ABC-002", "status": "RECALLED", "recall_id": "RCL-2026-001" },
+    { "gtin": "09876543210987", "serial": "XYZ-100", "status": "CLEAR" }
+  ]
+}
+```
+
+**Limits:**
+- Free tier: 100 items per batch, 10 batches/minute
+- With API key: 1000 items per batch, 100 batches/minute
+
+### 11.4 Active Recalls Feed
+
+**Endpoint:** `GET /api/v1/public/recall/feed`
+
+RSS/Atom feed for systems that want to subscribe to all active recalls.
+
+```typescript
+// Request
+GET /api/v1/public/recall/feed?format=json&since=2026-01-01
+
+// Response
+{
+  "feed_version": "1.0",
+  "updated_at": "2026-01-16T10:00:00Z",
+  "recalls": [
+    {
+      "id": "RCL-2026-001",
+      "manufacturer_id": "org_techcorp",
+      "manufacturer_name": "TechCorp GmbH",
+      "product_name": "PowerBank Pro 10000",
+      "gtin": "01234567890123",
+      "severity": "CLASS_I",
+      "reason": "Potential battery overheating",
+      "issued_at": "2026-01-15T08:00:00Z",
+      "affected_serials_count": 5000,
+      "consumer_action": "Stop using immediately. Return to retailer.",
+      "status": "ACTIVE"
+    }
+  ],
+  "pagination": {
+    "total": 1,
+    "page": 1,
+    "per_page": 50
+  }
+}
+```
+
+**Feed options:**
+- `format`: `json` (default), `atom`, `rss`
+- `since`: ISO date filter
+- `severity`: `CLASS_I`, `CLASS_II`, `CLASS_III`
+- `manufacturer_id`: Filter by specific manufacturer
+
+### 11.5 Recall Detail
+
+**Endpoint:** `GET /api/v1/public/recall/:recall_id`
+
+```typescript
+// Request
+GET /api/v1/public/recall/RCL-2026-001
+
+// Response
+{
+  "id": "RCL-2026-001",
+  "status": "ACTIVE",
+  "severity": "CLASS_I",
+  "manufacturer": {
+    "id": "org_techcorp",
+    "name": "TechCorp GmbH",
+    "country": "DE"
+  },
+  "product": {
+    "name": "PowerBank Pro 10000",
+    "gtin": "01234567890123",
+    "category": "Electronics > Power Banks"
+  },
+  "recall_details": {
+    "reason": "Potential battery overheating under high ambient temperatures",
+    "hazard": "Fire risk",
+    "incidents_reported": 3,
+    "injuries_reported": 0
+  },
+  "consumer_action": {
+    "instruction": "Stop using immediately. Return to retailer for full refund.",
+    "refund_available": true,
+    "replacement_available": false
+  },
+  "affected_range": {
+    "serial_prefix": "ABC-",
+    "production_dates": {
+      "from": "2025-10-01",
+      "to": "2025-12-15"
+    },
+    "estimated_units": 5000
+  },
+  "timeline": {
+    "issued_at": "2026-01-15T08:00:00Z",
+    "updated_at": "2026-01-15T08:00:00Z",
+    "resolved_at": null
+  },
+  "official_links": {
+    "manufacturer_notice": "https://techcorp.eu/recalls/RCL-2026-001",
+    "regulatory_notice": "https://ec.europa.eu/safety-gate/..."
+  }
+}
+```
+
+### 11.6 Implementation Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     CDN Edge Cache                          │
+│              (Cloudflare/Fastly, 60s TTL)                   │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                   Rate Limiter                              │
+│         (IP-based: 1000/min free, 10000/min with key)       │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│              Public Revocation API Service                  │
+│                                                             │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │
+│  │ Single      │  │ Batch       │  │ Feed        │         │
+│  │ Check       │  │ Check       │  │ Generator   │         │
+│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘         │
+│         │                │                │                 │
+│         └────────────────┼────────────────┘                 │
+│                          ▼                                  │
+│              ┌───────────────────────┐                      │
+│              │   Recall Status       │                      │
+│              │   Materialized View   │                      │
+│              │   (Redis/Postgres)    │                      │
+│              └───────────────────────┘                      │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│              Recall Propagation Service                     │
+│              (Section 6.4 - Event Handler)                  │
+│                                                             │
+│    Operations RECALL event → Updates materialized view      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 11.7 Materialized View Schema
+
+```sql
+-- Optimized for fast public lookups
+CREATE TABLE public_recall_status (
+  gtin           VARCHAR(14) NOT NULL,
+  serial_number  VARCHAR(100) NOT NULL,
+  status         VARCHAR(20) NOT NULL DEFAULT 'CLEAR',  -- CLEAR, RECALLED, RESOLVED
+  recall_id      VARCHAR(50),
+  recall_data    JSONB,  -- Cached recall details for single-query response
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+  PRIMARY KEY (gtin, serial_number)
+);
+
+-- Index for batch queries
+CREATE INDEX idx_recall_status_lookup ON public_recall_status (gtin, serial_number);
+
+-- Active recalls for feed
+CREATE TABLE public_recall_feed (
+  recall_id         VARCHAR(50) PRIMARY KEY,
+  manufacturer_id   VARCHAR(50) NOT NULL,
+  manufacturer_name VARCHAR(255) NOT NULL,
+  product_name      VARCHAR(255) NOT NULL,
+  gtin              VARCHAR(14) NOT NULL,
+  severity          VARCHAR(20) NOT NULL,
+  reason            TEXT NOT NULL,
+  consumer_action   TEXT NOT NULL,
+  issued_at         TIMESTAMPTZ NOT NULL,
+  resolved_at       TIMESTAMPTZ,
+  status            VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+  details           JSONB NOT NULL,
+
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_recall_feed_active ON public_recall_feed (status, issued_at DESC);
+CREATE INDEX idx_recall_feed_manufacturer ON public_recall_feed (manufacturer_id);
+```
+
+### 11.8 Monetization
+
+The Public Revocation API is **free for basic use** (public safety) but offers premium tiers:
+
+| Feature | Free | API Key (€49/mo) | Enterprise |
+|---------|------|------------------|------------|
+| Single checks | 1000/min | 10,000/min | Unlimited |
+| Batch size | 100 items | 1000 items | 10,000 items |
+| Feed access | JSON only | All formats + webhooks | Custom |
+| SLA | Best effort | 99.9% | 99.99% |
+| Support | Community | Email | Dedicated |
+
+**Revenue opportunity:** Retailers with large inventories will upgrade for faster batch checks and webhook notifications.
 
 ---
 
@@ -1085,6 +1535,8 @@ GET    /api/v1/public/dpps/:dpp_uri               # Public DPP data (no auth)
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 0.6 | 2026-01-16 | Added Section 11: Public Revocation API - third-party recall status checks |
+| 0.5 | 2026-01-16 | Added Section 6.4: Recall Propagation Service (Operations → Compliance handshake) |
 | 0.4 | 2026-01-16 | Added Merkle Tree Timestamp Service (Section 5.4) - RFC 3161 for all tiers via batching |
 | 0.3 | 2026-01-16 | Added cross-reference to Operations→Compliance bridge |
 | 0.2 | 2026-01-16 | Added Section 4.5: Billing Triggers (DPP provisioning, Recall fees) |
