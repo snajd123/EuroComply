@@ -23,7 +23,7 @@ EuroComply is a Unified Product Lifecycle & Compliance Platform combining PLM, E
 
 ## 2. Pricing Structure
 
-### Base Fee + Per-DPP + Shipping Model
+### Base Fee + Per-DPP + SKU Hosting + Shipping Model
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -39,13 +39,29 @@ EuroComply is a Unified Product Lifecycle & Compliance Platform combining PLM, E
 │  • API access and webhooks                                       │
 │  • Support level (varies by tier)                               │
 │                                                                  │
-│  PER-DPP FEE                                                    │
-│  ───────────                                                     │
+│  PER-DPP FEE (Triggered at Provisioning)                        │
+│  ───────────────────────────────────────                         │
+│  • Charged when DPP transitions COMMISSIONED → PROVISIONED      │
+│  • NOT charged at serial creation (label printing)              │
 │  • DPP generation and VC issuance                               │
 │  • QR code generation (GS1 Digital Link)                        │
 │  • 10-year hosting included in price                            │
 │  • EPCIS lifecycle events included                              │
 │  • Scales with actual compliance output                         │
+│                                                                  │
+│  SKU HOSTING FEE                                                │
+│  ───────────────                                                 │
+│  • €0.50/year per active SKU                                    │
+│  • Covers product catalog hosting costs                         │
+│  • Billed monthly (€0.042/SKU prorated)                         │
+│  • Only active SKUs (released products) count                   │
+│                                                                  │
+│  RECALL OPERATIONS                                              │
+│  ─────────────────                                               │
+│  • €0.001/item for recall initiation                            │
+│  • €0.0005/item for recall resolution                           │
+│  • Cost-based pricing with 80% margin                           │
+│  • Minimum charge: €10 per recall                               │
 │                                                                  │
 │  SHIPPING & LOGISTICS ("Compliant Highway")                     │
 │  ──────────────────────────────────────────                      │
@@ -56,6 +72,8 @@ EuroComply is a Unified Product Lifecycle & Compliance Platform combining PLM, E
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+> **Billing Trigger:** See [Billing Design](./2026-01-15-billing-design.md#dpp-billing-trigger) for DPP billing lifecycle.
 
 ### Pricing Tiers
 
@@ -304,20 +322,31 @@ EuroComply's "Compliant Highway" integrates shipping with compliance verificatio
 │                    REVENUE COMPOSITION (Year 5)                  │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  28% Base Subscription Revenue                                  │
+│  26% Base Subscription Revenue                                  │
 │  ├── Monthly/Annual platform fees                               │
 │  └── Predictable, recurring foundation                          │
 │                                                                  │
-│  58% Per-DPP Revenue                                            │
+│  54% Per-DPP Revenue (Provisioning Trigger)                     │
+│  ├── Charged at COMMISSIONED → PROVISIONED transition           │
 │  ├── Volume-based DPP issuance fees                            │
-│  ├── Scales with customer compliance output                     │
+│  ├── Scales with actual compliance output                       │
 │  └── Primary growth driver                                      │
+│                                                                  │
+│  4% SKU Hosting Revenue                                         │
+│  ├── €0.50/year per active SKU                                  │
+│  ├── Covers product catalog infrastructure                      │
+│  └── Predictable, scales with product count                     │
 │                                                                  │
 │  12% Shipping & Logistics Revenue                               │
 │  ├── Compliance Unlock fees (per consignment)                   │
 │  ├── EPCIS event fees (per EPC tracked)                        │
 │  ├── Customs filing fees (Evidence Package generation)          │
 │  └── Label markup (10% on carrier rates)                        │
+│                                                                  │
+│  2% Recall Operations Revenue                                   │
+│  ├── €0.001/item for recall initiation                          │
+│  ├── €0.0005/item for recall resolution                         │
+│  └── Cost-based with 80% margin (unpredictable)                 │
 │                                                                  │
 │  2% Services Revenue                                            │
 │  ├── Enterprise onboarding                                      │
@@ -326,6 +355,31 @@ EuroComply's "Compliant Highway" integrates shipping with compliance verificatio
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+### SKU Hosting Economics
+
+| Metric | Year 5 |
+|--------|--------|
+| Customers | 6,000 |
+| Average SKUs per customer | 500 |
+| Total active SKUs | 3,000,000 |
+| Annual revenue | €1.5M |
+| 10-year cost per SKU | €0.033 |
+| **Gross Margin** | **93.4%** |
+
+### Recall Operations Economics
+
+| Metric | Year 5 (estimated) |
+|--------|-------------------|
+| Annual recalls (industry avg) | 2% of batches |
+| Average items per recall | 25,000 |
+| Recall initiation fee | €25 average |
+| Resolution fee | €12.50 average |
+| Recall events/year | ~3,600 |
+| Annual revenue | ~€135K |
+| **Gross Margin** | **~77%** |
+
+*Note: Recall revenue is unpredictable and should not be relied upon for projections.*
 
 ### Shipping Revenue Projection
 
@@ -531,5 +585,6 @@ Personnel is the real cost driver.
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 0.3 | 2026-01-16 | Clarified DPP billing trigger (COMMISSIONED→PROVISIONED), added SKU hosting (€0.50/yr), added Recall operations (80% margin) |
 | 0.2 | 2026-01-15 | Added Section 6: Shipping Revenue, DPP vs Evidence Package economics |
 | 0.1 | 2026-01-15 | Initial draft from BUSINESS_MODEL.md review |

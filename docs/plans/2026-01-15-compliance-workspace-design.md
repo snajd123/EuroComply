@@ -200,6 +200,54 @@ interface DPPTransition {
 }
 ```
 
+### 4.5 Billing Triggers
+
+The DPP lifecycle has specific billing implications:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    BILLING EVENTS                                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  COMMISSIONED → PROVISIONED                                                 │
+│  ══════════════════════════                                                  │
+│  ✅ PER-DPP FEE TRIGGERED                                                    │
+│  • This is the ONLY billing event for DPP creation                          │
+│  • Charged per-DPP according to tier pricing                                │
+│  • Covers 10-year hosting, VC issuance, QR generation                       │
+│                                                                              │
+│  ACTIVE → RECALLED (or PROVISIONED → RECALLED)                              │
+│  ═════════════════════════════════════════════                               │
+│  ✅ RECALL INITIATION FEE                                                    │
+│  • €0.001 per item in affected scope                                        │
+│  • Covers Status List updates, notifications, overlay injection             │
+│  • Minimum charge: €10.00                                                   │
+│                                                                              │
+│  RECALLED → ACTIVE                                                          │
+│  ═════════════════                                                           │
+│  ✅ RECALL RESOLUTION FEE                                                    │
+│  • €0.0005 per item resolved                                                │
+│  • Covers Status List updates, overlay removal                              │
+│  • Minimum charge: €5.00                                                    │
+│                                                                              │
+│  OTHER TRANSITIONS                                                          │
+│  ═════════════════                                                           │
+│  ❌ No billing events for:                                                   │
+│  • Serial creation (COMMISSIONED state)                                     │
+│  • Delivery confirmation (PROVISIONED → ACTIVE)                             │
+│  • End of life (→ DECOMMISSIONED)                                           │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Why Bill at Provisioning, Not Creation:**
+1. Factory workers can print labels immediately (no bottleneck)
+2. Failed batches never incur DPP fees
+3. Cost aligns with actual value delivered (frozen, sealed data)
+4. Simple to track: one event per DPP, ever
+
+> **Reference:** See [Billing Design](./2026-01-15-billing-design.md#dpp-billing-trigger) for complete billing details.
+
 ---
 
 ## 5. Snapshot Engine
@@ -883,4 +931,5 @@ GET    /api/v1/public/dpps/:dpp_uri               # Public DPP data (no auth)
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 0.2 | 2026-01-16 | Added Section 4.5: Billing Triggers (DPP provisioning, Recall fees) |
 | 0.1 | 2026-01-15 | Initial draft from brainstorming session |

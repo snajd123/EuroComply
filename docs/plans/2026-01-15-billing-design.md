@@ -15,11 +15,45 @@ EuroComply uses Stripe for all billing operations with a **Base Fee + Per-DPP + 
 | Component | Description |
 |-----------|-------------|
 | **Base Fee** | Monthly/annual platform subscription (tier-based) |
-| **Per-DPP** | Usage-based fee for each DPP issued |
+| **Per-DPP** | Usage-based fee triggered when DPP status transitions COMMISSIONED → PROVISIONED |
+| **SKU Hosting** | €0.50/year per active SKU for product catalog hosting |
 | **User Overage** | €10/user/month for users beyond tier limit |
+| **Recall Operations** | Per-item fee for recall API calls (cost + 80% margin) |
 | **Shipping & Logistics** | Transaction fees for Compliant Highway services |
 
 > **Shipping Details:** See [Operations Workspace Design](./2026-01-15-operations-workspace-design.md#16-shipping--logistics-module) for complete shipping architecture.
+
+### DPP Billing Trigger
+
+**IMPORTANT:** DPP fees are NOT charged at serial creation. The billing event occurs when a DPP transitions from `COMMISSIONED` to `PROVISIONED` status.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    DPP BILLING TRIGGER                                       │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  COMMISSIONED (Serial Created)                                              │
+│  ─────────────────────────────                                               │
+│  • URI reserved, QR label printed                                           │
+│  • Empty shell - no data frozen                                             │
+│  • ❌ NO CHARGE - this is just reservation                                   │
+│                                                                              │
+│  PROVISIONED (Batch Released)                                               │
+│  ─────────────────────────────                                               │
+│  • Data frozen from Design + Marketing + Operations                         │
+│  • Snapshot sealed with Brand's DID                                         │
+│  • ✅ BILLING EVENT - per-DPP fee charged                                    │
+│                                                                              │
+│  WHY THIS MATTERS:                                                          │
+│  • Customers can print labels immediately (no bottleneck)                   │
+│  • Billing only occurs when real compliance work is done                    │
+│  • Failed batches never get charged                                         │
+│  • Aligns cost with value delivered                                         │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+> **Reference:** See [Compliance Workspace Design](./2026-01-15-compliance-workspace-design.md#4-dpp-lifecycle-birth-certificate-model) for complete lifecycle states.
 
 ### Key Principles
 
@@ -308,7 +342,212 @@ CREATE TABLE shipping_usage (
 
 ---
 
-## 5. Billing Access Control
+## 5. SKU Hosting Fee
+
+EuroComply charges a yearly fee per active SKU to cover product catalog hosting costs.
+
+### Pricing
+
+| Fee | Amount | Billing |
+|-----|--------|---------|
+| **SKU Hosting** | €0.50/year per active SKU | Monthly (€0.042/month prorated) |
+
+### What Counts as an "Active SKU"
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    SKU HOSTING DEFINITION                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ACTIVE SKU (Charged):                                                      │
+│  ─────────────────────                                                       │
+│  • Has at least one RELEASED Design Version                                 │
+│  • OR has at least one DPP in PROVISIONED/ACTIVE state                      │
+│  • Product is not archived                                                   │
+│                                                                              │
+│  INACTIVE SKU (Not Charged):                                                │
+│  ───────────────────────────                                                 │
+│  • Draft products (no released versions)                                    │
+│  • Archived products                                                         │
+│  • Products with only DECOMMISSIONED DPPs                                   │
+│                                                                              │
+│  EXAMPLE:                                                                   │
+│  • Organization has 500 products in catalog                                 │
+│  • 450 have released versions (active)                                      │
+│  • 50 are drafts or archived (inactive)                                     │
+│  • Monthly charge: 450 × €0.042 = €18.75                                   │
+│  • Annual cost: 450 × €0.50 = €225                                         │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 10-Year TCO for SKU Hosting
+
+| Component | Calculation | Cost |
+|-----------|-------------|------|
+| Product data (PostgreSQL) | 50KB × 120mo × $0.10/GB | €0.0005 |
+| Design versions (PostgreSQL) | 100KB × 120mo × $0.10/GB | €0.001 |
+| Marketing content (PostgreSQL) | 150KB × 120mo × $0.10/GB | €0.0015 |
+| Media assets (R2, shared) | 5MB amortized × 120mo × $0.015/GB | €0.008 |
+| **Total 10-Year TCO** | | **€0.011** |
+| **With 3x buffer** | | **€0.033** |
+
+**Gross Margin:** €0.50 revenue / €0.033 cost = **93.4%** margin
+
+---
+
+## 6. Recall Operations Billing
+
+Product recalls require updating the status of every affected serial number, which involves API calls and database operations. EuroComply passes through these costs with an 80% margin.
+
+### Recall Cost Structure
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    RECALL API COST BREAKDOWN                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  PER-ITEM OPERATIONS (for each serial in recalled batch):                   │
+│  ──────────────────────────────────────────────────────────                  │
+│  • Database status update (DPP → RECALLED):        €0.000002                │
+│  • Status List 2021 credential update:             €0.000100                │
+│  • Recall overlay injection:                       €0.000010                │
+│  • Webhook notifications:                          €0.000050                │
+│  • Audit log entries:                              €0.000008                │
+│  ─────────────────────────────────────────────────────────────              │
+│  TOTAL COST PER ITEM:                              €0.000170                │
+│                                                                              │
+│  PRICING (80% margin):                                                      │
+│  • Cost: €0.00017                                                           │
+│  • Price: €0.00017 / 0.20 = €0.00085                                       │
+│  • Rounded: €0.001 per item                                                 │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Recall Pricing by Tier
+
+All tiers use the same recall pricing (cost-based, not value-based):
+
+| Operation | Price per Item | Minimum Charge |
+|-----------|----------------|----------------|
+| **Recall Initiation** | €0.001/item | €10.00 |
+| **Recall Resolution** | €0.0005/item | €5.00 |
+
+### Example: Recall 50,000 Items
+
+```
+Batch with 50,000 serials affected by quality issue
+
+Recall Initiation:
+  50,000 items × €0.001 = €50.00
+
+Recall Resolution (after fix):
+  50,000 items × €0.0005 = €25.00
+
+Total recall lifecycle: €75.00
+
+Cost breakdown:
+  API costs: 50,000 × €0.00017 × 2 = €17.00
+  Revenue: €75.00
+  Gross profit: €58.00 (77% margin)
+```
+
+### Invoice Line Item
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                                                                              │
+│  RECALL OPERATIONS                                                          │
+│   - Recall #RCL-2026-00123 (50,000 items)      50,000     €0.001    €50.00 │
+│   - Resolution #RCL-2026-00123                 50,000    €0.0005    €25.00 │
+│  ────────────────────────────────────────────────────────────────────────── │
+│  Recall Operations Subtotal:                                        €75.00 │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Recall Usage Tracking
+
+```sql
+-- Recall usage tracking
+CREATE TABLE recall_usage (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id     UUID NOT NULL REFERENCES organizations(id),
+    recall_id           UUID NOT NULL REFERENCES recall(id),
+    period_start        DATE NOT NULL,
+    period_end          DATE NOT NULL,
+
+    -- Recall metrics
+    items_recalled      INT NOT NULL DEFAULT 0,
+    items_resolved      INT NOT NULL DEFAULT 0,
+    recall_fee_rate     DECIMAL(10,6) DEFAULT 0.001,
+    resolution_fee_rate DECIMAL(10,6) DEFAULT 0.0005,
+
+    -- Calculated charges
+    recall_charge       DECIMAL(10,2) NOT NULL DEFAULT 0,
+    resolution_charge   DECIMAL(10,2) NOT NULL DEFAULT 0,
+
+    -- Stripe reporting
+    reported_to_stripe  BOOLEAN DEFAULT FALSE,
+    reported_at         TIMESTAMPTZ,
+
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_recall_usage_org ON recall_usage (organization_id);
+CREATE INDEX idx_recall_usage_recall ON recall_usage (recall_id);
+```
+
+---
+
+## 7. Complete Invoice Example
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              INVOICE                                         │
+│                                                                              │
+│  EuroComply GmbH                            Invoice #: INV-2026-0099        │
+│  Frankfurt, Germany                         Date: January 31, 2026          │
+│                                                                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  DESCRIPTION                               QTY        PRICE       AMOUNT    │
+│  ────────────────────────────────────────────────────────────────────────── │
+│  Scale Plan (Monthly Base Fee)               1     €749.00      €749.00    │
+│                                                                              │
+│  DPP PROVISIONING (COMMISSIONED→PROVISIONED)                                │
+│   - 750,000 DPPs at €0.02                                     €15,000.00    │
+│                                                                              │
+│  SKU HOSTING                                                                │
+│   - 2,500 active SKUs (prorated monthly)   2,500     €0.042      €105.00   │
+│                                                                              │
+│  User Overage (115 MAU, 100 included)       15      €10.00      €150.00    │
+│                                                                              │
+│  SHIPPING & LOGISTICS                                                       │
+│   - Carrier Costs (pass-through)           450     varies     €4,500.00    │
+│   - Label Markup (10%)                     450        10%       €450.00    │
+│   - Compliance Unlock                      450      €15.00    €6,750.00    │
+│   - EPCIS Events (125,000 EPCs)        125,000       €0.03    €3,750.00    │
+│   - Customs Filings                         12      €35.00      €420.00    │
+│  ────────────────────────────────────────────────────────────────────────── │
+│  Shipping Subtotal:                                           €15,870.00    │
+│                                                                              │
+│  RECALL OPERATIONS                                                          │
+│   - Recall #RCL-2026-00045 (10,000 items)  10,000    €0.001      €10.00    │
+│  ────────────────────────────────────────────────────────────────────────── │
+│                                                                              │
+│                                             Subtotal:         €31,884.00    │
+│                                             VAT (19%):         €6,057.96    │
+│                                             ─────────────────────────────── │
+│                                             Total:            €37,941.96    │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 8. Billing Access Control
 
 ### Who Can Manage Billing
 
@@ -381,7 +620,7 @@ Billing management requires **Organization Admin** status:
 
 ---
 
-## 6. Data Model
+## 9. Data Model
 
 ### Organization Billing Fields
 
@@ -509,7 +748,7 @@ async function calculateMAU(
 
 ---
 
-## 7. Stripe Integration
+## 10. Stripe Integration
 
 ### Subscription Structure
 
@@ -579,7 +818,7 @@ async function reportMonthlyUsage(orgId: string) {
 
 ---
 
-## 8. Webhook Handling
+## 11. Webhook Handling
 
 ```typescript
 // Handle Stripe webhooks
@@ -641,7 +880,7 @@ async function handlePaymentSucceeded(invoice: Stripe.Invoice) {
 
 ---
 
-## 9. Changes from Original BILLING.md
+## 12. Changes from Original BILLING.md
 
 | Aspect | Original | Updated |
 |--------|----------|---------|
@@ -653,7 +892,7 @@ async function handlePaymentSucceeded(invoice: Stripe.Invoice) {
 
 ---
 
-## 10. Related Documents
+## 13. Related Documents
 
 | Document | Purpose |
 |----------|---------|
@@ -668,6 +907,7 @@ async function handlePaymentSucceeded(invoice: Stripe.Invoice) {
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 0.3 | 2026-01-16 | Added DPP billing trigger (COMMISSIONED→PROVISIONED), SKU hosting fee (€0.50/yr), Recall operations billing (80% margin) |
 | 0.2 | 2026-01-15 | Added Section 4: Shipping & Logistics Billing with storage costs and margins |
 | 0.1 | 2026-01-15 | Initial draft from BILLING.md review |
 
