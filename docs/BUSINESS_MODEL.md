@@ -842,6 +842,26 @@ Brands and manufacturers pay for DPP creation. Retailers access DPPs for free be
 | Automatic updates | DPP data stays current as brands update |
 | Verified data | DPPs are cryptographically signed by brands |
 
+### Verification Proof Service (Paid Add-on)
+
+While status checks are **free** (ESPR Article 31 mandates free access), retailers can subscribe to the **Verification Proof Service** for cryptographic proof receipts that provide legal defense in liability cases.
+
+> **Pricing:** See [billing-design.md Section 7](./plans/2026-01-15-billing-design.md#7-verification-proof-service-billing-retailer-revenue) for authoritative pricing tiers.
+> **Summary:** Free (status only) → Basic €49/mo → Professional €199/mo → Enterprise €999+/mo
+
+**What you pay for (NOT the status check):**
+
+| Feature | Free (ESPR) | Paid Proof Service |
+|---------|-------------|-------------------|
+| Status check ("Is this recalled?") | ✓ Unlimited | ✓ Unlimited |
+| Cryptographic proof receipt | ✗ | ✓ |
+| Audit trail ("We checked at 10:32 UTC") | ✗ | ✓ |
+| Batch proof processing | ✗ | ✓ |
+| SLA guarantees | Best effort | 99.9%+ |
+| Proof storage for legal defense | ✗ | 30 days - 7 years |
+
+**Value Proposition:** If a retailer sells a recalled product, they are liable. A proof receipt demonstrates "we checked the system before sale, it said CLEAR" - this shifts liability to the manufacturer.
+
 ---
 
 ## Platform Value
@@ -995,7 +1015,7 @@ Brands and manufacturers pay for DPP creation. Retailers access DPPs for free be
 │  └── Primary growth driver                                      │
 │                                                                  │
 │  12% Shipping & Logistics Revenue (NEW)                         │
-│  ├── Label markup (5-15% on carrier rates)                      │
+│  ├── Label markup (10% on carrier rates)                        │
 │  ├── Compliance unlock fees (per consignment)                   │
 │  ├── EPCIS event fees (per EPC tracked)                        │
 │  └── Customs filing fees (Evidence Package generation)          │
@@ -1037,7 +1057,7 @@ EuroComply's "Compliant Highway" integrates shipping with compliance verificatio
 
 | Fee Type | Starter | Growth | Scale | Enterprise | Platform |
 |----------|---------|--------|-------|------------|----------|
-| Label Markup | 15% | 12% | 10% | 7% | 5% |
+| Label Markup | 10% | 10% | 10% | 10% | 10% |
 | Compliance Unlock | €2.00 | €1.50 | €1.00 | €0.75 | €0.50 |
 | EPCIS Event (per EPC) | €0.01 | €0.008 | €0.005 | €0.002 | €0.001 |
 | Customs Filing | €25.00 | €20.00 | €15.00 | €10.00 | €5.00 |

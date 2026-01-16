@@ -627,6 +627,52 @@ Unlike DPPs where we deduplicate (30KB template shared across 1,000 items), ship
 
 ---
 
+## 6.1 Verification Proof Service (Retailer Revenue)
+
+> **Complete Details:** See [billing-design.md Section 7](./plans/2026-01-15-billing-design.md#7-verification-proof-service-billing-retailer-revenue) for authoritative pricing and implementation.
+
+The Verification Proof Service is a **separate revenue stream** from retailers who need cryptographic proof receipts for legal defense.
+
+### ESPR Article 31 Compliance
+
+**Critical:** ESPR mandates **free access** to DPP data, including recall status. We cannot charge for status checks.
+
+| Service | What It Is | Price | ESPR Status |
+|---------|------------|-------|-------------|
+| **Status Check** | "Is this product recalled?" | **FREE** | Mandated free |
+| **Proof Receipt** | Cryptographic proof you checked | **PAID** | Value-add service |
+
+**Free Endpoint:** `GET /api/v1/public/status/:gtin/:serial`
+- Returns: CLEAR / RECALLED / NOT_FOUND
+- No authentication, no rate limits
+- Satisfies ESPR economic operator access requirement
+
+**Paid Endpoint:** `GET /api/v1/compliance/verify/:gtin/:serial`
+- Returns: Status + Merkle proof + TSA verification + signed receipt
+- For legal defense and compliance audits
+
+### Verification Proof Service Tiers
+
+| Tier | Price | Proof Receipts | Batch Size | Features |
+|------|-------|----------------|------------|----------|
+| **Free** | €0 | Status only | — | ESPR-mandated |
+| **Basic** | €49/mo | 10,000/mo | 100 items | Email support |
+| **Professional** | €199/mo | 50,000/mo | 1,000 items | 99.9% SLA, webhooks |
+| **Enterprise** | €999+/mo | Unlimited | 10,000 items | 99.99% SLA, dedicated support |
+
+### Revenue Projection
+
+| Tier | Price | Customers (Y3) | Monthly Revenue |
+|------|-------|----------------|-----------------|
+| Basic | €49 | 500 | €24,500 |
+| Professional | €199 | 100 | €19,900 |
+| Enterprise | €999 avg | 20 | €19,980 |
+| **Total** | | **620** | **€64,380/mo** |
+
+**Annual potential: €772K** (separate from brand subscriptions)
+
+---
+
 ## 7. Plan Changes
 
 ### Upgrade Flow

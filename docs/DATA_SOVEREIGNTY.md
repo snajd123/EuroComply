@@ -640,108 +640,67 @@ When an organization loses access to their signing key:
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Voluntary Key Rotation
+### Key Rotation: Architectural Decision
 
-Organizations may rotate keys proactively (not just on compromise):
+> **Important:** There is NO proactive key rotation for `did:key`. This is a deliberate architectural choice.
+
+**Why no rotation?**
+
+With `did:key`, the DID **is** the public key. A new key means a new identity. There's no way to "rotate" without changing identity.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                    VOLUNTARY KEY ROTATION                                    │
+│                    WHY NO KEY ROTATION FOR did:key                          │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  WHEN TO ROTATE (Proactive):                                                │
-│  ──────────────────────────                                                 │
-│  • Key admin leaves organization                                            │
-│  • Security policy mandates periodic rotation                               │
-│  • Preparing for major compliance audit                                     │
-│  • Transitioning to higher security tier (e.g., HSM-backed)                │
+│  did:key = the public key itself                                            │
 │                                                                              │
-│  ROTATION WORKFLOW:                                                         │
-│  ─────────────────                                                          │
+│  Old: did:key:z6MkABC... ──────────▶ New: did:key:z6MkXYZ...               │
 │                                                                              │
-│  ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐ │
-│  │ Initiate │──▶│ Generate │──▶│ Create   │──▶│ Re-issue │──▶│ Retire   │ │
-│  │ Rotation │   │ New Key  │   │ Succession│  │ Active   │   │ Old Key  │ │
-│  └──────────┘   └──────────┘   │ Record   │   │ DPPs     │   └──────────┘ │
-│                                └──────────┘   └──────────┘                  │
-│                                                                              │
-│  DETAILED STEPS:                                                            │
-│                                                                              │
-│  1. INITIATE ROTATION                                                       │
-│     • Admin requests rotation via dashboard                                 │
-│     • Selects reason: "employee_departure" | "policy" | "security_upgrade" │
-│     • Confirms understanding that all active DPPs will be re-issued         │
-│                                                                              │
-│  2. GENERATE NEW KEYPAIR                                                    │
-│     • New Ed25519 keypair created                                           │
-│     • New did:key derived                                                   │
-│     • Backed up following standard procedure                                │
-│                                                                              │
-│  3. CREATE KEY SUCCESSION RECORD                                            │
-│     • Links old did:key to new did:key                                      │
-│     • Published at well-known URL for verifier discovery                    │
-│     • Old key marked as "ROTATED" (not "COMPROMISED")                       │
-│                                                                              │
-│  4. RE-ISSUE ACTIVE DPPs                                                    │
-│     • Queue all non-revoked DPPs for re-issuance                           │
-│     • Each VC re-signed with new key                                        │
-│     • New VCs reference old VCs (supersedes relationship)                   │
-│     • Batched processing (100 VCs per minute)                               │
-│     • Progress visible in dashboard                                         │
-│                                                                              │
-│  5. RETIRE OLD KEY                                                          │
-│     • Old key disabled for new signatures                                   │
-│     • Old key retained for verification of historical VCs                   │
-│     • Old VCs remain valid but show "superseded" indicator                  │
+│  These are TWO DIFFERENT IDENTITIES.                                        │
+│  There is no cryptographic link between them.                               │
 │                                                                              │
 │  ─────────────────────────────────────────────────────────────────────────  │
 │                                                                              │
-│  KEY SUCCESSION RECORD:                                                     │
+│  IMPLICATIONS:                                                              │
 │                                                                              │
-│  Published at: https://status.{customer-domain}/v1/key-succession/{org_id}  │
-│  Or: https://api.eurocomply.eu/v1/key-succession/{org_id}                   │
+│  • VCs signed with old key remain valid forever (unless revoked)            │
+│  • Old key can verify signatures indefinitely (public keys don't expire)    │
+│  • "Rotation" would mean re-issuing ALL credentials with new identity       │
+│  • Verifiers would see: different issuer, not "same issuer, new key"        │
 │                                                                              │
-│  {                                                                          │
-│    "@context": ["https://w3id.org/security/v2"],                           │
-│    "type": "KeySuccessionRecord",                                          │
-│    "organization": "org_abc123",                                           │
-│    "succession": [                                                         │
-│      {                                                                     │
-│        "previousKey": "did:key:z6MkOLD...",                               │
-│        "newKey": "did:key:z6MkNEW...",                                    │
-│        "effectiveDate": "2026-01-14T00:00:00Z",                           │
-│        "reason": "policy",                                                │
-│        "status": "rotated"                                                │
-│      }                                                                     │
-│    ]                                                                       │
-│  }                                                                         │
+│  THIS IS A FEATURE, NOT A BUG:                                              │
 │                                                                              │
-│  VERIFIER BEHAVIOR:                                                         │
-│  ──────────────────                                                         │
-│  When verifying a VC signed by old key:                                     │
-│  1. Signature verification: PASS (key is still valid for verification)     │
-│  2. Check key succession record: Found                                      │
-│  3. Display: "Signature valid. Issuer has rotated to new key."             │
-│  4. Recommend: "Request updated credential from issuer if needed."         │
+│  • Simplicity: No key succession records to manage                          │
+│  • Offline verification: Works without checking succession chains           │
+│  • Immutability: DPP identity is stable for 10+ years                       │
+│  • GDPR export: Full credential portability without key dependencies        │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+**What about key admin departures or security policy?**
+
+| Scenario | Recommendation |
+|----------|----------------|
+| Key admin leaves | Revoke their platform access; key remains secure in HSM/vault |
+| Security policy requires rotation | Use Status List revocation to invalidate specific VCs |
+| Suspected compromise | Follow Compromise Response Protocol (see below) |
+| Major audit preparation | No action needed; keys don't expire |
 
 ### Compromise Response Protocol
 
 For security incidents, see [SECURITY.md - Key Compromise Recovery](./SECURITY.md#64-organization-key-compromise-recovery).
 
-Summary of key differences between **voluntary rotation** and **compromise response**:
+When a key is **compromised** (not just "old"), the response is:
 
-| Aspect | Voluntary Rotation | Compromise Response |
-|--------|-------------------|---------------------|
-| **Trigger** | Admin-initiated | Security incident |
-| **Old key status** | ROTATED | COMPROMISED |
-| **Old VC validity** | Valid (superseded) | Potentially revoked |
-| **Urgency** | Scheduled | Immediate |
-| **Suspicious VC review** | No | Yes (revoke if unauthorized) |
-| **Notification** | Internal only | May be public |
-| **Re-issuance** | All active DPPs | Prioritize high-value products |
+| Action | Description |
+|--------|-------------|
+| **Revoke suspicious VCs** | Use Status List to invalidate any VCs issued during compromise window |
+| **Generate new key** | Create new `did:key` (this is a NEW identity) |
+| **Re-issue critical VCs** | High-value products get new VCs with new key |
+| **Notify stakeholders** | Public disclosure may be required |
+| **Forensic review** | Determine scope of unauthorized issuance |
 
 ### Key Lifecycle States
 
@@ -763,16 +722,16 @@ Summary of key differences between **voluntary rotation** and **compromise respo
 │                          │ (signing)   │              │                     │
 │                          └──────┬──────┘              │                     │
 │                                 │                     │                     │
-│              ┌──────────────────┼──────────────────┐  │                     │
-│              │                  │                  │  │                     │
-│     Voluntary rotation    Compromise        Key exported                    │
-│              │             detected         (self-hosting)                  │
-│              │                  │                  │  │                     │
-│              ▼                  ▼                  │  │                     │
-│       ┌─────────────┐   ┌─────────────┐           │  │                     │
-│       │   ROTATED   │   │ COMPROMISED │           │  │                     │
-│       │(verify only)│   │  (revoked)  │           │  │                     │
-│       └─────────────┘   └─────────────┘           │  │                     │
+│              ┌──────────────────┴──────────────────┐  │                     │
+│              │                                     │  │                     │
+│         Compromise                           Key exported                   │
+│          detected                           (self-hosting)                  │
+│              │                                     │  │                     │
+│              ▼                                     │  │                     │
+│       ┌─────────────┐                              │  │                     │
+│       │ COMPROMISED │                              │  │                     │
+│       │  (revoked)  │                              │  │                     │
+│       └─────────────┘                              │  │                     │
 │                                                    │  │                     │
 │                                                    ▼  │                     │
 │                                             ┌─────────────┐                 │
@@ -788,10 +747,12 @@ Summary of key differences between **voluntary rotation** and **compromise respo
 │  STATE DESCRIPTIONS:                                                        │
 │  ───────────────────                                                        │
 │  • CREATED: Key generated, not yet used for signing                         │
-│  • ACTIVE: Current signing key, can issue new VCs                          │
-│  • ROTATED: Replaced by newer key, verify only, VCs are superseded         │
+│  • ACTIVE: Current signing key, can issue new VCs (no expiry)              │
 │  • COMPROMISED: Security incident, VCs may be revoked, verify with warning │
 │  • EXPORTED: Organization managing key outside EuroComply                   │
+│                                                                              │
+│  NOTE: There is no ROTATED state. did:key cannot be "rotated" - a new key  │
+│  is a new identity. Keys remain ACTIVE until compromised or exported.       │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -805,12 +766,12 @@ interface KeyLifecycleEvent {
   eventType:
     | 'KEY_CREATED'
     | 'KEY_ACTIVATED'
-    | 'KEY_ROTATED'
     | 'KEY_COMPROMISED'
     | 'KEY_EXPORTED'
     | 'KEY_RECOVERED'
     | 'KEY_BACKUP_CREATED'
     | 'KEY_BACKUP_ACCESSED';
+  // Note: No KEY_ROTATED - did:key cannot be rotated (new key = new identity)
 
   organizationId: string;
   keyId: string;
