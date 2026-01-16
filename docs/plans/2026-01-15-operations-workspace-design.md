@@ -1704,14 +1704,9 @@ async function onBatchReleased(batchId: string): Promise<SnapshotResult> {
     timestamp: null as BatchTimestampResult | null
   };
 
-  // ─────────────────────────────────────────────────────────────────────────
   // PHASE 1: Create DPP snapshots for all serials
-  // Each snapshot hash is collected by batchTimestampService.addHash()
-  // ─────────────────────────────────────────────────────────────────────────
   for (const serial of serials) {
     try {
-      // Trigger full snapshot (freezes Design + Marketing + Operations data)
-      // Internally calls: batchTimestampService.addHash(batchId, snapshotHash)
       await snapshotEngine.createDPPSnapshot(serial.id);
       results.dpps_created++;
     } catch (error) {
@@ -1720,27 +1715,13 @@ async function onBatchReleased(batchId: string): Promise<SnapshotResult> {
     }
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // PHASE 2: Finalize Merkle tree and get RFC 3161 timestamp
-  // This is ONE TSA call for the entire batch (€0.01 total, not per DPP)
-  // See: compliance-workspace-design.md Section 5.4
-  // ─────────────────────────────────────────────────────────────────────────
+  // PHASE 2: Finalize batch timestamp (Merkle tree + RFC 3161)
+  // Implementation: See compliance-workspace-design.md Section 5.4
   if (results.dpps_created > 0) {
-    try {
-      // 1. Build Merkle tree from all DPP snapshot hashes
-      // 2. Get RFC 3161 timestamp for the Merkle root
-      // 3. Store Merkle proof with each DPP
-      results.timestamp = await batchTimestampService.finalizeBatch(batchId);
-    } catch (error) {
-      // Timestamp failure is logged but doesn't fail the batch release
-      // DPPs are still valid with JWS signatures, just without TSA proof
-      console.error(`Batch ${batchId} timestamp failed: ${error.message}`);
-    }
+    results.timestamp = await batchTimestampService.finalizeBatch(batchId);
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
   // PHASE 3: Record billing event (per-DPP fees triggered)
-  // ─────────────────────────────────────────────────────────────────────────
   await recordDPPUsage({
     organization_id: batch.organization_id,
     batch_id: batchId,
@@ -4296,7 +4277,7 @@ GET    /api/v1/operations/shipping/customs/:id               # Get filing status
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 0.8 | 2026-01-16 | Updated onBatchReleased() to integrate Merkle tree timestamping (Phase 2) |
+| 0.8 | 2026-01-16 | Simplified onBatchReleased() - references Compliance workspace for Merkle implementation |
 | 0.7 | 2026-01-16 | Added DPP Lifecycle Integration (Section 12.4-12.6): Operations→Compliance bridge, trigger service, status mapping |
 | 0.6 | 2026-01-15 | Moved storage cost analysis to BILLING.md and BUSINESS_MODEL.md (kept reference) |
 | 0.5 | 2026-01-15 | Added Shipping Storage Cost Analysis (10-year TCO, gross margin analysis by tier) |
