@@ -168,6 +168,10 @@ export async function getOrganization(id: string): Promise<OrganizationWithOwner
 
   const owner = org.users[0]?.user;
   if (!owner) {
+    // DATA INTEGRITY ERROR: An organization without an owner indicates
+    // a broken organizationUser link. This should never happen in normal
+    // operation and requires investigation.
+    console.error(`CRITICAL: Organization ${id} has no owner - data integrity violation`);
     throw new NotFoundError('Organization owner');
   }
 

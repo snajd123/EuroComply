@@ -78,6 +78,7 @@ model OrganizationUser {
   user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([organizationId, userId])
+  @@index([userId]) // For listUserOrganizations query performance
   @@map("organization_users")
 }
 
