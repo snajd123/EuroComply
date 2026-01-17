@@ -65,7 +65,18 @@ export interface AddBomEntryInput {
 }
 
 /**
- * Check if a version status allows editing.
+ * Check if a version status allows editing (DRAFT or REJECTED).
+ * Use this in BOM service to validate mutations.
+ *
+ * @example
+ * // In future BOM service:
+ * async addBomEntry(versionId: string, entry: BomEntry) {
+ *   const version = await this.getVersion(versionId);
+ *   if (!isEditableStatus(version.status)) {
+ *     throw new Error('Cannot modify BOM: version is not editable');
+ *   }
+ *   // ... add entry
+ * }
  */
 export function isEditableStatus(status: VersionStatus): boolean {
   return status === 'DRAFT' || status === 'REJECTED';

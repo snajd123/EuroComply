@@ -12,8 +12,10 @@ import {
   testPrisma,
 } from './setup.js';
 import { products } from '../../routes/products.js';
+import { versions } from '../../routes/versions.js';
 import { ok } from '@eurocomply/shared';
 import type { AppVariables } from '../../types/context.js';
+import { VersionService } from '../../services/version.service.js';
 
 describe('Product Routes Integration Tests', () => {
   let app: Hono<{ Variables: AppVariables }>;
@@ -51,6 +53,7 @@ describe('Product Routes Integration Tests', () => {
 
     // Mount product routes
     app.route('/api/v1/products', products);
+    app.route('/api/v1/versions', versions);
   });
 
   afterAll(async () => {
@@ -61,6 +64,10 @@ describe('Product Routes Integration Tests', () => {
     await cleanupOutboxEvents();
     // Clean up any products created in previous tests
     const ctx = getTestContext();
+    // Must delete BOM entries before versions (foreign key constraint)
+    await testPrisma.bomEntry.deleteMany({
+      where: { version: { product: { organizationId: ctx.organizationId } } },
+    });
     await testPrisma.productVersion.deleteMany({
       where: { product: { organizationId: ctx.organizationId } },
     });
@@ -590,6 +597,243 @@ describe('Product Routes Integration Tests', () => {
       });
 
       expect(response.status).toBe(404);
+    });
+  });
+
+  describe('FORENSIC GUARD A: Release Lock (BOM Immutability)', () => {
+    it('should prevent BOM modification on RELEASED version via assertVersionEditable', async () => {
+      const ctx = getTestContext();
+      const versionService = new VersionService(testPrisma);
+
+      // 1. Create a product
+      const createResponse = await app.request('/api/v1/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Release Lock Test Product',
+          productType: 'FINISHED_GOOD',
+        }),
+      });
+      const productJson = await createResponse.json();
+      const productId = productJson.data.id;
+
+      // 2. Create a DESIGN version
+      const versionResponse = await app.request(`/api/v1/products/${productId}/versions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspace: 'DESIGN' }),
+      });
+      const versionJson = await versionResponse.json();
+      const versionId = versionJson.data.id;
+
+      // 3. Transition version through workflow: DRAFT -> PENDING_REVIEW -> IN_REVIEW -> RELEASED
+      await app.request(`/api/v1/versions/${versionId}/submit`, { method: 'POST' });
+      await app.request(`/api/v1/versions/${versionId}/review`, { method: 'POST' });
+      await app.request(`/api/v1/versions/${versionId}/release`, { method: 'POST' });
+
+      // 4. Verify version is RELEASED
+      const releasedVersion = await testPrisma.productVersion.findUnique({
+        where: { id: versionId },
+      });
+      expect(releasedVersion?.status).toBe('RELEASED');
+
+      // 5. FORENSIC GUARD A: assertVersionEditable should throw for RELEASED version
+      await expect(
+        versionService.assertVersionEditable(ctx.organizationId, versionId)
+      ).rejects.toThrow('Cannot modify BOM: version is RELEASED (immutable)');
+    });
+
+    it('should allow assertVersionEditable for DRAFT version', async () => {
+      const ctx = getTestContext();
+      const versionService = new VersionService(testPrisma);
+
+      // 1. Create a product
+      const createResponse = await app.request('/api/v1/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Draft Editable Test Product',
+          productType: 'FINISHED_GOOD',
+        }),
+      });
+      const productJson = await createResponse.json();
+      const productId = productJson.data.id;
+
+      // 2. Create a DESIGN version (starts as DRAFT)
+      const versionResponse = await app.request(`/api/v1/products/${productId}/versions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspace: 'DESIGN' }),
+      });
+      const versionJson = await versionResponse.json();
+      const versionId = versionJson.data.id;
+
+      // 3. Verify DRAFT version is editable (should not throw)
+      await expect(
+        versionService.assertVersionEditable(ctx.organizationId, versionId)
+      ).resolves.toBeUndefined();
+    });
+  });
+
+  describe('FORENSIC GUARD B: Variant Inheritance (BOM Cloning)', () => {
+    it('should auto-clone parent RELEASED BOM when creating variant', async () => {
+      const ctx = getTestContext();
+
+      // 1. Create parent product
+      const parentResponse = await app.request('/api/v1/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Parent for Variant Test',
+          productType: 'FINISHED_GOOD',
+        }),
+      });
+      const parentJson = await parentResponse.json();
+      const parentId = parentJson.data.id;
+
+      // 2. Create a raw material to use in BOM
+      const materialResponse = await app.request('/api/v1/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Test Material',
+          productType: 'RAW_MATERIAL',
+        }),
+      });
+      const materialJson = await materialResponse.json();
+      const materialId = materialJson.data.id;
+
+      // 3. Create DESIGN version for parent
+      const versionResponse = await app.request(`/api/v1/products/${parentId}/versions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspace: 'DESIGN' }),
+      });
+      const versionJson = await versionResponse.json();
+      const parentVersionId = versionJson.data.id;
+
+      // 4. Add BOM entry to parent version (direct DB insert since BOM API doesn't exist yet)
+      await testPrisma.bomEntry.create({
+        data: {
+          parentProductId: parentId,
+          childProductId: materialId,
+          versionId: parentVersionId,
+          quantity: 5.0,
+          unit: 'kg',
+          scrapRatePct: 2.5,
+          yieldPct: 95.0,
+          position: 1,
+          notes: 'Test material for variant inheritance',
+        },
+      });
+
+      // 5. Release the parent version
+      await app.request(`/api/v1/versions/${parentVersionId}/submit`, { method: 'POST' });
+      await app.request(`/api/v1/versions/${parentVersionId}/review`, { method: 'POST' });
+      await app.request(`/api/v1/versions/${parentVersionId}/release`, { method: 'POST' });
+
+      // 6. Create variant (should inherit BOM)
+      const variantResponse = await app.request('/api/v1/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Variant with Inherited BOM',
+          productType: 'VARIANT',
+          parentId: parentId,
+        }),
+      });
+      expect(variantResponse.status).toBe(201);
+      const variantJson = await variantResponse.json();
+      const variantId = variantJson.data.id;
+
+      // 7. Verify variant has a DRAFT version created
+      const variantVersions = await testPrisma.productVersion.findMany({
+        where: { productId: variantId },
+      });
+      expect(variantVersions).toHaveLength(1);
+      const variantVersion = variantVersions[0];
+      expect(variantVersion).toBeDefined();
+      expect(variantVersion!.workspace).toBe('DESIGN');
+      expect(variantVersion!.status).toBe('DRAFT');
+      expect(variantVersion!.versionNumber).toBe(1);
+
+      // 8. Verify BOM entries were cloned to variant's version
+      const variantBomEntries = await testPrisma.bomEntry.findMany({
+        where: { versionId: variantVersion!.id },
+      });
+      expect(variantBomEntries).toHaveLength(1);
+      const bomEntry = variantBomEntries[0];
+      expect(bomEntry).toBeDefined();
+      expect(bomEntry!.childProductId).toBe(materialId);
+      expect(Number(bomEntry!.quantity)).toBe(5.0);
+      expect(bomEntry!.unit).toBe('kg');
+      expect(Number(bomEntry!.scrapRatePct)).toBe(2.5);
+      expect(Number(bomEntry!.yieldPct)).toBe(95.0);
+      expect(bomEntry!.notes).toBe('Test material for variant inheritance');
+    });
+
+    it('should NOT inherit BOM if parent has no RELEASED version', async () => {
+      // 1. Create parent product
+      const parentResponse = await app.request('/api/v1/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Parent without Released Version',
+          productType: 'FINISHED_GOOD',
+        }),
+      });
+      const parentJson = await parentResponse.json();
+      const parentId = parentJson.data.id;
+
+      // 2. Create DESIGN version but DON'T release it (stays DRAFT)
+      const versionResponse = await app.request(`/api/v1/products/${parentId}/versions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspace: 'DESIGN' }),
+      });
+      const versionJson = await versionResponse.json();
+      const parentVersionId = versionJson.data.id;
+
+      // 3. Add BOM entry to parent's DRAFT version
+      const materialResponse = await app.request('/api/v1/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Material for Non-Released',
+          productType: 'RAW_MATERIAL',
+        }),
+      });
+      const materialJson = await materialResponse.json();
+
+      await testPrisma.bomEntry.create({
+        data: {
+          parentProductId: parentId,
+          childProductId: materialJson.data.id,
+          versionId: parentVersionId,
+          quantity: 10.0,
+          unit: 'pcs',
+        },
+      });
+
+      // 4. Create variant (should NOT get BOM since parent isn't RELEASED)
+      const variantResponse = await app.request('/api/v1/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Variant without BOM',
+          productType: 'VARIANT',
+          parentId: parentId,
+        }),
+      });
+      expect(variantResponse.status).toBe(201);
+      const variantJson = await variantResponse.json();
+      const variantId = variantJson.data.id;
+
+      // 5. Verify variant has NO versions created (since parent wasn't released)
+      const variantVersions = await testPrisma.productVersion.findMany({
+        where: { productId: variantId },
+      });
+      expect(variantVersions).toHaveLength(0);
     });
   });
 });

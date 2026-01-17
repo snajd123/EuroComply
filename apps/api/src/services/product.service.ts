@@ -69,12 +69,14 @@ export class ProductService {
       });
 
       // FORENSIC GUARD B: Variant Inheritance
-      // Auto-clone parent's latest RELEASED BOM as variant's DRAFT v1
+      // Auto-clone parent's latest RELEASED BOM as variant's DRAFT v1.
+      // NOTE: Currently hardcoded to DESIGN workspace for Phase 1 MVP.
+      // Future: May need to clone from multiple workspaces or make configurable.
       if (input.productType === 'VARIANT' && input.parentId) {
         const parentReleasedVersion = await tx.productVersion.findFirst({
           where: {
             productId: input.parentId,
-            workspace: 'DESIGN',
+            workspace: 'DESIGN', // MVP: BOM inheritance only from DESIGN workspace
             status: 'RELEASED',
           },
           orderBy: { versionNumber: 'desc' },
