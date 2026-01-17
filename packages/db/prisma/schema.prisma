@@ -110,3 +110,82 @@ model OutboxEvent {
   @@index([organizationId, eventType])
   @@map("outbox_events")
 }
+
+// ============================================
+// PRODUCT - Central Hub Entity
+// ============================================
+
+enum ProductType {
+  FINISHED_GOOD
+  RAW_MATERIAL
+  COMPONENT
+  VARIANT
+}
+
+enum ProductStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+model Product {
+  id              String        @id @default(cuid())
+  organizationId  String        @map("organization_id")
+
+  // Classification
+  productType     ProductType   @default(FINISHED_GOOD) @map("product_type")
+  name            String
+  description     String?
+
+  // For variants - link to parent product
+  parentId        String?       @map("parent_id")
+  parent          Product?      @relation("ProductVariants", fields: [parentId], references: [id])
+  variants        Product[]     @relation("ProductVariants")
+
+  // Status
+  status          ProductStatus @default(ACTIVE)
+
+  // Timestamps
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  // Relations
+  identifiers     ProductIdentifier[]
+  versions        ProductVersion[]
+  bomEntriesAsParent BomEntry[] @relation("BomParent")
+  bomEntriesAsChild  BomEntry[] @relation("BomChild")
+
+  @@index([organizationId])
+  @@index([productType])
+  @@index([parentId])
+  @@map("products")
+}
+
+// ============================================
+// PRODUCT RELATIONS - Placeholder models for future tasks
+// ============================================
+
+model ProductIdentifier {
+  id        String   @id @default(cuid())
+  productId String   @map("product_id")
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@map("product_identifiers")
+}
+
+model ProductVersion {
+  id        String   @id @default(cuid())
+  productId String   @map("product_id")
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@map("product_versions")
+}
+
+model BomEntry {
+  id        String   @id @default(cuid())
+  parentId  String   @map("parent_id")
+  childId   String   @map("child_id")
+  parent    Product  @relation("BomParent", fields: [parentId], references: [id], onDelete: Cascade)
+  child     Product  @relation("BomChild", fields: [childId], references: [id], onDelete: Cascade)
+
+  @@map("bom_entries")
+}
