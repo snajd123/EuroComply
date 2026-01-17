@@ -197,15 +197,16 @@ resource "aws_iam_role_policy" "github_actions_ecr" {
   })
 }
 
-# Terraform permissions for GitHub Actions
-resource "aws_iam_role_policy" "github_actions_terraform" {
-  name = "terraform-deploy"
+# Terraform state permissions for GitHub Actions
+resource "aws_iam_role_policy" "github_actions_terraform_state" {
+  name = "terraform-state"
   role = aws_iam_role.github_actions.id
 
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
+        Sid    = "TerraformStateS3"
         Effect = "Allow"
         Action = [
           "s3:GetObject",
@@ -219,6 +220,7 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
         ]
       },
       {
+        Sid    = "TerraformStateLocking"
         Effect = "Allow"
         Action = [
           "dynamodb:GetItem",
@@ -226,6 +228,97 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
           "dynamodb:DeleteItem"
         ]
         Resource = aws_dynamodb_table.terraform_locks.arn
+      }
+    ]
+  })
+}
+
+# Infrastructure deployment permissions for GitHub Actions
+# This policy allows Terraform to manage all EuroComply infrastructure
+resource "aws_iam_role_policy" "github_actions_terraform_deploy" {
+  name = "terraform-deploy"
+  role = aws_iam_role.github_actions.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "VPCAndNetworking"
+        Effect = "Allow"
+        Action = ["ec2:*"]
+        Resource = "*"
+      },
+      {
+        Sid    = "ContainerServices"
+        Effect = "Allow"
+        Action = [
+          "ecs:*",
+          "ecr:*"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "LoadBalancing"
+        Effect = "Allow"
+        Action = ["elasticloadbalancing:*"]
+        Resource = "*"
+      },
+      {
+        Sid    = "Database"
+        Effect = "Allow"
+        Action = [
+          "rds:*",
+          "elasticache:*"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "SecretsAndStorage"
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:*",
+          "s3:*",
+          "dynamodb:*"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "Logging"
+        Effect = "Allow"
+        Action = ["logs:*"]
+        Resource = "*"
+      },
+      {
+        Sid    = "Lambda"
+        Effect = "Allow"
+        Action = ["lambda:*"]
+        Resource = "*"
+      },
+      {
+        Sid    = "IAMRoleManagement"
+        Effect = "Allow"
+        Action = [
+          "iam:GetRole",
+          "iam:CreateRole",
+          "iam:DeleteRole",
+          "iam:GetRolePolicy",
+          "iam:PutRolePolicy",
+          "iam:DeleteRolePolicy",
+          "iam:AttachRolePolicy",
+          "iam:DetachRolePolicy",
+          "iam:PassRole",
+          "iam:ListAttachedRolePolicies",
+          "iam:ListRolePolicies",
+          "iam:TagRole",
+          "iam:UntagRole"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "AutoScaling"
+        Effect = "Allow"
+        Action = ["application-autoscaling:*"]
+        Resource = "*"
       }
     ]
   })
