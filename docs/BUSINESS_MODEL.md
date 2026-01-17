@@ -1179,6 +1179,7 @@ Awareness → Trial → Conversion → Expansion
 | Multi-party attestation | None | None | None | Native |
 | AI import | Limited | Limited | None | Any format |
 | E-commerce sync | Complex | Limited | None | Native Shopify |
+| **EU Sovereign Cloud** | Standard regions | Standard regions | Standard regions | **AWS European Sovereign Cloud** |
 | SME pricing | Unaffordable | Too expensive | Affordable | €149-749/mo base |
 | Per-DPP pricing | N/A | N/A | Some | Native |
 | Setup time | Months | Weeks | Days | Same day |
@@ -1198,6 +1199,44 @@ Awareness → Trial → Conversion → Expansion
 ---
 
 ## Data Sovereignty
+
+### EU Sovereign Infrastructure
+
+EuroComply production runs on **AWS European Sovereign Cloud** - the only fully independent, EU-operated cloud infrastructure available from a hyperscaler.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  AWS EUROPEAN SOVEREIGN CLOUD                                    │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  LOCATION: Brandenburg, Germany                                 │
+│  REGION: eusc-de-east-1                                         │
+│  CONSOLE: console.aws.eu (separate from console.aws.amazon.com) │
+│                                                                  │
+│  SOVEREIGNTY GUARANTEES:                                        │
+│  ├── All data AND metadata stays within EU borders             │
+│  ├── Operated exclusively by EU residents                       │
+│  ├── German-incorporated subsidiaries under EU law              │
+│  ├── Not subject to US CLOUD Act jurisdiction                   │
+│  └── Physical infrastructure isolated from global AWS           │
+│                                                                  │
+│  CERTIFICATIONS:                                                │
+│  ├── ISO/IEC 27001:2013                                         │
+│  ├── SOC 1, SOC 2, SOC 3                                        │
+│  └── BSI C5 (German Federal Office for Information Security)   │
+│                                                                  │
+│  WHY THIS MATTERS FOR COMPLIANCE PLATFORMS:                     │
+│  ├── Trust: Customers know their data is EU-controlled          │
+│  ├── Regulatory: Meets strictest EU data residency requirements │
+│  ├── Marketing: "Built on EU Sovereign Cloud" differentiator    │
+│  └── Future-proof: Ready for evolving EU data sovereignty laws  │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+> **Marketing Message:** *"EuroComply runs on AWS European Sovereign Cloud - your compliance data never leaves EU jurisdiction and is managed exclusively by EU citizens under EU law."*
+
+See [DevOps Infrastructure Design](./plans/2026-01-16-devops-infrastructure-design.md#8-aws-european-sovereign-cloud) for technical setup details.
 
 ### Organizations Own Their Data
 
@@ -1417,6 +1456,7 @@ The 10-year hosting commitment may seem to conflict with GDPR Article 17 (Right 
 │  • Four tools in one (PLM + ERP + PIM + DPP)                   │
 │  • Native DPP compliance (not an add-on)                       │
 │  • Portable credentials (did:key, no vendor lock-in)           │
+│  • AWS European Sovereign Cloud (EU-only data jurisdiction)   │
 │  • SME-accessible price point (95% cheaper than alternatives)  │
 │  • Per-DPP pricing scales with compliance output               │
 │  • Same-day setup (no implementation project)                  │
@@ -1439,4 +1479,4 @@ The 10-year hosting commitment may seem to conflict with GDPR Article 17 (Right 
 
 ---
 
-*Last Updated: January 15, 2026*
+*Last Updated: January 17, 2026*

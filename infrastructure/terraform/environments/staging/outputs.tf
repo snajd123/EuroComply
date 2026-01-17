@@ -9,8 +9,13 @@ output "alb_dns_name" {
 }
 
 output "api_url" {
-  description = "API URL"
+  description = "API URL (ALB direct)"
   value       = "http://${module.alb.alb_dns_name}"
+}
+
+output "api_url_https" {
+  description = "API URL (HTTPS via custom domain)"
+  value       = "https://api-staging.eurocomply.eu"
 }
 
 output "ecs_cluster_name" {

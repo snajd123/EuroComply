@@ -12,6 +12,9 @@ az_count = 2
 # Application
 app_port = 3000
 
+# SSL/TLS Certificate (api-staging.eurocomply.eu)
+certificate_arn = "arn:aws-eusc:acm:eusc-de-east-1:075285241396:certificate/92857e1c-c830-40ac-8558-54c3f3d99d57"
+
 # Database (Graviton instances for Sovereign Cloud)
 db_instance_class    = "db.t4g.micro"
 db_allocated_storage = 20

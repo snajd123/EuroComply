@@ -901,14 +901,24 @@ GSIs:
 │                    INFRASTRUCTURE                                │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  WRITE PATH (AWS eu-west-1)                                     │
-│  ─────────────────────────                                       │
+│  ALL ENVIRONMENTS (AWS European Sovereign Cloud)                │
+│  ───────────────────────────────────────────────                │
+│  Region: eusc-de-east-1 (Brandenburg, Germany)                  │
+│  Partition: aws-eusc (isolated from global AWS)                 │
+│  Console: console.aws.eu                                        │
+│                                                                  │
 │  • ECS Fargate: API, Workers, Bulk Workers                      │
 │  • RDS PostgreSQL: Products, versions, users                    │
 │  • DynamoDB: Items, events (on-demand scaling)                  │
 │  • SQS: Event outbox processing, bulk generation                │
 │  • ElastiCache Redis: Caching, sessions                         │
 │  • KMS: Per-tenant encryption keys                              │
+│                                                                  │
+│  SOVEREIGNTY GUARANTEES:                                        │
+│  • All data AND metadata stays within EU borders                │
+│  • Operated exclusively by EU residents                         │
+│  • Not subject to US CLOUD Act jurisdiction                     │
+│  • BSI C5 certified (German government standard)                │
 │                                                                  │
 │  READ PATH (Cloudflare Global)                                  │
 │  ────────────────────────────                                    │
@@ -920,6 +930,8 @@ GSIs:
 │  ─────────────────                                               │
 │  • Clerk: Authentication                                        │
 │  • walt.id: VC signing (optional, can self-host)                │
+│                                                                  │
+│  See: devops-infrastructure-design.md Section 8 for setup       │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```

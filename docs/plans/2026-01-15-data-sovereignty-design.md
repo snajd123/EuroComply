@@ -38,12 +38,20 @@ The **Verifiable Credential IS the sovereign asset**:
 │  EU DATA RESIDENCY                                               │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  WRITE PATH (API, Products, Attestations)                       │
-│  ─────────────────────────────────────────                      │
-│  Provider: AWS                                                  │
-│  Region: eu-central-1 (Frankfurt, Germany)                      │
+│  ALL ENVIRONMENTS (AWS European Sovereign Cloud)                │
+│  ───────────────────────────────────────────────                │
+│  Provider: AWS European Sovereign Cloud                         │
+│  Region: eusc-de-east-1 (Brandenburg, Germany)                  │
+│  Partition: aws-eusc (isolated from global AWS)                 │
+│  Console: console.aws.eu                                        │
 │  Services: RDS PostgreSQL, DynamoDB, ECS Fargate                │
-│  Compliance: GDPR, SOC 2, ISO 27001                             │
+│  Compliance: GDPR, SOC 2, ISO 27001, BSI C5                     │
+│                                                                  │
+│  SOVEREIGNTY GUARANTEES:                                        │
+│  • All data AND metadata stays within EU borders                │
+│  • Operated exclusively by EU residents                         │
+│  • German-incorporated subsidiaries under EU law                │
+│  • Not subject to US CLOUD Act jurisdiction                     │
 │                                                                  │
 │  READ PATH (DPP Public Access)                                  │
 │  ─────────────────────────────                                  │
@@ -53,9 +61,11 @@ The **Verifiable Credential IS the sovereign asset**:
 │                                                                  │
 │  KEY POINTS                                                     │
 │  ──────────                                                     │
-│  • All data stored in EU                                        │
+│  • Both staging and production on EU Sovereign Cloud            │
 │  • Zero egress fees (R2)                                        │
 │  • No data transfer outside EU without consent                  │
+│                                                                  │
+│  See: devops-infrastructure-design.md Section 8 for setup       │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
