@@ -111,11 +111,13 @@ jobs:
           retention-days: 7
 
   # Production terraform job (only on main branch, with manual approval)
+  # Skipped until production environment is created
   terraform-production:
     name: Terraform Production
     runs-on: ubuntu-latest
     needs: [terraform-staging]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    # Only run if production directory exists AND on main branch push
+    if: false  # Disabled until production environment is created
     environment: production  # Requires manual approval
 
     permissions:
