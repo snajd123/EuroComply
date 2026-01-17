@@ -147,30 +147,45 @@ jobs:
             --endpoint-url https://ecs.${{ env.AWS_REGION }}.amazonaws.eu
           echo "Service is stable!"
 
-      - name: Run smoke tests
-        continue-on-error: true  # Don't fail deployment if smoke tests fail (network isolation)
+      - name: Get ALB DNS name
+        id: alb
         run: |
-          STAGING_URL="${{ secrets.STAGING_API_URL }}"
+          ALB_DNS=$(aws elbv2 describe-load-balancers \
+            --names eurocomply-staging-alb \
+            --query 'LoadBalancers[0].DNSName' \
+            --output text \
+            --endpoint-url https://elasticloadbalancing.${{ env.AWS_REGION }}.amazonaws.eu)
+          echo "alb_dns=$ALB_DNS" >> $GITHUB_OUTPUT
+          echo "ALB DNS: $ALB_DNS"
 
-          if [ -z "$STAGING_URL" ]; then
-            echo "STAGING_API_URL not set, skipping smoke tests"
-            exit 0
-          fi
-
+      - name: Run smoke tests
+        run: |
+          STAGING_URL="http://${{ steps.alb.outputs.alb_dns }}"
           echo "Running smoke tests against $STAGING_URL"
 
+          # Wait for new tasks to be fully healthy (ECS wait only checks service, not LB health)
+          echo "Waiting 30s for load balancer health checks..."
+          sleep 30
+
           # Health check with retries
-          for i in {1..5}; do
-            if curl -sf "${STAGING_URL}/health"; then
+          for i in {1..10}; do
+            echo "Attempt $i/10..."
+            HTTP_CODE=$(curl -s -o /tmp/response.txt -w "%{http_code}" "${STAGING_URL}/health" || echo "000")
+
+            if [ "$HTTP_CODE" = "200" ]; then
               echo "Health check passed!"
+              cat /tmp/response.txt
               exit 0
             fi
-            echo "Attempt $i failed, waiting..."
-            sleep 10
+
+            echo "HTTP $HTTP_CODE - waiting 15s before retry..."
+            [ -f /tmp/response.txt ] && cat /tmp/response.txt
+            sleep 15
           done
 
-          echo "Smoke tests failed - this may be due to network isolation from GitHub runners"
-          echo "Verify manually: curl $STAGING_URL/health"
+          echo "Smoke tests failed after 10 attempts"
+          echo "Last response:"
+          [ -f /tmp/response.txt ] && cat /tmp/response.txt
           exit 1
 
       - name: Notify on failure
