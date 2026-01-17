@@ -1,8 +1,12 @@
-# Core Infrastructure Implementation Plan
+# Core Application Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Build the foundational backend infrastructure for EuroComply - database, auth, events, API skeleton, and multi-tenancy.
+**Status:** ✅ Complete (2026-01-17)
+
+**Goal:** Build the foundational backend application code for EuroComply - database layer, auth middleware, events, API skeleton, and multi-tenancy.
+
+> **Note:** This plan covers APPLICATION CODE (TypeScript packages and apps). For cloud infrastructure deployment (AWS, Cloudflare), see [DevOps Infrastructure Design](./2026-01-16-devops-infrastructure-design.md).
 
 **Architecture:** Hono API framework on Node.js with PostgreSQL (schema-per-tenant), Clerk authentication, transactional outbox for events, and Redis for caching. All code in TypeScript with strict mode.
 
