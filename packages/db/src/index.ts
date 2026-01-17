@@ -1,11 +1,9 @@
 import { PrismaClient } from '@prisma/client';
-import { isIamAuthEnabled, buildIamDatabaseUrl } from './iam-auth.js';
 
 export * from '@prisma/client';
 export * from './tenant.js';
 export * from './client.js';
 export * from './events.js';
-export * from './iam-auth.js';
 
 // Singleton pattern for Prisma client
 const globalForPrisma = globalThis as unknown as {
@@ -14,34 +12,50 @@ const globalForPrisma = globalThis as unknown as {
 };
 
 /**
+ * Builds database URL from individual components if DATABASE_URL is not set.
+ */
+function buildDatabaseUrl(): string {
+  // If DATABASE_URL is set, use it directly
+  if (process.env['DATABASE_URL']) {
+    return process.env['DATABASE_URL'];
+  }
+
+  // Build from components (for ECS with Secrets Manager)
+  const host = process.env['DB_HOST'];
+  const port = process.env['DB_PORT'] || '5432';
+  const name = process.env['DB_NAME'] || 'eurocomply';
+  const user = process.env['DB_USER'];
+  const password = process.env['DB_PASSWORD'];
+  const ssl = process.env['DB_SSL'] === 'true' ? '?sslmode=require' : '';
+
+  if (!host || !user || !password) {
+    throw new Error('Missing required database environment variables: DB_HOST, DB_USER, DB_PASSWORD');
+  }
+
+  return `postgresql://${user}:${encodeURIComponent(password)}@${host}:${port}/${name}${ssl}`;
+}
+
+/**
  * Creates a Prisma client with appropriate configuration.
- * Uses IAM authentication when DB_IAM_AUTH=true.
  */
 async function createPrismaClient(): Promise<PrismaClient> {
   const logLevel = process.env['NODE_ENV'] === 'development' ? ['query', 'error', 'warn'] : ['error'];
 
-  if (isIamAuthEnabled()) {
-    console.log('Initializing Prisma with RDS IAM authentication...');
-    const databaseUrl = await buildIamDatabaseUrl();
+  const databaseUrl = buildDatabaseUrl();
+  console.log(`Initializing Prisma client (host: ${process.env['DB_HOST'] || 'from DATABASE_URL'})`);
 
-    return new PrismaClient({
-      log: logLevel as any,
-      datasources: {
-        db: {
-          url: databaseUrl,
-        },
-      },
-    });
-  }
-
-  // Standard connection using DATABASE_URL
   return new PrismaClient({
     log: logLevel as any,
+    datasources: {
+      db: {
+        url: databaseUrl,
+      },
+    },
   });
 }
 
 /**
- * Initializes the database connection with IAM auth if enabled.
+ * Initializes the database connection.
  * Call this at application startup before using the database.
  * MUST be called before any database operations.
  *
@@ -62,12 +76,7 @@ export async function initializeDatabase(): Promise<PrismaClient> {
   globalForPrisma.prisma = client;
   globalForPrisma.prismaInitialized = true;
 
-  if (isIamAuthEnabled()) {
-    console.log('Database initialized with IAM authentication');
-  } else {
-    console.log('Database initialized with standard authentication');
-  }
-
+  console.log('Database initialized');
   return client;
 }
 
@@ -85,21 +94,26 @@ export function getPrisma(): PrismaClient {
 }
 
 /**
- * Lazily creates a default Prisma client for non-IAM scenarios.
+ * Lazily creates a default Prisma client.
  * This is used when code accesses prisma before initializeDatabase() is called.
  */
 function getOrCreateDefaultClient(): PrismaClient {
   if (!globalForPrisma.prisma) {
-    // Only auto-create if we're NOT using IAM auth (IAM requires async setup)
-    if (isIamAuthEnabled()) {
-      throw new Error(
-        'Database not initialized. Call initializeDatabase() at application startup before using the database with IAM auth.'
-      );
-    }
     // Create default client for backwards compatibility
-    globalForPrisma.prisma = new PrismaClient({
-      log: process.env['NODE_ENV'] === 'development' ? ['query', 'error', 'warn'] : ['error'],
-    });
+    try {
+      const url = buildDatabaseUrl();
+      globalForPrisma.prisma = new PrismaClient({
+        log: process.env['NODE_ENV'] === 'development' ? ['query', 'error', 'warn'] : ['error'],
+        datasources: {
+          db: { url },
+        },
+      });
+    } catch {
+      // Fallback to default DATABASE_URL
+      globalForPrisma.prisma = new PrismaClient({
+        log: process.env['NODE_ENV'] === 'development' ? ['query', 'error', 'warn'] : ['error'],
+      });
+    }
   }
   return globalForPrisma.prisma;
 }

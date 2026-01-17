@@ -208,22 +208,15 @@ module "ecs" {
 
   desired_count = var.ecs_desired_count
 
-  # RDS IAM Authentication (most secure - no passwords in config)
-  rds_resource_id = module.rds.db_resource_id
-  db_username     = module.rds.db_username
-
   environment_variables = [
     { name = "NODE_ENV", value = "production" },
     { name = "PORT", value = tostring(var.app_port) },
-    # Database connection (IAM auth - no password needed)
+    # Database connection
     { name = "DB_HOST", value = module.rds.db_instance_address },
     { name = "DB_PORT", value = tostring(module.rds.db_instance_port) },
     { name = "DB_NAME", value = module.rds.db_name },
     { name = "DB_USER", value = module.rds.db_username },
     { name = "DB_SSL", value = "true" },
-    { name = "DB_IAM_AUTH", value = "true" },
-    # AWS region for IAM token generation
-    { name = "AWS_REGION", value = local.region },
     { name = "REDIS_URL", value = module.elasticache.redis_url },
   ]
 
@@ -231,11 +224,16 @@ module "ecs" {
     {
       name      = "CLERK_SECRET_KEY"
       valueFrom = "${aws_secretsmanager_secret.app_secrets.arn}:CLERK_SECRET_KEY::"
+    },
+    {
+      name      = "DB_PASSWORD"
+      valueFrom = "${module.rds.db_credentials_secret_arn}:password::"
     }
   ]
 
   secrets_arns = [
-    aws_secretsmanager_secret.app_secrets.arn
+    aws_secretsmanager_secret.app_secrets.arn,
+    module.rds.db_credentials_secret_arn
   ]
 
   container_insights = false
