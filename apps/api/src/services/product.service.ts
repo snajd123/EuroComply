@@ -73,9 +73,11 @@ export class ProductService {
       // NOTE: Currently hardcoded to DESIGN workspace for Phase 1 MVP.
       // Future: May need to clone from multiple workspaces or make configurable.
       if (input.productType === 'VARIANT' && input.parentId) {
+        // SECURITY: Verify parent belongs to same organization before cloning
         const parentReleasedVersion = await tx.productVersion.findFirst({
           where: {
             productId: input.parentId,
+            product: { organizationId }, // Cross-tenant protection
             workspace: 'DESIGN', // MVP: BOM inheritance only from DESIGN workspace
             status: 'RELEASED',
           },
@@ -84,6 +86,11 @@ export class ProductService {
         });
 
         if (parentReleasedVersion && parentReleasedVersion.bomEntries.length > 0) {
+          // AUDIT: Require createdBy for accountability - no anonymous BOM creation
+          if (!input.createdBy) {
+            throw new Error('createdBy is required for variant BOM inheritance');
+          }
+
           // Create DRAFT version for variant
           const variantVersion = await tx.productVersion.create({
             data: {
@@ -91,7 +98,7 @@ export class ProductService {
               workspace: 'DESIGN',
               versionNumber: 1,
               status: 'DRAFT',
-              createdBy: input.createdBy || 'system',
+              createdBy: input.createdBy,
             },
           });
 
