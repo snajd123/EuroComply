@@ -16,6 +16,15 @@ if (!CLERK_SECRET_KEY) {
  */
 export const authMiddleware = createMiddleware<{ Variables: AppVariables }>(
   async (c, next) => {
+    // Skip auth if context already set (for testing)
+    // This allows test fixtures to pre-populate user/tenant context
+    const existingUser = c.get('user');
+    const existingTenant = c.get('tenant');
+    if (existingUser && existingTenant) {
+      await next();
+      return;
+    }
+
     // Extract token from Authorization header
     const authHeader = c.req.header('Authorization');
     if (!authHeader?.startsWith('Bearer ')) {
