@@ -14,6 +14,7 @@ import {
 import { ProductService } from '../services/product.service.js';
 import { VersionService } from '../services/version.service.js';
 import { authMiddleware } from '../middleware/auth.js';
+import { NotFoundError, ConflictError } from '../lib/errors.js';
 import type { AppVariables } from '../types/context.js';
 
 const products = new Hono<{ Variables: AppVariables }>();
@@ -180,13 +181,11 @@ products.post(
       });
       return c.json(ok(version), 201);
     } catch (error) {
-      if (error instanceof Error) {
-        if (error.message === 'Product not found') {
-          return c.json(err('NOT_FOUND', 'Product not found'), 404);
-        }
-        if (error.message.startsWith('Cannot create new version')) {
-          return c.json(err('CONFLICT', error.message), 409);
-        }
+      if (error instanceof NotFoundError) {
+        return c.json(err('NOT_FOUND', error.message), 404);
+      }
+      if (error instanceof ConflictError) {
+        return c.json(err('CONFLICT', error.message), 409);
       }
       throw error;
     }

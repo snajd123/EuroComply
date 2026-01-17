@@ -1,5 +1,6 @@
 import { PrismaClient, ProductVersion } from '@eurocomply/db';
 import { ProductWorkspace, VersionStatus, canTransitionTo } from '@eurocomply/shared';
+import { NotFoundError, ValidationError, ConflictError } from '../lib/errors.js';
 
 export interface CreateVersionInput {
   productId: string;
@@ -25,7 +26,7 @@ export class VersionService {
     });
 
     if (!product || product.organizationId !== organizationId) {
-      throw new Error('Product not found');
+      throw new NotFoundError('Product', input.productId);
     }
 
     // Check for existing in-progress version in this workspace
@@ -38,7 +39,7 @@ export class VersionService {
     });
 
     if (inProgressVersion) {
-      throw new Error(
+      throw new ConflictError(
         `Cannot create new version: ${input.workspace} workspace already has a ${inProgressVersion.status} version (v${inProgressVersion.versionNumber})`
       );
     }
@@ -104,6 +105,7 @@ export class VersionService {
 
   /**
    * Transition a version to a new status with validation.
+   * Uses transaction for RELEASED status to ensure atomic immutability lock.
    */
   private async transitionStatus(
     organizationId: string,
@@ -111,28 +113,54 @@ export class VersionService {
     targetStatus: VersionStatus,
     publishedBy?: string
   ): Promise<ProductVersion> {
+    // For RELEASED status, use a transaction to ensure atomic check-and-update
+    // This prevents race conditions where two concurrent requests could both
+    // pass the canTransitionTo check before either updates the status
+    if (targetStatus === 'RELEASED') {
+      return this.prisma.$transaction(async (tx) => {
+        // Re-fetch within transaction for consistency
+        const version = await tx.productVersion.findFirst({
+          where: { id: versionId },
+          include: { product: true },
+        });
+
+        if (!version || version.product.organizationId !== organizationId) {
+          throw new NotFoundError('Version', versionId);
+        }
+
+        if (!canTransitionTo(version.status as VersionStatus, targetStatus)) {
+          throw new ValidationError(
+            `Cannot transition from ${version.status} to ${targetStatus}`
+          );
+        }
+
+        return tx.productVersion.update({
+          where: { id: versionId },
+          data: {
+            status: targetStatus,
+            publishedAt: new Date(),
+            publishedBy,
+          },
+        });
+      });
+    }
+
+    // Non-RELEASED transitions don't need transaction overhead
     const version = await this.getVersion(organizationId, versionId);
 
     if (!version) {
-      throw new Error('Version not found');
+      throw new NotFoundError('Version', versionId);
     }
 
     if (!canTransitionTo(version.status as VersionStatus, targetStatus)) {
-      throw new Error(
+      throw new ValidationError(
         `Cannot transition from ${version.status} to ${targetStatus}`
       );
     }
 
-    const updateData: Record<string, unknown> = { status: targetStatus };
-
-    if (targetStatus === 'RELEASED' && publishedBy) {
-      updateData['publishedAt'] = new Date();
-      updateData['publishedBy'] = publishedBy;
-    }
-
     return this.prisma.productVersion.update({
       where: { id: versionId },
-      data: updateData,
+      data: { status: targetStatus },
     });
   }
 
@@ -189,11 +217,11 @@ export class VersionService {
     const version = await this.getVersion(organizationId, versionId);
 
     if (!version) {
-      throw new Error('Version not found');
+      throw new NotFoundError('Version', versionId);
     }
 
     if (version.status === 'RELEASED') {
-      throw new Error('Cannot modify BOM: version is RELEASED (immutable)');
+      throw new ValidationError('Cannot modify BOM: version is RELEASED (immutable)');
     }
   }
 }

@@ -8,10 +8,10 @@ import { beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import { PrismaClient, createTenantSchema, dropTenantSchema } from '@eurocomply/db';
 import { randomBytes } from 'crypto';
 
-// Use test database
+// Use test database (port 5433 maps to postgres-test container)
 const TEST_DATABASE_URL =
   process.env['DATABASE_URL'] ||
-  'postgresql://postgres:postgres@localhost:5432/eurocomply_test?schema=public';
+  'postgresql://postgres:postgres@localhost:5433/eurocomply_test?schema=public';
 
 // Global Prisma client for integration tests
 export const testPrisma = new PrismaClient({

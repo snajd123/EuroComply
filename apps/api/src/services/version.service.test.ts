@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import { VersionService } from './version.service.js';
+import { NotFoundError, ValidationError, ConflictError } from '../lib/errors.js';
 
 // Mock Prisma client type
 interface MockPrismaClient {
@@ -109,7 +110,7 @@ describe('VersionService', () => {
           workspace: 'DESIGN',
           createdBy: userId,
         })
-      ).rejects.toThrow('Cannot create new version: DESIGN workspace already has a DRAFT version (v2)');
+      ).rejects.toThrow(ConflictError);
     });
 
     it('should reject if IN_REVIEW version exists in workspace', async () => {
@@ -129,7 +130,7 @@ describe('VersionService', () => {
           workspace: 'DESIGN',
           createdBy: userId,
         })
-      ).rejects.toThrow('Cannot create new version: DESIGN workspace already has a IN_REVIEW version (v1)');
+      ).rejects.toThrow(ConflictError);
     });
   });
 
@@ -158,7 +159,7 @@ describe('VersionService', () => {
       });
 
       await expect(service.submitForReview(orgId, 'ver_123')).rejects.toThrow(
-        'Cannot transition from RELEASED to PENDING_REVIEW'
+        ValidationError
       );
     });
   });
