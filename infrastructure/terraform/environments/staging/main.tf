@@ -13,6 +13,14 @@ terraform {
       source  = "hashicorp/random"
       version = "~> 3.0"
     }
+    null = {
+      source  = "hashicorp/null"
+      version = "~> 3.0"
+    }
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.0"
+    }
   }
 
   # AWS European Sovereign Cloud state backend
@@ -136,6 +144,11 @@ module "rds" {
   allocated_storage    = var.db_allocated_storage
   multi_az             = false # Single AZ for staging
   backup_retention_period = 7
+
+  # IAM Authentication Setup (run Lambda to grant rds_iam role)
+  setup_iam_auth           = true
+  lambda_subnet_ids        = module.vpc.private_subnet_ids
+  lambda_security_group_id = module.security_groups.ecs_security_group_id
 }
 
 # =============================================================================

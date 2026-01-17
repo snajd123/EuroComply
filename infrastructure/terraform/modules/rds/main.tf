@@ -158,3 +158,161 @@ output "db_resource_id" {
   description = "RDS resource ID for IAM authentication policy"
   value       = aws_db_instance.main.resource_id
 }
+
+# =============================================================================
+# IAM Authentication Setup Lambda
+# Grants rds_iam role to database user (required for IAM auth)
+# =============================================================================
+
+variable "setup_iam_auth" {
+  description = "Whether to set up IAM authentication via Lambda"
+  type        = bool
+  default     = false
+}
+
+variable "lambda_subnet_ids" {
+  description = "Subnet IDs for Lambda (same as RDS for connectivity)"
+  type        = list(string)
+  default     = []
+}
+
+variable "lambda_security_group_id" {
+  description = "Security group ID for Lambda (must allow access to RDS)"
+  type        = string
+  default     = ""
+}
+
+# Lambda execution role
+resource "aws_iam_role" "iam_setup_lambda" {
+  count = var.setup_iam_auth ? 1 : 0
+  name  = "${local.name_prefix}-rds-iam-setup-lambda"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action = "sts:AssumeRole"
+      Effect = "Allow"
+      Principal = {
+        Service = "lambda.amazonaws.com"
+      }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "iam_setup_lambda" {
+  count = var.setup_iam_auth ? 1 : 0
+  name  = "lambda-permissions"
+  role  = aws_iam_role.iam_setup_lambda[0].id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents"
+        ]
+        Resource = "arn:aws-eusc:logs:*:*:*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
+        Resource = aws_secretsmanager_secret.db_credentials.arn
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "ec2:CreateNetworkInterface",
+          "ec2:DescribeNetworkInterfaces",
+          "ec2:DeleteNetworkInterface"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+# Build Lambda package with dependencies
+resource "null_resource" "build_iam_setup_lambda" {
+  count = var.setup_iam_auth ? 1 : 0
+
+  triggers = {
+    source_hash = filemd5("${path.module}/../../../lambda/rds-iam-setup/index.py")
+    requirements_hash = filemd5("${path.module}/../../../lambda/rds-iam-setup/requirements.txt")
+  }
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      cd ${path.module}/../../../lambda/rds-iam-setup
+      rm -rf package lambda.zip
+      pip install -r requirements.txt -t package --platform manylinux2014_x86_64 --only-binary=:all: --quiet
+      cp index.py package/
+      cd package && zip -r ../lambda.zip . -q
+    EOT
+  }
+}
+
+# Package Lambda code
+data "archive_file" "iam_setup_lambda" {
+  count       = var.setup_iam_auth ? 1 : 0
+  type        = "zip"
+  source_file = "${path.module}/../../../lambda/rds-iam-setup/index.py"
+  output_path = "${path.module}/../../../lambda/rds-iam-setup-source.zip"
+}
+
+# Lambda function
+resource "aws_lambda_function" "iam_setup" {
+  count = var.setup_iam_auth ? 1 : 0
+
+  function_name = "${local.name_prefix}-rds-iam-setup"
+  role          = aws_iam_role.iam_setup_lambda[0].arn
+  handler       = "index.handler"
+  runtime       = "python3.11"
+  timeout       = 30
+  memory_size   = 256
+
+  filename         = "${path.module}/../../../lambda/rds-iam-setup/lambda.zip"
+  source_code_hash = data.archive_file.iam_setup_lambda[0].output_base64sha256
+
+  vpc_config {
+    subnet_ids         = var.lambda_subnet_ids
+    security_group_ids = [var.lambda_security_group_id]
+  }
+
+  environment {
+    variables = {
+      DB_SECRET_ARN = aws_secretsmanager_secret.db_credentials.arn
+    }
+  }
+
+  depends_on = [
+    aws_db_instance.main,
+    null_resource.build_iam_setup_lambda
+  ]
+
+  tags = {
+    Name = "${local.name_prefix}-rds-iam-setup"
+  }
+}
+
+# Invoke Lambda to set up IAM auth
+resource "aws_lambda_invocation" "iam_setup" {
+  count = var.setup_iam_auth ? 1 : 0
+
+  function_name = aws_lambda_function.iam_setup[0].function_name
+  input         = jsonencode({})
+
+  depends_on = [aws_lambda_function.iam_setup]
+
+  lifecycle {
+    # Only run once - don't re-invoke on subsequent applies
+    ignore_changes = [input]
+  }
+}
+
+output "iam_setup_result" {
+  description = "Result of IAM authentication setup"
+  value       = var.setup_iam_auth ? jsondecode(aws_lambda_invocation.iam_setup[0].result) : null
+}
