@@ -1,6 +1,7 @@
 // Shared types and utilities
 
 export * from './authorities.js';
+export * from './product.js';
 
 export interface ApiResponse<T> {
   success: boolean;
