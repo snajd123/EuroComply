@@ -60,8 +60,12 @@ Product Registry → Version Control → BOM Builder
 5. Checkout locks (per-workspace, 72-hour timeout)
 6. BOM entries (quantity, unit, scrap rate, yield)
 7. Material library (reusable material definitions)
+8. **Merkle Root Schema Prep** - Add `root_hash` field to ProductVersion for future Compliance Workspace Merkle tree anchoring (prevents migration pain in Phase 6)
+9. **GS1 Company Prefix** - Add `gs1_company_prefix` to Organization for DynamoDB key partitioning in Phase 4
 
 **Why First:** Everything else (operations, marketing, compliance) references products. Can't build DPPs without products.
+
+**Parallel Track:** Start walt.id Ed25519 signing spike on Day 1 to de-risk Phase 3.
 
 ---
 
@@ -196,9 +200,9 @@ Everything on the critical path must be done in order. Marketing/Operations can 
 
 | Risk | Mitigation |
 |------|------------|
-| walt.id integration complexity | Spike in Phase 1 to validate SDK |
-| DynamoDB schema for items | Design GSI patterns before implementing |
-| BOM calculation performance | Keep calculations simple, no deep recursion |
+| walt.id integration complexity | **Spike on Day 1** - Start Ed25519 signing validation immediately. If library conflicts exist, escalate before Phase 3. |
+| DynamoDB schema for items | Design GSI patterns before implementing. GS1 Company Prefix (added in Phase 1) provides partition key. |
+| BOM calculation performance | **Flat BOM only for MVP** - No deep recursion (BOM within BOM). Stick to Materials + Components. |
 | Multi-tenant isolation bugs | Extensive integration tests (already have) |
 
 ---
@@ -206,9 +210,10 @@ Everything on the critical path must be done in order. Marketing/Operations can 
 ## Recommended Next Steps
 
 1. **Start Phase 1** - Create Product model and version control
-2. **Spike walt.id** - Validate SDK works before Phase 3
+2. **Spike walt.id on Day 1** - Run Ed25519 signing spike in parallel with Phase 1 tasks (this is the #1 technical risk)
 3. **Skip production infra** - Stay on staging until paying customers
-4. **Document as we go** - Update designs if implementation differs
+4. **Keep BOM flat** - No nested BOMs for MVP; stick to Materials + Components
+5. **Document as we go** - Update designs if implementation differs
 
 ---
 
