@@ -16,7 +16,7 @@ on:
 env:
   # AWS European Sovereign Cloud (eusc-de-east-1)
   AWS_REGION: eusc-de-east-1
-  TF_VERSION: "1.6.0"
+  TF_VERSION: "1.14.3"
 
 jobs:
   terraform-staging:
