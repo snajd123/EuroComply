@@ -240,16 +240,44 @@ model ProductVersion {
   @@map("product_versions")
 }
 
+// ============================================
+// BOM ENTRIES - Bill of Materials
+// ============================================
+
 model BomEntry {
-  id        String   @id @default(cuid())
-  parentId  String   @map("parent_id")
-  childId   String   @map("child_id")
-  parent    Product  @relation("BomParent", fields: [parentId], references: [id], onDelete: Cascade)
-  child     Product  @relation("BomChild", fields: [childId], references: [id], onDelete: Cascade)
+  id                String         @id @default(cuid())
 
-  // Link to version (to be expanded in Task 4)
-  versionId String?        @map("version_id")
-  version   ProductVersion? @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  // Parent product (the finished good or component)
+  parentProductId   String         @map("parent_product_id")
+  parentProduct     Product        @relation("BomParent", fields: [parentProductId], references: [id], onDelete: Cascade)
 
+  // Child product (the material or component being used)
+  childProductId    String         @map("child_product_id")
+  childProduct      Product        @relation("BomChild", fields: [childProductId], references: [id], onDelete: Cascade)
+
+  // Version this BOM entry belongs to
+  versionId         String         @map("version_id")
+  version           ProductVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  // Quantity and unit
+  quantity          Decimal
+  unit              String         // kg, pcs, m, etc.
+
+  // Production parameters
+  scrapRatePct      Decimal        @default(0) @map("scrap_rate_pct")
+  yieldPct          Decimal        @default(100) @map("yield_pct")
+
+  // Ordering
+  position          Int            @default(0)
+  notes             String?
+
+  // Timestamps
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
+
+  @@unique([parentProductId, childProductId, versionId])
+  @@index([parentProductId])
+  @@index([childProductId])
+  @@index([versionId])
   @@map("bom_entries")
 }
