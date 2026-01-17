@@ -10,6 +10,27 @@
 
 ---
 
+## Forensic Guards
+
+These guards ensure the Product Foundation is "Audit-Ready":
+
+### A. Release Lock (Task 10)
+Once a version status moves to `RELEASED`, the BomEntry table must reject any CREATE, UPDATE, or DELETE for that `versionId`.
+
+**The Rule:** "Released data is Dead data." It can be read, but never changed.
+
+### B. Variant Inheritance (Task 8)
+When creating a `VARIANT` product, auto-clone the latest `RELEASED` version BOM from the parent product as the variant's DRAFT v1.
+
+**Why:** If a "Blue T-Shirt" (Variant) is created from a "Base T-Shirt" (Parent), copying the base BOM saves massive manual entry.
+
+### C. GTIN Validation (Task 11)
+Add regex validation for GTIN identifiers: must be 8, 12, 13, or 14 digits.
+
+**The Guard:** Prevents "dirty data" from breaking the GS1 Digital Link resolver in Phase 6.
+
+---
+
 ## Phase 1A: Product Model (Tasks 1-5)
 
 ### Task 1: Add Product Schema to Prisma
@@ -366,6 +387,7 @@ export interface CreateProductInput {
   description?: string;
   productType: ProductType;
   parentId?: string; // For variants
+  createdBy?: string; // User ID for variant BOM inheritance
   identifiers?: {
     type: IdentifierType;
     value: string;
@@ -693,6 +715,48 @@ export class ProductService {
         },
         include: productInclude,
       });
+
+      // FORENSIC GUARD B: Variant Inheritance
+      // Auto-clone parent's latest RELEASED BOM as variant's DRAFT v1
+      if (input.productType === 'VARIANT' && input.parentId) {
+        const parentReleasedVersion = await tx.productVersion.findFirst({
+          where: {
+            productId: input.parentId,
+            workspace: 'DESIGN',
+            status: 'RELEASED',
+          },
+          orderBy: { versionNumber: 'desc' },
+          include: { bomEntries: true },
+        });
+
+        if (parentReleasedVersion && parentReleasedVersion.bomEntries.length > 0) {
+          // Create DRAFT version for variant
+          const variantVersion = await tx.productVersion.create({
+            data: {
+              productId: product.id,
+              workspace: 'DESIGN',
+              versionNumber: 1,
+              status: 'DRAFT',
+              createdBy: input.createdBy || 'system',
+            },
+          });
+
+          // Clone BOM entries
+          await tx.bomEntry.createMany({
+            data: parentReleasedVersion.bomEntries.map((entry) => ({
+              parentProductId: product.id,
+              childProductId: entry.childProductId,
+              versionId: variantVersion.id,
+              quantity: entry.quantity,
+              unit: entry.unit,
+              scrapRatePct: entry.scrapRatePct,
+              yieldPct: entry.yieldPct,
+              position: entry.position,
+              notes: entry.notes,
+            })),
+          });
+        }
+      }
 
       return product;
     });
@@ -1106,6 +1170,7 @@ export class VersionService {
 
   /**
    * Release a version (make it immutable).
+   * FORENSIC GUARD A: Once released, BOM entries cannot be modified.
    */
   async releaseVersion(
     organizationId: string,
@@ -1123,6 +1188,25 @@ export class VersionService {
     versionId: string
   ): Promise<ProductVersion> {
     return this.transitionStatus(organizationId, versionId, 'REJECTED');
+  }
+
+  /**
+   * FORENSIC GUARD A: Check if a version is released (immutable).
+   * Use this before any BOM mutation to enforce "Released data is Dead data."
+   */
+  async assertVersionEditable(
+    organizationId: string,
+    versionId: string
+  ): Promise<void> {
+    const version = await this.getVersion(organizationId, versionId);
+
+    if (!version) {
+      throw new Error('Version not found');
+    }
+
+    if (version.status === 'RELEASED') {
+      throw new Error('Cannot modify BOM: version is RELEASED (immutable)');
+    }
   }
 }
 ```
@@ -1170,6 +1254,9 @@ const products = new Hono<AuthContext>();
 const productService = new ProductService(prisma);
 const versionService = new VersionService(prisma);
 
+// FORENSIC GUARD C: GTIN must be 8, 12, 13, or 14 digits
+const GTIN_REGEX = /^(\d{8}|\d{12}|\d{13}|\d{14})$/;
+
 // Validation schemas
 const createProductSchema = z.object({
   name: z.string().min(1).max(255),
@@ -1183,7 +1270,15 @@ const createProductSchema = z.object({
         value: z.string().min(1),
       })
     )
-    .optional(),
+    .optional()
+    .refine(
+      (ids) => {
+        if (!ids) return true;
+        const gtins = ids.filter((id) => id.type === 'GTIN');
+        return gtins.every((id) => GTIN_REGEX.test(id.value));
+      },
+      { message: 'GTIN must be 8, 12, 13, or 14 digits' }
+    ),
 });
 
 const updateProductSchema = z.object({
