@@ -85,17 +85,32 @@ export function getPrisma(): PrismaClient {
 }
 
 /**
+ * Lazily creates a default Prisma client for non-IAM scenarios.
+ * This is used when code accesses prisma before initializeDatabase() is called.
+ */
+function getOrCreateDefaultClient(): PrismaClient {
+  if (!globalForPrisma.prisma) {
+    // Only auto-create if we're NOT using IAM auth (IAM requires async setup)
+    if (isIamAuthEnabled()) {
+      throw new Error(
+        'Database not initialized. Call initializeDatabase() at application startup before using the database with IAM auth.'
+      );
+    }
+    // Create default client for backwards compatibility
+    globalForPrisma.prisma = new PrismaClient({
+      log: process.env['NODE_ENV'] === 'development' ? ['query', 'error', 'warn'] : ['error'],
+    });
+  }
+  return globalForPrisma.prisma;
+}
+
+/**
  * Prisma client getter - use this for database operations.
- * For backwards compatibility, returns a proxy that lazily gets the client.
+ * For backwards compatibility, returns a proxy that lazily gets/creates the client.
  */
 export const prisma: PrismaClient = new Proxy({} as PrismaClient, {
   get(_target, prop) {
-    const client = globalForPrisma.prisma;
-    if (!client) {
-      throw new Error(
-        'Database not initialized. Call initializeDatabase() at application startup before using the database.'
-      );
-    }
+    const client = getOrCreateDefaultClient();
     const value = client[prop as keyof PrismaClient];
     if (typeof value === 'function') {
       return value.bind(client);
