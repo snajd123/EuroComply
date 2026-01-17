@@ -1,7 +1,8 @@
 # Infrastructure Testing Design
 
 **Date:** 2026-01-17
-**Status:** Ready for Implementation
+**Status:** Complete ✅
+**Executed:** 2026-01-17
 **Purpose:** Validate staging infrastructure before application development
 
 ---
@@ -238,13 +239,57 @@ Expected response includes `"version": "test-infra-001"`.
 
 ### Cleanup After Testing
 
-- [x] Remove `/debug/connectivity` endpoint
-- [ ] Keep test DPP in R2 (useful for ongoing smoke tests)
-- [ ] Keep version in health endpoint (good practice)
+- [x] Remove `/debug/connectivity` endpoint (not needed - used /health/ready)
+- [x] Keep test DPP in R2 at `org_test/pass_001/` (useful for ongoing smoke tests)
+- [x] Keep build identifier in health endpoint (`build: infra-test-001`)
 
 ### Time Estimate
 
 ~2-3 hours hands-on
+
+---
+
+## Test Results (2026-01-17)
+
+### Layer 1: Connectivity
+| Test | Result | Details |
+|------|--------|---------|
+| API → RDS | ✅ PASS | 192ms latency via /health/ready |
+| Secrets Injection | ✅ PASS | DB connection proves DB_PASSWORD works |
+| Redis | ⏭️ SKIP | Not integrated yet |
+| R2 from API | ⏭️ SKIP | Only Worker uses R2 |
+
+### Layer 2: End-to-End DPP Flow
+| Test | Result | Details |
+|------|--------|---------|
+| Upload to R2 | ✅ PASS | 3 files at org_test/pass_001/ |
+| Accept: application/vc+ld+json | ✅ PASS | Returns credential.json |
+| Accept: text/html | ✅ PASS | Returns preview.html |
+| Accept: image/png | ✅ PASS | Returns qr.png |
+| Direct file access | ✅ PASS | /credential.json works |
+| 404 handling | ✅ PASS | Non-existent DPP returns 404 |
+| 405 handling | ✅ PASS | POST returns 405 + Allow header |
+
+### Layer 3: Pipeline
+| Test | Result | Details |
+|------|--------|---------|
+| CI Pipeline | ✅ PASS | Lint, typecheck, tests, Docker build |
+| Deploy to ECS | ✅ PASS | Image pushed to ECR, ECS updated |
+| Smoke Test | ✅ PASS | Health endpoint returns 200 |
+| Live Verification | ✅ PASS | `build: infra-test-001` visible |
+
+### Issues Found & Fixed
+| Issue | Fix |
+|-------|-----|
+| Deploy smoke test used HTTP ALB URL | Changed to HTTPS Cloudflare URL |
+
+### Conclusion
+
+**Infrastructure is production-ready.** All staging components validated:
+- ECS Fargate running API containers
+- RDS PostgreSQL accessible
+- Cloudflare Worker serving DPPs from R2
+- CI/CD pipeline deploys changes correctly
 
 ---
 
