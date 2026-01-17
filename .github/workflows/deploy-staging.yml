@@ -160,7 +160,8 @@ jobs:
 
       - name: Run smoke tests
         run: |
-          STAGING_URL="http://${{ steps.alb.outputs.alb_dns }}"
+          # Use the public Cloudflare URL to test the full path users access
+          STAGING_URL="https://api-staging.eurocomply.eu"
           echo "Running smoke tests against $STAGING_URL"
 
           # Wait for new tasks to be fully healthy (ECS wait only checks service, not LB health)
