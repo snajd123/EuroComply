@@ -12,6 +12,8 @@ export class VersionService {
 
   /**
    * Create a new version for a product in a specific workspace.
+   * GUARD: Cannot create new version if there's already an in-progress version
+   * (DRAFT, PENDING_REVIEW, or IN_REVIEW) in the same workspace.
    */
   async createVersion(
     organizationId: string,
@@ -24,6 +26,21 @@ export class VersionService {
 
     if (!product || product.organizationId !== organizationId) {
       throw new Error('Product not found');
+    }
+
+    // Check for existing in-progress version in this workspace
+    const inProgressVersion = await this.prisma.productVersion.findFirst({
+      where: {
+        productId: input.productId,
+        workspace: input.workspace,
+        status: { in: ['DRAFT', 'PENDING_REVIEW', 'IN_REVIEW'] },
+      },
+    });
+
+    if (inProgressVersion) {
+      throw new Error(
+        `Cannot create new version: ${input.workspace} workspace already has a ${inProgressVersion.status} version (v${inProgressVersion.versionNumber})`
+      );
     }
 
     // Get the latest version number for this workspace

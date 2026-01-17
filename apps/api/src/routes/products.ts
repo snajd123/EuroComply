@@ -180,8 +180,13 @@ products.post(
       });
       return c.json(ok(version), 201);
     } catch (error) {
-      if (error instanceof Error && error.message === 'Product not found') {
-        return c.json(err('NOT_FOUND', 'Product not found'), 404);
+      if (error instanceof Error) {
+        if (error.message === 'Product not found') {
+          return c.json(err('NOT_FOUND', 'Product not found'), 404);
+        }
+        if (error.message.startsWith('Cannot create new version')) {
+          return c.json(err('CONFLICT', error.message), 409);
+        }
       }
       throw error;
     }

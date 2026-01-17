@@ -435,7 +435,7 @@ describe('Product Routes Integration Tests', () => {
       expect(marketingJson.data.workspace).toBe('MARKETING');
     });
 
-    it('should increment version number in same workspace', async () => {
+    it('should increment version number in same workspace after releasing previous', async () => {
       // Create first DESIGN version
       const v1Response = await app.request(`/api/v1/products/${productId}/versions`, {
         method: 'POST',
@@ -445,8 +445,14 @@ describe('Product Routes Integration Tests', () => {
       expect(v1Response.status).toBe(201);
       const v1Json = await v1Response.json();
       expect(v1Json.data.versionNumber).toBe(1);
+      const v1Id = v1Json.data.id;
 
-      // Create second DESIGN version
+      // Release v1: DRAFT -> PENDING_REVIEW -> IN_REVIEW -> RELEASED
+      await app.request(`/api/v1/versions/${v1Id}/submit`, { method: 'POST' });
+      await app.request(`/api/v1/versions/${v1Id}/review`, { method: 'POST' });
+      await app.request(`/api/v1/versions/${v1Id}/release`, { method: 'POST' });
+
+      // Now create second DESIGN version
       const v2Response = await app.request(`/api/v1/products/${productId}/versions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -455,6 +461,28 @@ describe('Product Routes Integration Tests', () => {
       expect(v2Response.status).toBe(201);
       const v2Json = await v2Response.json();
       expect(v2Json.data.versionNumber).toBe(2);
+    });
+
+    it('should reject creating new version while DRAFT exists (409 Conflict)', async () => {
+      // Create first DESIGN version (DRAFT)
+      const v1Response = await app.request(`/api/v1/products/${productId}/versions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspace: 'DESIGN' }),
+      });
+      expect(v1Response.status).toBe(201);
+
+      // Try to create second DESIGN version while first is still DRAFT
+      const v2Response = await app.request(`/api/v1/products/${productId}/versions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspace: 'DESIGN' }),
+      });
+      expect(v2Response.status).toBe(409);
+      const v2Json = await v2Response.json();
+      expect(v2Json.success).toBe(false);
+      expect(v2Json.error.code).toBe('CONFLICT');
+      expect(v2Json.error.message).toContain('DRAFT');
     });
 
     it('should return 404 for non-existent product', async () => {

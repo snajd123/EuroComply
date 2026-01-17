@@ -45,6 +45,8 @@ describe('VersionService', () => {
         id: productId,
         organizationId: orgId,
       });
+      // First call: check for in-progress versions (none)
+      // Second call: get latest version number (none)
       mockPrisma.productVersion.findFirst.mockResolvedValue(null);
       mockPrisma.productVersion.create.mockResolvedValue({
         id: 'ver_123',
@@ -64,14 +66,16 @@ describe('VersionService', () => {
       expect(result.status).toBe('DRAFT');
     });
 
-    it('should increment version number', async () => {
+    it('should increment version number when previous is RELEASED', async () => {
       mockPrisma.product.findUnique.mockResolvedValue({
         id: productId,
         organizationId: orgId,
       });
-      mockPrisma.productVersion.findFirst.mockResolvedValue({
-        versionNumber: 3,
-      });
+      // First call: check for in-progress versions (none)
+      // Second call: get latest version number (v3 RELEASED)
+      mockPrisma.productVersion.findFirst
+        .mockResolvedValueOnce(null) // No in-progress version
+        .mockResolvedValueOnce({ versionNumber: 3, status: 'RELEASED' }); // Latest version
       mockPrisma.productVersion.create.mockResolvedValue({
         id: 'ver_124',
         versionNumber: 4,
@@ -85,6 +89,47 @@ describe('VersionService', () => {
       });
 
       expect(result.versionNumber).toBe(4);
+    });
+
+    it('should reject if DRAFT version already exists in workspace', async () => {
+      mockPrisma.product.findUnique.mockResolvedValue({
+        id: productId,
+        organizationId: orgId,
+      });
+      // In-progress version exists
+      mockPrisma.productVersion.findFirst.mockResolvedValueOnce({
+        id: 'ver_existing',
+        versionNumber: 2,
+        status: 'DRAFT',
+      });
+
+      await expect(
+        service.createVersion(orgId, {
+          productId,
+          workspace: 'DESIGN',
+          createdBy: userId,
+        })
+      ).rejects.toThrow('Cannot create new version: DESIGN workspace already has a DRAFT version (v2)');
+    });
+
+    it('should reject if IN_REVIEW version exists in workspace', async () => {
+      mockPrisma.product.findUnique.mockResolvedValue({
+        id: productId,
+        organizationId: orgId,
+      });
+      mockPrisma.productVersion.findFirst.mockResolvedValueOnce({
+        id: 'ver_existing',
+        versionNumber: 1,
+        status: 'IN_REVIEW',
+      });
+
+      await expect(
+        service.createVersion(orgId, {
+          productId,
+          workspace: 'DESIGN',
+          createdBy: userId,
+        })
+      ).rejects.toThrow('Cannot create new version: DESIGN workspace already has a IN_REVIEW version (v1)');
     });
   });
 
