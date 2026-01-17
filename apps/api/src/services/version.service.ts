@@ -1,0 +1,182 @@
+import { PrismaClient, ProductVersion } from '@prisma/client';
+import { ProductWorkspace, VersionStatus, canTransitionTo } from '@eurocomply/shared';
+
+export interface CreateVersionInput {
+  productId: string;
+  workspace: ProductWorkspace;
+  createdBy: string;
+}
+
+export class VersionService {
+  constructor(private prisma: PrismaClient) {}
+
+  /**
+   * Create a new version for a product in a specific workspace.
+   */
+  async createVersion(
+    organizationId: string,
+    input: CreateVersionInput
+  ): Promise<ProductVersion> {
+    // Verify product belongs to org
+    const product = await this.prisma.product.findUnique({
+      where: { id: input.productId },
+    });
+
+    if (!product || product.organizationId !== organizationId) {
+      throw new Error('Product not found');
+    }
+
+    // Get the latest version number for this workspace
+    const latestVersion = await this.prisma.productVersion.findFirst({
+      where: {
+        productId: input.productId,
+        workspace: input.workspace,
+      },
+      orderBy: { versionNumber: 'desc' },
+    });
+
+    const nextVersionNumber = (latestVersion?.versionNumber ?? 0) + 1;
+
+    return this.prisma.productVersion.create({
+      data: {
+        productId: input.productId,
+        workspace: input.workspace,
+        versionNumber: nextVersionNumber,
+        status: 'DRAFT',
+        createdBy: input.createdBy,
+      },
+    });
+  }
+
+  /**
+   * Get a version by ID, ensuring it belongs to the organization.
+   */
+  async getVersion(
+    organizationId: string,
+    versionId: string
+  ): Promise<ProductVersion | null> {
+    const version = await this.prisma.productVersion.findFirst({
+      where: { id: versionId },
+      include: { product: true },
+    });
+
+    if (!version || version.product.organizationId !== organizationId) {
+      return null;
+    }
+
+    return version;
+  }
+
+  /**
+   * List versions for a product.
+   */
+  async listVersions(
+    organizationId: string,
+    productId: string,
+    workspace?: ProductWorkspace
+  ): Promise<ProductVersion[]> {
+    return this.prisma.productVersion.findMany({
+      where: {
+        productId,
+        product: { organizationId },
+        ...(workspace && { workspace }),
+      },
+      orderBy: { versionNumber: 'desc' },
+    });
+  }
+
+  /**
+   * Transition a version to a new status with validation.
+   */
+  private async transitionStatus(
+    organizationId: string,
+    versionId: string,
+    targetStatus: VersionStatus,
+    publishedBy?: string
+  ): Promise<ProductVersion> {
+    const version = await this.getVersion(organizationId, versionId);
+
+    if (!version) {
+      throw new Error('Version not found');
+    }
+
+    if (!canTransitionTo(version.status as VersionStatus, targetStatus)) {
+      throw new Error(
+        `Cannot transition from ${version.status} to ${targetStatus}`
+      );
+    }
+
+    const updateData: Record<string, unknown> = { status: targetStatus };
+
+    if (targetStatus === 'RELEASED' && publishedBy) {
+      updateData.publishedAt = new Date();
+      updateData.publishedBy = publishedBy;
+    }
+
+    return this.prisma.productVersion.update({
+      where: { id: versionId },
+      data: updateData,
+    });
+  }
+
+  /**
+   * Submit a version for review.
+   */
+  async submitForReview(
+    organizationId: string,
+    versionId: string
+  ): Promise<ProductVersion> {
+    return this.transitionStatus(organizationId, versionId, 'PENDING_REVIEW');
+  }
+
+  /**
+   * Start reviewing a version.
+   */
+  async startReview(
+    organizationId: string,
+    versionId: string
+  ): Promise<ProductVersion> {
+    return this.transitionStatus(organizationId, versionId, 'IN_REVIEW');
+  }
+
+  /**
+   * Release a version (make it immutable).
+   * FORENSIC GUARD A: Once released, BOM entries cannot be modified.
+   */
+  async releaseVersion(
+    organizationId: string,
+    versionId: string,
+    publishedBy: string
+  ): Promise<ProductVersion> {
+    return this.transitionStatus(organizationId, versionId, 'RELEASED', publishedBy);
+  }
+
+  /**
+   * Reject a version.
+   */
+  async rejectVersion(
+    organizationId: string,
+    versionId: string
+  ): Promise<ProductVersion> {
+    return this.transitionStatus(organizationId, versionId, 'REJECTED');
+  }
+
+  /**
+   * FORENSIC GUARD A: Check if a version is released (immutable).
+   * Use this before any BOM mutation to enforce "Released data is Dead data."
+   */
+  async assertVersionEditable(
+    organizationId: string,
+    versionId: string
+  ): Promise<void> {
+    const version = await this.getVersion(organizationId, versionId);
+
+    if (!version) {
+      throw new Error('Version not found');
+    }
+
+    if (version.status === 'RELEASED') {
+      throw new Error('Cannot modify BOM: version is RELEASED (immutable)');
+    }
+  }
+}
