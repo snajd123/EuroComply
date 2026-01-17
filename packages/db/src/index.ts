@@ -40,30 +40,10 @@ async function createPrismaClient(): Promise<PrismaClient> {
   });
 }
 
-// Initialize client synchronously for backwards compatibility
-// IAM auth will be set up on first use if enabled
-let prismaInstance: PrismaClient;
-
-if (globalForPrisma.prisma) {
-  prismaInstance = globalForPrisma.prisma;
-} else {
-  // For IAM auth, we need async initialization
-  // Create a placeholder that will be replaced
-  prismaInstance = new PrismaClient({
-    log: process.env['NODE_ENV'] === 'development' ? ['query', 'error', 'warn'] : ['error'],
-  });
-
-  if (process.env['NODE_ENV'] !== 'production') {
-    globalForPrisma.prisma = prismaInstance;
-  }
-}
-
-export const prisma = prismaInstance;
-export { prisma as db };
-
 /**
  * Initializes the database connection with IAM auth if enabled.
  * Call this at application startup before using the database.
+ * MUST be called before any database operations.
  *
  * @example
  * ```typescript
@@ -74,23 +54,54 @@ export { prisma as db };
  * ```
  */
 export async function initializeDatabase(): Promise<PrismaClient> {
-  if (globalForPrisma.prismaInitialized) {
-    return globalForPrisma.prisma!;
+  if (globalForPrisma.prismaInitialized && globalForPrisma.prisma) {
+    return globalForPrisma.prisma;
   }
+
+  const client = await createPrismaClient();
+  globalForPrisma.prisma = client;
+  globalForPrisma.prismaInitialized = true;
 
   if (isIamAuthEnabled()) {
-    const client = await createPrismaClient();
-    globalForPrisma.prisma = client;
-    globalForPrisma.prismaInitialized = true;
-
-    // Replace the exported instance
-    Object.assign(prismaInstance, client);
-
     console.log('Database initialized with IAM authentication');
-    return client;
+  } else {
+    console.log('Database initialized with standard authentication');
   }
 
-  globalForPrisma.prismaInitialized = true;
-  console.log('Database initialized with standard authentication');
-  return prismaInstance;
+  return client;
 }
+
+/**
+ * Gets the Prisma client singleton.
+ * Throws if initializeDatabase() hasn't been called.
+ */
+export function getPrisma(): PrismaClient {
+  if (!globalForPrisma.prisma) {
+    throw new Error(
+      'Database not initialized. Call initializeDatabase() at application startup before using the database.'
+    );
+  }
+  return globalForPrisma.prisma;
+}
+
+/**
+ * Prisma client getter - use this for database operations.
+ * For backwards compatibility, returns a proxy that lazily gets the client.
+ */
+export const prisma: PrismaClient = new Proxy({} as PrismaClient, {
+  get(_target, prop) {
+    const client = globalForPrisma.prisma;
+    if (!client) {
+      throw new Error(
+        'Database not initialized. Call initializeDatabase() at application startup before using the database.'
+      );
+    }
+    const value = client[prop as keyof PrismaClient];
+    if (typeof value === 'function') {
+      return value.bind(client);
+    }
+    return value;
+  },
+});
+
+export { prisma as db };
