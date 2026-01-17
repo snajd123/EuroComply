@@ -36,6 +36,7 @@ prisma/migrations/*.sql.backup
 *.tfstate
 *.tfstate.*
 *.tfplan
+tfplan
 crash.log
 crash.*.log
 override.tf
