@@ -99,6 +99,18 @@ variable "max_capacity" {
   default = 4
 }
 
+variable "rds_resource_id" {
+  description = "RDS resource ID for IAM authentication (e.g., db-ABCDEFGH)"
+  type        = string
+  default     = ""
+}
+
+variable "db_username" {
+  description = "Database username for IAM authentication"
+  type        = string
+  default     = ""
+}
+
 # Hardcoded for AWS European Sovereign Cloud
 # Data sources don't work due to Terraform provider limitations
 locals {
@@ -202,6 +214,24 @@ resource "aws_iam_role" "task" {
   tags = {
     Name = "${local.name_prefix}-ecs-task"
   }
+}
+
+# IAM policy for RDS IAM authentication (most secure - no passwords)
+resource "aws_iam_role_policy" "task_rds_connect" {
+  count = var.rds_resource_id != "" ? 1 : 0
+  name  = "rds-iam-connect"
+  role  = aws_iam_role.task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["rds-db:connect"]
+        Resource = "arn:${local.partition}:rds-db:*:*:dbuser:${var.rds_resource_id}/${var.db_username}"
+      }
+    ]
+  })
 }
 
 # =============================================================================

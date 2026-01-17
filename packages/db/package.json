@@ -20,6 +20,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@aws-sdk/rds-signer": "^3.0.0",
     "@prisma/client": "^5.9.0"
   },
   "devDependencies": {

@@ -2,6 +2,7 @@ import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { secureHeaders } from 'hono/secure-headers';
+import { initializeDatabase } from '@eurocomply/db';
 
 import { errorHandler } from './middleware/error-handler.js';
 import { devLoggerMiddleware, loggerMiddleware } from './middleware/logger.js';
@@ -45,7 +46,11 @@ app.notFound((c) => {
 // Start server
 const port = parseInt(process.env['PORT'] || '3000', 10);
 
-console.log(`
+async function startServer() {
+  // Initialize database (handles IAM auth if enabled)
+  await initializeDatabase();
+
+  console.log(`
 ╔═══════════════════════════════════════════════════════════╗
 ║                    EuroComply API                          ║
 ╠═══════════════════════════════════════════════════════════╣
@@ -55,9 +60,15 @@ console.log(`
 ╚═══════════════════════════════════════════════════════════╝
 `);
 
-serve({
-  fetch: app.fetch,
-  port,
+  serve({
+    fetch: app.fetch,
+    port,
+  });
+}
+
+startServer().catch((error) => {
+  console.error('Failed to start server:', error);
+  process.exit(1);
 });
 
 export { app };

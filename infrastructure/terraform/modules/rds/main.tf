@@ -104,6 +104,9 @@ resource "aws_db_instance" "main" {
   username = "eurocomply"
   password = random_password.db.result
 
+  # Enable IAM authentication (most secure - no passwords needed)
+  iam_database_authentication_enabled = true
+
   multi_az               = var.multi_az
   db_subnet_group_name   = aws_db_subnet_group.main.name
   vpc_security_group_ids = [var.security_group_id]
@@ -149,4 +152,9 @@ output "db_username" {
 
 output "db_credentials_secret_arn" {
   value = aws_secretsmanager_secret.db_credentials.arn
+}
+
+output "db_resource_id" {
+  description = "RDS resource ID for IAM authentication policy"
+  value       = aws_db_instance.main.resource_id
 }
