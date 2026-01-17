@@ -10,58 +10,7 @@
 
 ---
 
-## Strategic Refinements
-
-Based on review feedback, these additions ensure Phase 1 foundations support the "Grand Vision":
-
-1. **Merkle Root Schema Prep** - `ProductVersion.rootHash` field for future Compliance Workspace Merkle tree anchoring (prevents painful migration in Phase 6)
-
-2. **GS1 Namespace Prefix** - `Organization.gs1CompanyPrefix` for DynamoDB partitioning in Phase 4 item tracking
-
-3. **Walt.id Spike on Day 1** - Start Ed25519 signing spike immediately to de-risk Phase 3
-
----
-
-## Phase 1A: Product Model (Tasks 0-5)
-
-### Task 0: Add GS1 Company Prefix to Organization
-
-**Files:**
-- Modify: `packages/db/prisma/schema.prisma`
-
-**Why:** The GS1 Company Prefix is required for DynamoDB key partitioning in Phase 4 (Item Tracking). Adding it now prevents migration pain later.
-
-**Step 1: Add gs1CompanyPrefix field to Organization model**
-
-Find the Organization model and add:
-
-```prisma
-model Organization {
-  // ... existing fields ...
-
-  // GS1 Company Prefix for item tracking namespace (Phase 4 prep)
-  gs1CompanyPrefix  String?       @map("gs1_company_prefix")
-
-  // ... rest of model
-}
-```
-
-**Step 2: Run Prisma generate**
-
-```bash
-pnpm db:generate
-```
-
-Expected: No errors
-
-**Step 3: Commit**
-
-```bash
-git add packages/db/prisma/schema.prisma
-git commit -m "feat(db): add GS1 company prefix to Organization for item tracking"
-```
-
----
+## Phase 1A: Product Model (Tasks 1-5)
 
 ### Task 1: Add Product Schema to Prisma
 
@@ -244,9 +193,6 @@ model ProductVersion {
   // Optional: Signature for released versions (DID + JWS)
   signatureDid  String?       @map("signature_did")
   signatureJws  String?       @map("signature_jws")
-
-  // Merkle root for Compliance Workspace batch anchoring (Phase 6 prep)
-  rootHash      String?       @map("root_hash")
 
   // Timestamps
   createdAt     DateTime      @default(now()) @map("created_at")
@@ -1781,10 +1727,9 @@ Expected: CI run completes successfully
 This plan implements:
 
 1. **Database Schema:**
-   - Organization.gs1CompanyPrefix (Phase 4 prep for DynamoDB partitioning)
    - Product model (hub entity)
    - ProductIdentifier (GTIN, SKU, Internal)
-   - ProductVersion (per-workspace versioning + rootHash for Merkle anchoring)
+   - ProductVersion (per-workspace versioning)
    - BomEntry (bill of materials)
 
 2. **Services:**
@@ -1809,21 +1754,3 @@ This plan implements:
    - Version state machine helpers
 
 **Next Phase:** BOM Service for adding materials to products
-
----
-
-## Parallel Track: Walt.id Spike
-
-**Start on Day 1** (parallel to Task 0-5):
-
-Create a standalone spike to validate Ed25519 signing works in the monorepo environment:
-
-1. Create `apps/api/src/test/spikes/waltid-signing.spike.ts`
-2. Generate a did:key with Ed25519
-3. Sign a test payload as JWS
-4. Verify the signature
-5. Document any library conflicts or environment issues
-
-**Success Criteria:** Can sign and verify in under 100ms with no dependency conflicts.
-
-**If spike fails:** Escalate immediately - this is the #1 technical risk for Phase 3.
