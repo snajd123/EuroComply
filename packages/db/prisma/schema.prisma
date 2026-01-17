@@ -188,14 +188,55 @@ model ProductIdentifier {
 }
 
 // ============================================
-// PRODUCT RELATIONS - Placeholder models for future tasks
+// PRODUCT VERSIONS - Per-workspace versioning
 // ============================================
 
-model ProductVersion {
-  id        String   @id @default(cuid())
-  productId String   @map("product_id")
-  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+enum Workspace {
+  DESIGN
+  OPERATIONS
+  MARKETING
+  COMPLIANCE
+}
 
+enum VersionStatus {
+  DRAFT
+  PENDING_REVIEW
+  IN_REVIEW
+  RELEASED
+  REJECTED
+}
+
+model ProductVersion {
+  id            String        @id @default(cuid())
+  productId     String        @map("product_id")
+  product       Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  // Version identification
+  workspace     Workspace
+  versionNumber Int           @map("version_number")
+
+  // Workflow status
+  status        VersionStatus @default(DRAFT)
+
+  // Audit trail
+  createdBy     String        @map("created_by")
+  publishedBy   String?       @map("published_by")
+  publishedAt   DateTime?     @map("published_at")
+
+  // Optional: Signature for released versions (DID + JWS)
+  signatureDid  String?       @map("signature_did")
+  signatureJws  String?       @map("signature_jws")
+
+  // Timestamps
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  // Relations
+  bomEntries    BomEntry[]
+
+  @@unique([productId, workspace, versionNumber])
+  @@index([productId, workspace])
+  @@index([status])
   @@map("product_versions")
 }
 
@@ -205,6 +246,10 @@ model BomEntry {
   childId   String   @map("child_id")
   parent    Product  @relation("BomParent", fields: [parentId], references: [id], onDelete: Cascade)
   child     Product  @relation("BomChild", fields: [childId], references: [id], onDelete: Cascade)
+
+  // Link to version (to be expanded in Task 4)
+  versionId String?        @map("version_id")
+  version   ProductVersion? @relation(fields: [versionId], references: [id], onDelete: Cascade)
 
   @@map("bom_entries")
 }
