@@ -1,9 +1,31 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import { ProductService } from './product.service.js';
 import { CreateProductInput } from '@eurocomply/shared';
 
+// Mock Prisma client type
+interface MockPrismaClient {
+  product: {
+    create: Mock;
+    findUnique: Mock;
+    findMany: Mock;
+    update: Mock;
+  };
+  productIdentifier: {
+    createMany: Mock;
+  };
+  productVersion: {
+    create: Mock;
+    findFirst: Mock;
+    update: Mock;
+  };
+  bomEntry: {
+    createMany: Mock;
+  };
+  $transaction: Mock;
+}
+
 // Mock Prisma client
-const mockPrisma = {
+const mockPrisma: MockPrismaClient = {
   product: {
     create: vi.fn(),
     findUnique: vi.fn(),
@@ -21,7 +43,7 @@ const mockPrisma = {
   bomEntry: {
     createMany: vi.fn(),
   },
-  $transaction: vi.fn((fn) => fn(mockPrisma)),
+  $transaction: vi.fn((fn: (client: MockPrismaClient) => Promise<unknown>) => fn(mockPrisma)),
 };
 
 describe('ProductService', () => {

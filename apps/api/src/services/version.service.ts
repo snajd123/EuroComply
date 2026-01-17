@@ -1,4 +1,4 @@
-import { PrismaClient, ProductVersion } from '@prisma/client';
+import { PrismaClient, ProductVersion } from '@eurocomply/db';
 import { ProductWorkspace, VersionStatus, canTransitionTo } from '@eurocomply/shared';
 
 export interface CreateVersionInput {
@@ -109,8 +109,8 @@ export class VersionService {
     const updateData: Record<string, unknown> = { status: targetStatus };
 
     if (targetStatus === 'RELEASED' && publishedBy) {
-      updateData.publishedAt = new Date();
-      updateData.publishedBy = publishedBy;
+      updateData['publishedAt'] = new Date();
+      updateData['publishedBy'] = publishedBy;
     }
 
     return this.prisma.productVersion.update({

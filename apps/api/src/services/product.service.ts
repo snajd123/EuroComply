@@ -1,4 +1,4 @@
-import { PrismaClient, Product, Prisma } from '@prisma/client';
+import { PrismaClient, Product, Prisma, BomEntry } from '@eurocomply/db';
 import {
   CreateProductInput,
   UpdateProductInput,
@@ -47,7 +47,7 @@ export class ProductService {
       throw new Error('Only VARIANT products can have a parentId');
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       // Create the product
       const product = await tx.product.create({
         data: {
@@ -95,7 +95,7 @@ export class ProductService {
 
           // Clone BOM entries
           await tx.bomEntry.createMany({
-            data: parentReleasedVersion.bomEntries.map((entry) => ({
+            data: parentReleasedVersion.bomEntries.map((entry: BomEntry) => ({
               parentProductId: product.id,
               childProductId: entry.childProductId,
               versionId: variantVersion.id,

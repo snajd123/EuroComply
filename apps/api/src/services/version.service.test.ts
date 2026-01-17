@@ -1,7 +1,21 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import { VersionService } from './version.service.js';
 
-const mockPrisma = {
+// Mock Prisma client type
+interface MockPrismaClient {
+  productVersion: {
+    create: Mock;
+    findFirst: Mock;
+    findMany: Mock;
+    update: Mock;
+  };
+  product: {
+    findUnique: Mock;
+  };
+  $transaction: Mock;
+}
+
+const mockPrisma: MockPrismaClient = {
   productVersion: {
     create: vi.fn(),
     findFirst: vi.fn(),
@@ -11,7 +25,7 @@ const mockPrisma = {
   product: {
     findUnique: vi.fn(),
   },
-  $transaction: vi.fn((fn) => fn(mockPrisma)),
+  $transaction: vi.fn((fn: (client: MockPrismaClient) => Promise<unknown>) => fn(mockPrisma)),
 };
 
 describe('VersionService', () => {
