@@ -1,12 +1,39 @@
 # VPC Module for EuroComply
-# Creates VPC with public/private subnets across multiple AZs
+# Creates VPC with public and private subnets
 
-data "aws_availability_zones" "available" {
-  state = "available"
+variable "project" {
+  type = string
+}
+
+variable "environment" {
+  type = string
+}
+
+variable "vpc_cidr" {
+  type    = string
+  default = "10.0.0.0/16"
+}
+
+variable "az_count" {
+  type    = number
+  default = 2
+}
+
+variable "single_nat_gateway" {
+  type    = bool
+  default = false
+}
+
+# Hardcoded for AWS European Sovereign Cloud (eusc-de-east-1)
+# Data sources don't work due to Terraform provider limitations
+variable "availability_zones" {
+  type    = list(string)
+  default = ["eusc-de-east-1a", "eusc-de-east-1b"]
 }
 
 locals {
-  azs = slice(data.aws_availability_zones.available.names, 0, var.az_count)
+  name_prefix = "${var.project}-${var.environment}"
+  azs         = slice(var.availability_zones, 0, var.az_count)
 }
 
 # =============================================================================
@@ -18,9 +45,7 @@ resource "aws_vpc" "main" {
   enable_dns_support   = true
 
   tags = {
-    Name        = "${var.project}-${var.environment}-vpc"
-    Environment = var.environment
-    Project     = var.project
+    Name = "${local.name_prefix}-vpc"
   }
 }
 
@@ -31,9 +56,7 @@ resource "aws_internet_gateway" "main" {
   vpc_id = aws_vpc.main.id
 
   tags = {
-    Name        = "${var.project}-${var.environment}-igw"
-    Environment = var.environment
-    Project     = var.project
+    Name = "${local.name_prefix}-igw"
   }
 }
 
@@ -41,62 +64,57 @@ resource "aws_internet_gateway" "main" {
 # Public Subnets
 # =============================================================================
 resource "aws_subnet" "public" {
-  count                   = var.az_count
+  count = var.az_count
+
   vpc_id                  = aws_vpc.main.id
-  cidr_block              = cidrsubnet(var.vpc_cidr, 4, count.index)
+  cidr_block              = cidrsubnet(var.vpc_cidr, 8, count.index)
   availability_zone       = local.azs[count.index]
   map_public_ip_on_launch = true
 
   tags = {
-    Name        = "${var.project}-${var.environment}-public-${local.azs[count.index]}"
-    Environment = var.environment
-    Project     = var.project
-    Type        = "public"
+    Name = "${local.name_prefix}-public-${local.azs[count.index]}"
+    Type = "public"
   }
 }
 
 # =============================================================================
-# Private Subnets (for ECS, RDS, ElastiCache)
+# Private Subnets
 # =============================================================================
 resource "aws_subnet" "private" {
-  count             = var.az_count
+  count = var.az_count
+
   vpc_id            = aws_vpc.main.id
-  cidr_block        = cidrsubnet(var.vpc_cidr, 4, count.index + var.az_count)
+  cidr_block        = cidrsubnet(var.vpc_cidr, 8, count.index + 100)
   availability_zone = local.azs[count.index]
 
   tags = {
-    Name        = "${var.project}-${var.environment}-private-${local.azs[count.index]}"
-    Environment = var.environment
-    Project     = var.project
-    Type        = "private"
+    Name = "${local.name_prefix}-private-${local.azs[count.index]}"
+    Type = "private"
   }
 }
 
 # =============================================================================
-# NAT Gateway (one per AZ for high availability, or single for cost savings)
+# NAT Gateway
 # =============================================================================
 resource "aws_eip" "nat" {
   count  = var.single_nat_gateway ? 1 : var.az_count
   domain = "vpc"
 
   tags = {
-    Name        = "${var.project}-${var.environment}-nat-eip-${count.index}"
-    Environment = var.environment
-    Project     = var.project
+    Name = "${local.name_prefix}-nat-eip-${count.index}"
   }
 
   depends_on = [aws_internet_gateway.main]
 }
 
 resource "aws_nat_gateway" "main" {
-  count         = var.single_nat_gateway ? 1 : var.az_count
+  count = var.single_nat_gateway ? 1 : var.az_count
+
   allocation_id = aws_eip.nat[count.index].id
   subnet_id     = aws_subnet.public[count.index].id
 
   tags = {
-    Name        = "${var.project}-${var.environment}-nat-${count.index}"
-    Environment = var.environment
-    Project     = var.project
+    Name = "${local.name_prefix}-nat-${count.index}"
   }
 
   depends_on = [aws_internet_gateway.main]
@@ -105,8 +123,6 @@ resource "aws_nat_gateway" "main" {
 # =============================================================================
 # Route Tables
 # =============================================================================
-
-# Public route table
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
 
@@ -116,19 +132,10 @@ resource "aws_route_table" "public" {
   }
 
   tags = {
-    Name        = "${var.project}-${var.environment}-public-rt"
-    Environment = var.environment
-    Project     = var.project
+    Name = "${local.name_prefix}-public-rt"
   }
 }
 
-resource "aws_route_table_association" "public" {
-  count          = var.az_count
-  subnet_id      = aws_subnet.public[count.index].id
-  route_table_id = aws_route_table.public.id
-}
-
-# Private route tables
 resource "aws_route_table" "private" {
   count  = var.single_nat_gateway ? 1 : var.az_count
   vpc_id = aws_vpc.main.id
@@ -139,14 +146,43 @@ resource "aws_route_table" "private" {
   }
 
   tags = {
-    Name        = "${var.project}-${var.environment}-private-rt-${count.index}"
-    Environment = var.environment
-    Project     = var.project
+    Name = "${local.name_prefix}-private-rt-${count.index}"
   }
 }
 
+resource "aws_route_table_association" "public" {
+  count = var.az_count
+
+  subnet_id      = aws_subnet.public[count.index].id
+  route_table_id = aws_route_table.public.id
+}
+
 resource "aws_route_table_association" "private" {
-  count          = var.az_count
+  count = var.az_count
+
   subnet_id      = aws_subnet.private[count.index].id
   route_table_id = aws_route_table.private[var.single_nat_gateway ? 0 : count.index].id
+}
+
+# =============================================================================
+# Outputs
+# =============================================================================
+output "vpc_id" {
+  value = aws_vpc.main.id
+}
+
+output "vpc_cidr" {
+  value = aws_vpc.main.cidr_block
+}
+
+output "public_subnet_ids" {
+  value = aws_subnet.public[*].id
+}
+
+output "private_subnet_ids" {
+  value = aws_subnet.private[*].id
+}
+
+output "availability_zones" {
+  value = local.azs
 }

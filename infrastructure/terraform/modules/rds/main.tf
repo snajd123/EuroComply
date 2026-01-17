@@ -1,125 +1,152 @@
 # RDS Module for EuroComply
-# Creates PostgreSQL RDS instance with proper configuration
+# Creates PostgreSQL RDS instance with Secrets Manager credentials
+
+variable "project" {
+  type = string
+}
+
+variable "environment" {
+  type = string
+}
+
+variable "private_subnet_ids" {
+  type = list(string)
+}
+
+variable "security_group_id" {
+  type = string
+}
+
+variable "instance_class" {
+  type    = string
+  default = "db.t4g.micro"
+}
+
+variable "allocated_storage" {
+  type    = number
+  default = 20
+}
+
+variable "multi_az" {
+  type    = bool
+  default = false
+}
+
+variable "backup_retention_period" {
+  type    = number
+  default = 7
+}
+
+locals {
+  name_prefix = "${var.project}-${var.environment}"
+}
 
 # =============================================================================
 # DB Subnet Group
 # =============================================================================
 resource "aws_db_subnet_group" "main" {
-  name        = "${var.project}-${var.environment}-db-subnet"
-  description = "Database subnet group for ${var.project}"
-  subnet_ids  = var.private_subnet_ids
+  name       = "${local.name_prefix}-db-subnet"
+  subnet_ids = var.private_subnet_ids
 
   tags = {
-    Name        = "${var.project}-${var.environment}-db-subnet"
-    Environment = var.environment
-    Project     = var.project
+    Name = "${local.name_prefix}-db-subnet"
   }
 }
 
 # =============================================================================
-# Random password for database
+# Random Password
 # =============================================================================
-resource "random_password" "db_password" {
+resource "random_password" "db" {
   length           = 32
   special          = true
   override_special = "!#$%&*()-_=+[]{}<>:?"
 }
 
 # =============================================================================
-# Secrets Manager for database credentials
+# Secrets Manager
 # =============================================================================
 resource "aws_secretsmanager_secret" "db_credentials" {
-  name        = "${var.project}/${var.environment}/db-credentials"
-  description = "Database credentials for ${var.project} ${var.environment}"
+  name        = "${var.project}/${var.environment}/database"
+  description = "RDS PostgreSQL credentials for ${var.project} ${var.environment}"
 
   tags = {
-    Environment = var.environment
-    Project     = var.project
+    Name = "${local.name_prefix}-db-credentials"
   }
 }
 
 resource "aws_secretsmanager_secret_version" "db_credentials" {
   secret_id = aws_secretsmanager_secret.db_credentials.id
   secret_string = jsonencode({
-    username = var.db_username
-    password = random_password.db_password.result
+    username = "eurocomply"
+    password = random_password.db.result
     host     = aws_db_instance.main.address
     port     = aws_db_instance.main.port
-    database = var.db_name
+    database = aws_db_instance.main.db_name
   })
 }
 
 # =============================================================================
-# RDS PostgreSQL Instance
+# RDS Instance
 # =============================================================================
 resource "aws_db_instance" "main" {
-  identifier = "${var.project}-${var.environment}-db"
+  identifier = "${local.name_prefix}-postgres"
 
-  # Engine
-  engine               = "postgres"
-  engine_version       = var.engine_version
-  instance_class       = var.instance_class
-  parameter_group_name = aws_db_parameter_group.main.name
+  engine         = "postgres"
+  engine_version = "15"
+  instance_class = var.instance_class
 
-  # Storage
   allocated_storage     = var.allocated_storage
-  max_allocated_storage = var.max_allocated_storage
+  max_allocated_storage = var.allocated_storage * 2
   storage_type          = "gp3"
   storage_encrypted     = true
 
-  # Database
-  db_name  = var.db_name
-  username = var.db_username
-  password = random_password.db_password.result
-  port     = 5432
+  db_name  = "eurocomply"
+  username = "eurocomply"
+  password = random_password.db.result
 
-  # Network
+  multi_az               = var.multi_az
   db_subnet_group_name   = aws_db_subnet_group.main.name
   vpc_security_group_ids = [var.security_group_id]
-  publicly_accessible    = false
-  multi_az               = var.multi_az
 
-  # Backup
   backup_retention_period = var.backup_retention_period
   backup_window           = "03:00-04:00"
   maintenance_window      = "Mon:04:00-Mon:05:00"
 
-  # Monitoring
-  performance_insights_enabled          = var.performance_insights_enabled
-  performance_insights_retention_period = var.performance_insights_enabled ? 7 : null
+  auto_minor_version_upgrade = true
+  deletion_protection        = var.environment == "production"
+  skip_final_snapshot        = var.environment != "production"
+  final_snapshot_identifier  = var.environment == "production" ? "${local.name_prefix}-final-snapshot" : null
 
-  # Protection
-  deletion_protection       = var.environment == "production"
-  skip_final_snapshot       = var.environment != "production"
-  final_snapshot_identifier = var.environment == "production" ? "${var.project}-${var.environment}-final-snapshot" : null
+  performance_insights_enabled = var.environment == "production"
 
   tags = {
-    Name        = "${var.project}-${var.environment}-db"
-    Environment = var.environment
-    Project     = var.project
+    Name = "${local.name_prefix}-postgres"
   }
 }
 
 # =============================================================================
-# Parameter Group
+# Outputs
 # =============================================================================
-resource "aws_db_parameter_group" "main" {
-  name        = "${var.project}-${var.environment}-pg"
-  family      = "postgres15"
-  description = "Parameter group for ${var.project}"
+output "db_instance_id" {
+  value = aws_db_instance.main.id
+}
 
-  parameter {
-    name  = "log_statement"
-    value = "all"
-  }
+output "db_instance_address" {
+  value = aws_db_instance.main.address
+}
 
-  parameter {
-    name  = "log_min_duration_statement"
-    value = "1000" # Log queries taking more than 1 second
-  }
+output "db_instance_port" {
+  value = aws_db_instance.main.port
+}
 
-  tags = {
-    Environment = var.environment
-    Project     = var.project
-  }
+output "db_name" {
+  value = aws_db_instance.main.db_name
+}
+
+output "db_username" {
+  value = aws_db_instance.main.username
+}
+
+output "db_credentials_secret_arn" {
+  value = aws_secretsmanager_secret.db_credentials.arn
 }

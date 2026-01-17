@@ -1,11 +1,50 @@
 # ALB Module for EuroComply
-# Creates Application Load Balancer with target groups and listeners
+# Creates Application Load Balancer with HTTPS support
+
+variable "project" {
+  type = string
+}
+
+variable "environment" {
+  type = string
+}
+
+variable "vpc_id" {
+  type = string
+}
+
+variable "public_subnet_ids" {
+  type = list(string)
+}
+
+variable "security_group_id" {
+  type = string
+}
+
+variable "app_port" {
+  type    = number
+  default = 3000
+}
+
+variable "health_check_path" {
+  type    = string
+  default = "/health"
+}
+
+variable "certificate_arn" {
+  type    = string
+  default = ""
+}
+
+locals {
+  name_prefix = "${var.project}-${var.environment}"
+}
 
 # =============================================================================
 # Application Load Balancer
 # =============================================================================
 resource "aws_lb" "main" {
-  name               = "${var.project}-${var.environment}-alb"
+  name               = "${local.name_prefix}-alb"
   internal           = false
   load_balancer_type = "application"
   security_groups    = [var.security_group_id]
@@ -14,9 +53,7 @@ resource "aws_lb" "main" {
   enable_deletion_protection = var.environment == "production"
 
   tags = {
-    Name        = "${var.project}-${var.environment}-alb"
-    Environment = var.environment
-    Project     = var.project
+    Name = "${local.name_prefix}-alb"
   }
 }
 
@@ -24,7 +61,7 @@ resource "aws_lb" "main" {
 # Target Group
 # =============================================================================
 resource "aws_lb_target_group" "main" {
-  name        = "${var.project}-${var.environment}-tg"
+  name        = "${local.name_prefix}-tg"
   port        = var.app_port
   protocol    = "HTTP"
   vpc_id      = var.vpc_id
@@ -38,19 +75,17 @@ resource "aws_lb_target_group" "main" {
     path                = var.health_check_path
     port                = "traffic-port"
     protocol            = "HTTP"
-    timeout             = 10
+    timeout             = 5
     unhealthy_threshold = 3
   }
 
   tags = {
-    Name        = "${var.project}-${var.environment}-tg"
-    Environment = var.environment
-    Project     = var.project
+    Name = "${local.name_prefix}-tg"
   }
 }
 
 # =============================================================================
-# HTTP Listener (redirects to HTTPS in production)
+# HTTP Listener (redirect to HTTPS if certificate provided)
 # =============================================================================
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.main.arn
@@ -69,15 +104,23 @@ resource "aws_lb_listener" "http" {
       }
     }
 
-    target_group_arn = var.certificate_arn == "" ? aws_lb_target_group.main.arn : null
+    dynamic "forward" {
+      for_each = var.certificate_arn == "" ? [1] : []
+      content {
+        target_group {
+          arn = aws_lb_target_group.main.arn
+        }
+      }
+    }
   }
 }
 
 # =============================================================================
-# HTTPS Listener (when certificate is provided)
+# HTTPS Listener (only if certificate provided)
 # =============================================================================
 resource "aws_lb_listener" "https" {
-  count             = var.certificate_arn != "" ? 1 : 0
+  count = var.certificate_arn != "" ? 1 : 0
+
   load_balancer_arn = aws_lb.main.arn
   port              = 443
   protocol          = "HTTPS"
@@ -88,4 +131,31 @@ resource "aws_lb_listener" "https" {
     type             = "forward"
     target_group_arn = aws_lb_target_group.main.arn
   }
+}
+
+# =============================================================================
+# Outputs
+# =============================================================================
+output "alb_arn" {
+  value = aws_lb.main.arn
+}
+
+output "alb_dns_name" {
+  value = aws_lb.main.dns_name
+}
+
+output "alb_zone_id" {
+  value = aws_lb.main.zone_id
+}
+
+output "target_group_arn" {
+  value = aws_lb_target_group.main.arn
+}
+
+output "http_listener_arn" {
+  value = aws_lb_listener.http.arn
+}
+
+output "https_listener_arn" {
+  value = var.certificate_arn != "" ? aws_lb_listener.https[0].arn : ""
 }

@@ -11,9 +11,9 @@ variable "environment" {
 }
 
 variable "aws_region" {
-  description = "AWS region"
+  description = "AWS European Sovereign Cloud region"
   type        = string
-  default     = "eu-west-1"
+  default     = "eusc-de-east-1"
 }
 
 # VPC
@@ -42,11 +42,11 @@ variable "certificate_arn" {
   default     = ""
 }
 
-# Database
+# Database (t4g = Graviton instances for Sovereign Cloud)
 variable "db_instance_class" {
   description = "RDS instance class"
   type        = string
-  default     = "db.t3.micro"
+  default     = "db.t4g.micro"
 }
 
 variable "db_allocated_storage" {
@@ -55,11 +55,11 @@ variable "db_allocated_storage" {
   default     = 20
 }
 
-# Redis
+# Redis (t4g = Graviton instances for Sovereign Cloud)
 variable "redis_node_type" {
   description = "ElastiCache node type"
   type        = string
-  default     = "cache.t3.micro"
+  default     = "cache.t4g.micro"
 }
 
 # ECS

@@ -1,16 +1,37 @@
 # Security Groups Module for EuroComply
-# Defines security groups for ALB, ECS, RDS, and ElastiCache
+# Creates security groups for ALB, ECS, RDS, and ElastiCache
+
+variable "project" {
+  type = string
+}
+
+variable "environment" {
+  type = string
+}
+
+variable "vpc_id" {
+  type = string
+}
+
+variable "app_port" {
+  type    = number
+  default = 3000
+}
+
+locals {
+  name_prefix = "${var.project}-${var.environment}"
+}
 
 # =============================================================================
 # ALB Security Group
 # =============================================================================
 resource "aws_security_group" "alb" {
-  name        = "${var.project}-${var.environment}-alb-sg"
+  name        = "${local.name_prefix}-alb-sg"
   description = "Security group for Application Load Balancer"
   vpc_id      = var.vpc_id
 
   ingress {
-    description = "HTTP from internet"
+    description = "HTTP from anywhere"
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
@@ -18,7 +39,7 @@ resource "aws_security_group" "alb" {
   }
 
   ingress {
-    description = "HTTPS from internet"
+    description = "HTTPS from anywhere"
     from_port   = 443
     to_port     = 443
     protocol    = "tcp"
@@ -26,7 +47,6 @@ resource "aws_security_group" "alb" {
   }
 
   egress {
-    description = "Allow all outbound"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
@@ -34,22 +54,20 @@ resource "aws_security_group" "alb" {
   }
 
   tags = {
-    Name        = "${var.project}-${var.environment}-alb-sg"
-    Environment = var.environment
-    Project     = var.project
+    Name = "${local.name_prefix}-alb-sg"
   }
 }
 
 # =============================================================================
-# ECS Tasks Security Group
+# ECS Security Group
 # =============================================================================
 resource "aws_security_group" "ecs" {
-  name        = "${var.project}-${var.environment}-ecs-sg"
+  name        = "${local.name_prefix}-ecs-sg"
   description = "Security group for ECS tasks"
   vpc_id      = var.vpc_id
 
   ingress {
-    description     = "Allow traffic from ALB"
+    description     = "App port from ALB"
     from_port       = var.app_port
     to_port         = var.app_port
     protocol        = "tcp"
@@ -57,7 +75,6 @@ resource "aws_security_group" "ecs" {
   }
 
   egress {
-    description = "Allow all outbound"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
@@ -65,9 +82,7 @@ resource "aws_security_group" "ecs" {
   }
 
   tags = {
-    Name        = "${var.project}-${var.environment}-ecs-sg"
-    Environment = var.environment
-    Project     = var.project
+    Name = "${local.name_prefix}-ecs-sg"
   }
 }
 
@@ -75,7 +90,7 @@ resource "aws_security_group" "ecs" {
 # RDS Security Group
 # =============================================================================
 resource "aws_security_group" "rds" {
-  name        = "${var.project}-${var.environment}-rds-sg"
+  name        = "${local.name_prefix}-rds-sg"
   description = "Security group for RDS PostgreSQL"
   vpc_id      = var.vpc_id
 
@@ -88,7 +103,6 @@ resource "aws_security_group" "rds" {
   }
 
   egress {
-    description = "Allow all outbound"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
@@ -96,9 +110,7 @@ resource "aws_security_group" "rds" {
   }
 
   tags = {
-    Name        = "${var.project}-${var.environment}-rds-sg"
-    Environment = var.environment
-    Project     = var.project
+    Name = "${local.name_prefix}-rds-sg"
   }
 }
 
@@ -106,7 +118,7 @@ resource "aws_security_group" "rds" {
 # ElastiCache Security Group
 # =============================================================================
 resource "aws_security_group" "elasticache" {
-  name        = "${var.project}-${var.environment}-elasticache-sg"
+  name        = "${local.name_prefix}-elasticache-sg"
   description = "Security group for ElastiCache Redis"
   vpc_id      = var.vpc_id
 
@@ -119,7 +131,6 @@ resource "aws_security_group" "elasticache" {
   }
 
   egress {
-    description = "Allow all outbound"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
@@ -127,8 +138,25 @@ resource "aws_security_group" "elasticache" {
   }
 
   tags = {
-    Name        = "${var.project}-${var.environment}-elasticache-sg"
-    Environment = var.environment
-    Project     = var.project
+    Name = "${local.name_prefix}-elasticache-sg"
   }
+}
+
+# =============================================================================
+# Outputs
+# =============================================================================
+output "alb_security_group_id" {
+  value = aws_security_group.alb.id
+}
+
+output "ecs_security_group_id" {
+  value = aws_security_group.ecs.id
+}
+
+output "rds_security_group_id" {
+  value = aws_security_group.rds.id
+}
+
+output "elasticache_security_group_id" {
+  value = aws_security_group.elasticache.id
 }

@@ -15,23 +15,58 @@ terraform {
     }
   }
 
+  # AWS European Sovereign Cloud state backend
+  # Note: Run bootstrap/main.tf first to create this bucket
   backend "s3" {
     bucket         = "eurocomply-terraform-state"
     key            = "staging/terraform.tfstate"
-    region         = "eu-west-1"
+    region         = "eusc-de-east-1"
     dynamodb_table = "eurocomply-terraform-locks"
     encrypt        = true
+    # Sovereign Cloud S3 endpoint (amazonaws.eu domain)
+    endpoints = {
+      s3       = "https://s3.eusc-de-east-1.amazonaws.eu"
+      dynamodb = "https://dynamodb.eusc-de-east-1.amazonaws.eu"
+    }
+    # Skip validation for Sovereign Cloud region
+    skip_region_validation      = true
+    skip_credentials_validation = true
+    skip_metadata_api_check     = true
+    skip_requesting_account_id  = true
   }
 }
 
+# AWS European Sovereign Cloud Provider
+# Region: eusc-de-east-1 (Brandenburg, Germany)
+# Partition: aws-eusc (isolated from global AWS)
+# Console: https://console.aws.eu
 provider "aws" {
-  region = var.aws_region
+  region = "eusc-de-east-1"
+
+  # Sovereign Cloud endpoints (amazonaws.eu domain)
+  endpoints {
+    sts              = "https://sts.eusc-de-east-1.amazonaws.eu"
+    iam              = "https://iam.eusc-de-east-1.amazonaws.eu"
+    s3               = "https://s3.eusc-de-east-1.amazonaws.eu"
+    dynamodb         = "https://dynamodb.eusc-de-east-1.amazonaws.eu"
+    ec2              = "https://ec2.eusc-de-east-1.amazonaws.eu"
+    ecs              = "https://ecs.eusc-de-east-1.amazonaws.eu"
+    ecr              = "https://ecr.eusc-de-east-1.amazonaws.eu"
+    elasticache      = "https://elasticache.eusc-de-east-1.amazonaws.eu"
+    rds              = "https://rds.eusc-de-east-1.amazonaws.eu"
+    secretsmanager   = "https://secretsmanager.eusc-de-east-1.amazonaws.eu"
+    elasticloadbalancing = "https://elasticloadbalancing.eusc-de-east-1.amazonaws.eu"
+    elbv2            = "https://elasticloadbalancing.eusc-de-east-1.amazonaws.eu"
+    logs             = "https://logs.eusc-de-east-1.amazonaws.eu"
+    applicationautoscaling = "https://application-autoscaling.eusc-de-east-1.amazonaws.eu"
+  }
 
   default_tags {
     tags = {
-      Project     = var.project
-      Environment = var.environment
-      ManagedBy   = "terraform"
+      Project         = var.project
+      Environment     = var.environment
+      ManagedBy       = "terraform"
+      DataSovereignty = "eu-sovereign"
     }
   }
 }
@@ -39,13 +74,11 @@ provider "aws" {
 locals {
   project     = var.project
   environment = var.environment
+  # Hardcoded for AWS European Sovereign Cloud
+  # Data sources don't work due to Terraform provider limitations
+  account_id = "075285241396"
+  region     = "eusc-de-east-1"
 }
-
-# =============================================================================
-# Data Sources
-# =============================================================================
-data "aws_caller_identity" "current" {}
-data "aws_region" "current" {}
 
 # =============================================================================
 # VPC
@@ -153,7 +186,8 @@ module "ecs" {
   target_group_arn   = module.alb.target_group_arn
 
   container_name  = "api"
-  container_image = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com/${local.project}-api:staging"
+  # Sovereign Cloud ECR endpoint format (amazonaws.eu domain)
+  container_image = "${local.account_id}.dkr.ecr.${local.region}.amazonaws.eu/${local.project}-api:staging"
   container_port  = var.app_port
 
   cpu    = var.ecs_cpu

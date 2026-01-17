@@ -1,11 +1,116 @@
 # ECS Module for EuroComply
 # Creates ECS Fargate cluster, service, and task definition
 
+variable "project" {
+  type = string
+}
+
+variable "environment" {
+  type = string
+}
+
+variable "aws_region" {
+  type = string
+}
+
+variable "private_subnet_ids" {
+  type = list(string)
+}
+
+variable "security_group_id" {
+  type = string
+}
+
+variable "target_group_arn" {
+  type = string
+}
+
+variable "container_name" {
+  type = string
+}
+
+variable "container_image" {
+  type = string
+}
+
+variable "container_port" {
+  type    = number
+  default = 3000
+}
+
+variable "cpu" {
+  type    = number
+  default = 256
+}
+
+variable "memory" {
+  type    = number
+  default = 512
+}
+
+variable "desired_count" {
+  type    = number
+  default = 1
+}
+
+variable "environment_variables" {
+  type = list(object({
+    name  = string
+    value = string
+  }))
+  default = []
+}
+
+variable "secrets" {
+  type = list(object({
+    name      = string
+    valueFrom = string
+  }))
+  default = []
+}
+
+variable "secrets_arns" {
+  type    = list(string)
+  default = []
+}
+
+variable "container_insights" {
+  type    = bool
+  default = false
+}
+
+variable "log_retention_days" {
+  type    = number
+  default = 30
+}
+
+variable "enable_autoscaling" {
+  type    = bool
+  default = false
+}
+
+variable "min_capacity" {
+  type    = number
+  default = 1
+}
+
+variable "max_capacity" {
+  type    = number
+  default = 4
+}
+
+# Hardcoded for AWS European Sovereign Cloud
+# Data sources don't work due to Terraform provider limitations
+locals {
+  name_prefix = "${var.project}-${var.environment}"
+  partition   = "aws-eusc"
+}
+
 # =============================================================================
 # ECS Cluster
 # =============================================================================
 resource "aws_ecs_cluster" "main" {
-  name = "${var.project}-${var.environment}"
+  name = "${local.name_prefix}-cluster"
 
   setting {
     name  = "containerInsights"
@@ -13,30 +118,29 @@ resource "aws_ecs_cluster" "main" {
   }
 
   tags = {
-    Name        = "${var.project}-${var.environment}"
-    Environment = var.environment
-    Project     = var.project
+    Name = "${local.name_prefix}-cluster"
   }
 }
 
 # =============================================================================
 # CloudWatch Log Group
 # =============================================================================
-resource "aws_cloudwatch_log_group" "main" {
-  name              = "/ecs/${var.project}-${var.environment}"
+resource "aws_cloudwatch_log_group" "ecs" {
+  name              = "/ecs/${local.name_prefix}"
   retention_in_days = var.log_retention_days
 
   tags = {
-    Environment = var.environment
-    Project     = var.project
+    Name = "${local.name_prefix}-ecs-logs"
   }
 }
 
 # =============================================================================
-# IAM Role for ECS Task Execution
+# IAM Roles
 # =============================================================================
-resource "aws_iam_role" "ecs_execution" {
-  name = "${var.project}-${var.environment}-ecs-execution"
+
+# Task Execution Role (for pulling images, writing logs)
+resource "aws_iam_role" "execution" {
+  name = "${local.name_prefix}-ecs-execution"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -52,40 +156,35 @@ resource "aws_iam_role" "ecs_execution" {
   })
 
   tags = {
-    Environment = var.environment
-    Project     = var.project
+    Name = "${local.name_prefix}-ecs-execution"
   }
 }
 
-resource "aws_iam_role_policy_attachment" "ecs_execution" {
-  role       = aws_iam_role.ecs_execution.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+resource "aws_iam_role_policy_attachment" "execution" {
+  role       = aws_iam_role.execution.name
+  policy_arn = "arn:${local.partition}:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
-# Allow reading secrets
-resource "aws_iam_role_policy" "ecs_execution_secrets" {
-  name = "${var.project}-${var.environment}-ecs-secrets"
-  role = aws_iam_role.ecs_execution.id
+resource "aws_iam_role_policy" "execution_secrets" {
+  count = length(var.secrets_arns) > 0 ? 1 : 0
+  name  = "secrets-access"
+  role  = aws_iam_role.execution.id
 
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
-        Effect = "Allow"
-        Action = [
-          "secretsmanager:GetSecretValue"
-        ]
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
         Resource = var.secrets_arns
       }
     ]
   })
 }
 
-# =============================================================================
-# IAM Role for ECS Task
-# =============================================================================
-resource "aws_iam_role" "ecs_task" {
-  name = "${var.project}-${var.environment}-ecs-task"
+# Task Role (for application permissions)
+resource "aws_iam_role" "task" {
+  name = "${local.name_prefix}-ecs-task"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -101,22 +200,21 @@ resource "aws_iam_role" "ecs_task" {
   })
 
   tags = {
-    Environment = var.environment
-    Project     = var.project
+    Name = "${local.name_prefix}-ecs-task"
   }
 }
 
 # =============================================================================
-# ECS Task Definition
+# Task Definition
 # =============================================================================
 resource "aws_ecs_task_definition" "main" {
-  family                   = "${var.project}-${var.environment}"
+  family                   = "${local.name_prefix}-api"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
   cpu                      = var.cpu
   memory                   = var.memory
-  execution_role_arn       = aws_iam_role.ecs_execution.arn
-  task_role_arn            = aws_iam_role.ecs_task.arn
+  execution_role_arn       = aws_iam_role.execution.arn
+  task_role_arn            = aws_iam_role.task.arn
 
   container_definitions = jsonencode([
     {
@@ -127,26 +225,24 @@ resource "aws_ecs_task_definition" "main" {
       portMappings = [
         {
           containerPort = var.container_port
-          hostPort      = var.container_port
           protocol      = "tcp"
         }
       ]
 
       environment = var.environment_variables
-
-      secrets = var.secrets
+      secrets     = var.secrets
 
       logConfiguration = {
         logDriver = "awslogs"
         options = {
-          "awslogs-group"         = aws_cloudwatch_log_group.main.name
+          "awslogs-group"         = aws_cloudwatch_log_group.ecs.name
           "awslogs-region"        = var.aws_region
           "awslogs-stream-prefix" = "ecs"
         }
       }
 
       healthCheck = {
-        command     = ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:${var.container_port}/health || exit 1"]
+        command     = ["CMD-SHELL", "curl -f http://localhost:${var.container_port}/health || exit 1"]
         interval    = 30
         timeout     = 5
         retries     = 3
@@ -156,8 +252,7 @@ resource "aws_ecs_task_definition" "main" {
   ])
 
   tags = {
-    Environment = var.environment
-    Project     = var.project
+    Name = "${local.name_prefix}-api"
   }
 }
 
@@ -165,15 +260,11 @@ resource "aws_ecs_task_definition" "main" {
 # ECS Service
 # =============================================================================
 resource "aws_ecs_service" "main" {
-  name                               = "${var.project}-api"
-  cluster                            = aws_ecs_cluster.main.id
-  task_definition                    = aws_ecs_task_definition.main.arn
-  desired_count                      = var.desired_count
-  deployment_minimum_healthy_percent = 50
-  deployment_maximum_percent         = 200
-  launch_type                        = "FARGATE"
-  scheduling_strategy                = "REPLICA"
-  health_check_grace_period_seconds  = 60
+  name            = "${local.name_prefix}-api"
+  cluster         = aws_ecs_cluster.main.id
+  task_definition = aws_ecs_task_definition.main.arn
+  desired_count   = var.desired_count
+  launch_type     = "FARGATE"
 
   network_configuration {
     subnets          = var.private_subnet_ids
@@ -193,12 +284,11 @@ resource "aws_ecs_service" "main" {
   }
 
   lifecycle {
-    ignore_changes = [desired_count, task_definition]
+    ignore_changes = [desired_count]
   }
 
   tags = {
-    Environment = var.environment
-    Project     = var.project
+    Name = "${local.name_prefix}-api"
   }
 }
 
@@ -206,7 +296,8 @@ resource "aws_ecs_service" "main" {
 # Auto Scaling
 # =============================================================================
 resource "aws_appautoscaling_target" "ecs" {
-  count              = var.enable_autoscaling ? 1 : 0
+  count = var.enable_autoscaling ? 1 : 0
+
   max_capacity       = var.max_capacity
   min_capacity       = var.min_capacity
   resource_id        = "service/${aws_ecs_cluster.main.name}/${aws_ecs_service.main.name}"
@@ -214,9 +305,10 @@ resource "aws_appautoscaling_target" "ecs" {
   service_namespace  = "ecs"
 }
 
-resource "aws_appautoscaling_policy" "cpu" {
-  count              = var.enable_autoscaling ? 1 : 0
-  name               = "${var.project}-${var.environment}-cpu-scaling"
+resource "aws_appautoscaling_policy" "ecs_cpu" {
+  count = var.enable_autoscaling ? 1 : 0
+
+  name               = "${local.name_prefix}-cpu-scaling"
   policy_type        = "TargetTrackingScaling"
   resource_id        = aws_appautoscaling_target.ecs[0].resource_id
   scalable_dimension = aws_appautoscaling_target.ecs[0].scalable_dimension
@@ -226,8 +318,43 @@ resource "aws_appautoscaling_policy" "cpu" {
     predefined_metric_specification {
       predefined_metric_type = "ECSServiceAverageCPUUtilization"
     }
-    target_value       = 70
+    target_value       = 70.0
     scale_in_cooldown  = 300
     scale_out_cooldown = 60
   }
+}
+
+# =============================================================================
+# Outputs
+# =============================================================================
+output "cluster_id" {
+  value = aws_ecs_cluster.main.id
+}
+
+output "cluster_name" {
+  value = aws_ecs_cluster.main.name
+}
+
+output "service_id" {
+  value = aws_ecs_service.main.id
+}
+
+output "service_name" {
+  value = aws_ecs_service.main.name
+}
+
+output "task_definition_arn" {
+  value = aws_ecs_task_definition.main.arn
+}
+
+output "execution_role_arn" {
+  value = aws_iam_role.execution.arn
+}
+
+output "task_role_arn" {
+  value = aws_iam_role.task.arn
+}
+
+output "log_group_name" {
+  value = aws_cloudwatch_log_group.ecs.name
 }
