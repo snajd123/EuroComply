@@ -239,7 +239,7 @@ resource "null_resource" "build_iam_setup_lambda" {
   count = var.setup_iam_auth ? 1 : 0
 
   triggers = {
-    source_hash = filemd5("${path.module}/../../../lambda/rds-iam-setup/index.py")
+    source_hash       = filemd5("${path.module}/../../../lambda/rds-iam-setup/index.py")
     requirements_hash = filemd5("${path.module}/../../../lambda/rds-iam-setup/requirements.txt")
   }
 

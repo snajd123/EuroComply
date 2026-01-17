@@ -43,6 +43,25 @@ jobs:
           role-to-assume: arn:aws-eusc:iam::075285241396:role/github-actions-eurocomply
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Setup Python for Lambda builds
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Build Lambda packages
+        run: |
+          # Build RDS IAM setup Lambda
+          LAMBDA_DIR="${GITHUB_WORKSPACE}/infrastructure/lambda/rds-iam-setup"
+          if [ -f "$LAMBDA_DIR/requirements.txt" ]; then
+            echo "Building RDS IAM setup Lambda..."
+            cd "$LAMBDA_DIR"
+            rm -rf package lambda.zip
+            pip install -r requirements.txt -t package --platform manylinux2014_x86_64 --only-binary=:all: --quiet
+            cp index.py package/
+            cd package && zip -r ../lambda.zip . -q
+            echo "Lambda package created: $LAMBDA_DIR/lambda.zip"
+          fi
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:

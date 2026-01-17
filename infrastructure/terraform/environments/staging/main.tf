@@ -53,19 +53,19 @@ provider "aws" {
 
   # Sovereign Cloud endpoints (amazonaws.eu domain)
   endpoints {
-    sts              = "https://sts.eusc-de-east-1.amazonaws.eu"
-    iam              = "https://iam.eusc-de-east-1.amazonaws.eu"
-    s3               = "https://s3.eusc-de-east-1.amazonaws.eu"
-    dynamodb         = "https://dynamodb.eusc-de-east-1.amazonaws.eu"
-    ec2              = "https://ec2.eusc-de-east-1.amazonaws.eu"
-    ecs              = "https://ecs.eusc-de-east-1.amazonaws.eu"
-    ecr              = "https://ecr.eusc-de-east-1.amazonaws.eu"
-    elasticache      = "https://elasticache.eusc-de-east-1.amazonaws.eu"
-    rds              = "https://rds.eusc-de-east-1.amazonaws.eu"
-    secretsmanager   = "https://secretsmanager.eusc-de-east-1.amazonaws.eu"
-    elasticloadbalancing = "https://elasticloadbalancing.eusc-de-east-1.amazonaws.eu"
-    elbv2            = "https://elasticloadbalancing.eusc-de-east-1.amazonaws.eu"
-    logs             = "https://logs.eusc-de-east-1.amazonaws.eu"
+    sts                    = "https://sts.eusc-de-east-1.amazonaws.eu"
+    iam                    = "https://iam.eusc-de-east-1.amazonaws.eu"
+    s3                     = "https://s3.eusc-de-east-1.amazonaws.eu"
+    dynamodb               = "https://dynamodb.eusc-de-east-1.amazonaws.eu"
+    ec2                    = "https://ec2.eusc-de-east-1.amazonaws.eu"
+    ecs                    = "https://ecs.eusc-de-east-1.amazonaws.eu"
+    ecr                    = "https://ecr.eusc-de-east-1.amazonaws.eu"
+    elasticache            = "https://elasticache.eusc-de-east-1.amazonaws.eu"
+    rds                    = "https://rds.eusc-de-east-1.amazonaws.eu"
+    secretsmanager         = "https://secretsmanager.eusc-de-east-1.amazonaws.eu"
+    elasticloadbalancing   = "https://elasticloadbalancing.eusc-de-east-1.amazonaws.eu"
+    elbv2                  = "https://elasticloadbalancing.eusc-de-east-1.amazonaws.eu"
+    logs                   = "https://logs.eusc-de-east-1.amazonaws.eu"
     applicationautoscaling = "https://application-autoscaling.eusc-de-east-1.amazonaws.eu"
   }
 
@@ -140,9 +140,9 @@ module "rds" {
   private_subnet_ids = module.vpc.private_subnet_ids
   security_group_id  = module.security_groups.rds_security_group_id
 
-  instance_class       = var.db_instance_class
-  allocated_storage    = var.db_allocated_storage
-  multi_az             = false # Single AZ for staging
+  instance_class          = var.db_instance_class
+  allocated_storage       = var.db_allocated_storage
+  multi_az                = false # Single AZ for staging
   backup_retention_period = 7
 
   # IAM Authentication Setup (run Lambda to grant rds_iam role)
@@ -198,7 +198,7 @@ module "ecs" {
   security_group_id  = module.security_groups.ecs_security_group_id
   target_group_arn   = module.alb.target_group_arn
 
-  container_name  = "api"
+  container_name = "api"
   # Sovereign Cloud ECR endpoint format (amazonaws.eu domain)
   container_image = "${local.account_id}.dkr.ecr.${local.region}.amazonaws.eu/${local.project}-api:staging"
   container_port  = var.app_port

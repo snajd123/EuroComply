@@ -243,9 +243,9 @@ resource "aws_iam_role_policy" "github_actions_terraform_deploy" {
     Version = "2012-10-17"
     Statement = [
       {
-        Sid    = "VPCAndNetworking"
-        Effect = "Allow"
-        Action = ["ec2:*"]
+        Sid      = "VPCAndNetworking"
+        Effect   = "Allow"
+        Action   = ["ec2:*"]
         Resource = "*"
       },
       {
@@ -258,9 +258,9 @@ resource "aws_iam_role_policy" "github_actions_terraform_deploy" {
         Resource = "*"
       },
       {
-        Sid    = "LoadBalancing"
-        Effect = "Allow"
-        Action = ["elasticloadbalancing:*"]
+        Sid      = "LoadBalancing"
+        Effect   = "Allow"
+        Action   = ["elasticloadbalancing:*"]
         Resource = "*"
       },
       {
@@ -283,15 +283,15 @@ resource "aws_iam_role_policy" "github_actions_terraform_deploy" {
         Resource = "*"
       },
       {
-        Sid    = "Logging"
-        Effect = "Allow"
-        Action = ["logs:*"]
+        Sid      = "Logging"
+        Effect   = "Allow"
+        Action   = ["logs:*"]
         Resource = "*"
       },
       {
-        Sid    = "Lambda"
-        Effect = "Allow"
-        Action = ["lambda:*"]
+        Sid      = "Lambda"
+        Effect   = "Allow"
+        Action   = ["lambda:*"]
         Resource = "*"
       },
       {
@@ -315,9 +315,9 @@ resource "aws_iam_role_policy" "github_actions_terraform_deploy" {
         Resource = "*"
       },
       {
-        Sid    = "AutoScaling"
-        Effect = "Allow"
-        Action = ["application-autoscaling:*"]
+        Sid      = "AutoScaling"
+        Effect   = "Allow"
+        Action   = ["application-autoscaling:*"]
         Resource = "*"
       }
     ]
