@@ -83,6 +83,29 @@ EuroComply uses a layered approach to credential management:
 
 **Note:** AWS credentials use OIDC federation - no static keys stored.
 
+### 5. Cloudflare R2 (DPP Storage)
+
+| Credential | Environment | Storage | Notes |
+|------------|-------------|---------|-------|
+| `R2_ACCESS_KEY_ID` | Staging/Prod | **Secrets Manager** | Account API token |
+| `R2_SECRET_ACCESS_KEY` | Staging/Prod | **Secrets Manager** | Account API token secret |
+| `R2_BUCKET` | Staging/Prod | Environment variable | `eurocomply-dpps-staging` / `eurocomply-dpps-production` |
+| `R2_ENDPOINT` | Staging/Prod | Environment variable | `https://<account-id>.r2.cloudflarestorage.com` |
+
+**Secrets Manager ARN:** `eurocomply/{environment}/cloudflare-r2`
+
+**Stored Values:**
+```json
+{
+  "R2_ACCESS_KEY_ID": "2ad3b660083d1cdcbad023fb63ba0c89",
+  "R2_SECRET_ACCESS_KEY": "<secret>",
+  "R2_BUCKET": "eurocomply-dpps-staging",
+  "R2_ENDPOINT": "https://a674829c753c174d1e9a23b167d5894d.r2.cloudflarestorage.com"
+}
+```
+
+**Cloudflare Dashboard:** https://dash.cloudflare.com → R2 → Manage R2 API Tokens
+
 ---
 
 ## Storage Locations
@@ -97,8 +120,10 @@ All production credentials are stored in AWS Secrets Manager in the European Sov
 |-------------|----------|
 | `eurocomply/staging/database` | RDS credentials (user, password, host, port, database) |
 | `eurocomply/staging/app-secrets` | Application secrets (CLERK_SECRET_KEY) |
+| `eurocomply/staging/cloudflare-r2` | Cloudflare R2 credentials (access key, secret, bucket, endpoint) |
 | `eurocomply/production/database` | RDS credentials |
 | `eurocomply/production/app-secrets` | Application secrets |
+| `eurocomply/production/cloudflare-r2` | Cloudflare R2 credentials |
 
 ### Terraform State
 
