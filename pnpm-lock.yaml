@@ -73,7 +73,7 @@ importers:
         specifier: ^1.2.0
         version: 1.6.1(@types/node@20.19.30)
       wrangler:
-        specifier: ^3.24.0
+        specifier: ^3.114.17
         version: 3.114.17(@cloudflare/workers-types@4.20260117.0)
 
   packages/db:
