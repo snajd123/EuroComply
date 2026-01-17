@@ -161,16 +161,35 @@ model Product {
 }
 
 // ============================================
-// PRODUCT RELATIONS - Placeholder models for future tasks
+// PRODUCT IDENTIFIERS - Multi-identifier support
 // ============================================
 
-model ProductIdentifier {
-  id        String   @id @default(cuid())
-  productId String   @map("product_id")
-  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+enum IdentifierType {
+  INTERNAL    // Human-readable project code (e.g., PROTO-V1-2026)
+  SKU         // ERP/warehouse sync
+  GTIN        // Retail barcode (EAN-13, UPC-A)
+  DPP_URI     // Permanent DPP web address
+}
 
+model ProductIdentifier {
+  id          String         @id @default(cuid())
+  productId   String         @map("product_id")
+  product     Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  type        IdentifierType
+  value       String
+
+  // Timestamps
+  createdAt   DateTime       @default(now()) @map("created_at")
+
+  @@unique([productId, type])
+  @@index([type, value])
   @@map("product_identifiers")
 }
+
+// ============================================
+// PRODUCT RELATIONS - Placeholder models for future tasks
+// ============================================
 
 model ProductVersion {
   id        String   @id @default(cuid())
