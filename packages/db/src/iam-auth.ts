@@ -17,14 +17,23 @@ export interface RdsIamConfig {
  * @see https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.IAMDBAuth.html
  */
 export async function generateRdsAuthToken(config: RdsIamConfig): Promise<string> {
-  const signer = new Signer({
-    hostname: config.hostname,
-    port: config.port,
-    username: config.username,
-    region: config.region,
-  });
+  console.log(`[RDS IAM] Generating token for ${config.username}@${config.hostname}:${config.port} in ${config.region}`);
 
-  return signer.getAuthToken();
+  try {
+    const signer = new Signer({
+      hostname: config.hostname,
+      port: config.port,
+      username: config.username,
+      region: config.region,
+    });
+
+    const token = await signer.getAuthToken();
+    console.log(`[RDS IAM] Token generated successfully (length: ${token.length})`);
+    return token;
+  } catch (error) {
+    console.error('[RDS IAM] Failed to generate token:', error);
+    throw error;
+  }
 }
 
 /**
@@ -61,12 +70,21 @@ export function getRdsIamConfig(): RdsIamConfig | null {
  * Includes SSL requirement (mandatory for IAM auth).
  */
 export async function buildIamDatabaseUrl(): Promise<string> {
+  console.log('[RDS IAM] Building database URL with IAM authentication...');
+
   const config = getRdsIamConfig();
   if (!config) {
-    throw new Error(
-      'Missing required environment variables for IAM auth: DB_HOST, DB_PORT, DB_USER, AWS_REGION'
-    );
+    const error = 'Missing required environment variables for IAM auth: DB_HOST, DB_PORT, DB_USER, AWS_REGION';
+    console.error('[RDS IAM]', error);
+    throw new Error(error);
   }
+
+  console.log('[RDS IAM] Config:', {
+    hostname: config.hostname,
+    port: config.port,
+    username: config.username,
+    region: config.region,
+  });
 
   const dbName = process.env['DB_NAME'] || 'eurocomply';
   const token = await generateRdsAuthToken(config);
@@ -74,6 +92,8 @@ export async function buildIamDatabaseUrl(): Promise<string> {
   // URL-encode the token (it contains special characters)
   const encodedToken = encodeURIComponent(token);
 
-  // IAM auth requires SSL
-  return `postgresql://${config.username}:${encodedToken}@${config.hostname}:${config.port}/${dbName}?sslmode=require`;
+  const url = `postgresql://${config.username}:${encodedToken}@${config.hostname}:${config.port}/${dbName}?sslmode=require`;
+  console.log(`[RDS IAM] Database URL built (token length: ${token.length}, URL length: ${url.length})`);
+
+  return url;
 }
