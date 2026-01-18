@@ -143,7 +143,9 @@ export class TimestampService {
       }
 
       // Extract genTime from TSTInfo
-      const genTime = this.extractGenTimeFromTSTInfo(encapContent.eContent);
+      // Serialize eContent to get the raw bytes
+      const eContentBuffer = AsnConvert.serialize(encapContent.eContent);
+      const genTime = this.extractGenTimeFromTSTInfo(eContentBuffer);
       return genTime;
     } catch (error) {
       throw new Error(
@@ -256,7 +258,9 @@ export class TimestampService {
       }
 
       // Extract timestamp
-      const encapContent = timeStampToken.content.encapContentInfo;
+      // Parse the SignedData content from the timestamp token
+      const signedData = AsnConvert.parse(timeStampToken.content, SignedData);
+      const encapContent = signedData.encapContentInfo;
       if (!encapContent?.eContent) {
         return {
           valid: false,
@@ -265,7 +269,9 @@ export class TimestampService {
         };
       }
 
-      const timestamp = this.extractGenTimeFromTSTInfo(encapContent.eContent);
+      // Serialize eContent to get the raw bytes
+      const eContentBuffer = AsnConvert.serialize(encapContent.eContent);
+      const timestamp = this.extractGenTimeFromTSTInfo(eContentBuffer);
 
       return {
         valid: true,

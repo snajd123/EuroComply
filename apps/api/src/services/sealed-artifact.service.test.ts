@@ -109,7 +109,7 @@ describe('SealedArtifactService', () => {
       });
 
       // Verify structure
-      expect(result.payload.type).toBe('ProductVersionRelease');
+      expect(result.payload['type']).toBe('ProductVersionRelease');
       expect(result.userProof.type).toBe('Ed25519Signature2020');
       expect(result.userProof.signatureValue).toBe('user-signature-jws');
       expect(result.userProof.forensicContext.signerName).toBe('Maria Santos');
