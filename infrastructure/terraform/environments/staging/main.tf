@@ -218,6 +218,11 @@ module "ecs" {
     { name = "DB_USER", value = module.rds.db_username },
     { name = "DB_SSL", value = "true" },
     { name = "REDIS_URL", value = module.elasticache.redis_url },
+    # walt.id SSI endpoints (internal service discovery)
+    { name = "WALTID_CORE_URL", value = "http://waltid.${local.environment}.eurocomply.internal:7000" },
+    { name = "WALTID_SIGNATORY_URL", value = "http://waltid.${local.environment}.eurocomply.internal:7001" },
+    { name = "WALTID_CUSTODIAN_URL", value = "http://waltid.${local.environment}.eurocomply.internal:7002" },
+    { name = "WALTID_AUDITOR_URL", value = "http://waltid.${local.environment}.eurocomply.internal:7003" },
   ]
 
   secrets = [
@@ -239,6 +244,25 @@ module "ecs" {
   container_insights = false
   log_retention_days = 30
   enable_autoscaling = false
+}
+
+# =============================================================================
+# walt.id SSI Services (DID/VC Operations)
+# =============================================================================
+module "waltid" {
+  source = "../../modules/waltid"
+
+  project            = local.project
+  environment        = local.environment
+  aws_region         = local.region
+  vpc_id             = module.vpc.vpc_id
+  private_subnet_ids = module.vpc.private_subnet_ids
+  security_group_id  = module.security_groups.waltid_security_group_id
+  ecs_cluster_id     = module.ecs.cluster_id
+
+  cpu                = 512
+  memory             = 1024
+  log_retention_days = 30
 }
 
 # =============================================================================

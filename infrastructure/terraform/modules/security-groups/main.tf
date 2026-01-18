@@ -143,6 +143,62 @@ resource "aws_security_group" "elasticache" {
 }
 
 # =============================================================================
+# walt.id Security Group
+# =============================================================================
+resource "aws_security_group" "waltid" {
+  name        = "${local.name_prefix}-waltid-sg"
+  description = "Security group for walt.id SSI services"
+  vpc_id      = var.vpc_id
+
+  # walt.id Core API (DID operations)
+  ingress {
+    description     = "Core API from ECS"
+    from_port       = 7000
+    to_port         = 7000
+    protocol        = "tcp"
+    security_groups = [aws_security_group.ecs.id]
+  }
+
+  # walt.id Signatory (VC signing)
+  ingress {
+    description     = "Signatory from ECS"
+    from_port       = 7001
+    to_port         = 7001
+    protocol        = "tcp"
+    security_groups = [aws_security_group.ecs.id]
+  }
+
+  # walt.id Custodian (Key management)
+  ingress {
+    description     = "Custodian from ECS"
+    from_port       = 7002
+    to_port         = 7002
+    protocol        = "tcp"
+    security_groups = [aws_security_group.ecs.id]
+  }
+
+  # walt.id Auditor (VC verification)
+  ingress {
+    description     = "Auditor from ECS"
+    from_port       = 7003
+    to_port         = 7003
+    protocol        = "tcp"
+    security_groups = [aws_security_group.ecs.id]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "${local.name_prefix}-waltid-sg"
+  }
+}
+
+# =============================================================================
 # Outputs
 # =============================================================================
 output "alb_security_group_id" {
@@ -159,4 +215,9 @@ output "rds_security_group_id" {
 
 output "elasticache_security_group_id" {
   value = aws_security_group.elasticache.id
+}
+
+output "waltid_security_group_id" {
+  value       = aws_security_group.waltid.id
+  description = "Security group ID for walt.id SSI services"
 }

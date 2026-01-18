@@ -44,6 +44,28 @@ services:
       timeout: 5s
       retries: 5
 
+  # walt.id SSI Kit (DID/VC Operations)
+  waltid:
+    image: waltid/ssikit:latest
+    container_name: eurocomply-waltid
+    command: serve -b 0.0.0.0
+    ports:
+      - '7000:7000'  # Core API (DID operations)
+      - '7001:7001'  # Signatory (VC signing)
+      - '7002:7002'  # Custodian (Key management)
+      - '7003:7003'  # Auditor (VC verification)
+    volumes:
+      - waltid_data:/data
+    healthcheck:
+      test: ['CMD', 'wget', '--no-verbose', '--tries=1', '--spider', 'http://localhost:7000/v1/did']
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+    profiles:
+      - full
+      - waltid
+
   # ==========================================================================
   # Application Services (for testing Docker build locally)
   # ==========================================================================
@@ -76,3 +98,4 @@ services:
 
 volumes:
   postgres_data:
+  waltid_data:

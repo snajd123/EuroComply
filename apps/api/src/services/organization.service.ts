@@ -1,5 +1,8 @@
 import { prisma, createTenantSchema, publishEvent, EventTypes } from '@eurocomply/db';
+import { createWaltIdClient } from '@eurocomply/walt-id';
 import { ConflictError, NotFoundError } from '../lib/errors.js';
+import { DidService } from './did.service.js';
+import { StatusList2021Service } from './status-list.service.js';
 
 /** Default storage limit for new organizations: 500GB */
 const DEFAULT_STORAGE_LIMIT_BYTES = BigInt(500 * 1024 * 1024 * 1024);
@@ -130,6 +133,27 @@ export async function createOrganization(
 
   // 5. Create tenant schema (outside transaction - DDL can't be rolled back anyway)
   await createTenantSchema(prisma, schemaName);
+
+  // 6. Create DIDs for organization and owner
+  try {
+    const waltIdClient = createWaltIdClient({
+      WALTID_CORE_URL: process.env['WALTID_CORE_URL'],
+      WALTID_SIGNATORY_URL: process.env['WALTID_SIGNATORY_URL'],
+      WALTID_CUSTODIAN_URL: process.env['WALTID_CUSTODIAN_URL'],
+      WALTID_AUDITOR_URL: process.env['WALTID_AUDITOR_URL'],
+    });
+    const statusListService = new StatusList2021Service(prisma);
+    const didService = new DidService(waltIdClient, statusListService, prisma);
+
+    // Create organization DID
+    await didService.createOrganizationDid(result.organization.id);
+
+    // Create user DID (owner)
+    await didService.createUserDid(result.user.id, result.organization.id);
+  } catch (error) {
+    // Log error but don't fail org creation - DIDs can be created later
+    console.error('Failed to create DIDs during org creation:', error);
+  }
 
   return {
     id: result.organization.id,

@@ -47,3 +47,13 @@ output "cloudwatch_log_group" {
   description = "CloudWatch log group for ECS"
   value       = module.ecs.log_group_name
 }
+
+output "waltid_core_endpoint" {
+  description = "Internal walt.id Core API endpoint"
+  value       = module.waltid.core_api_endpoint
+}
+
+output "waltid_dns_namespace" {
+  description = "walt.id service discovery namespace"
+  value       = module.waltid.dns_namespace_name
+}
