@@ -18,6 +18,17 @@ model Organization {
   slug              String   @unique
   schemaName        String   @unique @map("schema_name")
 
+  // DID and Walt.id Integration
+  did               String?  @unique
+  waltIdKeyId       String?  @map("walt_id_key_id")
+
+  // Hash chain head pointer (for Operations events)
+  lastEventHash     String?  @map("last_event_hash")
+  eventSequence     Int      @default(0) @map("event_sequence")
+
+  // Status list counter (for revocation)
+  statusListIndex   Int      @default(0) @map("status_list_index")
+
   // Billing
   stripeCustomerId  String?  @map("stripe_customer_id")
   subscriptionTier  String   @default("starter") @map("subscription_tier")
