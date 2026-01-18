@@ -1,0 +1,162 @@
+# Run Database Migration
+# Manually triggered workflow to run Prisma migrations on staging/production
+# Usage: gh workflow run run-migration.yml -f environment=staging
+
+name: Run Migration
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to run migration on'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+
+env:
+  AWS_REGION: eusc-de-east-1
+
+jobs:
+  migrate:
+    name: Run Migration on ${{ github.event.inputs.environment }}
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials for Sovereign Cloud
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws-eusc:iam::075285241396:role/github-actions-eurocomply
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Configure AWS CLI for Sovereign Cloud
+        run: |
+          cat >> ~/.aws/config << EOF
+          [profile default]
+          region = ${{ env.AWS_REGION }}
+          services = sovereign-cloud
+
+          [services sovereign-cloud]
+          ecs =
+            endpoint_url = https://ecs.${{ env.AWS_REGION }}.amazonaws.eu
+          logs =
+            endpoint_url = https://logs.${{ env.AWS_REGION }}.amazonaws.eu
+          EOF
+
+      - name: Run Migration
+        run: |
+          set -e
+
+          ENV="${{ github.event.inputs.environment }}"
+          ECS_CLUSTER="eurocomply-${ENV}-cluster"
+          TASK_FAMILY="eurocomply-${ENV}-api"
+
+          echo "🚀 Running migration on ${ENV}..."
+
+          # Get the latest task definition
+          TASK_DEF=$(aws ecs describe-task-definition \
+            --task-definition $TASK_FAMILY \
+            --query 'taskDefinition.taskDefinitionArn' \
+            --output text \
+            --endpoint-url https://ecs.${{ env.AWS_REGION }}.amazonaws.eu)
+
+          echo "📋 Using task definition: $TASK_DEF"
+
+          # Get network configuration from the service
+          NETWORK_CONFIG=$(aws ecs describe-services \
+            --cluster $ECS_CLUSTER \
+            --services eurocomply-${ENV}-api \
+            --query 'services[0].networkConfiguration' \
+            --endpoint-url https://ecs.${{ env.AWS_REGION }}.amazonaws.eu)
+
+          SUBNETS=$(echo $NETWORK_CONFIG | jq -r '.awsvpcConfiguration.subnets | join(",")')
+          SECURITY_GROUPS=$(echo $NETWORK_CONFIG | jq -r '.awsvpcConfiguration.securityGroups | join(",")')
+
+          echo "🌐 Network: subnets=[$SUBNETS], sg=[$SECURITY_GROUPS]"
+
+          # Run the migration task
+          TASK_ARN=$(aws ecs run-task \
+            --cluster $ECS_CLUSTER \
+            --task-definition $TASK_DEF \
+            --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$SECURITY_GROUPS],assignPublicIp=DISABLED}" \
+            --overrides '{
+              "containerOverrides": [{
+                "name": "api",
+                "command": ["npx", "prisma", "migrate", "deploy"]
+              }]
+            }' \
+            --query 'tasks[0].taskArn' \
+            --output text \
+            --endpoint-url https://ecs.${{ env.AWS_REGION }}.amazonaws.eu)
+
+          echo "⏳ Started migration task: $TASK_ARN"
+          TASK_ID=$(echo $TASK_ARN | cut -d'/' -f3)
+
+          # Wait for task to complete
+          echo "Waiting for migration to complete..."
+          aws ecs wait tasks-stopped \
+            --cluster $ECS_CLUSTER \
+            --tasks $TASK_ARN \
+            --endpoint-url https://ecs.${{ env.AWS_REGION }}.amazonaws.eu
+
+          # Check exit code
+          EXIT_CODE=$(aws ecs describe-tasks \
+            --cluster $ECS_CLUSTER \
+            --tasks $TASK_ARN \
+            --query 'tasks[0].containers[0].exitCode' \
+            --output text \
+            --endpoint-url https://ecs.${{ env.AWS_REGION }}.amazonaws.eu)
+
+          # Fetch logs
+          echo ""
+          echo "📜 Migration logs:"
+          echo "----------------------------------------"
+          sleep 5  # Wait for logs to be available
+          aws logs get-log-events \
+            --log-group-name /ecs/eurocomply-${ENV} \
+            --log-stream-name "ecs/api/$TASK_ID" \
+            --limit 100 \
+            --endpoint-url https://logs.${{ env.AWS_REGION }}.amazonaws.eu \
+            | jq -r '.events[].message' || echo "Could not fetch logs"
+          echo "----------------------------------------"
+
+          if [ "$EXIT_CODE" = "0" ]; then
+            echo ""
+            echo "✅ Migration completed successfully!"
+          else
+            echo ""
+            echo "❌ Migration failed with exit code: $EXIT_CODE"
+            exit 1
+          fi
+
+      - name: Verify API Health
+        run: |
+          ENV="${{ github.event.inputs.environment }}"
+          URL="https://api-${ENV}.eurocomply.eu/health"
+
+          echo "🔍 Verifying API health at $URL..."
+
+          for i in {1..5}; do
+            HTTP_CODE=$(curl -s -o /tmp/health.json -w "%{http_code}" "$URL" || echo "000")
+
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "✅ API is healthy!"
+              cat /tmp/health.json | jq .
+              exit 0
+            fi
+
+            echo "Attempt $i/5 - HTTP $HTTP_CODE, retrying in 10s..."
+            sleep 10
+          done
+
+          echo "⚠️ API health check inconclusive, but migration may still be successful"
