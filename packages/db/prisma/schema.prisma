@@ -205,9 +205,9 @@ model ProductIdentifier {
 
 enum Workspace {
   DESIGN
-  OPERATIONS
   MARKETING
-  COMPLIANCE
+  // OPERATIONS - removed, uses OperationsEvent table
+  // COMPLIANCE - removed, uses DPPSnapshot table
 }
 
 enum VersionStatus {

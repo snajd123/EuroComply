@@ -8,8 +8,17 @@ export type ProductType = typeof PRODUCT_TYPES[number];
 export const PRODUCT_STATUSES = ['ACTIVE', 'ARCHIVED'] as const;
 export type ProductStatus = typeof PRODUCT_STATUSES[number];
 
-export const PRODUCT_WORKSPACES = ['DESIGN', 'OPERATIONS', 'MARKETING', 'COMPLIANCE'] as const;
-export type ProductWorkspace = typeof PRODUCT_WORKSPACES[number];
+// Workspaces that use ProductVersion (iterative content)
+export const VERSIONED_WORKSPACES = ['DESIGN', 'MARKETING'] as const;
+export type VersionedWorkspace = typeof VERSIONED_WORKSPACES[number];
+
+// All workspaces (for authority checks)
+export const ALL_WORKSPACES = ['DESIGN', 'OPERATIONS', 'MARKETING', 'COMPLIANCE'] as const;
+export type AllWorkspaceType = typeof ALL_WORKSPACES[number];
+
+// Deprecated: Use VERSIONED_WORKSPACES for ProductVersion, ALL_WORKSPACES for authorities
+export const PRODUCT_WORKSPACES = VERSIONED_WORKSPACES;
+export type ProductWorkspace = VersionedWorkspace;
 
 export const VERSION_STATUSES = ['DRAFT', 'PENDING_REVIEW', 'IN_REVIEW', 'RELEASED', 'REJECTED'] as const;
 export type VersionStatus = typeof VERSION_STATUSES[number];
