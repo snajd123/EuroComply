@@ -1,4 +1,4 @@
-import { prisma } from '@eurocomply/db';
+import { PrismaClient } from '@eurocomply/db';
 import type { CredentialStatus } from '@eurocomply/shared';
 import { NotFoundError, ValidationError } from '../lib/errors.js';
 
@@ -43,9 +43,13 @@ export class StatusList2021Service {
   /**
    * Create a new StatusList2021Service.
    *
+   * @param prisma - PrismaClient instance for database operations
    * @param baseUrl - Base URL for status list credential URLs (default: https://api.eurocomply.eu)
    */
-  constructor(baseUrl: string = 'https://api.eurocomply.eu') {
+  constructor(
+    private prisma: PrismaClient,
+    baseUrl: string = 'https://api.eurocomply.eu'
+  ) {
     this.baseUrl = baseUrl;
   }
 
@@ -60,7 +64,7 @@ export class StatusList2021Service {
    * @throws NotFoundError if organization doesn't exist
    */
   async allocateIndex(organizationId: string): Promise<number> {
-    return prisma.$transaction(async (tx) => {
+    return this.prisma.$transaction(async (tx) => {
       // Get current index
       const org = await tx.organization.findUnique({
         where: { id: organizationId },
@@ -130,7 +134,7 @@ export class StatusList2021Service {
     }
 
     // Check UserDidHistory for revoked user DIDs
-    const userDid = await prisma.userDidHistory.findFirst({
+    const userDid = await this.prisma.userDidHistory.findFirst({
       where: {
         statusListIndex: index,
         user: {
@@ -149,7 +153,7 @@ export class StatusList2021Service {
     }
 
     // Check OrgDidHistory for revoked organization DIDs
-    const orgDid = await prisma.orgDidHistory.findFirst({
+    const orgDid = await this.prisma.orgDidHistory.findFirst({
       where: {
         organizationId,
         statusListIndex: index,
@@ -211,7 +215,7 @@ export class StatusList2021Service {
     }
 
     // Check UserDidHistory
-    const userDid = await prisma.userDidHistory.findFirst({
+    const userDid = await this.prisma.userDidHistory.findFirst({
       where: {
         statusListIndex: index,
         user: {
@@ -233,7 +237,7 @@ export class StatusList2021Service {
     }
 
     // Check OrgDidHistory
-    const orgDid = await prisma.orgDidHistory.findFirst({
+    const orgDid = await this.prisma.orgDidHistory.findFirst({
       where: {
         organizationId,
         statusListIndex: index,

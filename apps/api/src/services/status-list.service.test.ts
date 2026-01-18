@@ -1,34 +1,25 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import { StatusList2021Service } from './status-list.service.js';
 import type { CredentialStatus } from '@eurocomply/shared';
 import { NotFoundError, ValidationError } from '../lib/errors.js';
 
-// Mock prisma
-vi.mock('@eurocomply/db', () => ({
-  prisma: {
-    organization: {
-      findUnique: vi.fn(),
-      update: vi.fn(),
-    },
-    userDidHistory: {
-      findFirst: vi.fn(),
-    },
-    orgDidHistory: {
-      findFirst: vi.fn(),
-    },
-    $transaction: vi.fn((fn) => fn({
-      organization: {
-        findUnique: vi.fn(),
-        update: vi.fn(),
-      },
-    })),
-  },
-}));
-
-import { prisma } from '@eurocomply/db';
+interface MockPrismaClient {
+  organization: {
+    findUnique: Mock;
+    update: Mock;
+  };
+  userDidHistory: {
+    findFirst: Mock;
+  };
+  orgDidHistory: {
+    findFirst: Mock;
+  };
+  $transaction: Mock;
+}
 
 describe('StatusList2021Service', () => {
   let service: StatusList2021Service;
+  let mockPrisma: MockPrismaClient;
 
   // Test fixtures
   const testOrganizationId = 'org_test_123';
@@ -44,7 +35,25 @@ describe('StatusList2021Service', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    service = new StatusList2021Service(testBaseUrl);
+    mockPrisma = {
+      organization: {
+        findUnique: vi.fn(),
+        update: vi.fn(),
+      },
+      userDidHistory: {
+        findFirst: vi.fn(),
+      },
+      orgDidHistory: {
+        findFirst: vi.fn(),
+      },
+      $transaction: vi.fn((fn) => fn({
+        organization: {
+          findUnique: vi.fn(),
+          update: vi.fn(),
+        },
+      })),
+    };
+    service = new StatusList2021Service(mockPrisma as any, testBaseUrl);
   });
 
   describe('allocateIndex', () => {
@@ -56,7 +65,7 @@ describe('StatusList2021Service', () => {
           update: vi.fn().mockResolvedValue({ ...mockOrganization, statusListIndex: 6 }),
         },
       };
-      vi.mocked(prisma.$transaction).mockImplementation(async (fn: unknown) => {
+      mockPrisma.$transaction.mockImplementation(async (fn: unknown) => {
         return (fn as (tx: typeof mockTx) => Promise<number>)(mockTx);
       });
 
@@ -79,7 +88,7 @@ describe('StatusList2021Service', () => {
           update: vi.fn(),
         },
       };
-      vi.mocked(prisma.$transaction).mockImplementation(async (fn: unknown) => {
+      mockPrisma.$transaction.mockImplementation(async (fn: unknown) => {
         return (fn as (tx: typeof mockTx) => Promise<number>)(mockTx);
       });
 
@@ -96,7 +105,7 @@ describe('StatusList2021Service', () => {
           update: vi.fn().mockResolvedValue({ ...mockOrganization, statusListIndex: 11 }),
         },
       };
-      vi.mocked(prisma.$transaction).mockImplementation(async (fn: unknown) => {
+      mockPrisma.$transaction.mockImplementation(async (fn: unknown) => {
         transactionCalled = true;
         return (fn as (tx: typeof mockTx) => Promise<number>)(mockTx);
       });
@@ -116,7 +125,7 @@ describe('StatusList2021Service', () => {
           update: vi.fn().mockResolvedValue({ ...mockOrganization, statusListIndex: 1 }),
         },
       };
-      vi.mocked(prisma.$transaction).mockImplementation(async (fn: unknown) => {
+      mockPrisma.$transaction.mockImplementation(async (fn: unknown) => {
         return (fn as (tx: typeof mockTx) => Promise<number>)(mockTx);
       });
 
@@ -137,8 +146,8 @@ describe('StatusList2021Service', () => {
         statusListIndex: 5,
         revokedAt: null,
       };
-      vi.mocked(prisma.userDidHistory.findFirst).mockResolvedValue(mockUserDid as never);
-      vi.mocked(prisma.orgDidHistory.findFirst).mockResolvedValue(null);
+      mockPrisma.userDidHistory.findFirst.mockResolvedValue(mockUserDid as never);
+      mockPrisma.orgDidHistory.findFirst.mockResolvedValue(null);
 
       // Act & Assert - Should not throw since index is tracked
       await expect(
@@ -148,14 +157,14 @@ describe('StatusList2021Service', () => {
 
     it('should_mark_index_as_revoked_when_found_in_org_did_history', async () => {
       // Arrange
-      vi.mocked(prisma.userDidHistory.findFirst).mockResolvedValue(null);
+      mockPrisma.userDidHistory.findFirst.mockResolvedValue(null);
       const mockOrgDid = {
         id: 'odh_123',
         organizationId: testOrganizationId,
         statusListIndex: 10,
         revokedAt: null,
       };
-      vi.mocked(prisma.orgDidHistory.findFirst).mockResolvedValue(mockOrgDid as never);
+      mockPrisma.orgDidHistory.findFirst.mockResolvedValue(mockOrgDid as never);
 
       // Act & Assert
       await expect(
@@ -165,8 +174,8 @@ describe('StatusList2021Service', () => {
 
     it('should_allow_revocation_of_index_not_in_did_history', async () => {
       // Arrange - Index exists in our tracking (e.g., for OperationsEvent)
-      vi.mocked(prisma.userDidHistory.findFirst).mockResolvedValue(null);
-      vi.mocked(prisma.orgDidHistory.findFirst).mockResolvedValue(null);
+      mockPrisma.userDidHistory.findFirst.mockResolvedValue(null);
+      mockPrisma.orgDidHistory.findFirst.mockResolvedValue(null);
 
       // For MVP, we track revocations in memory for non-DID indices
       // Act & Assert - Should succeed (stores in internal tracking)
@@ -191,8 +200,8 @@ describe('StatusList2021Service', () => {
         statusListIndex: 5,
         revokedAt: new Date('2026-01-15'),
       };
-      vi.mocked(prisma.userDidHistory.findFirst).mockResolvedValue(mockRevokedUserDid as never);
-      vi.mocked(prisma.orgDidHistory.findFirst).mockResolvedValue(null);
+      mockPrisma.userDidHistory.findFirst.mockResolvedValue(mockRevokedUserDid as never);
+      mockPrisma.orgDidHistory.findFirst.mockResolvedValue(null);
 
       // Act
       const result = await service.isRevoked(testOrganizationId, 5);
@@ -203,13 +212,13 @@ describe('StatusList2021Service', () => {
 
     it('should_return_true_when_org_did_is_revoked', async () => {
       // Arrange
-      vi.mocked(prisma.userDidHistory.findFirst).mockResolvedValue(null);
+      mockPrisma.userDidHistory.findFirst.mockResolvedValue(null);
       const mockRevokedOrgDid = {
         id: 'odh_123',
         statusListIndex: 10,
         revokedAt: new Date('2026-01-15'),
       };
-      vi.mocked(prisma.orgDidHistory.findFirst).mockResolvedValue(mockRevokedOrgDid as never);
+      mockPrisma.orgDidHistory.findFirst.mockResolvedValue(mockRevokedOrgDid as never);
 
       // Act
       const result = await service.isRevoked(testOrganizationId, 10);
@@ -225,8 +234,8 @@ describe('StatusList2021Service', () => {
         statusListIndex: 5,
         revokedAt: null,
       };
-      vi.mocked(prisma.userDidHistory.findFirst).mockResolvedValue(mockActiveUserDid as never);
-      vi.mocked(prisma.orgDidHistory.findFirst).mockResolvedValue(null);
+      mockPrisma.userDidHistory.findFirst.mockResolvedValue(mockActiveUserDid as never);
+      mockPrisma.orgDidHistory.findFirst.mockResolvedValue(null);
 
       // Act
       const result = await service.isRevoked(testOrganizationId, 5);
@@ -237,8 +246,8 @@ describe('StatusList2021Service', () => {
 
     it('should_return_false_when_index_not_found_in_any_history', async () => {
       // Arrange
-      vi.mocked(prisma.userDidHistory.findFirst).mockResolvedValue(null);
-      vi.mocked(prisma.orgDidHistory.findFirst).mockResolvedValue(null);
+      mockPrisma.userDidHistory.findFirst.mockResolvedValue(null);
+      mockPrisma.orgDidHistory.findFirst.mockResolvedValue(null);
 
       // Act - Index not tracked anywhere is considered not revoked (valid)
       const result = await service.isRevoked(testOrganizationId, 999);
@@ -249,8 +258,8 @@ describe('StatusList2021Service', () => {
 
     it('should_return_true_when_index_was_manually_revoked', async () => {
       // Arrange
-      vi.mocked(prisma.userDidHistory.findFirst).mockResolvedValue(null);
-      vi.mocked(prisma.orgDidHistory.findFirst).mockResolvedValue(null);
+      mockPrisma.userDidHistory.findFirst.mockResolvedValue(null);
+      mockPrisma.orgDidHistory.findFirst.mockResolvedValue(null);
 
       // First revoke the index manually
       await service.revoke(testOrganizationId, 20, 'Manual revocation');
@@ -342,8 +351,8 @@ describe('StatusList2021Service', () => {
   describe('getRevocationInfo', () => {
     it('should_return_revocation_details_when_index_is_revoked', async () => {
       // Arrange
-      vi.mocked(prisma.userDidHistory.findFirst).mockResolvedValue(null);
-      vi.mocked(prisma.orgDidHistory.findFirst).mockResolvedValue(null);
+      mockPrisma.userDidHistory.findFirst.mockResolvedValue(null);
+      mockPrisma.orgDidHistory.findFirst.mockResolvedValue(null);
 
       const reason = 'Key compromised';
       await service.revoke(testOrganizationId, 25, reason);
@@ -359,8 +368,8 @@ describe('StatusList2021Service', () => {
 
     it('should_return_null_when_index_is_not_revoked', async () => {
       // Arrange
-      vi.mocked(prisma.userDidHistory.findFirst).mockResolvedValue(null);
-      vi.mocked(prisma.orgDidHistory.findFirst).mockResolvedValue(null);
+      mockPrisma.userDidHistory.findFirst.mockResolvedValue(null);
+      mockPrisma.orgDidHistory.findFirst.mockResolvedValue(null);
 
       // Act
       const result = await service.getRevocationInfo(testOrganizationId, 999);
@@ -378,8 +387,8 @@ describe('StatusList2021Service', () => {
         revokedAt,
         revocationReason: 'User left company',
       };
-      vi.mocked(prisma.userDidHistory.findFirst).mockResolvedValue(mockRevokedUserDid as never);
-      vi.mocked(prisma.orgDidHistory.findFirst).mockResolvedValue(null);
+      mockPrisma.userDidHistory.findFirst.mockResolvedValue(mockRevokedUserDid as never);
+      mockPrisma.orgDidHistory.findFirst.mockResolvedValue(null);
 
       // Act
       const result = await service.getRevocationInfo(testOrganizationId, 30);
@@ -399,8 +408,8 @@ describe('StatusList2021Service', () => {
         revokedAt,
         revocationReason: 'Key rotation policy',
       };
-      vi.mocked(prisma.userDidHistory.findFirst).mockResolvedValue(null);
-      vi.mocked(prisma.orgDidHistory.findFirst).mockResolvedValue(mockRevokedOrgDid as never);
+      mockPrisma.userDidHistory.findFirst.mockResolvedValue(null);
+      mockPrisma.orgDidHistory.findFirst.mockResolvedValue(mockRevokedOrgDid as never);
 
       // Act
       const result = await service.getRevocationInfo(testOrganizationId, 35);
@@ -423,7 +432,7 @@ describe('StatusList2021Service', () => {
     it('should_use_provided_base_url', async () => {
       // Arrange
       const customBaseUrl = 'https://custom.eurocomply.eu';
-      const customService = new StatusList2021Service(customBaseUrl);
+      const customService = new StatusList2021Service(mockPrisma as any, customBaseUrl);
 
       // Act
       const result = await customService.getCredentialStatus(testOrganizationId, 1);
@@ -433,14 +442,14 @@ describe('StatusList2021Service', () => {
     });
 
     it('should_default_to_standard_base_url_when_not_provided', async () => {
-      // Arrange
-      const defaultService = new StatusList2021Service();
+      // Arrange - use default baseUrl by passing only prisma
+      const defaultService = new StatusList2021Service(mockPrisma as any);
 
       // Act
       const result = await defaultService.getCredentialStatus(testOrganizationId, 1);
 
       // Assert
-      expect(result.statusListCredential).toContain('/organizations/');
+      expect(result.statusListCredential).toContain('https://api.eurocomply.eu');
     });
   });
 });
