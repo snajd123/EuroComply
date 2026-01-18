@@ -166,10 +166,10 @@ model Product {
 // ============================================
 
 enum IdentifierType {
-  INTERNAL    // Human-readable project code (e.g., PROTO-V1-2026)
-  SKU         // ERP/warehouse sync
-  GTIN        // Retail barcode (EAN-13, UPC-A)
-  DPP_URI     // Permanent DPP web address
+  INTERNAL    // Human-readable project code (e.g., PROTO-V1-2026) - org-scoped
+  SKU         // ERP/warehouse sync - org-scoped
+  GTIN        // Retail barcode (EAN-13, UPC-A) - globally unique per GS1 standard
+  DPP_URI     // Permanent DPP web address - globally unique, generated as: dpp.eurocomply.eu/{orgId}/{productId}
 }
 
 model ProductIdentifier {
@@ -183,8 +183,8 @@ model ProductIdentifier {
   // Timestamps
   createdAt   DateTime       @default(now()) @map("created_at")
 
-  @@unique([productId, type])
-  @@index([type, value])
+  @@unique([productId, type])  // One identifier per type per product
+  @@unique([type, value])      // Global uniqueness for GTIN/DPP_URI (also enforces for SKU/INTERNAL)
   @@map("product_identifiers")
 }
 

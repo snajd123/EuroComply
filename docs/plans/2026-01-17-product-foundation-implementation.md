@@ -151,6 +151,33 @@ git commit -m "feat(db): add Product model with type enum and variant support"
 **Files:**
 - Modify: `packages/db/prisma/schema.prisma`
 
+**Entity Relationship:**
+
+```mermaid
+erDiagram
+    Product ||--o{ ProductIdentifier : "has"
+    Organization ||--o{ Product : "owns"
+
+    Product {
+        string id PK "CUID - globally unique"
+        string organizationId FK
+        string name
+    }
+
+    ProductIdentifier {
+        string id PK
+        string productId FK
+        IdentifierType type "INTERNAL|SKU|GTIN|DPP_URI"
+        string value "Unique per type"
+    }
+```
+
+**DPP_URI Generation Pattern:**
+- Format: `https://dpp.eurocomply.eu/{organizationId}/{productId}`
+- Example: `https://dpp.eurocomply.eu/org_abc123/prod_xyz789`
+- Globally unique: Combines org scope with product CUID
+- Immutable: Once assigned, never changes
+
 **Step 1: Add ProductIdentifier model**
 
 Add after the Product model:
@@ -161,10 +188,10 @@ Add after the Product model:
 // ============================================
 
 enum IdentifierType {
-  INTERNAL    // Human-readable project code (e.g., PROTO-V1-2026)
-  SKU         // ERP/warehouse sync
-  GTIN        // Retail barcode (EAN-13, UPC-A)
-  DPP_URI     // Permanent DPP web address
+  INTERNAL    // Human-readable project code (e.g., PROTO-V1-2026) - org-scoped
+  SKU         // ERP/warehouse sync - org-scoped
+  GTIN        // Retail barcode (EAN-13, UPC-A) - globally unique per GS1 standard
+  DPP_URI     // Permanent DPP web address - globally unique, generated as: dpp.eurocomply.eu/{orgId}/{productId}
 }
 
 model ProductIdentifier {
@@ -178,8 +205,8 @@ model ProductIdentifier {
   // Timestamps
   createdAt   DateTime       @default(now()) @map("created_at")
 
-  @@unique([productId, type])
-  @@index([type, value])
+  @@unique([productId, type])  // One identifier per type per product
+  @@unique([type, value])      // Global uniqueness for GTIN/DPP_URI (also enforces for SKU/INTERNAL)
   @@map("product_identifiers")
 }
 ```
