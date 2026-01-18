@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import { VersionService } from './version.service.js';
+import { SigningService } from './signing.service.js';
 import { NotFoundError, ValidationError, ConflictError } from '../lib/errors.js';
+import type { UserForensicContext, OrgForensicContext, SealedArtifact } from '@eurocomply/shared';
 
 // Mock Prisma client type
 interface MockPrismaClient {
@@ -182,6 +184,222 @@ describe('VersionService', () => {
 
       expect(result.status).toBe('RELEASED');
       expect(result.publishedBy).toBe(userId);
+    });
+
+    it('should release without signing when no signing context provided (backward compatibility)', async () => {
+      mockPrisma.productVersion.findFirst.mockResolvedValue({
+        id: 'ver_123',
+        status: 'IN_REVIEW',
+        product: { organizationId: orgId },
+      });
+      mockPrisma.productVersion.update.mockResolvedValue({
+        id: 'ver_123',
+        status: 'RELEASED',
+        publishedAt: new Date(),
+        publishedBy: userId,
+        signatureDid: null,
+        signatureJws: null,
+      });
+
+      const result = await service.releaseVersion(orgId, 'ver_123', userId);
+
+      expect(result.status).toBe('RELEASED');
+      expect(result.signatureDid).toBeNull();
+      expect(result.signatureJws).toBeNull();
+    });
+  });
+
+  describe('releaseVersion with signing', () => {
+    const testUserDid = 'did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK';
+    const testOrgDid = 'did:key:z6MkoHWsmSZnHisAxnVGGCEkAWqPCNMTEjYNvzKmSFUpShHe';
+
+    const testUserForensicContext: UserForensicContext = {
+      signerName: 'John Doe',
+      signerEmail: 'john@example.com',
+      signerRole: 'Product Manager',
+      workspaceAuthority: 'DESIGN',
+      signedAt: '2026-01-15T10:00:00.000Z',
+    };
+
+    const testOrgForensicContext: OrgForensicContext = {
+      organizationName: 'Acme Corporation',
+      organizationId: orgId,
+      vatNumber: 'DE123456789',
+      certifications: ['ISO9001'],
+      signedAt: '2026-01-15T10:00:00.000Z',
+    };
+
+    const signingContext = {
+      userDid: testUserDid,
+      userForensicContext: testUserForensicContext,
+      orgDid: testOrgDid,
+      orgForensicContext: testOrgForensicContext,
+    };
+
+    it('should create SealedArtifact when signing context is provided', async () => {
+      const versionData = {
+        id: 'ver_123',
+        productId: productId,
+        workspace: 'DESIGN',
+        versionNumber: 1,
+        status: 'IN_REVIEW',
+        product: { organizationId: orgId },
+      };
+
+      mockPrisma.productVersion.findFirst.mockResolvedValue(versionData);
+      mockPrisma.productVersion.update.mockImplementation(async ({ data }) => ({
+        id: 'ver_123',
+        productId: productId,
+        workspace: 'DESIGN',
+        versionNumber: 1,
+        status: 'RELEASED',
+        publishedAt: data.publishedAt,
+        publishedBy: data.publishedBy,
+        signatureDid: data.signatureDid,
+        signatureJws: data.signatureJws,
+      }));
+
+      const result = await service.releaseVersion(
+        orgId,
+        'ver_123',
+        userId,
+        signingContext
+      );
+
+      expect(result.status).toBe('RELEASED');
+      expect(result.signatureDid).toBe(testOrgDid);
+      expect(result.signatureJws).toBeTruthy();
+
+      // Verify the stored artifact is valid JSON
+      const storedArtifact = JSON.parse(result.signatureJws as string) as SealedArtifact;
+      expect(storedArtifact).toHaveProperty('payload');
+      expect(storedArtifact).toHaveProperty('userProof');
+      expect(storedArtifact).toHaveProperty('corporateProof');
+    });
+
+    it('should include correct payload data in SealedArtifact', async () => {
+      const publishedAt = new Date('2026-01-15T10:00:00.000Z');
+      const versionData = {
+        id: 'ver_123',
+        productId: productId,
+        workspace: 'DESIGN',
+        versionNumber: 1,
+        status: 'IN_REVIEW',
+        product: { organizationId: orgId },
+      };
+
+      mockPrisma.productVersion.findFirst.mockResolvedValue(versionData);
+      mockPrisma.productVersion.update.mockImplementation(async ({ data }) => ({
+        ...versionData,
+        status: 'RELEASED',
+        publishedAt,
+        publishedBy: data.publishedBy,
+        signatureDid: data.signatureDid,
+        signatureJws: data.signatureJws,
+      }));
+
+      const result = await service.releaseVersion(
+        orgId,
+        'ver_123',
+        userId,
+        signingContext
+      );
+
+      const storedArtifact = JSON.parse(result.signatureJws as string) as SealedArtifact;
+
+      // Verify payload contains expected version data
+      expect(storedArtifact.payload).toMatchObject({
+        id: 'ver_123',
+        productId: productId,
+        workspace: 'DESIGN',
+        versionNumber: 1,
+        status: 'RELEASED',
+        publishedBy: userId,
+      });
+    });
+
+    it('should store user and corporate proofs in SealedArtifact', async () => {
+      const versionData = {
+        id: 'ver_123',
+        productId: productId,
+        workspace: 'DESIGN',
+        versionNumber: 1,
+        status: 'IN_REVIEW',
+        product: { organizationId: orgId },
+      };
+
+      mockPrisma.productVersion.findFirst.mockResolvedValue(versionData);
+      mockPrisma.productVersion.update.mockImplementation(async ({ data }) => ({
+        ...versionData,
+        status: 'RELEASED',
+        publishedAt: new Date(),
+        publishedBy: data.publishedBy,
+        signatureDid: data.signatureDid,
+        signatureJws: data.signatureJws,
+      }));
+
+      const result = await service.releaseVersion(
+        orgId,
+        'ver_123',
+        userId,
+        signingContext
+      );
+
+      const storedArtifact = JSON.parse(result.signatureJws as string) as SealedArtifact;
+
+      // Verify user proof
+      expect(storedArtifact.userProof.type).toBe('Ed25519Signature2020');
+      expect(storedArtifact.userProof.verificationMethod).toContain(testUserDid);
+      expect(storedArtifact.userProof.forensicContext).toEqual(testUserForensicContext);
+
+      // Verify corporate proof
+      expect(storedArtifact.corporateProof.type).toBe('Ed25519Signature2020');
+      expect(storedArtifact.corporateProof.verificationMethod).toContain(testOrgDid);
+      expect(storedArtifact.corporateProof.forensicContext).toEqual(testOrgForensicContext);
+    });
+
+    it('should throw ValidationError for invalid user DID in signing context', async () => {
+      const versionData = {
+        id: 'ver_123',
+        productId: productId,
+        workspace: 'DESIGN',
+        versionNumber: 1,
+        status: 'IN_REVIEW',
+        product: { organizationId: orgId },
+      };
+
+      mockPrisma.productVersion.findFirst.mockResolvedValue(versionData);
+
+      const invalidSigningContext = {
+        ...signingContext,
+        userDid: 'invalid-did',
+      };
+
+      await expect(
+        service.releaseVersion(orgId, 'ver_123', userId, invalidSigningContext)
+      ).rejects.toThrow(ValidationError);
+    });
+
+    it('should throw ValidationError for invalid org DID in signing context', async () => {
+      const versionData = {
+        id: 'ver_123',
+        productId: productId,
+        workspace: 'DESIGN',
+        versionNumber: 1,
+        status: 'IN_REVIEW',
+        product: { organizationId: orgId },
+      };
+
+      mockPrisma.productVersion.findFirst.mockResolvedValue(versionData);
+
+      const invalidSigningContext = {
+        ...signingContext,
+        orgDid: 'invalid-org-did',
+      };
+
+      await expect(
+        service.releaseVersion(orgId, 'ver_123', userId, invalidSigningContext)
+      ).rejects.toThrow(ValidationError);
     });
   });
 });

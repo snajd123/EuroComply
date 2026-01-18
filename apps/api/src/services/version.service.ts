@@ -1,6 +1,13 @@
 import { PrismaClient, ProductVersion } from '@eurocomply/db';
-import { ProductWorkspace, VersionStatus, canTransitionTo } from '@eurocomply/shared';
+import {
+  ProductWorkspace,
+  VersionStatus,
+  canTransitionTo,
+  UserForensicContext,
+  OrgForensicContext,
+} from '@eurocomply/shared';
 import { NotFoundError, ValidationError, ConflictError } from '../lib/errors.js';
+import { SigningService } from './signing.service.js';
 
 export interface CreateVersionInput {
   productId: string;
@@ -8,8 +15,24 @@ export interface CreateVersionInput {
   createdBy: string;
 }
 
+/**
+ * Optional signing context for releasing a version with Corporate Envelope signing.
+ * When provided, creates a dual-signed SealedArtifact for forensic traceability.
+ */
+export interface ReleaseVersionSigningContext {
+  userDid: string;
+  userForensicContext: UserForensicContext;
+  orgDid: string;
+  orgForensicContext: OrgForensicContext;
+}
+
 export class VersionService {
-  constructor(private prisma: PrismaClient) {}
+  private signingService: SigningService;
+
+  constructor(private prisma: PrismaClient, signingService?: SigningService) {
+    // Use provided SigningService or create a new instance
+    this.signingService = signingService ?? new SigningService();
+  }
 
   /**
    * Create a new version for a product in a specific workspace.
@@ -167,13 +190,84 @@ export class VersionService {
   /**
    * Release a version (make it immutable).
    * FORENSIC GUARD A: Once released, BOM entries cannot be modified.
+   *
+   * When signingContext is provided, creates a Corporate Envelope (SealedArtifact)
+   * with dual signatures (user + organization) for forensic traceability.
+   *
+   * @param organizationId - The organization owning the product
+   * @param versionId - The version to release
+   * @param publishedBy - The user releasing the version
+   * @param signingContext - Optional signing context for Corporate Envelope creation
    */
   async releaseVersion(
     organizationId: string,
     versionId: string,
-    publishedBy: string
+    publishedBy: string,
+    signingContext?: ReleaseVersionSigningContext
   ): Promise<ProductVersion> {
-    return this.transitionStatus(organizationId, versionId, 'RELEASED', publishedBy);
+    return this.prisma.$transaction(async (tx) => {
+      // Fetch within transaction for consistency
+      const version = await tx.productVersion.findFirst({
+        where: { id: versionId },
+        include: { product: true },
+      });
+
+      if (!version || version.product.organizationId !== organizationId) {
+        throw new NotFoundError('Version', versionId);
+      }
+
+      if (!canTransitionTo(version.status as VersionStatus, 'RELEASED')) {
+        throw new ValidationError(
+          `Cannot transition from ${version.status} to RELEASED`
+        );
+      }
+
+      const publishedAt = new Date();
+
+      // Prepare signature data if signing context is provided
+      let signatureDid: string | null = null;
+      let signatureJws: string | null = null;
+
+      if (signingContext) {
+        // Build payload from version data
+        const payload: Record<string, unknown> = {
+          id: version.id,
+          productId: version.productId,
+          workspace: version.workspace,
+          versionNumber: version.versionNumber,
+          status: 'RELEASED',
+          publishedAt: publishedAt.toISOString(),
+          publishedBy,
+        };
+
+        // Create corporate envelope with dual signatures
+        const sealedArtifact = this.signingService.createCorporateEnvelope(
+          payload,
+          {
+            did: signingContext.userDid,
+            forensicContext: signingContext.userForensicContext,
+          },
+          {
+            did: signingContext.orgDid,
+            forensicContext: signingContext.orgForensicContext,
+          }
+        );
+
+        signatureDid = signingContext.orgDid;
+        signatureJws = JSON.stringify(sealedArtifact);
+      }
+
+      return tx.productVersion.update({
+        where: { id: versionId },
+        data: {
+          status: 'RELEASED',
+          publishedAt,
+          publishedBy,
+          signatureDid,
+          signatureJws,
+        },
+      });
+    });
   }
 
   /**
