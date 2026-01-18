@@ -51,6 +51,8 @@ jobs:
             endpoint_url = https://ecs.${{ env.AWS_REGION }}.amazonaws.eu
           logs =
             endpoint_url = https://logs.${{ env.AWS_REGION }}.amazonaws.eu
+          secretsmanager =
+            endpoint_url = https://secretsmanager.${{ env.AWS_REGION }}.amazonaws.eu
           EOF
 
       - name: Run Migration
@@ -64,13 +66,31 @@ jobs:
           echo "🚀 Running migration on ${ENV}..."
 
           # Get the latest task definition
-          TASK_DEF=$(aws ecs describe-task-definition \
+          TASK_DEF_JSON=$(aws ecs describe-task-definition \
             --task-definition $TASK_FAMILY \
-            --query 'taskDefinition.taskDefinitionArn' \
-            --output text \
             --endpoint-url https://ecs.${{ env.AWS_REGION }}.amazonaws.eu)
 
+          TASK_DEF=$(echo $TASK_DEF_JSON | jq -r '.taskDefinition.taskDefinitionArn')
           echo "📋 Using task definition: $TASK_DEF"
+
+          # Extract DB connection details from task definition environment
+          CONTAINER_DEF=$(echo $TASK_DEF_JSON | jq '.taskDefinition.containerDefinitions[0]')
+          DB_HOST=$(echo $CONTAINER_DEF | jq -r '.environment[] | select(.name=="DB_HOST") | .value')
+          DB_PORT=$(echo $CONTAINER_DEF | jq -r '.environment[] | select(.name=="DB_PORT") | .value')
+          DB_NAME=$(echo $CONTAINER_DEF | jq -r '.environment[] | select(.name=="DB_NAME") | .value')
+          DB_USER=$(echo $CONTAINER_DEF | jq -r '.environment[] | select(.name=="DB_USER") | .value')
+
+          # Get DB password from Secrets Manager
+          DB_SECRET_ARN=$(echo $CONTAINER_DEF | jq -r '.secrets[] | select(.name=="DB_PASSWORD") | .valueFrom' | cut -d: -f1-7)
+          DB_PASSWORD=$(aws secretsmanager get-secret-value \
+            --secret-id $DB_SECRET_ARN \
+            --query 'SecretString' \
+            --output text \
+            --endpoint-url https://secretsmanager.${{ env.AWS_REGION }}.amazonaws.eu | jq -r '.password')
+
+          # Construct DATABASE_URL
+          DATABASE_URL="postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}?sslmode=require"
+          echo "🔗 Database: ${DB_HOST}:${DB_PORT}/${DB_NAME}"
 
           # Get network configuration from the service
           NETWORK_CONFIG=$(aws ecs describe-services \
@@ -84,18 +104,19 @@ jobs:
 
           echo "🌐 Network: subnets=[$SUBNETS], sg=[$SECURITY_GROUPS]"
 
-          # Run the migration task
+          # Run the migration task with DATABASE_URL injected
           TASK_ARN=$(aws ecs run-task \
             --cluster $ECS_CLUSTER \
             --task-definition $TASK_DEF \
             --launch-type FARGATE \
             --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$SECURITY_GROUPS],assignPublicIp=DISABLED}" \
-            --overrides '{
-              "containerOverrides": [{
-                "name": "api",
-                "command": ["npx", "prisma", "migrate", "deploy", "--schema=packages/db/prisma/schema.prisma"]
+            --overrides "{
+              \"containerOverrides\": [{
+                \"name\": \"api\",
+                \"command\": [\"npx\", \"prisma\", \"migrate\", \"deploy\", \"--schema=packages/db/prisma/schema.prisma\"],
+                \"environment\": [{\"name\": \"DATABASE_URL\", \"value\": \"$DATABASE_URL\"}]
               }]
-            }' \
+            }" \
             --query 'tasks[0].taskArn' \
             --output text \
             --endpoint-url https://ecs.${{ env.AWS_REGION }}.amazonaws.eu)

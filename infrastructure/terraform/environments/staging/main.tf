@@ -261,7 +261,8 @@ resource "aws_iam_role_policy" "github_actions_ecs" {
           "ecs:RegisterTaskDefinition",
           "ecs:DeregisterTaskDefinition",
           "ecs:ListTasks",
-          "ecs:DescribeTasks"
+          "ecs:DescribeTasks",
+          "ecs:RunTask"
         ]
         Resource = "*"
       },
@@ -273,6 +274,16 @@ resource "aws_iam_role_policy" "github_actions_ecs" {
         Resource = [
           module.ecs.execution_role_arn,
           module.ecs.task_role_arn
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:GetSecretValue"
+        ]
+        Resource = [
+          aws_secretsmanager_secret.app_secrets.arn,
+          module.rds.db_credentials_secret_arn
         ]
       }
     ]
