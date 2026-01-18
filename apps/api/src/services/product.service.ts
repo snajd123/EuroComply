@@ -5,7 +5,7 @@ import {
   ProductType,
   ProductStatus,
 } from '@eurocomply/shared';
-import { ValidationError, NotFoundError } from '../lib/errors.js';
+import { ValidationError, NotFoundError, ConflictError } from '../lib/errors.js';
 import { PAGINATION } from '../lib/config.js';
 
 export interface ListProductsOptions {
@@ -65,80 +65,103 @@ export class ProductService {
       }
     }
 
-    return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      // Create the product
-      const product = await tx.product.create({
-        data: {
-          organizationId,
-          name: input.name,
-          description: input.description,
-          productType: input.productType,
-          parentId: input.parentId,
-          identifiers: input.identifiers
-            ? {
-                create: input.identifiers.map((id) => ({
-                  type: id.type,
-                  value: id.value,
-                })),
-              }
-            : undefined,
-        },
-        include: productInclude,
-      });
-
-      // FORENSIC GUARD B: Variant Inheritance
-      // Auto-clone parent's latest RELEASED BOM as variant's DRAFT v1.
-      // NOTE: Currently hardcoded to DESIGN workspace for Phase 1 MVP.
-      // Future: May need to clone from multiple workspaces or make configurable.
-      if (input.productType === 'VARIANT' && input.parentId) {
-        // SECURITY: Verify parent belongs to same organization before cloning
-        const parentReleasedVersion = await tx.productVersion.findFirst({
-          where: {
-            productId: input.parentId,
-            product: { organizationId }, // Cross-tenant protection
-            workspace: 'DESIGN', // MVP: BOM inheritance only from DESIGN workspace
-            status: 'RELEASED',
+    try {
+      return await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+        // Create the product
+        const product = await tx.product.create({
+          data: {
+            organizationId,
+            name: input.name,
+            description: input.description,
+            productType: input.productType,
+            parentId: input.parentId,
+            identifiers: input.identifiers
+              ? {
+                  create: input.identifiers.map((id) => ({
+                    type: id.type,
+                    value: id.value,
+                  })),
+                }
+              : undefined,
           },
-          orderBy: { versionNumber: 'desc' },
-          include: { bomEntries: true },
+          include: productInclude,
         });
 
-        if (parentReleasedVersion && parentReleasedVersion.bomEntries.length > 0) {
-          // AUDIT: Require createdBy for accountability - no anonymous BOM creation
-          if (!input.createdBy) {
-            throw new ValidationError('createdBy is required for variant BOM inheritance');
-          }
-
-          // Create DRAFT version for variant
-          const variantVersion = await tx.productVersion.create({
-            data: {
-              productId: product.id,
-              workspace: 'DESIGN',
-              versionNumber: 1,
-              status: 'DRAFT',
-              createdBy: input.createdBy,
+        // FORENSIC GUARD B: Variant Inheritance
+        // Auto-clone parent's latest RELEASED BOM as variant's DRAFT v1.
+        // NOTE: Currently hardcoded to DESIGN workspace for Phase 1 MVP.
+        // Future: May need to clone from multiple workspaces or make configurable.
+        if (input.productType === 'VARIANT' && input.parentId) {
+          // SECURITY: Verify parent belongs to same organization before cloning
+          const parentReleasedVersion = await tx.productVersion.findFirst({
+            where: {
+              productId: input.parentId,
+              product: { organizationId }, // Cross-tenant protection
+              workspace: 'DESIGN', // MVP: BOM inheritance only from DESIGN workspace
+              status: 'RELEASED',
             },
+            orderBy: { versionNumber: 'desc' },
+            include: { bomEntries: true },
           });
 
-          // Clone BOM entries
-          await tx.bomEntry.createMany({
-            data: parentReleasedVersion.bomEntries.map((entry: BomEntry) => ({
-              parentProductId: product.id,
-              childProductId: entry.childProductId,
-              versionId: variantVersion.id,
-              quantity: entry.quantity,
-              unit: entry.unit,
-              scrapRatePct: entry.scrapRatePct,
-              yieldPct: entry.yieldPct,
-              position: entry.position,
-              notes: entry.notes,
-            })),
-          });
+          if (parentReleasedVersion && parentReleasedVersion.bomEntries.length > 0) {
+            // AUDIT: Require createdBy for accountability - no anonymous BOM creation
+            if (!input.createdBy) {
+              throw new ValidationError('createdBy is required for variant BOM inheritance');
+            }
+
+            // Create DRAFT version for variant
+            const variantVersion = await tx.productVersion.create({
+              data: {
+                productId: product.id,
+                workspace: 'DESIGN',
+                versionNumber: 1,
+                status: 'DRAFT',
+                createdBy: input.createdBy,
+              },
+            });
+
+            // Clone BOM entries
+            await tx.bomEntry.createMany({
+              data: parentReleasedVersion.bomEntries.map((entry: BomEntry) => ({
+                parentProductId: product.id,
+                childProductId: entry.childProductId,
+                versionId: variantVersion.id,
+                quantity: entry.quantity,
+                unit: entry.unit,
+                scrapRatePct: entry.scrapRatePct,
+                yieldPct: entry.yieldPct,
+                position: entry.position,
+                notes: entry.notes,
+              })),
+            });
+          }
         }
-      }
 
-      return product;
-    });
+        return product;
+      });
+    } catch (error) {
+      // Handle unique constraint violations (P2002)
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        // Extract the field that caused the violation
+        const target = error.meta?.['target'] as string[] | undefined;
+        if (target?.includes('type') && target?.includes('value')) {
+          // Find which identifier type caused the conflict
+          const conflictingIdentifier = input.identifiers?.find((id) =>
+            ['GTIN', 'DPP_URI', 'SKU', 'INTERNAL'].includes(id.type)
+          );
+          const identifierType = conflictingIdentifier?.type || 'identifier';
+          throw new ConflictError(
+            `${identifierType} value already exists. Each ${identifierType} must be globally unique.`
+          );
+        }
+        throw new ConflictError('A product with these identifiers already exists');
+      }
+      throw error;
+    }
   }
 
   /**

@@ -164,6 +164,104 @@ describe('Product Routes Integration Tests', () => {
 
       expect(response.status).toBe(400);
     });
+
+    it('should reject duplicate GTIN across products (global uniqueness)', async () => {
+      const duplicateGtin = '98765432109876';
+
+      // Create first product with GTIN
+      const firstResponse = await app.request('/api/v1/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'First Product with GTIN',
+          productType: 'FINISHED_GOOD',
+          identifiers: [{ type: 'GTIN', value: duplicateGtin }],
+        }),
+      });
+
+      expect(firstResponse.status).toBe(201);
+
+      // Try to create second product with same GTIN - should fail
+      const secondResponse = await app.request('/api/v1/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Second Product with Same GTIN',
+          productType: 'FINISHED_GOOD',
+          identifiers: [{ type: 'GTIN', value: duplicateGtin }],
+        }),
+      });
+
+      expect(secondResponse.status).toBe(409);
+      const json = await secondResponse.json();
+      expect(json.success).toBe(false);
+      expect(json.error.code).toBe('CONFLICT');
+      expect(json.error.message).toContain('GTIN');
+    });
+
+    it('should reject duplicate DPP_URI across products (global uniqueness)', async () => {
+      const duplicateDppUri = 'https://dpp.eurocomply.eu/org123/prod456';
+
+      // Create first product with DPP_URI
+      const firstResponse = await app.request('/api/v1/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'First Product with DPP_URI',
+          productType: 'FINISHED_GOOD',
+          identifiers: [{ type: 'DPP_URI', value: duplicateDppUri }],
+        }),
+      });
+
+      expect(firstResponse.status).toBe(201);
+
+      // Try to create second product with same DPP_URI - should fail
+      const secondResponse = await app.request('/api/v1/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Second Product with Same DPP_URI',
+          productType: 'FINISHED_GOOD',
+          identifiers: [{ type: 'DPP_URI', value: duplicateDppUri }],
+        }),
+      });
+
+      expect(secondResponse.status).toBe(409);
+      const json = await secondResponse.json();
+      expect(json.success).toBe(false);
+      expect(json.error.code).toBe('CONFLICT');
+      expect(json.error.message).toContain('DPP_URI');
+    });
+
+    it('should allow same identifier value with different types', async () => {
+      const sameValue = 'SHARED-VALUE-123';
+
+      // Create first product with SKU
+      const firstResponse = await app.request('/api/v1/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Product with SKU',
+          productType: 'FINISHED_GOOD',
+          identifiers: [{ type: 'SKU', value: sameValue }],
+        }),
+      });
+
+      expect(firstResponse.status).toBe(201);
+
+      // Create second product with INTERNAL using same value - should succeed
+      const secondResponse = await app.request('/api/v1/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Product with INTERNAL',
+          productType: 'FINISHED_GOOD',
+          identifiers: [{ type: 'INTERNAL', value: sameValue }],
+        }),
+      });
+
+      expect(secondResponse.status).toBe(201);
+    });
   });
 
   describe('POST /api/v1/products - VARIANT without parentId', () => {
@@ -413,18 +511,9 @@ describe('Product Routes Integration Tests', () => {
       });
       expect(designResponse.status).toBe(201);
 
-      // Create OPERATIONS version
-      const opsResponse = await app.request(`/api/v1/products/${productId}/versions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspace: 'OPERATIONS' }),
-      });
-      expect(opsResponse.status).toBe(201);
-      const opsJson = await opsResponse.json();
-      expect(opsJson.data.workspace).toBe('OPERATIONS');
-      expect(opsJson.data.versionNumber).toBe(1);
-
       // Create MARKETING version
+      // Note: OPERATIONS and COMPLIANCE workspaces now use different data models
+      // (OperationsEvent and DPPSnapshot) instead of ProductVersion
       const marketingResponse = await app.request(`/api/v1/products/${productId}/versions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
