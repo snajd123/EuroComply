@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import { StatusList2021Service } from './status-list.service.js';
 import type { CredentialStatus } from '@eurocomply/shared';
+import { decodeBitstring, getBit } from '@eurocomply/shared';
 import { NotFoundError, ValidationError } from '../lib/errors.js';
 
 interface MockPrismaClient {
@@ -10,9 +11,11 @@ interface MockPrismaClient {
   };
   userDidHistory: {
     findFirst: Mock;
+    findMany: Mock;
   };
   orgDidHistory: {
     findFirst: Mock;
+    findMany: Mock;
   };
   $transaction: Mock;
 }
@@ -42,9 +45,11 @@ describe('StatusList2021Service', () => {
       },
       userDidHistory: {
         findFirst: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([]),
       },
       orgDidHistory: {
         findFirst: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([]),
       },
       $transaction: vi.fn((fn) => fn({
         organization: {
@@ -450,6 +455,160 @@ describe('StatusList2021Service', () => {
 
       // Assert
       expect(result.statusListCredential).toContain('https://api.eurocomply.eu');
+    });
+  });
+
+  describe('buildBitstring', () => {
+    it('should_create_empty_bitstring_when_no_revocations', async () => {
+      // Arrange
+      mockPrisma.userDidHistory.findMany.mockResolvedValue([]);
+      mockPrisma.orgDidHistory.findMany.mockResolvedValue([]);
+
+      // Act
+      const bitstring = await service.buildBitstring(testOrganizationId);
+
+      // Assert
+      expect(bitstring.length).toBe(16384); // 131072 bits / 8
+      expect(bitstring.every(byte => byte === 0)).toBe(true);
+    });
+
+    it('should_set_bits_from_in_memory_revocations', async () => {
+      // Arrange
+      await service.revoke(testOrganizationId, 0);
+      await service.revoke(testOrganizationId, 100);
+
+      // Act
+      const bitstring = await service.buildBitstring(testOrganizationId);
+
+      // Assert
+      expect(getBit(bitstring, 0)).toBe(true);
+      expect(getBit(bitstring, 100)).toBe(true);
+      expect(getBit(bitstring, 1)).toBe(false);
+    });
+
+    it('should_set_bits_from_user_did_history', async () => {
+      // Arrange
+      mockPrisma.userDidHistory.findMany.mockResolvedValue([
+        { statusListIndex: 50 },
+        { statusListIndex: 200 },
+      ]);
+
+      // Act
+      const bitstring = await service.buildBitstring(testOrganizationId);
+
+      // Assert
+      expect(getBit(bitstring, 50)).toBe(true);
+      expect(getBit(bitstring, 200)).toBe(true);
+    });
+
+    it('should_set_bits_from_org_did_history', async () => {
+      // Arrange
+      mockPrisma.orgDidHistory.findMany.mockResolvedValue([
+        { statusListIndex: 300 },
+      ]);
+
+      // Act
+      const bitstring = await service.buildBitstring(testOrganizationId);
+
+      // Assert
+      expect(getBit(bitstring, 300)).toBe(true);
+    });
+  });
+
+  describe('getEncodedList', () => {
+    it('should_return_base64url_encoded_gzip_compressed_bitstring', async () => {
+      // Arrange
+      await service.revoke(testOrganizationId, 42);
+
+      // Act
+      const encoded = await service.getEncodedList(testOrganizationId);
+
+      // Assert
+      expect(encoded).toMatch(/^[A-Za-z0-9_-]+$/);
+    });
+
+    it('should_produce_decodable_output', async () => {
+      // Arrange
+      await service.revoke(testOrganizationId, 123);
+
+      // Act
+      const encoded = await service.getEncodedList(testOrganizationId);
+      const decoded = decodeBitstring(encoded);
+
+      // Assert
+      expect(getBit(decoded, 123)).toBe(true);
+      expect(getBit(decoded, 124)).toBe(false);
+    });
+  });
+
+  describe('checkRevocationFromEncodedList', () => {
+    it('should_return_true_for_revoked_index', async () => {
+      // Arrange
+      await service.revoke(testOrganizationId, 500);
+      const encoded = await service.getEncodedList(testOrganizationId);
+
+      // Act
+      const isRevoked = StatusList2021Service.checkRevocationFromEncodedList(encoded, 500);
+
+      // Assert
+      expect(isRevoked).toBe(true);
+    });
+
+    it('should_return_false_for_valid_index', async () => {
+      // Arrange
+      const encoded = await service.getEncodedList(testOrganizationId);
+
+      // Act
+      const isRevoked = StatusList2021Service.checkRevocationFromEncodedList(encoded, 999);
+
+      // Assert
+      expect(isRevoked).toBe(false);
+    });
+
+    it('should_throw_for_out_of_bounds_index', () => {
+      // Arrange
+      const encoded = 'H4sIAAAAAAAAA2NgGAWjYBSMglEwCkbBKBgFowAAQnoG8QABAA';
+
+      // Act & Assert
+      expect(() => {
+        StatusList2021Service.checkRevocationFromEncodedList(encoded, 200000);
+      }).toThrow(ValidationError);
+    });
+  });
+
+  describe('generateStatusListCredential', () => {
+    it('should_generate_valid_status_list_credential_structure', async () => {
+      // Arrange
+      const issuerId = 'did:key:z6MkTest123';
+
+      // Act
+      const credential = await service.generateStatusListCredential(testOrganizationId, issuerId);
+
+      // Assert
+      expect(credential['@context']).toContain('https://www.w3.org/2018/credentials/v1');
+      expect(credential['@context']).toContain('https://w3id.org/vc/status-list/2021/v1');
+      expect(credential.type).toContain('VerifiableCredential');
+      expect(credential.type).toContain('StatusList2021Credential');
+      expect(credential.issuer).toBe(issuerId);
+      expect(credential.credentialSubject.type).toBe('StatusList2021');
+      expect(credential.credentialSubject.statusPurpose).toBe('revocation');
+      expect(credential.credentialSubject.encodedList).toBeDefined();
+    });
+
+    it('should_include_revoked_credentials_in_encoded_list', async () => {
+      // Arrange
+      const issuerId = 'did:key:z6MkTest123';
+      await service.revoke(testOrganizationId, 777);
+
+      // Act
+      const credential = await service.generateStatusListCredential(testOrganizationId, issuerId);
+
+      // Assert
+      const isRevoked = StatusList2021Service.checkRevocationFromEncodedList(
+        credential.credentialSubject.encodedList,
+        777
+      );
+      expect(isRevoked).toBe(true);
     });
   });
 });

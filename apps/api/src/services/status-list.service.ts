@@ -1,5 +1,13 @@
 import { PrismaClient } from '@eurocomply/db';
 import type { CredentialStatus } from '@eurocomply/shared';
+import {
+  createBitstring,
+  setBit,
+  getBit,
+  encodeBitstring,
+  decodeBitstring,
+  BITSTRING_SIZE,
+} from '@eurocomply/shared';
 import { NotFoundError, ValidationError } from '../lib/errors.js';
 
 /**
@@ -279,4 +287,156 @@ export class StatusList2021Service {
   private buildKey(organizationId: string, index: number): string {
     return `${organizationId}:${index}`;
   }
+
+  /**
+   * Build the complete bitstring for an organization's status list.
+   *
+   * This aggregates revocation status from:
+   * - In-memory revocation map
+   * - UserDidHistory table
+   * - OrgDidHistory table
+   *
+   * @param organizationId - The organization ID
+   * @returns The bitstring with all revoked indices set
+   */
+  async buildBitstring(organizationId: string): Promise<Uint8Array> {
+    const bitstring = createBitstring();
+
+    // Set bits from in-memory revocations
+    for (const [key] of this.revokedIndices) {
+      const [orgId, indexStr] = key.split(':');
+      if (orgId === organizationId) {
+        const index = parseInt(indexStr ?? '0', 10);
+        if (index < BITSTRING_SIZE) {
+          setBit(bitstring, index);
+        }
+      }
+    }
+
+    // Set bits from UserDidHistory
+    const revokedUserDids = await this.prisma.userDidHistory.findMany({
+      where: {
+        revokedAt: { not: null },
+        user: {
+          organizations: {
+            some: { organizationId },
+          },
+        },
+      },
+      select: { statusListIndex: true },
+    });
+
+    for (const { statusListIndex } of revokedUserDids) {
+      if (statusListIndex !== null && statusListIndex < BITSTRING_SIZE) {
+        setBit(bitstring, statusListIndex);
+      }
+    }
+
+    // Set bits from OrgDidHistory
+    const revokedOrgDids = await this.prisma.orgDidHistory.findMany({
+      where: {
+        organizationId,
+        revokedAt: { not: null },
+      },
+      select: { statusListIndex: true },
+    });
+
+    for (const { statusListIndex } of revokedOrgDids) {
+      if (statusListIndex !== null && statusListIndex < BITSTRING_SIZE) {
+        setBit(bitstring, statusListIndex);
+      }
+    }
+
+    return bitstring;
+  }
+
+  /**
+   * Get the encoded status list for an organization.
+   *
+   * Returns the GZIP + base64url encoded bitstring as specified by
+   * W3C Status List 2021.
+   *
+   * @param organizationId - The organization ID
+   * @returns Base64url encoded GZIP compressed bitstring
+   */
+  async getEncodedList(organizationId: string): Promise<string> {
+    const bitstring = await this.buildBitstring(organizationId);
+    return encodeBitstring(bitstring);
+  }
+
+  /**
+   * Check revocation status from an encoded status list.
+   *
+   * This is a static method that can be used to verify revocation status
+   * without database access, using only the encoded list from a
+   * Status List 2021 credential.
+   *
+   * @param encodedList - Base64url encoded GZIP compressed bitstring
+   * @param index - The status list index to check
+   * @returns true if revoked, false if valid
+   */
+  static checkRevocationFromEncodedList(
+    encodedList: string,
+    index: number
+  ): boolean {
+    if (index < 0 || index >= BITSTRING_SIZE) {
+      throw new ValidationError(
+        `Index out of bounds: ${index}. Must be 0-${BITSTRING_SIZE - 1}`
+      );
+    }
+    const bitstring = decodeBitstring(encodedList);
+    return getBit(bitstring, index);
+  }
+
+  /**
+   * Generate a complete Status List 2021 Credential for an organization.
+   *
+   * This creates the credential structure that can be signed and published
+   * for verifiers to check revocation status.
+   *
+   * @param organizationId - The organization ID
+   * @param issuerId - The DID of the issuer
+   * @returns The unsigned Status List 2021 Credential
+   */
+  async generateStatusListCredential(
+    organizationId: string,
+    issuerId: string
+  ): Promise<StatusList2021Credential> {
+    const encodedList = await this.getEncodedList(organizationId);
+
+    return {
+      '@context': [
+        'https://www.w3.org/2018/credentials/v1',
+        'https://w3id.org/vc/status-list/2021/v1',
+      ],
+      id: `${this.baseUrl}/organizations/${organizationId}/status-list`,
+      type: ['VerifiableCredential', 'StatusList2021Credential'],
+      issuer: issuerId,
+      issuanceDate: new Date().toISOString(),
+      credentialSubject: {
+        id: `${this.baseUrl}/organizations/${organizationId}/status-list#list`,
+        type: 'StatusList2021',
+        statusPurpose: 'revocation',
+        encodedList,
+      },
+    };
+  }
+}
+
+/**
+ * Status List 2021 Credential structure per W3C specification.
+ */
+export interface StatusList2021Credential {
+  '@context': string[];
+  id: string;
+  type: string[];
+  issuer: string;
+  issuanceDate: string;
+  credentialSubject: {
+    id: string;
+    type: 'StatusList2021';
+    statusPurpose: 'revocation';
+    encodedList: string;
+  };
+  proof?: Record<string, unknown>;
 }
