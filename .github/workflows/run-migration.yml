@@ -93,7 +93,7 @@ jobs:
             --overrides '{
               "containerOverrides": [{
                 "name": "api",
-                "command": ["npx", "prisma", "migrate", "deploy"]
+                "command": ["npx", "prisma", "migrate", "deploy", "--schema=packages/db/prisma/schema.prisma"]
               }]
             }' \
             --query 'tasks[0].taskArn' \
