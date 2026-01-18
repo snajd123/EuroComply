@@ -3,6 +3,7 @@ import { prisma } from '@eurocomply/db';
 import { ok, err, hasAuthority } from '@eurocomply/shared';
 import { ReadinessProfileService } from '../services/readiness-profile.service.js';
 import { DPPSnapshotService } from '../services/dpp-snapshot.service.js';
+import { DPPReadinessService } from '../services/dpp-readiness.service.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { NotFoundError, ValidationError } from '../lib/errors.js';
 import type { AppVariables } from '../types/context.js';
@@ -10,6 +11,7 @@ import type { AppVariables } from '../types/context.js';
 const compliance = new Hono<{ Variables: AppVariables }>();
 const profileService = new ReadinessProfileService(prisma);
 const snapshotService = new DPPSnapshotService(prisma);
+const readinessService = new DPPReadinessService(prisma);
 
 // Apply auth middleware
 compliance.use('*', authMiddleware);
@@ -120,6 +122,73 @@ compliance.delete('/profiles/:id', async (c) => {
   try {
     await profileService.delete(profileId);
     return c.json(ok({ deleted: true }));
+  } catch (error) {
+    if (error instanceof NotFoundError) {
+      return c.json(err('NOT_FOUND', error.message), 404);
+    }
+    throw error;
+  }
+});
+
+// ============================================
+// DPP READINESS
+// ============================================
+
+/**
+ * GET /api/v1/compliance/readiness/:productId
+ * Check DPP readiness for a product.
+ * Requires: VIEWER authority for Compliance workspace
+ */
+compliance.get('/readiness/:productId', async (c) => {
+  const { organizationId } = c.get('tenant');
+  const permissions = c.get('permissions');
+  const productId = c.req.param('productId');
+  const profileId = c.req.query('profileId');
+
+  if (!hasAuthority(permissions.complianceAuthority, 'VIEWER')) {
+    return c.json(err('FORBIDDEN', 'Requires VIEWER authority for Compliance'), 403);
+  }
+
+  if (!profileId) {
+    return c.json(err('VALIDATION_ERROR', 'profileId query parameter required'), 400);
+  }
+
+  try {
+    const result = await readinessService.checkProductReadiness(
+      organizationId,
+      productId,
+      profileId
+    );
+    return c.json(ok(result));
+  } catch (error) {
+    if (error instanceof NotFoundError) {
+      return c.json(err('NOT_FOUND', error.message), 404);
+    }
+    throw error;
+  }
+});
+
+/**
+ * GET /api/v1/compliance/readiness
+ * Get all products that are ready for DPP issuance.
+ * Requires: VIEWER authority for Compliance workspace
+ */
+compliance.get('/readiness', async (c) => {
+  const { organizationId } = c.get('tenant');
+  const permissions = c.get('permissions');
+  const profileId = c.req.query('profileId');
+
+  if (!hasAuthority(permissions.complianceAuthority, 'VIEWER')) {
+    return c.json(err('FORBIDDEN', 'Requires VIEWER authority for Compliance'), 403);
+  }
+
+  if (!profileId) {
+    return c.json(err('VALIDATION_ERROR', 'profileId query parameter required'), 400);
+  }
+
+  try {
+    const results = await readinessService.getReadyProducts(organizationId, profileId);
+    return c.json(ok(results));
   } catch (error) {
     if (error instanceof NotFoundError) {
       return c.json(err('NOT_FOUND', error.message), 404);
