@@ -21,6 +21,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/api/package.json ./apps/api/
 COPY packages/shared/package.json ./packages/shared/
 COPY packages/db/package.json ./packages/db/
+COPY packages/walt-id/package.json ./packages/walt-id/
 
 # Install all dependencies with hoisting for Docker compatibility
 RUN pnpm install --frozen-lockfile --shamefully-hoist
@@ -34,12 +35,14 @@ FROM deps AS builder
 COPY tsconfig.json ./
 COPY packages/shared/tsconfig.json ./packages/shared/
 COPY packages/db/tsconfig.json ./packages/db/
+COPY packages/walt-id/tsconfig.json ./packages/walt-id/
 COPY apps/api/tsconfig.json ./apps/api/
 
 # Copy source code
 COPY packages/shared/src ./packages/shared/src
 COPY packages/db/src ./packages/db/src
 COPY packages/db/prisma ./packages/db/prisma
+COPY packages/walt-id/src ./packages/walt-id/src
 COPY apps/api/src ./apps/api/src
 
 # Generate Prisma client
@@ -68,6 +71,7 @@ COPY --from=builder /app/pnpm-workspace.yaml ./
 COPY --from=builder /app/apps/api/package.json ./apps/api/
 COPY --from=builder /app/packages/shared/package.json ./packages/shared/
 COPY --from=builder /app/packages/db/package.json ./packages/db/
+COPY --from=builder /app/packages/walt-id/package.json ./packages/walt-id/
 
 # Copy node_modules (full, including all dependencies)
 COPY --from=builder /app/node_modules ./node_modules
@@ -76,6 +80,7 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
 COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
 COPY --from=builder /app/packages/db/dist ./packages/db/dist
+COPY --from=builder /app/packages/walt-id/dist ./packages/walt-id/dist
 
 # Copy Prisma schema and generated client
 COPY --from=builder /app/packages/db/prisma ./packages/db/prisma
