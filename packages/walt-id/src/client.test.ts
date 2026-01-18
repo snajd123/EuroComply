@@ -75,6 +75,7 @@ describe('WaltIdClient', () => {
         keyId: 'key_abc123',
         payload: { test: 'data' },
         proofType: 'Ed25519Signature2020',
+        proofPurpose: 'assertionMethod',
       });
 
       expect(result.jws).toContain('eyJ');

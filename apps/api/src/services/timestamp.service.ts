@@ -1,6 +1,7 @@
 import { createHash } from 'crypto';
 import { AsnConvert } from '@peculiar/asn1-schema';
 import { TimeStampResp, PKIStatus } from '@peculiar/asn1-tsp';
+import { SignedData } from '@peculiar/asn1-cms';
 import {
   type TsaConfig,
   type TimestampResponse,
@@ -36,7 +37,7 @@ export class TimestampService {
             ).toString('base64')}`,
           }),
         },
-        body: tsRequest,
+        body: Buffer.from(tsRequest),
         signal: controller.signal,
       });
 
@@ -134,7 +135,9 @@ export class TimestampService {
       }
 
       // Get the encapsulated content (TSTInfo)
-      const encapContent = timeStampToken.content.encapContentInfo;
+      // Parse the SignedData content from the timestamp token
+      const signedData = AsnConvert.parse(timeStampToken.content, SignedData);
+      const encapContent = signedData.encapContentInfo;
       if (!encapContent?.eContent) {
         throw new Error('No encapsulated content in timestamp token');
       }
