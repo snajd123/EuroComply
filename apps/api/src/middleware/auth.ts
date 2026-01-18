@@ -220,8 +220,12 @@ export const optionalAuthMiddleware = createMiddleware<{ Variables: AppVariables
 
     try {
       await performOrgAuth(c, token, orgId);
-    } catch {
-      // If auth fails, continue without user context
+    } catch (error) {
+      // Log auth failures for debugging (not security-sensitive since this is optional auth)
+      if (process.env['NODE_ENV'] !== 'production') {
+        console.debug('[optionalAuth] Auth failed:', error instanceof Error ? error.message : 'Unknown error');
+      }
+      // Continue without user context
     }
 
     await next();

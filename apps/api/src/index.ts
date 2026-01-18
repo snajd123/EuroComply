@@ -2,6 +2,7 @@ import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { secureHeaders } from 'hono/secure-headers';
+import { bodyLimit } from 'hono/body-limit';
 import { initializeDatabase } from '@eurocomply/db';
 
 import { errorHandler } from './middleware/error-handler.js';
@@ -14,6 +15,23 @@ const app = new Hono();
 app.use('*', process.env['NODE_ENV'] === 'development' ? devLoggerMiddleware : loggerMiddleware);
 
 app.use('*', secureHeaders());
+
+// Body size limit: 1MB max for JSON payloads
+app.use('*', bodyLimit({
+  maxSize: 1024 * 1024, // 1MB
+  onError: (c) => {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: 'PAYLOAD_TOO_LARGE',
+          message: 'Request body exceeds maximum size of 1MB',
+        },
+      },
+      413
+    );
+  },
+}));
 
 app.use('*', cors({
   origin: process.env['CORS_ORIGINS']?.split(',') || ['http://localhost:3000'],
