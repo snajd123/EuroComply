@@ -1,6 +1,11 @@
 import { Hono } from 'hono';
 import { prisma } from '@eurocomply/db';
-import { ok, err, hasAuthority } from '@eurocomply/shared';
+import {
+  ok,
+  err,
+  hasAuthority,
+  type AuthorityLevel,
+} from '@eurocomply/shared';
 import { OperationsEventService } from '../services/operations-event.service.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { NotFoundError, ValidationError } from '../lib/errors.js';
@@ -23,7 +28,7 @@ operationsEvents.get('/integrity', async (c) => {
   const { organizationId } = c.get('tenant');
   const permissions = c.get('permissions');
 
-  if (!hasAuthority(permissions.operationsAuthority, 'MANAGER')) {
+  if (!hasAuthority(permissions.operationsAuthority as AuthorityLevel, 'MANAGER' as AuthorityLevel)) {
     return c.json(
       err('FORBIDDEN', 'Requires MANAGER authority for Operations'),
       403
@@ -44,7 +49,7 @@ operationsEvents.post('/', async (c) => {
   const { id: userId } = c.get('user');
   const permissions = c.get('permissions');
 
-  if (!hasAuthority(permissions.operationsAuthority, 'CONTRIBUTOR')) {
+  if (!hasAuthority(permissions.operationsAuthority as AuthorityLevel, 'CONTRIBUTOR' as AuthorityLevel)) {
     return c.json(
       err('FORBIDDEN', 'Requires CONTRIBUTOR authority for Operations'),
       403
@@ -72,7 +77,7 @@ operationsEvents.get('/', async (c) => {
   const { organizationId } = c.get('tenant');
   const permissions = c.get('permissions');
 
-  if (!hasAuthority(permissions.operationsAuthority, 'VIEWER')) {
+  if (!hasAuthority(permissions.operationsAuthority as AuthorityLevel, 'VIEWER' as AuthorityLevel)) {
     return c.json(
       err('FORBIDDEN', 'Requires VIEWER authority for Operations'),
       403
@@ -104,7 +109,7 @@ operationsEvents.get('/:id', async (c) => {
   const permissions = c.get('permissions');
   const eventId = c.req.param('id');
 
-  if (!hasAuthority(permissions.operationsAuthority, 'VIEWER')) {
+  if (!hasAuthority(permissions.operationsAuthority as AuthorityLevel, 'VIEWER' as AuthorityLevel)) {
     return c.json(
       err('FORBIDDEN', 'Requires VIEWER authority for Operations'),
       403
@@ -130,7 +135,7 @@ operationsEvents.post('/:id/verify', async (c) => {
   const permissions = c.get('permissions');
   const eventId = c.req.param('id');
 
-  if (!hasAuthority(permissions.operationsAuthority, 'EDITOR')) {
+  if (!hasAuthority(permissions.operationsAuthority as AuthorityLevel, 'EDITOR' as AuthorityLevel)) {
     return c.json(
       err('FORBIDDEN', 'Requires EDITOR authority for Operations'),
       403

@@ -1,6 +1,11 @@
 import { Hono } from 'hono';
 import { prisma } from '@eurocomply/db';
-import { ok, err, hasAuthority } from '@eurocomply/shared';
+import {
+  ok,
+  err,
+  hasAuthority,
+  type AuthorityLevel,
+} from '@eurocomply/shared';
 import { ReadinessProfileService } from '../services/readiness-profile.service.js';
 import { DPPSnapshotService } from '../services/dpp-snapshot.service.js';
 import { DPPReadinessService } from '../services/dpp-readiness.service.js';
@@ -28,7 +33,7 @@ compliance.use('*', authMiddleware);
 compliance.get('/profiles', async (c) => {
   const permissions = c.get('permissions');
 
-  if (!hasAuthority(permissions.complianceAuthority, 'VIEWER')) {
+  if (!hasAuthority(permissions.complianceAuthority as AuthorityLevel, 'VIEWER' as AuthorityLevel)) {
     return c.json(err('FORBIDDEN', 'Requires VIEWER authority for Compliance'), 403);
   }
 
@@ -45,7 +50,7 @@ compliance.get('/profiles/:id', async (c) => {
   const permissions = c.get('permissions');
   const profileId = c.req.param('id');
 
-  if (!hasAuthority(permissions.complianceAuthority, 'VIEWER')) {
+  if (!hasAuthority(permissions.complianceAuthority as AuthorityLevel, 'VIEWER' as AuthorityLevel)) {
     return c.json(err('FORBIDDEN', 'Requires VIEWER authority for Compliance'), 403);
   }
 
@@ -65,7 +70,7 @@ compliance.get('/profiles/:id', async (c) => {
 compliance.post('/profiles', async (c) => {
   const permissions = c.get('permissions');
 
-  if (!hasAuthority(permissions.complianceAuthority, 'MANAGER')) {
+  if (!hasAuthority(permissions.complianceAuthority as AuthorityLevel, 'MANAGER' as AuthorityLevel)) {
     return c.json(err('FORBIDDEN', 'Requires MANAGER authority for Compliance'), 403);
   }
 
@@ -90,7 +95,7 @@ compliance.put('/profiles/:id', async (c) => {
   const permissions = c.get('permissions');
   const profileId = c.req.param('id');
 
-  if (!hasAuthority(permissions.complianceAuthority, 'MANAGER')) {
+  if (!hasAuthority(permissions.complianceAuthority as AuthorityLevel, 'MANAGER' as AuthorityLevel)) {
     return c.json(err('FORBIDDEN', 'Requires MANAGER authority for Compliance'), 403);
   }
 
@@ -115,7 +120,7 @@ compliance.delete('/profiles/:id', async (c) => {
   const permissions = c.get('permissions');
   const profileId = c.req.param('id');
 
-  if (!hasAuthority(permissions.complianceAuthority, 'MANAGER')) {
+  if (!hasAuthority(permissions.complianceAuthority as AuthorityLevel, 'MANAGER' as AuthorityLevel)) {
     return c.json(err('FORBIDDEN', 'Requires MANAGER authority for Compliance'), 403);
   }
 
@@ -145,7 +150,7 @@ compliance.get('/readiness/:productId', async (c) => {
   const productId = c.req.param('productId');
   const profileId = c.req.query('profileId');
 
-  if (!hasAuthority(permissions.complianceAuthority, 'VIEWER')) {
+  if (!hasAuthority(permissions.complianceAuthority as AuthorityLevel, 'VIEWER' as AuthorityLevel)) {
     return c.json(err('FORBIDDEN', 'Requires VIEWER authority for Compliance'), 403);
   }
 
@@ -178,7 +183,7 @@ compliance.get('/readiness', async (c) => {
   const permissions = c.get('permissions');
   const profileId = c.req.query('profileId');
 
-  if (!hasAuthority(permissions.complianceAuthority, 'VIEWER')) {
+  if (!hasAuthority(permissions.complianceAuthority as AuthorityLevel, 'VIEWER' as AuthorityLevel)) {
     return c.json(err('FORBIDDEN', 'Requires VIEWER authority for Compliance'), 403);
   }
 
@@ -210,7 +215,7 @@ compliance.post('/snapshots', async (c) => {
   const { organizationId } = c.get('tenant');
   const permissions = c.get('permissions');
 
-  if (!hasAuthority(permissions.complianceAuthority, 'CONTRIBUTOR')) {
+  if (!hasAuthority(permissions.complianceAuthority as AuthorityLevel, 'CONTRIBUTOR' as AuthorityLevel)) {
     return c.json(err('FORBIDDEN', 'Requires CONTRIBUTOR authority for Compliance'), 403);
   }
 
@@ -238,7 +243,7 @@ compliance.get('/snapshots', async (c) => {
   const { organizationId } = c.get('tenant');
   const permissions = c.get('permissions');
 
-  if (!hasAuthority(permissions.complianceAuthority, 'VIEWER')) {
+  if (!hasAuthority(permissions.complianceAuthority as AuthorityLevel, 'VIEWER' as AuthorityLevel)) {
     return c.json(err('FORBIDDEN', 'Requires VIEWER authority for Compliance'), 403);
   }
 
@@ -267,7 +272,7 @@ compliance.get('/snapshots/:id', async (c) => {
   const permissions = c.get('permissions');
   const snapshotId = c.req.param('id');
 
-  if (!hasAuthority(permissions.complianceAuthority, 'VIEWER')) {
+  if (!hasAuthority(permissions.complianceAuthority as AuthorityLevel, 'VIEWER' as AuthorityLevel)) {
     return c.json(err('FORBIDDEN', 'Requires VIEWER authority for Compliance'), 403);
   }
 
@@ -290,7 +295,7 @@ compliance.post('/snapshots/:id/verify', async (c) => {
   const permissions = c.get('permissions');
   const snapshotId = c.req.param('id');
 
-  if (!hasAuthority(permissions.complianceAuthority, 'CONTRIBUTOR')) {
+  if (!hasAuthority(permissions.complianceAuthority as AuthorityLevel, 'CONTRIBUTOR' as AuthorityLevel)) {
     return c.json(err('FORBIDDEN', 'Requires CONTRIBUTOR authority for Compliance'), 403);
   }
 
@@ -319,7 +324,7 @@ compliance.post('/snapshots/:id/attest', async (c) => {
   const permissions = c.get('permissions');
   const snapshotId = c.req.param('id');
 
-  if (!hasAuthority(permissions.complianceAuthority, 'EDITOR')) {
+  if (!hasAuthority(permissions.complianceAuthority as AuthorityLevel, 'EDITOR' as AuthorityLevel)) {
     return c.json(err('FORBIDDEN', 'Requires EDITOR authority for Compliance'), 403);
   }
 
@@ -349,7 +354,7 @@ compliance.post('/snapshots/:id/seal', async (c) => {
   const snapshotId = c.req.param('id');
 
   // Sealing requires MANAGER authority (system-level action)
-  if (!hasAuthority(permissions.complianceAuthority, 'MANAGER')) {
+  if (!hasAuthority(permissions.complianceAuthority as AuthorityLevel, 'MANAGER' as AuthorityLevel)) {
     return c.json(err('FORBIDDEN', 'Requires MANAGER authority for Compliance'), 403);
   }
 
@@ -378,7 +383,7 @@ compliance.post('/snapshots/:id/issue', async (c) => {
   const permissions = c.get('permissions');
   const snapshotId = c.req.param('id');
 
-  if (!hasAuthority(permissions.complianceAuthority, 'MANAGER')) {
+  if (!hasAuthority(permissions.complianceAuthority as AuthorityLevel, 'MANAGER' as AuthorityLevel)) {
     return c.json(err('FORBIDDEN', 'Requires MANAGER authority for Compliance'), 403);
   }
 
@@ -407,7 +412,7 @@ compliance.post('/snapshots/:id/revoke', async (c) => {
   const permissions = c.get('permissions');
   const snapshotId = c.req.param('id');
 
-  if (!hasAuthority(permissions.complianceAuthority, 'MANAGER')) {
+  if (!hasAuthority(permissions.complianceAuthority as AuthorityLevel, 'MANAGER' as AuthorityLevel)) {
     return c.json(err('FORBIDDEN', 'Requires MANAGER authority for Compliance'), 403);
   }
 
