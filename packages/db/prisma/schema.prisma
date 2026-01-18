@@ -249,6 +249,77 @@ model ReadinessProfile {
 }
 
 // ============================================
+// COMPLIANCE - DPP Snapshots
+// ============================================
+
+enum DPPSnapshotStatus {
+  PENDING_REVIEW
+  VERIFIED
+  ATTESTED
+  SEALED
+  ISSUED
+  REVOKED
+}
+
+model DPPSnapshot {
+  id                    String            @id @default(cuid())
+  organizationId        String            @map("organization_id")
+  productId             String            @map("product_id")
+
+  // Version references (audit trail, not for verification)
+  designVersionId       String            @map("design_version_id")
+  marketingVersionId    String?           @map("marketing_version_id")
+
+  // Deep-cloned data (immutable snapshot)
+  data                  Json
+  dataHash              String            @map("data_hash")
+
+  // Readiness
+  readinessProfileId    String            @map("readiness_profile_id")
+  readinessProfile      ReadinessProfile  @relation(fields: [readinessProfileId], references: [id])
+  completionScore       Int               @map("completion_score")
+
+  // Workflow status
+  status                DPPSnapshotStatus @default(PENDING_REVIEW)
+
+  // Verification (CONTRIBUTOR)
+  verifiedAt            DateTime?         @map("verified_at")
+  verifiedBy            String?           @map("verified_by")
+
+  // Attestation (EDITOR) - User signature
+  attestedAt            DateTime?         @map("attested_at")
+  attestedBy            String?           @map("attested_by")
+  userSignatureDid      String?           @map("user_signature_did")
+  userSignatureJws      String?           @map("user_signature_jws")
+  userForensicContext   Json?             @map("user_forensic_context")
+
+  // Sealing (SYSTEM) - Corporate envelope
+  sealedAt              DateTime?         @map("sealed_at")
+  orgSignatureDid       String?           @map("org_signature_did")
+  orgSignatureJws       String?           @map("org_signature_jws")
+  orgForensicContext    Json?             @map("org_forensic_context")
+
+  // Issuance
+  issuedAt              DateTime?         @map("issued_at")
+  vcId                  String?           @map("vc_id")
+  vcJwt                 String?           @map("vc_jwt")
+  dppUrl                String?           @map("dpp_url")
+  qrCodeUrl             String?           @map("qr_code_url")
+
+  // Revocation
+  credentialStatusIndex Int?              @map("credential_status_index")
+  timestampProof        Json?             @map("timestamp_proof")
+
+  // Timestamps
+  createdAt             DateTime          @default(now()) @map("created_at")
+  updatedAt             DateTime          @updatedAt @map("updated_at")
+
+  @@index([organizationId, status])
+  @@index([productId])
+  @@map("dpp_snapshots")
+}
+
+// ============================================
 // PRODUCT - Central Hub Entity
 // ============================================
 
