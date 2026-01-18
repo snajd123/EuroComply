@@ -6,9 +6,9 @@
  * Accept header or explicit file path in the URL.
  */
 
-import { negotiateContentType } from './content-negotiation';
-import { parseDppUrl } from './url-parser';
-import { getDppFile } from './storage';
+import { negotiateContentType } from './content-negotiation.js';
+import { parseDppUrl } from './url-parser.js';
+import { getDppFile } from './storage.js';
 
 export interface Env {
   DPP_BUCKET: R2Bucket;

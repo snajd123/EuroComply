@@ -3,7 +3,7 @@ import {
   DppFileResult,
   buildStorageKey,
   getDppFile,
-} from './storage';
+} from './storage.js';
 
 describe('buildStorageKey', () => {
   it('builds correct storage key', () => {

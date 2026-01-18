@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DppUrlParams, parseDppUrl } from './url-parser';
+import { DppUrlParams, parseDppUrl } from './url-parser.js';
 
 describe('parseDppUrl', () => {
   it('parses org and passport from path', () => {

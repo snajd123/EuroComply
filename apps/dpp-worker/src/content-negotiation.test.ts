@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   DPP_CONTENT_TYPES,
   negotiateContentType,
-} from './content-negotiation';
+} from './content-negotiation.js';
 
 describe('DPP_CONTENT_TYPES', () => {
   it('defines credential configuration', () => {

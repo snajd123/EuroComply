@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import worker, { Env } from './index';
+import worker, { Env } from './index.js';
 
 /**
  * Creates a mock R2Bucket for testing
