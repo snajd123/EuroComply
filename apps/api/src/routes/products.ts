@@ -14,7 +14,7 @@ import {
 import { ProductService } from '../services/product.service.js';
 import { VersionService } from '../services/version.service.js';
 import { authMiddleware } from '../middleware/auth.js';
-import { NotFoundError, ConflictError } from '../lib/errors.js';
+import { NotFoundError, ValidationError, ConflictError } from '../lib/errors.js';
 import type { AppVariables } from '../types/context.js';
 
 const products = new Hono<{ Variables: AppVariables }>();
@@ -101,9 +101,16 @@ products.post('/', zValidator('json', createProductSchema), async (c) => {
     const product = await productService.createProduct(organizationId, createInput);
     return c.json(ok(product), 201);
   } catch (error) {
-    if (error instanceof Error) {
+    if (error instanceof ValidationError) {
       return c.json(err('VALIDATION_ERROR', error.message), 400);
     }
+    if (error instanceof NotFoundError) {
+      return c.json(err('NOT_FOUND', error.message), 404);
+    }
+    if (error instanceof ConflictError) {
+      return c.json(err('CONFLICT', error.message), 409);
+    }
+    // Re-throw unexpected errors for global error handler
     throw error;
   }
 });

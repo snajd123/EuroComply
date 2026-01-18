@@ -105,7 +105,8 @@ export class VersionService {
 
   /**
    * Transition a version to a new status with validation.
-   * Uses transaction for RELEASED status to ensure atomic immutability lock.
+   * All transitions use transactions to prevent race conditions where
+   * concurrent requests could both pass validation before either updates.
    */
   private async transitionStatus(
     organizationId: string,
@@ -113,54 +114,33 @@ export class VersionService {
     targetStatus: VersionStatus,
     publishedBy?: string
   ): Promise<ProductVersion> {
-    // For RELEASED status, use a transaction to ensure atomic check-and-update
-    // This prevents race conditions where two concurrent requests could both
-    // pass the canTransitionTo check before either updates the status
-    if (targetStatus === 'RELEASED') {
-      return this.prisma.$transaction(async (tx) => {
-        // Re-fetch within transaction for consistency
-        const version = await tx.productVersion.findFirst({
-          where: { id: versionId },
-          include: { product: true },
-        });
+    return this.prisma.$transaction(async (tx) => {
+      // Fetch within transaction for consistency
+      const version = await tx.productVersion.findFirst({
+        where: { id: versionId },
+        include: { product: true },
+      });
 
-        if (!version || version.product.organizationId !== organizationId) {
-          throw new NotFoundError('Version', versionId);
-        }
+      if (!version || version.product.organizationId !== organizationId) {
+        throw new NotFoundError('Version', versionId);
+      }
 
-        if (!canTransitionTo(version.status as VersionStatus, targetStatus)) {
-          throw new ValidationError(
-            `Cannot transition from ${version.status} to ${targetStatus}`
-          );
-        }
+      if (!canTransitionTo(version.status as VersionStatus, targetStatus)) {
+        throw new ValidationError(
+          `Cannot transition from ${version.status} to ${targetStatus}`
+        );
+      }
 
-        return tx.productVersion.update({
-          where: { id: versionId },
-          data: {
-            status: targetStatus,
+      return tx.productVersion.update({
+        where: { id: versionId },
+        data: {
+          status: targetStatus,
+          ...(targetStatus === 'RELEASED' && {
             publishedAt: new Date(),
             publishedBy,
-          },
-        });
+          }),
+        },
       });
-    }
-
-    // Non-RELEASED transitions don't need transaction overhead
-    const version = await this.getVersion(organizationId, versionId);
-
-    if (!version) {
-      throw new NotFoundError('Version', versionId);
-    }
-
-    if (!canTransitionTo(version.status as VersionStatus, targetStatus)) {
-      throw new ValidationError(
-        `Cannot transition from ${version.status} to ${targetStatus}`
-      );
-    }
-
-    return this.prisma.productVersion.update({
-      where: { id: versionId },
-      data: { status: targetStatus },
     });
   }
 

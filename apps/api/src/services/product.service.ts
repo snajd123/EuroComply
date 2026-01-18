@@ -5,6 +5,7 @@ import {
   ProductType,
   ProductStatus,
 } from '@eurocomply/shared';
+import { ValidationError } from '../lib/errors.js';
 
 export interface ListProductsOptions {
   limit?: number;
@@ -39,12 +40,12 @@ export class ProductService {
   ): Promise<Product> {
     // Validate: VARIANT must have parentId
     if (input.productType === 'VARIANT' && !input.parentId) {
-      throw new Error('VARIANT products must have a parentId');
+      throw new ValidationError('VARIANT products must have a parentId');
     }
 
     // Validate: Non-VARIANT should not have parentId
     if (input.productType !== 'VARIANT' && input.parentId) {
-      throw new Error('Only VARIANT products can have a parentId');
+      throw new ValidationError('Only VARIANT products can have a parentId');
     }
 
     return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {

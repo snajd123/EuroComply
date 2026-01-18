@@ -22,12 +22,12 @@ const versionService = new VersionService(prisma);
  *   ┌─────────┐
  *   │  DRAFT  │
  *   └────┬────┘
- *        │ submit (editor)
+ *        │ submit (EDITOR)
  *        ▼
  * ┌──────────────┐
  * │PENDING_REVIEW│
  * └──────┬───────┘
- *        │ startReview (reviewer)
+ *        │ startReview (EDITOR)
  *        ▼
  *   ┌──────────┐
  *   │IN_REVIEW │
@@ -40,8 +40,10 @@ const versionService = new VersionService(prisma);
  * │RELEASED│ │REJECTED│
  * └────────┘ └────────┘
  * (release)  (reject)
- * (reviewer) (reviewer)
+ * (EDITOR)   (EDITOR)
  *
+ * Authority Levels: VIEWER < CONTRIBUTOR < EDITOR < MANAGER
+ * EDITOR authority includes 'approve' permission for review actions.
  * Once RELEASED, version is immutable (Forensic Guard A).
  */
 
@@ -148,7 +150,7 @@ versions.post('/:id/submit', async (c) => {
 /**
  * POST /api/v1/versions/:id/review
  * Start review (PENDING_REVIEW -> IN_REVIEW)
- * Requires: reviewer authority for the version's workspace
+ * Requires: EDITOR authority for the version's workspace
  */
 versions.post('/:id/review', async (c) => {
   const { organizationId } = c.get('tenant');
@@ -160,7 +162,7 @@ versions.post('/:id/review', async (c) => {
     return c.json(err('NOT_FOUND', 'Version not found'), 404);
   }
 
-  // Check reviewer authority for the version's workspace
+  // Check EDITOR authority for the version's workspace
   const authError = checkWorkspaceAuthority(c, version.workspace, 'EDITOR');
   if (authError) return authError;
 
@@ -176,7 +178,7 @@ versions.post('/:id/review', async (c) => {
  * POST /api/v1/versions/:id/release
  * Release version (IN_REVIEW -> RELEASED)
  * FORENSIC GUARD A: Once released, BOM entries cannot be modified.
- * Requires: reviewer authority for the version's workspace
+ * Requires: EDITOR authority for the version's workspace
  */
 versions.post('/:id/release', async (c) => {
   const { organizationId } = c.get('tenant');
@@ -189,7 +191,7 @@ versions.post('/:id/release', async (c) => {
     return c.json(err('NOT_FOUND', 'Version not found'), 404);
   }
 
-  // Check reviewer authority for the version's workspace
+  // Check EDITOR authority for the version's workspace
   const authError = checkWorkspaceAuthority(c, version.workspace, 'EDITOR');
   if (authError) return authError;
 
@@ -208,7 +210,7 @@ versions.post('/:id/release', async (c) => {
 /**
  * POST /api/v1/versions/:id/reject
  * Reject version (IN_REVIEW -> REJECTED)
- * Requires: reviewer authority for the version's workspace
+ * Requires: EDITOR authority for the version's workspace
  */
 versions.post('/:id/reject', async (c) => {
   const { organizationId } = c.get('tenant');
@@ -220,7 +222,7 @@ versions.post('/:id/reject', async (c) => {
     return c.json(err('NOT_FOUND', 'Version not found'), 404);
   }
 
-  // Check reviewer authority for the version's workspace
+  // Check EDITOR authority for the version's workspace
   const authError = checkWorkspaceAuthority(c, version.workspace, 'EDITOR');
   if (authError) return authError;
 

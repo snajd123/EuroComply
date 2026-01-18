@@ -5,8 +5,13 @@ import { prisma, getTenantConnectionManager } from '@eurocomply/db';
 import type { AppVariables, UserOnlyVariables } from '../types/context.js';
 
 const CLERK_SECRET_KEY = process.env['CLERK_SECRET_KEY'];
+const ENABLE_TEST_AUTH_BYPASS = process.env['ENABLE_TEST_AUTH_BYPASS'] === 'true';
 
+// Fail fast in production if Clerk is not configured
 if (!CLERK_SECRET_KEY) {
+  if (process.env['NODE_ENV'] === 'production') {
+    throw new Error('CLERK_SECRET_KEY is required in production');
+  }
   console.warn('CLERK_SECRET_KEY not set - auth will fail');
 }
 
@@ -16,10 +21,11 @@ if (!CLERK_SECRET_KEY) {
  */
 export const authMiddleware = createMiddleware<{ Variables: AppVariables }>(
   async (c, next) => {
-    // Skip auth if context already set AND we're in test environment
+    // Skip auth if context already set AND explicit test bypass is enabled
     // This allows integration tests to pre-populate user/tenant context
-    // SECURITY: Only allowed in test environment to prevent auth bypass
-    if (process.env['NODE_ENV'] === 'test') {
+    // SECURITY: Requires explicit ENABLE_TEST_AUTH_BYPASS=true flag
+    // Never set this flag in production/staging environments
+    if (ENABLE_TEST_AUTH_BYPASS) {
       const existingUser = c.get('user');
       const existingTenant = c.get('tenant');
       if (existingUser && existingTenant) {
@@ -112,11 +118,11 @@ export const authMiddleware = createMiddleware<{ Variables: AppVariables }>(
 
       c.set('db', tenantClient);
 
-      // Update last login (fire and forget)
+      // Update last login (fire and forget, but log errors)
       prisma.user.update({
         where: { id: user.id },
         data: { lastLoginAt: new Date() },
-      }).catch(() => {}); // Ignore errors
+      }).catch((err) => console.error('Failed to update lastLoginAt:', err));
 
       await next();
     } catch (error) {
