@@ -82,11 +82,14 @@ jobs:
 
           # Get DB password from Secrets Manager
           DB_SECRET_ARN=$(echo $CONTAINER_DEF | jq -r '.secrets[] | select(.name=="DB_PASSWORD") | .valueFrom' | cut -d: -f1-7)
-          DB_PASSWORD=$(aws secretsmanager get-secret-value \
+          DB_PASSWORD_RAW=$(aws secretsmanager get-secret-value \
             --secret-id $DB_SECRET_ARN \
             --query 'SecretString' \
             --output text \
             --endpoint-url https://secretsmanager.${{ env.AWS_REGION }}.amazonaws.eu | jq -r '.password')
+
+          # URL-encode the password (handle special characters)
+          DB_PASSWORD=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$DB_PASSWORD_RAW', safe=''))")
 
           # Construct DATABASE_URL
           DATABASE_URL="postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}?sslmode=require"
