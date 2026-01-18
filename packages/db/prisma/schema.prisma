@@ -13,68 +13,68 @@ datasource db {
 // ============================================
 
 model Organization {
-  id                String   @id @default(cuid())
-  name              String
-  slug              String   @unique
-  schemaName        String   @unique @map("schema_name")
+  id         String @id @default(cuid())
+  name       String
+  slug       String @unique
+  schemaName String @unique @map("schema_name")
 
   // DID and Walt.id Integration
-  did               String?  @unique
-  waltIdKeyId       String?  @map("walt_id_key_id")
+  did         String? @unique
+  waltIdKeyId String? @map("walt_id_key_id")
 
   // Hash chain head pointer (for Operations events)
-  lastEventHash     String?  @map("last_event_hash")
-  eventSequence     Int      @default(0) @map("event_sequence")
+  lastEventHash String? @map("last_event_hash")
+  eventSequence Int     @default(0) @map("event_sequence")
 
   // Status list counter (for revocation)
-  statusListIndex   Int      @default(0) @map("status_list_index")
+  statusListIndex Int @default(0) @map("status_list_index")
 
   // Billing
-  stripeCustomerId  String?  @map("stripe_customer_id")
-  subscriptionTier  String   @default("starter") @map("subscription_tier")
+  stripeCustomerId   String? @map("stripe_customer_id")
+  subscriptionTier   String  @default("starter") @map("subscription_tier")
   subscriptionStatus String  @default("active") @map("subscription_status")
 
   // Limits
-  userLimit         Int      @default(20) @map("user_limit")
-  storageLimit      BigInt   @default(536870912000) @map("storage_limit") // 500GB in bytes
+  userLimit    Int    @default(20) @map("user_limit")
+  storageLimit BigInt @default(536870912000) @map("storage_limit") // 500GB in bytes
 
   // Timestamps
-  createdAt         DateTime @default(now()) @map("created_at")
-  updatedAt         DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
-  users             OrganizationUser[]
-  didHistory        OrgDidHistory[]
+  users      OrganizationUser[]
+  didHistory OrgDidHistory[]
 
   @@map("organizations")
 }
 
 model User {
-  id              String   @id @default(cuid())
-  clerkId         String   @unique @map("clerk_id")
-  email           String   @unique
-  name            String?
-  avatarUrl       String?  @map("avatar_url")
+  id        String  @id @default(cuid())
+  clerkId   String  @unique @map("clerk_id")
+  email     String  @unique
+  name      String?
+  avatarUrl String? @map("avatar_url")
 
   // Timestamps
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
-  lastLoginAt     DateTime? @map("last_login_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  lastLoginAt DateTime? @map("last_login_at")
 
   // Relations
-  organizations   OrganizationUser[]
-  didHistory      UserDidHistory[]
+  organizations OrganizationUser[]
+  didHistory    UserDidHistory[]
 
   @@map("users")
 }
 
 model OrganizationUser {
-  id             String   @id @default(cuid())
-  organizationId String   @map("organization_id")
-  userId         String   @map("user_id")
+  id             String @id @default(cuid())
+  organizationId String @map("organization_id")
+  userId         String @map("user_id")
 
   // Role and permissions
-  role           String   @default("member") // owner, admin, member
+  role String @default("member") // owner, admin, member
 
   // Per-workspace authorities (VIEWER, CONTRIBUTOR, EDITOR, MANAGER)
   designAuthority     String @default("VIEWER") @map("design_authority")
@@ -83,12 +83,12 @@ model OrganizationUser {
   complianceAuthority String @default("VIEWER") @map("compliance_authority")
 
   // Timestamps
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([organizationId, userId])
   @@index([userId]) // For listUserOrganizations query performance
@@ -100,18 +100,18 @@ model OrganizationUser {
 // ============================================
 
 model UserDidHistory {
-  id                String    @id @default(cuid())
-  userId            String    @map("user_id")
-  did               String
-  waltIdKeyId       String    @map("walt_id_key_id")
-  validFrom         DateTime  @map("valid_from")
-  validTo           DateTime? @map("valid_to")
-  revokedAt         DateTime? @map("revoked_at")
-  revocationReason  String?   @map("revocation_reason")
-  statusListIndex   Int       @map("status_list_index")
+  id               String    @id @default(cuid())
+  userId           String    @map("user_id")
+  did              String
+  waltIdKeyId      String    @map("walt_id_key_id")
+  validFrom        DateTime  @map("valid_from")
+  validTo          DateTime? @map("valid_to")
+  revokedAt        DateTime? @map("revoked_at")
+  revocationReason String?   @map("revocation_reason")
+  statusListIndex  Int       @map("status_list_index")
 
   // Relations
-  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([did])
@@ -119,18 +119,18 @@ model UserDidHistory {
 }
 
 model OrgDidHistory {
-  id                String       @id @default(cuid())
-  organizationId    String       @map("organization_id")
-  did               String
-  waltIdKeyId       String       @map("walt_id_key_id")
-  validFrom         DateTime     @map("valid_from")
-  validTo           DateTime?    @map("valid_to")
-  revokedAt         DateTime?    @map("revoked_at")
-  revocationReason  String?      @map("revocation_reason")
-  statusListIndex   Int          @map("status_list_index")
+  id               String    @id @default(cuid())
+  organizationId   String    @map("organization_id")
+  did              String
+  waltIdKeyId      String    @map("walt_id_key_id")
+  validFrom        DateTime  @map("valid_from")
+  validTo          DateTime? @map("valid_to")
+  revokedAt        DateTime? @map("revoked_at")
+  revocationReason String?   @map("revocation_reason")
+  statusListIndex  Int       @map("status_list_index")
 
   // Relations
-  organization      Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([organizationId])
   @@index([did])
@@ -142,25 +142,25 @@ model OrgDidHistory {
 // ============================================
 
 model OutboxEvent {
-  id            String   @id @default(cuid())
-  organizationId String  @map("organization_id")
+  id             String @id @default(cuid())
+  organizationId String @map("organization_id")
 
   // Event metadata
-  eventType     String   @map("event_type")
-  aggregateType String   @map("aggregate_type")
-  aggregateId   String   @map("aggregate_id")
+  eventType     String @map("event_type")
+  aggregateType String @map("aggregate_type")
+  aggregateId   String @map("aggregate_id")
 
   // Payload
-  payload       Json
+  payload Json
 
   // Processing status
-  status        String   @default("PENDING") // PENDING, PROCESSING, DELIVERED, FAILED
-  attempts      Int      @default(0)
-  lastError     String?  @map("last_error")
+  status    String  @default("PENDING") // PENDING, PROCESSING, DELIVERED, FAILED
+  attempts  Int     @default(0)
+  lastError String? @map("last_error")
 
   // Timestamps
-  createdAt     DateTime @default(now()) @map("created_at")
-  processedAt   DateTime? @map("processed_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  processedAt DateTime? @map("processed_at")
 
   @@index([status, createdAt])
   @@index([organizationId, eventType])
@@ -177,43 +177,43 @@ enum EventStatus {
 }
 
 model OperationsEvent {
-  id                  String       @id @default(cuid())
-  organizationId      String       @map("organization_id")
+  id             String @id @default(cuid())
+  organizationId String @map("organization_id")
 
   // Event type and payload (polymorphic)
-  eventType           String       @map("event_type")
-  payload             Json
+  eventType String @map("event_type")
+  payload   Json
 
   // Hash chain (tamper-evident)
-  eventHash           String       @map("event_hash")
-  previousEventHash   String?      @map("previous_event_hash")
-  sequenceNumber      Int          @map("sequence_number")
+  eventHash         String  @map("event_hash")
+  previousEventHash String? @map("previous_event_hash")
+  sequenceNumber    Int     @map("sequence_number")
 
   // Workflow
-  status              EventStatus  @default(PENDING_VERIFICATION)
+  status EventStatus @default(PENDING_VERIFICATION)
 
   // Created by (CONTRIBUTOR)
-  createdAt           DateTime     @default(now()) @map("created_at")
-  createdBy           String       @map("created_by")
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String   @map("created_by")
 
   // Verified by (EDITOR) - The "Seal"
-  verifiedAt          DateTime?    @map("verified_at")
-  verifiedBy          String?      @map("verified_by")
+  verifiedAt DateTime? @map("verified_at")
+  verifiedBy String?   @map("verified_by")
 
   // User signature (EDITOR's DID)
-  userSignatureDid    String?      @map("user_signature_did")
-  userSignatureJws    String?      @map("user_signature_jws")
+  userSignatureDid String? @map("user_signature_did")
+  userSignatureJws String? @map("user_signature_jws")
 
   // Organization signature (Corporate Envelope)
-  orgSignatureDid     String?      @map("org_signature_did")
-  orgSignatureJws     String?      @map("org_signature_jws")
+  orgSignatureDid String? @map("org_signature_did")
+  orgSignatureJws String? @map("org_signature_jws")
 
   // Forensic context (embedded at sign-time)
-  forensicContext     Json?        @map("forensic_context")
+  forensicContext Json? @map("forensic_context")
 
   // Credential status (for revocation)
-  credentialStatusIndex Int?       @map("credential_status_index")
-  timestampProof      Json?        @map("timestamp_proof")
+  credentialStatusIndex Int?  @map("credential_status_index")
+  timestampProof        Json? @map("timestamp_proof")
 
   @@index([organizationId, eventType])
   @@index([organizationId, sequenceNumber])
@@ -226,23 +226,23 @@ model OperationsEvent {
 // ============================================
 
 model ReadinessProfile {
-  id                    String   @id @default(cuid())
-  name                  String
-  category              String
-  description           String?
+  id          String  @id @default(cuid())
+  name        String
+  category    String
+  description String?
 
   // Required fields per workspace (JSON schema)
-  requiredFields        Json     @map("required_fields")
+  requiredFields Json @map("required_fields")
 
   // Required attestations (e.g., ["ISO-9001", "GOTS"])
-  requiredAttestations  Json?    @map("required_attestations")
+  requiredAttestations Json? @map("required_attestations")
 
   // Timestamps
-  createdAt             DateTime @default(now()) @map("created_at")
-  updatedAt             DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
-  snapshots             DPPSnapshot[]
+  snapshots DPPSnapshot[]
 
   @@unique([category])
   @@map("readiness_profiles")
@@ -262,57 +262,57 @@ enum DPPSnapshotStatus {
 }
 
 model DPPSnapshot {
-  id                    String            @id @default(cuid())
-  organizationId        String            @map("organization_id")
-  productId             String            @map("product_id")
+  id             String @id @default(cuid())
+  organizationId String @map("organization_id")
+  productId      String @map("product_id")
 
   // Version references (audit trail, not for verification)
-  designVersionId       String            @map("design_version_id")
-  marketingVersionId    String?           @map("marketing_version_id")
+  designVersionId    String  @map("design_version_id")
+  marketingVersionId String? @map("marketing_version_id")
 
   // Deep-cloned data (immutable snapshot)
-  data                  Json
-  dataHash              String            @map("data_hash")
+  data     Json
+  dataHash String @map("data_hash")
 
   // Readiness
-  readinessProfileId    String            @map("readiness_profile_id")
-  readinessProfile      ReadinessProfile  @relation(fields: [readinessProfileId], references: [id])
-  completionScore       Int               @map("completion_score")
+  readinessProfileId String           @map("readiness_profile_id")
+  readinessProfile   ReadinessProfile @relation(fields: [readinessProfileId], references: [id])
+  completionScore    Int              @map("completion_score")
 
   // Workflow status
-  status                DPPSnapshotStatus @default(PENDING_REVIEW)
+  status DPPSnapshotStatus @default(PENDING_REVIEW)
 
   // Verification (CONTRIBUTOR)
-  verifiedAt            DateTime?         @map("verified_at")
-  verifiedBy            String?           @map("verified_by")
+  verifiedAt DateTime? @map("verified_at")
+  verifiedBy String?   @map("verified_by")
 
   // Attestation (EDITOR) - User signature
-  attestedAt            DateTime?         @map("attested_at")
-  attestedBy            String?           @map("attested_by")
-  userSignatureDid      String?           @map("user_signature_did")
-  userSignatureJws      String?           @map("user_signature_jws")
-  userForensicContext   Json?             @map("user_forensic_context")
+  attestedAt          DateTime? @map("attested_at")
+  attestedBy          String?   @map("attested_by")
+  userSignatureDid    String?   @map("user_signature_did")
+  userSignatureJws    String?   @map("user_signature_jws")
+  userForensicContext Json?     @map("user_forensic_context")
 
   // Sealing (SYSTEM) - Corporate envelope
-  sealedAt              DateTime?         @map("sealed_at")
-  orgSignatureDid       String?           @map("org_signature_did")
-  orgSignatureJws       String?           @map("org_signature_jws")
-  orgForensicContext    Json?             @map("org_forensic_context")
+  sealedAt           DateTime? @map("sealed_at")
+  orgSignatureDid    String?   @map("org_signature_did")
+  orgSignatureJws    String?   @map("org_signature_jws")
+  orgForensicContext Json?     @map("org_forensic_context")
 
   // Issuance
-  issuedAt              DateTime?         @map("issued_at")
-  vcId                  String?           @map("vc_id")
-  vcJwt                 String?           @map("vc_jwt")
-  dppUrl                String?           @map("dpp_url")
-  qrCodeUrl             String?           @map("qr_code_url")
+  issuedAt  DateTime? @map("issued_at")
+  vcId      String?   @map("vc_id")
+  vcJwt     String?   @map("vc_jwt")
+  dppUrl    String?   @map("dpp_url")
+  qrCodeUrl String?   @map("qr_code_url")
 
   // Revocation
-  credentialStatusIndex Int?              @map("credential_status_index")
-  timestampProof        Json?             @map("timestamp_proof")
+  credentialStatusIndex Int?  @map("credential_status_index")
+  timestampProof        Json? @map("timestamp_proof")
 
   // Timestamps
-  createdAt             DateTime          @default(now()) @map("created_at")
-  updatedAt             DateTime          @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   @@index([organizationId, status])
   @@index([productId])
@@ -336,31 +336,31 @@ enum ProductStatus {
 }
 
 model Product {
-  id              String        @id @default(cuid())
-  organizationId  String        @map("organization_id")
+  id             String @id @default(cuid())
+  organizationId String @map("organization_id")
 
   // Classification
-  productType     ProductType   @default(FINISHED_GOOD) @map("product_type")
-  name            String
-  description     String?
+  productType ProductType @default(FINISHED_GOOD) @map("product_type")
+  name        String
+  description String?
 
   // For variants - link to parent product
-  parentId        String?       @map("parent_id")
-  parent          Product?      @relation("ProductVariants", fields: [parentId], references: [id])
-  variants        Product[]     @relation("ProductVariants")
+  parentId String?   @map("parent_id")
+  parent   Product?  @relation("ProductVariants", fields: [parentId], references: [id])
+  variants Product[] @relation("ProductVariants")
 
   // Status
-  status          ProductStatus @default(ACTIVE)
+  status ProductStatus @default(ACTIVE)
 
   // Timestamps
-  createdAt       DateTime      @default(now()) @map("created_at")
-  updatedAt       DateTime      @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
-  identifiers     ProductIdentifier[]
-  versions        ProductVersion[]
-  bomEntriesAsParent BomEntry[] @relation("BomParent")
-  bomEntriesAsChild  BomEntry[] @relation("BomChild")
+  identifiers        ProductIdentifier[]
+  versions           ProductVersion[]
+  bomEntriesAsParent BomEntry[]          @relation("BomParent")
+  bomEntriesAsChild  BomEntry[]          @relation("BomChild")
 
   @@index([organizationId])
   @@index([productType])
@@ -373,25 +373,25 @@ model Product {
 // ============================================
 
 enum IdentifierType {
-  INTERNAL    // Human-readable project code (e.g., PROTO-V1-2026) - org-scoped
-  SKU         // ERP/warehouse sync - org-scoped
-  GTIN        // Retail barcode (EAN-13, UPC-A) - globally unique per GS1 standard
-  DPP_URI     // Permanent DPP web address - globally unique, generated as: dpp.eurocomply.eu/{orgId}/{productId}
+  INTERNAL // Human-readable project code (e.g., PROTO-V1-2026) - org-scoped
+  SKU // ERP/warehouse sync - org-scoped
+  GTIN // Retail barcode (EAN-13, UPC-A) - globally unique per GS1 standard
+  DPP_URI // Permanent DPP web address - globally unique, generated as: dpp.eurocomply.eu/{orgId}/{productId}
 }
 
 model ProductIdentifier {
-  id          String         @id @default(cuid())
-  productId   String         @map("product_id")
-  product     Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  id        String  @id @default(cuid())
+  productId String  @map("product_id")
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
-  type        IdentifierType
-  value       String
+  type  IdentifierType
+  value String
 
   // Timestamps
-  createdAt   DateTime       @default(now()) @map("created_at")
+  createdAt DateTime @default(now()) @map("created_at")
 
-  @@unique([productId, type])  // One identifier per type per product
-  @@unique([type, value])      // Global uniqueness for GTIN/DPP_URI (also enforces for SKU/INTERNAL)
+  @@unique([productId, type]) // One identifier per type per product
+  @@unique([type, value]) // Global uniqueness for GTIN/DPP_URI (also enforces for SKU/INTERNAL)
   @@map("product_identifiers")
 }
 
@@ -415,32 +415,32 @@ enum VersionStatus {
 }
 
 model ProductVersion {
-  id            String        @id @default(cuid())
-  productId     String        @map("product_id")
-  product       Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  id        String  @id @default(cuid())
+  productId String  @map("product_id")
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   // Version identification
   workspace     Workspace
-  versionNumber Int           @map("version_number")
+  versionNumber Int       @map("version_number")
 
   // Workflow status
-  status        VersionStatus @default(DRAFT)
+  status VersionStatus @default(DRAFT)
 
   // Audit trail
-  createdBy     String        @map("created_by")
-  publishedBy   String?       @map("published_by")
-  publishedAt   DateTime?     @map("published_at")
+  createdBy   String    @map("created_by")
+  publishedBy String?   @map("published_by")
+  publishedAt DateTime? @map("published_at")
 
   // Optional: Signature for released versions (DID + JWS)
-  signatureDid  String?       @map("signature_did")
-  signatureJws  String?       @map("signature_jws")
+  signatureDid String? @map("signature_did")
+  signatureJws String? @map("signature_jws")
 
   // Timestamps
-  createdAt     DateTime      @default(now()) @map("created_at")
-  updatedAt     DateTime      @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
-  bomEntries    BomEntry[]
+  bomEntries BomEntry[]
 
   @@unique([productId, workspace, versionNumber])
   @@index([productId, workspace])
@@ -453,39 +453,60 @@ model ProductVersion {
 // ============================================
 
 model BomEntry {
-  id                String         @id @default(cuid())
+  id String @id @default(cuid())
 
   // Parent product (the finished good or component)
-  parentProductId   String         @map("parent_product_id")
-  parentProduct     Product        @relation("BomParent", fields: [parentProductId], references: [id], onDelete: Cascade)
+  parentProductId String  @map("parent_product_id")
+  parentProduct   Product @relation("BomParent", fields: [parentProductId], references: [id], onDelete: Cascade)
 
   // Child product (the material or component being used)
-  childProductId    String         @map("child_product_id")
-  childProduct      Product        @relation("BomChild", fields: [childProductId], references: [id], onDelete: Cascade)
+  childProductId String  @map("child_product_id")
+  childProduct   Product @relation("BomChild", fields: [childProductId], references: [id], onDelete: Cascade)
 
   // Version this BOM entry belongs to
-  versionId         String         @map("version_id")
-  version           ProductVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  versionId String         @map("version_id")
+  version   ProductVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
 
   // Quantity and unit
-  quantity          Decimal
-  unit              String         // kg, pcs, m, etc.
+  quantity Decimal
+  unit     String // kg, pcs, m, etc.
 
   // Production parameters
-  scrapRatePct      Decimal        @default(0) @map("scrap_rate_pct")
-  yieldPct          Decimal        @default(100) @map("yield_pct")
+  scrapRatePct Decimal @default(0) @map("scrap_rate_pct")
+  yieldPct     Decimal @default(100) @map("yield_pct")
 
   // Ordering
-  position          Int            @default(0)
-  notes             String?
+  position Int     @default(0)
+  notes    String?
 
   // Timestamps
-  createdAt         DateTime       @default(now()) @map("created_at")
-  updatedAt         DateTime       @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   @@unique([parentProductId, childProductId, versionId])
   @@index([parentProductId])
   @@index([childProductId])
   @@index([versionId])
   @@map("bom_entries")
+}
+
+// ============================================
+// STATUS LIST 2021 - Revocation Registry
+// ============================================
+
+/// Stores cached/persisted Status List 2021 bitstrings for organizations.
+/// The bitstring tracks revocation status of all credentials issued by the org.
+model StatusList {
+  id             String @id @default(cuid())
+  organizationId String @map("organization_id")
+
+  /// The GZIP + base64url encoded bitstring per W3C Status List 2021 spec
+  encodedList String @map("encoded_list") @db.Text
+
+  /// Timestamps
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([organizationId])
+  @@map("status_lists")
 }
