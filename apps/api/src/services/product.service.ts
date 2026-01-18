@@ -5,7 +5,8 @@ import {
   ProductType,
   ProductStatus,
 } from '@eurocomply/shared';
-import { ValidationError } from '../lib/errors.js';
+import { ValidationError, NotFoundError } from '../lib/errors.js';
+import { PAGINATION } from '../lib/config.js';
 
 export interface ListProductsOptions {
   limit?: number;
@@ -46,6 +47,22 @@ export class ProductService {
     // Validate: Non-VARIANT should not have parentId
     if (input.productType !== 'VARIANT' && input.parentId) {
       throw new ValidationError('Only VARIANT products can have a parentId');
+    }
+
+    // Validate: Parent product must exist and belong to same organization
+    // This explicit check fails fast with a clear error before any DB writes
+    if (input.parentId) {
+      const parentProduct = await this.prisma.product.findUnique({
+        where: { id: input.parentId },
+      });
+
+      if (!parentProduct) {
+        throw new NotFoundError('Parent product', input.parentId);
+      }
+
+      if (parentProduct.organizationId !== organizationId) {
+        throw new ValidationError('Parent product must belong to the same organization');
+      }
     }
 
     return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
@@ -89,7 +106,7 @@ export class ProductService {
         if (parentReleasedVersion && parentReleasedVersion.bomEntries.length > 0) {
           // AUDIT: Require createdBy for accountability - no anonymous BOM creation
           if (!input.createdBy) {
-            throw new Error('createdBy is required for variant BOM inheritance');
+            throw new ValidationError('createdBy is required for variant BOM inheritance');
           }
 
           // Create DRAFT version for variant
@@ -151,7 +168,13 @@ export class ProductService {
     organizationId: string,
     options: ListProductsOptions = {}
   ): Promise<Product[]> {
-    const { limit = 20, offset = 0, productType, status = 'ACTIVE', parentId } = options;
+    const {
+      limit = PAGINATION.DEFAULT_LIMIT,
+      offset = PAGINATION.DEFAULT_OFFSET,
+      productType,
+      status = 'ACTIVE',
+      parentId,
+    } = options;
 
     const where: Prisma.ProductWhereInput = {
       organizationId,

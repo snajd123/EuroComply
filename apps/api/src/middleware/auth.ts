@@ -1,5 +1,6 @@
 import { createMiddleware } from 'hono/factory';
 import { HTTPException } from 'hono/http-exception';
+import type { Context } from 'hono';
 import { verifyToken } from '@clerk/backend';
 import { prisma, getTenantConnectionManager } from '@eurocomply/db';
 import type { AppVariables, UserOnlyVariables } from '../types/context.js';
@@ -13,6 +14,92 @@ if (!CLERK_SECRET_KEY) {
     throw new Error('CLERK_SECRET_KEY is required in production');
   }
   console.warn('CLERK_SECRET_KEY not set - auth will fail');
+}
+
+/**
+ * Core authentication logic extracted for reuse.
+ * Verifies token, loads user/org/permissions, and sets context.
+ * Throws HTTPException on failure.
+ */
+async function performOrgAuth(
+  c: Context<{ Variables: AppVariables }>,
+  token: string,
+  orgId: string
+): Promise<void> {
+  // Verify JWT with Clerk
+  const payload = await verifyToken(token, {
+    secretKey: CLERK_SECRET_KEY!,
+  });
+
+  const clerkUserId = payload.sub;
+  if (!clerkUserId) {
+    throw new HTTPException(401, { message: 'Invalid token: missing subject' });
+  }
+
+  // Load user from database
+  const user = await prisma.user.findUnique({
+    where: { clerkId: clerkUserId },
+  });
+
+  if (!user) {
+    throw new HTTPException(401, { message: 'User not found' });
+  }
+
+  // Load organization and membership
+  const membership = await prisma.organizationUser.findUnique({
+    where: {
+      organizationId_userId: {
+        organizationId: orgId,
+        userId: user.id,
+      },
+    },
+    include: {
+      organization: true,
+    },
+  });
+
+  if (!membership) {
+    throw new HTTPException(403, { message: 'Not a member of this organization' });
+  }
+
+  // Set context variables
+  c.set('user', {
+    id: user.id,
+    clerkId: user.clerkId,
+    email: user.email,
+    name: user.name,
+  });
+
+  c.set('tenant', {
+    organizationId: membership.organization.id,
+    schemaName: membership.organization.schemaName,
+    name: membership.organization.name,
+    subscriptionTier: membership.organization.subscriptionTier,
+  });
+
+  c.set('permissions', {
+    role: membership.role,
+    designAuthority: membership.designAuthority,
+    operationsAuthority: membership.operationsAuthority,
+    marketingAuthority: membership.marketingAuthority,
+    complianceAuthority: membership.complianceAuthority,
+  });
+
+  // Create tenant-scoped database client
+  const tenantManager = getTenantConnectionManager(prisma);
+  const tenantClient = tenantManager.getClient({
+    organizationId: membership.organization.id,
+    schemaName: membership.organization.schemaName,
+    userId: user.id,
+  });
+
+  c.set('db', tenantClient);
+
+  // Update last login (fire and forget, but log errors)
+  prisma.user.update({
+    where: { id: user.id },
+    data: { lastLoginAt: new Date() },
+  }).catch((err) => console.error('Failed to update lastLoginAt:', err));
 }
 
 /**
@@ -42,88 +129,14 @@ export const authMiddleware = createMiddleware<{ Variables: AppVariables }>(
 
     const token = authHeader.slice(7);
 
+    // Get organization ID from header or query param
+    const orgId = c.req.header('X-Organization-ID') || c.req.query('org');
+    if (!orgId) {
+      throw new HTTPException(400, { message: 'Missing organization ID' });
+    }
+
     try {
-      // Verify JWT with Clerk
-      const payload = await verifyToken(token, {
-        secretKey: CLERK_SECRET_KEY!,
-      });
-
-      const clerkUserId = payload.sub;
-      if (!clerkUserId) {
-        throw new HTTPException(401, { message: 'Invalid token: missing subject' });
-      }
-
-      // Get organization ID from header or query param
-      const orgId = c.req.header('X-Organization-ID') || c.req.query('org');
-      if (!orgId) {
-        throw new HTTPException(400, { message: 'Missing organization ID' });
-      }
-
-      // Load user from database
-      const user = await prisma.user.findUnique({
-        where: { clerkId: clerkUserId },
-      });
-
-      if (!user) {
-        throw new HTTPException(401, { message: 'User not found' });
-      }
-
-      // Load organization and membership
-      const membership = await prisma.organizationUser.findUnique({
-        where: {
-          organizationId_userId: {
-            organizationId: orgId,
-            userId: user.id,
-          },
-        },
-        include: {
-          organization: true,
-        },
-      });
-
-      if (!membership) {
-        throw new HTTPException(403, { message: 'Not a member of this organization' });
-      }
-
-      // Set context variables
-      c.set('user', {
-        id: user.id,
-        clerkId: user.clerkId,
-        email: user.email,
-        name: user.name,
-      });
-
-      c.set('tenant', {
-        organizationId: membership.organization.id,
-        schemaName: membership.organization.schemaName,
-        name: membership.organization.name,
-        subscriptionTier: membership.organization.subscriptionTier,
-      });
-
-      c.set('permissions', {
-        role: membership.role,
-        designAuthority: membership.designAuthority,
-        operationsAuthority: membership.operationsAuthority,
-        marketingAuthority: membership.marketingAuthority,
-        complianceAuthority: membership.complianceAuthority,
-      });
-
-      // Create tenant-scoped database client
-      const tenantManager = getTenantConnectionManager(prisma);
-      const tenantClient = tenantManager.getClient({
-        organizationId: membership.organization.id,
-        schemaName: membership.organization.schemaName,
-        userId: user.id,
-      });
-
-      c.set('db', tenantClient);
-
-      // Update last login (fire and forget, but log errors)
-      prisma.user.update({
-        where: { id: user.id },
-        data: { lastLoginAt: new Date() },
-      }).catch((err) => console.error('Failed to update lastLoginAt:', err));
-
+      await performOrgAuth(c, token, orgId);
       await next();
     } catch (error) {
       if (error instanceof HTTPException) {
@@ -185,8 +198,9 @@ export const userAuthMiddleware = createMiddleware<{ Variables: UserOnlyVariable
 
 /**
  * Optional auth - sets user context if token present, continues otherwise.
+ * Uses performOrgAuth directly to avoid type assertion issues.
  */
-export const optionalAuthMiddleware = createMiddleware<{ Variables: Partial<AppVariables> }>(
+export const optionalAuthMiddleware = createMiddleware<{ Variables: AppVariables }>(
   async (c, next) => {
     const authHeader = c.req.header('Authorization');
 
@@ -195,14 +209,21 @@ export const optionalAuthMiddleware = createMiddleware<{ Variables: Partial<AppV
       return;
     }
 
-    // Delegate to full auth middleware
+    const token = authHeader.slice(7);
+    const orgId = c.req.header('X-Organization-ID') || c.req.query('org');
+
+    // If no org ID provided, continue without full context
+    if (!orgId) {
+      await next();
+      return;
+    }
+
     try {
-      // Type assertion needed because authMiddleware expects full AppVariables
-      // but optionalAuthMiddleware uses Partial<AppVariables>
-      await authMiddleware(c as unknown as Parameters<typeof authMiddleware>[0], next);
+      await performOrgAuth(c, token, orgId);
     } catch {
       // If auth fails, continue without user context
-      await next();
     }
+
+    await next();
   }
 );

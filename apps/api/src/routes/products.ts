@@ -15,6 +15,7 @@ import { ProductService } from '../services/product.service.js';
 import { VersionService } from '../services/version.service.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { NotFoundError, ValidationError, ConflictError } from '../lib/errors.js';
+import { PAGINATION } from '../lib/config.js';
 import type { AppVariables } from '../types/context.js';
 
 const products = new Hono<{ Variables: AppVariables }>();
@@ -54,8 +55,8 @@ const updateProductSchema = z.object({
 });
 
 const listQuerySchema = z.object({
-  limit: z.coerce.number().min(1).max(100).default(20),
-  offset: z.coerce.number().min(0).default(0),
+  limit: z.coerce.number().min(1).max(PAGINATION.MAX_LIMIT).default(PAGINATION.DEFAULT_LIMIT),
+  offset: z.coerce.number().min(0).default(PAGINATION.DEFAULT_OFFSET),
   productType: z.enum(PRODUCT_TYPES).optional(),
   parentId: z.string().optional(),
 });
