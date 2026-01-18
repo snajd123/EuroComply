@@ -19,6 +19,9 @@
     "test:run": "vitest run",
     "test:unit": "vitest run"
   },
+  "dependencies": {
+    "zod": "^3.22.0"
+  },
   "devDependencies": {
     "typescript": "^5.3.0",
     "vitest": "^1.2.0"

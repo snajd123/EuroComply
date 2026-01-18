@@ -2,6 +2,7 @@
 
 export * from './authorities.js';
 export * from './product.js';
+export * from './operations-events.js';
 
 export interface ApiResponse<T> {
   success: boolean;
