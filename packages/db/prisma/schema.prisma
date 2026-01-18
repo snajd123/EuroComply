@@ -222,6 +222,33 @@ model OperationsEvent {
 }
 
 // ============================================
+// COMPLIANCE - Readiness Profiles
+// ============================================
+
+model ReadinessProfile {
+  id                    String   @id @default(cuid())
+  name                  String
+  category              String
+  description           String?
+
+  // Required fields per workspace (JSON schema)
+  requiredFields        Json     @map("required_fields")
+
+  // Required attestations (e.g., ["ISO-9001", "GOTS"])
+  requiredAttestations  Json?    @map("required_attestations")
+
+  // Timestamps
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  snapshots             DPPSnapshot[]
+
+  @@unique([category])
+  @@map("readiness_profiles")
+}
+
+// ============================================
 // PRODUCT - Central Hub Entity
 // ============================================
 
