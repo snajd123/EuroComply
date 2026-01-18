@@ -4,13 +4,17 @@ import {
   ok,
   err,
   hasAuthority,
-  type AuthorityLevel,
+  Authority,
 } from '@eurocomply/shared';
 import { ReadinessProfileService } from '../services/readiness-profile.service.js';
 import { DPPSnapshotService } from '../services/dpp-snapshot.service.js';
 import { DPPReadinessService } from '../services/dpp-readiness.service.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { NotFoundError, ValidationError } from '../lib/errors.js';
+import {
+  ListSnapshotsQuerySchema,
+  validateAuthority,
+} from '../lib/schemas.js';
 import type { AppVariables } from '../types/context.js';
 
 const compliance = new Hono<{ Variables: AppVariables }>();
@@ -32,8 +36,9 @@ compliance.use('*', authMiddleware);
  */
 compliance.get('/profiles', async (c) => {
   const permissions = c.get('permissions');
+  const userAuth = validateAuthority(permissions.complianceAuthority);
 
-  if (!hasAuthority(permissions.complianceAuthority as AuthorityLevel, 'VIEWER' as AuthorityLevel)) {
+  if (!userAuth || !hasAuthority(userAuth, Authority.VIEWER)) {
     return c.json(err('FORBIDDEN', 'Requires VIEWER authority for Compliance'), 403);
   }
 
@@ -49,8 +54,9 @@ compliance.get('/profiles', async (c) => {
 compliance.get('/profiles/:id', async (c) => {
   const permissions = c.get('permissions');
   const profileId = c.req.param('id');
+  const userAuth = validateAuthority(permissions.complianceAuthority);
 
-  if (!hasAuthority(permissions.complianceAuthority as AuthorityLevel, 'VIEWER' as AuthorityLevel)) {
+  if (!userAuth || !hasAuthority(userAuth, Authority.VIEWER)) {
     return c.json(err('FORBIDDEN', 'Requires VIEWER authority for Compliance'), 403);
   }
 
@@ -69,8 +75,9 @@ compliance.get('/profiles/:id', async (c) => {
  */
 compliance.post('/profiles', async (c) => {
   const permissions = c.get('permissions');
+  const userAuth = validateAuthority(permissions.complianceAuthority);
 
-  if (!hasAuthority(permissions.complianceAuthority as AuthorityLevel, 'MANAGER' as AuthorityLevel)) {
+  if (!userAuth || !hasAuthority(userAuth, Authority.MANAGER)) {
     return c.json(err('FORBIDDEN', 'Requires MANAGER authority for Compliance'), 403);
   }
 
@@ -94,8 +101,9 @@ compliance.post('/profiles', async (c) => {
 compliance.put('/profiles/:id', async (c) => {
   const permissions = c.get('permissions');
   const profileId = c.req.param('id');
+  const userAuth = validateAuthority(permissions.complianceAuthority);
 
-  if (!hasAuthority(permissions.complianceAuthority as AuthorityLevel, 'MANAGER' as AuthorityLevel)) {
+  if (!userAuth || !hasAuthority(userAuth, Authority.MANAGER)) {
     return c.json(err('FORBIDDEN', 'Requires MANAGER authority for Compliance'), 403);
   }
 
@@ -119,8 +127,9 @@ compliance.put('/profiles/:id', async (c) => {
 compliance.delete('/profiles/:id', async (c) => {
   const permissions = c.get('permissions');
   const profileId = c.req.param('id');
+  const userAuth = validateAuthority(permissions.complianceAuthority);
 
-  if (!hasAuthority(permissions.complianceAuthority as AuthorityLevel, 'MANAGER' as AuthorityLevel)) {
+  if (!userAuth || !hasAuthority(userAuth, Authority.MANAGER)) {
     return c.json(err('FORBIDDEN', 'Requires MANAGER authority for Compliance'), 403);
   }
 
@@ -149,8 +158,9 @@ compliance.get('/readiness/:productId', async (c) => {
   const permissions = c.get('permissions');
   const productId = c.req.param('productId');
   const profileId = c.req.query('profileId');
+  const userAuth = validateAuthority(permissions.complianceAuthority);
 
-  if (!hasAuthority(permissions.complianceAuthority as AuthorityLevel, 'VIEWER' as AuthorityLevel)) {
+  if (!userAuth || !hasAuthority(userAuth, Authority.VIEWER)) {
     return c.json(err('FORBIDDEN', 'Requires VIEWER authority for Compliance'), 403);
   }
 
@@ -182,8 +192,9 @@ compliance.get('/readiness', async (c) => {
   const { organizationId } = c.get('tenant');
   const permissions = c.get('permissions');
   const profileId = c.req.query('profileId');
+  const userAuth = validateAuthority(permissions.complianceAuthority);
 
-  if (!hasAuthority(permissions.complianceAuthority as AuthorityLevel, 'VIEWER' as AuthorityLevel)) {
+  if (!userAuth || !hasAuthority(userAuth, Authority.VIEWER)) {
     return c.json(err('FORBIDDEN', 'Requires VIEWER authority for Compliance'), 403);
   }
 
@@ -214,8 +225,9 @@ compliance.get('/readiness', async (c) => {
 compliance.post('/snapshots', async (c) => {
   const { organizationId } = c.get('tenant');
   const permissions = c.get('permissions');
+  const userAuth = validateAuthority(permissions.complianceAuthority);
 
-  if (!hasAuthority(permissions.complianceAuthority as AuthorityLevel, 'CONTRIBUTOR' as AuthorityLevel)) {
+  if (!userAuth || !hasAuthority(userAuth, Authority.CONTRIBUTOR)) {
     return c.json(err('FORBIDDEN', 'Requires CONTRIBUTOR authority for Compliance'), 403);
   }
 
@@ -242,19 +254,32 @@ compliance.post('/snapshots', async (c) => {
 compliance.get('/snapshots', async (c) => {
   const { organizationId } = c.get('tenant');
   const permissions = c.get('permissions');
+  const userAuth = validateAuthority(permissions.complianceAuthority);
 
-  if (!hasAuthority(permissions.complianceAuthority as AuthorityLevel, 'VIEWER' as AuthorityLevel)) {
+  if (!userAuth || !hasAuthority(userAuth, Authority.VIEWER)) {
     return c.json(err('FORBIDDEN', 'Requires VIEWER authority for Compliance'), 403);
   }
 
-  const productId = c.req.query('productId');
-  const status = c.req.query('status');
-  const limit = parseInt(c.req.query('limit') || '50', 10);
-  const offset = parseInt(c.req.query('offset') || '0', 10);
+  // Validate query parameters with Zod
+  const queryResult = ListSnapshotsQuerySchema.safeParse({
+    productId: c.req.query('productId'),
+    status: c.req.query('status'),
+    limit: c.req.query('limit'),
+    offset: c.req.query('offset'),
+  });
+
+  if (!queryResult.success) {
+    const errors = queryResult.error.errors
+      .map((e) => `${e.path.join('.')}: ${e.message}`)
+      .join(', ');
+    return c.json(err('VALIDATION_ERROR', `Invalid query parameters: ${errors}`), 400);
+  }
+
+  const { productId, status, limit, offset } = queryResult.data;
 
   const snapshots = await snapshotService.listSnapshots(organizationId, {
-    productId: productId || undefined,
-    status: status as any,
+    productId,
+    status,
     limit,
     offset,
   });
@@ -271,8 +296,9 @@ compliance.get('/snapshots/:id', async (c) => {
   const { organizationId } = c.get('tenant');
   const permissions = c.get('permissions');
   const snapshotId = c.req.param('id');
+  const userAuth = validateAuthority(permissions.complianceAuthority);
 
-  if (!hasAuthority(permissions.complianceAuthority as AuthorityLevel, 'VIEWER' as AuthorityLevel)) {
+  if (!userAuth || !hasAuthority(userAuth, Authority.VIEWER)) {
     return c.json(err('FORBIDDEN', 'Requires VIEWER authority for Compliance'), 403);
   }
 
@@ -294,8 +320,9 @@ compliance.post('/snapshots/:id/verify', async (c) => {
   const { id: userId } = c.get('user');
   const permissions = c.get('permissions');
   const snapshotId = c.req.param('id');
+  const userAuth = validateAuthority(permissions.complianceAuthority);
 
-  if (!hasAuthority(permissions.complianceAuthority as AuthorityLevel, 'CONTRIBUTOR' as AuthorityLevel)) {
+  if (!userAuth || !hasAuthority(userAuth, Authority.CONTRIBUTOR)) {
     return c.json(err('FORBIDDEN', 'Requires CONTRIBUTOR authority for Compliance'), 403);
   }
 
@@ -323,8 +350,9 @@ compliance.post('/snapshots/:id/attest', async (c) => {
   const { id: userId } = c.get('user');
   const permissions = c.get('permissions');
   const snapshotId = c.req.param('id');
+  const userAuth = validateAuthority(permissions.complianceAuthority);
 
-  if (!hasAuthority(permissions.complianceAuthority as AuthorityLevel, 'EDITOR' as AuthorityLevel)) {
+  if (!userAuth || !hasAuthority(userAuth, Authority.EDITOR)) {
     return c.json(err('FORBIDDEN', 'Requires EDITOR authority for Compliance'), 403);
   }
 
@@ -352,9 +380,10 @@ compliance.post('/snapshots/:id/seal', async (c) => {
   const { organizationId } = c.get('tenant');
   const permissions = c.get('permissions');
   const snapshotId = c.req.param('id');
+  const userAuth = validateAuthority(permissions.complianceAuthority);
 
   // Sealing requires MANAGER authority (system-level action)
-  if (!hasAuthority(permissions.complianceAuthority as AuthorityLevel, 'MANAGER' as AuthorityLevel)) {
+  if (!userAuth || !hasAuthority(userAuth, Authority.MANAGER)) {
     return c.json(err('FORBIDDEN', 'Requires MANAGER authority for Compliance'), 403);
   }
 
@@ -382,8 +411,9 @@ compliance.post('/snapshots/:id/issue', async (c) => {
   const { organizationId } = c.get('tenant');
   const permissions = c.get('permissions');
   const snapshotId = c.req.param('id');
+  const userAuth = validateAuthority(permissions.complianceAuthority);
 
-  if (!hasAuthority(permissions.complianceAuthority as AuthorityLevel, 'MANAGER' as AuthorityLevel)) {
+  if (!userAuth || !hasAuthority(userAuth, Authority.MANAGER)) {
     return c.json(err('FORBIDDEN', 'Requires MANAGER authority for Compliance'), 403);
   }
 
@@ -411,8 +441,9 @@ compliance.post('/snapshots/:id/revoke', async (c) => {
   const { organizationId } = c.get('tenant');
   const permissions = c.get('permissions');
   const snapshotId = c.req.param('id');
+  const userAuth = validateAuthority(permissions.complianceAuthority);
 
-  if (!hasAuthority(permissions.complianceAuthority as AuthorityLevel, 'MANAGER' as AuthorityLevel)) {
+  if (!userAuth || !hasAuthority(userAuth, Authority.MANAGER)) {
     return c.json(err('FORBIDDEN', 'Requires MANAGER authority for Compliance'), 403);
   }
 

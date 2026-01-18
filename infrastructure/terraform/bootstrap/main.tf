@@ -119,8 +119,10 @@ resource "aws_iam_openid_connect_provider" "github_actions" {
 
   client_id_list = ["sts.amazonaws.com"]
 
-  # GitHub's OIDC thumbprint
-  thumbprint_list = ["ffffffffffffffffffffffffffffffffffffffff"]
+  # GitHub's OIDC thumbprint (GitHub Actions)
+  # Note: AWS no longer requires thumbprint validation for GitHub OIDC
+  # but the field is required. Using GitHub's current root CA thumbprint.
+  thumbprint_list = ["1c58a3a8518e8759bf075b76b750d4f2df264fcd"]
 
   tags = {
     Name = "GitHub Actions OIDC"
@@ -149,8 +151,8 @@ resource "aws_iam_role" "github_actions" {
             "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
           }
           StringLike = {
-            # Update this to your GitHub org/repo
-            "token.actions.githubusercontent.com:sub" = "repo:*/*:*"
+            # Restrict to eurocomply GitHub organization only
+            "token.actions.githubusercontent.com:sub" = "repo:eurocomply/*:*"
           }
         }
       }
@@ -234,7 +236,7 @@ resource "aws_iam_role_policy" "github_actions_terraform_state" {
 }
 
 # Infrastructure deployment permissions for GitHub Actions
-# This policy allows Terraform to manage all EuroComply infrastructure
+# This policy allows Terraform to manage EuroComply infrastructure with least-privilege
 resource "aws_iam_role_policy" "github_actions_terraform_deploy" {
   name = "terraform-deploy"
   role = aws_iam_role.github_actions.id
@@ -243,56 +245,266 @@ resource "aws_iam_role_policy" "github_actions_terraform_deploy" {
     Version = "2012-10-17"
     Statement = [
       {
-        Sid      = "VPCAndNetworking"
-        Effect   = "Allow"
-        Action   = ["ec2:*"]
-        Resource = "*"
-      },
-      {
-        Sid    = "ContainerServices"
+        Sid    = "VPCAndNetworkingRead"
         Effect = "Allow"
         Action = [
-          "ecs:*",
-          "ecr:*"
+          "ec2:Describe*",
+          "ec2:Get*"
         ]
         Resource = "*"
       },
       {
-        Sid      = "LoadBalancing"
-        Effect   = "Allow"
-        Action   = ["elasticloadbalancing:*"]
-        Resource = "*"
-      },
-      {
-        Sid    = "Database"
+        Sid    = "VPCAndNetworkingWrite"
         Effect = "Allow"
         Action = [
-          "rds:*",
-          "elasticache:*"
+          "ec2:CreateVpc",
+          "ec2:DeleteVpc",
+          "ec2:ModifyVpcAttribute",
+          "ec2:CreateSubnet",
+          "ec2:DeleteSubnet",
+          "ec2:CreateRouteTable",
+          "ec2:DeleteRouteTable",
+          "ec2:CreateRoute",
+          "ec2:DeleteRoute",
+          "ec2:AssociateRouteTable",
+          "ec2:DisassociateRouteTable",
+          "ec2:CreateInternetGateway",
+          "ec2:DeleteInternetGateway",
+          "ec2:AttachInternetGateway",
+          "ec2:DetachInternetGateway",
+          "ec2:CreateNatGateway",
+          "ec2:DeleteNatGateway",
+          "ec2:AllocateAddress",
+          "ec2:ReleaseAddress",
+          "ec2:CreateSecurityGroup",
+          "ec2:DeleteSecurityGroup",
+          "ec2:AuthorizeSecurityGroupIngress",
+          "ec2:RevokeSecurityGroupIngress",
+          "ec2:AuthorizeSecurityGroupEgress",
+          "ec2:RevokeSecurityGroupEgress",
+          "ec2:CreateTags",
+          "ec2:DeleteTags",
+          "ec2:CreateNetworkInterface",
+          "ec2:DeleteNetworkInterface",
+          "ec2:CreateFlowLogs",
+          "ec2:DeleteFlowLogs"
+        ]
+        Resource = "arn:aws-eusc:ec2:eusc-de-east-1:${data.aws_caller_identity.current.account_id}:*"
+      },
+      {
+        Sid    = "VPCGlobalWrite"
+        Effect = "Allow"
+        Action = [
+          "ec2:CreateVpc",
+          "ec2:CreateSubnet",
+          "ec2:CreateRouteTable",
+          "ec2:CreateInternetGateway",
+          "ec2:CreateNatGateway",
+          "ec2:AllocateAddress",
+          "ec2:CreateSecurityGroup",
+          "ec2:CreateNetworkInterface",
+          "ec2:CreateFlowLogs"
+        ]
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "aws:RequestedRegion" = "eusc-de-east-1"
+          }
+        }
+      },
+      {
+        Sid    = "ECSClusterManagement"
+        Effect = "Allow"
+        Action = [
+          "ecs:CreateCluster",
+          "ecs:DeleteCluster",
+          "ecs:DescribeClusters",
+          "ecs:UpdateCluster",
+          "ecs:UpdateClusterSettings",
+          "ecs:PutClusterCapacityProviders",
+          "ecs:TagResource",
+          "ecs:UntagResource"
+        ]
+        Resource = "arn:aws-eusc:ecs:eusc-de-east-1:${data.aws_caller_identity.current.account_id}:cluster/eurocomply-*"
+      },
+      {
+        Sid    = "ECSServiceManagement"
+        Effect = "Allow"
+        Action = [
+          "ecs:CreateService",
+          "ecs:DeleteService",
+          "ecs:DescribeServices",
+          "ecs:UpdateService",
+          "ecs:TagResource"
+        ]
+        Resource = "arn:aws-eusc:ecs:eusc-de-east-1:${data.aws_caller_identity.current.account_id}:service/eurocomply-*/*"
+      },
+      {
+        Sid    = "ECSTaskManagement"
+        Effect = "Allow"
+        Action = [
+          "ecs:RegisterTaskDefinition",
+          "ecs:DeregisterTaskDefinition",
+          "ecs:DescribeTaskDefinition",
+          "ecs:ListTaskDefinitions",
+          "ecs:DescribeTasks",
+          "ecs:ListTasks",
+          "ecs:RunTask",
+          "ecs:StopTask"
         ]
         Resource = "*"
       },
       {
-        Sid    = "SecretsAndStorage"
+        Sid    = "LoadBalancing"
         Effect = "Allow"
         Action = [
-          "secretsmanager:*",
-          "s3:*",
-          "dynamodb:*"
+          "elasticloadbalancing:CreateLoadBalancer",
+          "elasticloadbalancing:DeleteLoadBalancer",
+          "elasticloadbalancing:DescribeLoadBalancers",
+          "elasticloadbalancing:DescribeLoadBalancerAttributes",
+          "elasticloadbalancing:ModifyLoadBalancerAttributes",
+          "elasticloadbalancing:CreateTargetGroup",
+          "elasticloadbalancing:DeleteTargetGroup",
+          "elasticloadbalancing:DescribeTargetGroups",
+          "elasticloadbalancing:DescribeTargetGroupAttributes",
+          "elasticloadbalancing:ModifyTargetGroupAttributes",
+          "elasticloadbalancing:DescribeTargetHealth",
+          "elasticloadbalancing:CreateListener",
+          "elasticloadbalancing:DeleteListener",
+          "elasticloadbalancing:DescribeListeners",
+          "elasticloadbalancing:ModifyListener",
+          "elasticloadbalancing:AddTags",
+          "elasticloadbalancing:RemoveTags",
+          "elasticloadbalancing:DescribeTags",
+          "elasticloadbalancing:SetSecurityGroups",
+          "elasticloadbalancing:SetSubnets"
+        ]
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "aws:RequestedRegion" = "eusc-de-east-1"
+          }
+        }
+      },
+      {
+        Sid    = "RDSManagement"
+        Effect = "Allow"
+        Action = [
+          "rds:CreateDBInstance",
+          "rds:DeleteDBInstance",
+          "rds:DescribeDBInstances",
+          "rds:ModifyDBInstance",
+          "rds:CreateDBSubnetGroup",
+          "rds:DeleteDBSubnetGroup",
+          "rds:DescribeDBSubnetGroups",
+          "rds:CreateDBParameterGroup",
+          "rds:DeleteDBParameterGroup",
+          "rds:DescribeDBParameterGroups",
+          "rds:ModifyDBParameterGroup",
+          "rds:DescribeDBParameters",
+          "rds:AddTagsToResource",
+          "rds:RemoveTagsFromResource",
+          "rds:ListTagsForResource",
+          "rds:RebootDBInstance"
+        ]
+        Resource = "arn:aws-eusc:rds:eusc-de-east-1:${data.aws_caller_identity.current.account_id}:*:eurocomply-*"
+      },
+      {
+        Sid    = "RDSSubnetGroups"
+        Effect = "Allow"
+        Action = [
+          "rds:CreateDBSubnetGroup",
+          "rds:DeleteDBSubnetGroup",
+          "rds:DescribeDBSubnetGroups"
         ]
         Resource = "*"
       },
       {
-        Sid      = "Logging"
-        Effect   = "Allow"
-        Action   = ["logs:*"]
+        Sid    = "ElastiCacheManagement"
+        Effect = "Allow"
+        Action = [
+          "elasticache:CreateCacheCluster",
+          "elasticache:DeleteCacheCluster",
+          "elasticache:DescribeCacheClusters",
+          "elasticache:ModifyCacheCluster",
+          "elasticache:CreateCacheSubnetGroup",
+          "elasticache:DeleteCacheSubnetGroup",
+          "elasticache:DescribeCacheSubnetGroups",
+          "elasticache:CreateCacheParameterGroup",
+          "elasticache:DeleteCacheParameterGroup",
+          "elasticache:DescribeCacheParameterGroups",
+          "elasticache:ModifyCacheParameterGroup",
+          "elasticache:AddTagsToResource",
+          "elasticache:RemoveTagsFromResource",
+          "elasticache:ListTagsForResource"
+        ]
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "aws:RequestedRegion" = "eusc-de-east-1"
+          }
+        }
+      },
+      {
+        Sid    = "SecretsManagerEurocomply"
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:CreateSecret",
+          "secretsmanager:DeleteSecret",
+          "secretsmanager:DescribeSecret",
+          "secretsmanager:GetSecretValue",
+          "secretsmanager:PutSecretValue",
+          "secretsmanager:UpdateSecret",
+          "secretsmanager:TagResource",
+          "secretsmanager:UntagResource",
+          "secretsmanager:GetResourcePolicy",
+          "secretsmanager:PutResourcePolicy",
+          "secretsmanager:DeleteResourcePolicy"
+        ]
+        Resource = "arn:aws-eusc:secretsmanager:eusc-de-east-1:${data.aws_caller_identity.current.account_id}:secret:eurocomply/*"
+      },
+      {
+        Sid    = "CloudWatchLogsEurocomply"
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogGroup",
+          "logs:DeleteLogGroup",
+          "logs:DescribeLogGroups",
+          "logs:PutRetentionPolicy",
+          "logs:DeleteRetentionPolicy",
+          "logs:TagResource",
+          "logs:UntagResource",
+          "logs:ListTagsForResource"
+        ]
+        Resource = "arn:aws-eusc:logs:eusc-de-east-1:${data.aws_caller_identity.current.account_id}:log-group:/ecs/eurocomply-*"
+      },
+      {
+        Sid    = "CloudWatchLogsDescribe"
+        Effect = "Allow"
+        Action = [
+          "logs:DescribeLogGroups"
+        ]
         Resource = "*"
       },
       {
-        Sid      = "Lambda"
-        Effect   = "Allow"
-        Action   = ["lambda:*"]
-        Resource = "*"
+        Sid    = "LambdaEurocomply"
+        Effect = "Allow"
+        Action = [
+          "lambda:CreateFunction",
+          "lambda:DeleteFunction",
+          "lambda:GetFunction",
+          "lambda:GetFunctionConfiguration",
+          "lambda:UpdateFunctionCode",
+          "lambda:UpdateFunctionConfiguration",
+          "lambda:InvokeFunction",
+          "lambda:AddPermission",
+          "lambda:RemovePermission",
+          "lambda:GetPolicy",
+          "lambda:TagResource",
+          "lambda:UntagResource",
+          "lambda:ListTags"
+        ]
+        Resource = "arn:aws-eusc:lambda:eusc-de-east-1:${data.aws_caller_identity.current.account_id}:function:eurocomply-*"
       },
       {
         Sid    = "IAMRoleManagement"
@@ -310,15 +522,73 @@ resource "aws_iam_role_policy" "github_actions_terraform_deploy" {
           "iam:ListAttachedRolePolicies",
           "iam:ListRolePolicies",
           "iam:TagRole",
-          "iam:UntagRole"
+          "iam:UntagRole",
+          "iam:ListInstanceProfilesForRole"
         ]
-        Resource = "*"
+        Resource = "arn:aws-eusc:iam::${data.aws_caller_identity.current.account_id}:role/eurocomply-*"
       },
       {
-        Sid      = "AutoScaling"
-        Effect   = "Allow"
-        Action   = ["application-autoscaling:*"]
+        Sid    = "AutoScalingEurocomply"
+        Effect = "Allow"
+        Action = [
+          "application-autoscaling:RegisterScalableTarget",
+          "application-autoscaling:DeregisterScalableTarget",
+          "application-autoscaling:DescribeScalableTargets",
+          "application-autoscaling:PutScalingPolicy",
+          "application-autoscaling:DeleteScalingPolicy",
+          "application-autoscaling:DescribeScalingPolicies"
+        ]
         Resource = "*"
+        Condition = {
+          StringLike = {
+            "application-autoscaling:service-namespace" = "ecs"
+          }
+        }
+      },
+      {
+        Sid    = "ServiceDiscovery"
+        Effect = "Allow"
+        Action = [
+          "servicediscovery:CreatePrivateDnsNamespace",
+          "servicediscovery:DeleteNamespace",
+          "servicediscovery:GetNamespace",
+          "servicediscovery:ListNamespaces",
+          "servicediscovery:CreateService",
+          "servicediscovery:DeleteService",
+          "servicediscovery:GetService",
+          "servicediscovery:ListServices",
+          "servicediscovery:TagResource",
+          "servicediscovery:UntagResource"
+        ]
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "aws:RequestedRegion" = "eusc-de-east-1"
+          }
+        }
+      },
+      {
+        Sid    = "EFSManagement"
+        Effect = "Allow"
+        Action = [
+          "elasticfilesystem:CreateFileSystem",
+          "elasticfilesystem:DeleteFileSystem",
+          "elasticfilesystem:DescribeFileSystems",
+          "elasticfilesystem:CreateMountTarget",
+          "elasticfilesystem:DeleteMountTarget",
+          "elasticfilesystem:DescribeMountTargets",
+          "elasticfilesystem:CreateAccessPoint",
+          "elasticfilesystem:DeleteAccessPoint",
+          "elasticfilesystem:DescribeAccessPoints",
+          "elasticfilesystem:TagResource",
+          "elasticfilesystem:UntagResource"
+        ]
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "aws:RequestedRegion" = "eusc-de-east-1"
+          }
+        }
       }
     ]
   })

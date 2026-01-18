@@ -4,11 +4,15 @@ import {
   ok,
   err,
   hasAuthority,
-  type AuthorityLevel,
+  Authority,
 } from '@eurocomply/shared';
 import { OperationsEventService } from '../services/operations-event.service.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { NotFoundError, ValidationError } from '../lib/errors.js';
+import {
+  ListEventsQuerySchema,
+  validateAuthority,
+} from '../lib/schemas.js';
 import type { AppVariables } from '../types/context.js';
 
 const operationsEvents = new Hono<{ Variables: AppVariables }>();
@@ -27,8 +31,9 @@ operationsEvents.use('*', authMiddleware);
 operationsEvents.get('/integrity', async (c) => {
   const { organizationId } = c.get('tenant');
   const permissions = c.get('permissions');
+  const userAuth = validateAuthority(permissions.operationsAuthority);
 
-  if (!hasAuthority(permissions.operationsAuthority as AuthorityLevel, 'MANAGER' as AuthorityLevel)) {
+  if (!userAuth || !hasAuthority(userAuth, Authority.MANAGER)) {
     return c.json(
       err('FORBIDDEN', 'Requires MANAGER authority for Operations'),
       403
@@ -48,8 +53,9 @@ operationsEvents.post('/', async (c) => {
   const { organizationId } = c.get('tenant');
   const { id: userId } = c.get('user');
   const permissions = c.get('permissions');
+  const userAuth = validateAuthority(permissions.operationsAuthority);
 
-  if (!hasAuthority(permissions.operationsAuthority as AuthorityLevel, 'CONTRIBUTOR' as AuthorityLevel)) {
+  if (!userAuth || !hasAuthority(userAuth, Authority.CONTRIBUTOR)) {
     return c.json(
       err('FORBIDDEN', 'Requires CONTRIBUTOR authority for Operations'),
       403
@@ -76,22 +82,35 @@ operationsEvents.post('/', async (c) => {
 operationsEvents.get('/', async (c) => {
   const { organizationId } = c.get('tenant');
   const permissions = c.get('permissions');
+  const userAuth = validateAuthority(permissions.operationsAuthority);
 
-  if (!hasAuthority(permissions.operationsAuthority as AuthorityLevel, 'VIEWER' as AuthorityLevel)) {
+  if (!userAuth || !hasAuthority(userAuth, Authority.VIEWER)) {
     return c.json(
       err('FORBIDDEN', 'Requires VIEWER authority for Operations'),
       403
     );
   }
 
-  const eventType = c.req.query('eventType');
-  const status = c.req.query('status');
-  const limit = parseInt(c.req.query('limit') || '50', 10);
-  const offset = parseInt(c.req.query('offset') || '0', 10);
+  // Validate query parameters with Zod
+  const queryResult = ListEventsQuerySchema.safeParse({
+    eventType: c.req.query('eventType'),
+    status: c.req.query('status'),
+    limit: c.req.query('limit'),
+    offset: c.req.query('offset'),
+  });
+
+  if (!queryResult.success) {
+    const errors = queryResult.error.errors
+      .map((e) => `${e.path.join('.')}: ${e.message}`)
+      .join(', ');
+    return c.json(err('VALIDATION_ERROR', `Invalid query parameters: ${errors}`), 400);
+  }
+
+  const { eventType, status, limit, offset } = queryResult.data;
 
   const events = await eventService.listEvents(organizationId, {
-    eventType: eventType as any,
-    status: status as any,
+    eventType,
+    status,
     limit,
     offset,
   });
@@ -108,8 +127,9 @@ operationsEvents.get('/:id', async (c) => {
   const { organizationId } = c.get('tenant');
   const permissions = c.get('permissions');
   const eventId = c.req.param('id');
+  const userAuth = validateAuthority(permissions.operationsAuthority);
 
-  if (!hasAuthority(permissions.operationsAuthority as AuthorityLevel, 'VIEWER' as AuthorityLevel)) {
+  if (!userAuth || !hasAuthority(userAuth, Authority.VIEWER)) {
     return c.json(
       err('FORBIDDEN', 'Requires VIEWER authority for Operations'),
       403
@@ -134,8 +154,9 @@ operationsEvents.post('/:id/verify', async (c) => {
   const { id: userId } = c.get('user');
   const permissions = c.get('permissions');
   const eventId = c.req.param('id');
+  const userAuth = validateAuthority(permissions.operationsAuthority);
 
-  if (!hasAuthority(permissions.operationsAuthority as AuthorityLevel, 'EDITOR' as AuthorityLevel)) {
+  if (!userAuth || !hasAuthority(userAuth, Authority.EDITOR)) {
     return c.json(
       err('FORBIDDEN', 'Requires EDITOR authority for Operations'),
       403

@@ -8,9 +8,16 @@ Runs once per environment during infrastructure setup.
 """
 
 import json
+import re
 import boto3
 import psycopg2
+from psycopg2 import sql
 import os
+
+
+# Strict allowlist pattern for database usernames
+# Only lowercase letters, numbers, and underscores, must start with letter
+USERNAME_PATTERN = re.compile(r'^[a-z][a-z0-9_]{0,62}$')
 
 
 def handler(event, context):
@@ -41,6 +48,15 @@ def handler(event, context):
     db_user = secret['username']
     db_pass = secret['password']
 
+    # Validate username against strict allowlist pattern to prevent SQL injection
+    if not USERNAME_PATTERN.match(db_user):
+        return {
+            'statusCode': 400,
+            'body': json.dumps({
+                'error': f'Invalid username format. Must match pattern: lowercase letters, numbers, underscores only, start with letter, max 63 chars'
+            })
+        }
+
     # Connect to the database
     try:
         conn = psycopg2.connect(
@@ -55,7 +71,9 @@ def handler(event, context):
         cursor = conn.cursor()
 
         # Grant rds_iam role to the user
-        cursor.execute(f"GRANT rds_iam TO {db_user};")
+        # Use psycopg2.sql for safe identifier quoting (GRANT doesn't support parameterized role names)
+        grant_query = sql.SQL("GRANT rds_iam TO {};").format(sql.Identifier(db_user))
+        cursor.execute(grant_query)
 
         # Verify the grant
         cursor.execute("""

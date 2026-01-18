@@ -36,10 +36,11 @@ let currentContext: TestContext | null = null;
 
 /**
  * Generate a unique schema name for test isolation.
+ * Uses tenant_ prefix to match validation requirements.
  */
 function generateSchemaName(): string {
   const id = randomBytes(4).toString('hex');
-  return `test_${id}`;
+  return `tenant_test${id}`;
 }
 
 /**

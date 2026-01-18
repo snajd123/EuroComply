@@ -1,12 +1,90 @@
 # walt.id Community Stack Module
 # Deploys walt.id SSI Kit as internal ECS service for DID/VC operations
+# with persistent EFS storage for DIDs and keys
 
 locals {
   name_prefix = "${var.project}-${var.environment}"
   partition   = "aws-eusc"
 
-  # walt.id SSI Kit - all-in-one image that serves Core, Signatory, Custodian, Auditor
-  waltid_image = "waltid/ssikit:latest"
+  # walt.id SSI Kit - pinned version for reproducibility
+  # Update this version deliberately, not automatically
+  waltid_image = "waltid/ssikit:1.2312.1"
+}
+
+# =============================================================================
+# EFS File System for Persistent Data
+# =============================================================================
+resource "aws_efs_file_system" "waltid" {
+  creation_token = "${local.name_prefix}-waltid-data"
+  encrypted      = true
+
+  performance_mode = "generalPurpose"
+  throughput_mode  = "bursting"
+
+  lifecycle_policy {
+    transition_to_ia = "AFTER_30_DAYS"
+  }
+
+  tags = {
+    Name = "${local.name_prefix}-waltid-data"
+  }
+}
+
+# Mount targets in each private subnet
+resource "aws_efs_mount_target" "waltid" {
+  count           = length(var.private_subnet_ids)
+  file_system_id  = aws_efs_file_system.waltid.id
+  subnet_id       = var.private_subnet_ids[count.index]
+  security_groups = [aws_security_group.efs.id]
+}
+
+# Security group for EFS (allows NFS from walt.id security group)
+resource "aws_security_group" "efs" {
+  name        = "${local.name_prefix}-waltid-efs"
+  description = "Security group for walt.id EFS mount targets"
+  vpc_id      = var.vpc_id
+
+  ingress {
+    description     = "NFS from walt.id tasks"
+    from_port       = 2049
+    to_port         = 2049
+    protocol        = "tcp"
+    security_groups = [var.security_group_id]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "${local.name_prefix}-waltid-efs"
+  }
+}
+
+# Access point for walt.id data directory
+resource "aws_efs_access_point" "waltid" {
+  file_system_id = aws_efs_file_system.waltid.id
+
+  posix_user {
+    gid = 1000
+    uid = 1000
+  }
+
+  root_directory {
+    path = "/waltid-data"
+    creation_info {
+      owner_gid   = 1000
+      owner_uid   = 1000
+      permissions = "0755"
+    }
+  }
+
+  tags = {
+    Name = "${local.name_prefix}-waltid-data"
+  }
 }
 
 # =============================================================================
@@ -52,7 +130,7 @@ resource "aws_iam_role_policy_attachment" "waltid_execution" {
   policy_arn = "arn:${local.partition}:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
-# Task Role (for application permissions - minimal for walt.id)
+# Task Role (for application permissions - EFS access for walt.id)
 resource "aws_iam_role" "waltid_task" {
   name = "${local.name_prefix}-waltid-task"
 
@@ -72,6 +150,32 @@ resource "aws_iam_role" "waltid_task" {
   tags = {
     Name = "${local.name_prefix}-waltid-task"
   }
+}
+
+# Allow task role to access EFS
+resource "aws_iam_role_policy" "waltid_efs" {
+  name = "${local.name_prefix}-waltid-efs"
+  role = aws_iam_role.waltid_task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "elasticfilesystem:ClientMount",
+          "elasticfilesystem:ClientWrite",
+          "elasticfilesystem:ClientRootAccess"
+        ]
+        Resource = aws_efs_file_system.waltid.arn
+        Condition = {
+          StringEquals = {
+            "elasticfilesystem:AccessPointArn" = aws_efs_access_point.waltid.arn
+          }
+        }
+      }
+    ]
+  })
 }
 
 # =============================================================================
@@ -127,6 +231,20 @@ resource "aws_ecs_task_definition" "waltid" {
   execution_role_arn       = aws_iam_role.waltid_execution.arn
   task_role_arn            = aws_iam_role.waltid_task.arn
 
+  # EFS volume for persistent data
+  volume {
+    name = "waltid-data"
+
+    efs_volume_configuration {
+      file_system_id     = aws_efs_file_system.waltid.id
+      transit_encryption = "ENABLED"
+      authorization_config {
+        access_point_id = aws_efs_access_point.waltid.id
+        iam             = "ENABLED"
+      }
+    }
+  }
+
   container_definitions = jsonencode([
     {
       name      = "waltid"
@@ -143,6 +261,15 @@ resource "aws_ecs_task_definition" "waltid" {
 
       environment = [
         { name = "WALTID_DATA_ROOT", value = "/data" }
+      ]
+
+      # Mount EFS volume to /data for persistent storage
+      mountPoints = [
+        {
+          sourceVolume  = "waltid-data"
+          containerPath = "/data"
+          readOnly      = false
+        }
       ]
 
       logConfiguration = {
@@ -167,6 +294,8 @@ resource "aws_ecs_task_definition" "waltid" {
   tags = {
     Name = "${local.name_prefix}-waltid"
   }
+
+  depends_on = [aws_efs_mount_target.waltid]
 }
 
 # =============================================================================

@@ -1,17 +1,18 @@
 import { PrismaClient } from '@prisma/client';
+import { validateSchemaName } from './validation.js';
 
 /**
  * Creates a new tenant schema with all required tables.
  * Called when a new organization is created.
+ *
+ * @throws Error if schema name fails validation (SQL injection prevention)
  */
 export async function createTenantSchema(
   prisma: PrismaClient,
   schemaName: string
 ): Promise<void> {
-  // Validate schema name (alphanumeric + underscore only)
-  if (!/^[a-z][a-z0-9_]*$/.test(schemaName)) {
-    throw new Error(`Invalid schema name: ${schemaName}`);
-  }
+  // Validate schema name against strict allowlist pattern
+  validateSchemaName(schemaName);
 
   // Create schema
   await prisma.$executeRawUnsafe(`CREATE SCHEMA IF NOT EXISTS "${schemaName}"`);
@@ -67,14 +68,15 @@ export async function createTenantSchema(
 /**
  * Drops a tenant schema (use with extreme caution!).
  * Only for cleanup during development or account deletion.
+ *
+ * @throws Error if schema name fails validation (SQL injection prevention)
  */
 export async function dropTenantSchema(
   prisma: PrismaClient,
   schemaName: string
 ): Promise<void> {
-  if (!/^[a-z][a-z0-9_]*$/.test(schemaName)) {
-    throw new Error(`Invalid schema name: ${schemaName}`);
-  }
+  // Validate schema name against strict allowlist pattern
+  validateSchemaName(schemaName);
 
   await prisma.$executeRawUnsafe(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`);
 }

@@ -22,8 +22,36 @@ const products = new Hono<{ Variables: AppVariables }>();
 const productService = new ProductService(prisma);
 const versionService = new VersionService(prisma);
 
-// FORENSIC GUARD C: GTIN must be 8, 12, 13, or 14 digits
+// FORENSIC GUARD C: GTIN must be 8, 12, 13, or 14 digits with valid checksum
 const GTIN_REGEX = /^(\d{8}|\d{12}|\d{13}|\d{14})$/;
+
+/**
+ * Validates GTIN checksum using modulo 10 algorithm.
+ * Works for GTIN-8, GTIN-12, GTIN-13, and GTIN-14.
+ */
+function isValidGtinChecksum(gtin: string): boolean {
+  if (!GTIN_REGEX.test(gtin)) {
+    return false;
+  }
+
+  const digits = gtin.split('').map(Number);
+  const checkDigit = digits.pop()!;
+
+  // Calculate expected check digit using modulo 10 algorithm
+  // Alternate multipliers: 3, 1, 3, 1... from right to left
+  let sum = 0;
+  for (let i = digits.length - 1; i >= 0; i--) {
+    const position = digits.length - i;
+    const multiplier = position % 2 === 1 ? 3 : 1;
+    const digit = digits[i];
+    if (digit !== undefined) {
+      sum += digit * multiplier;
+    }
+  }
+
+  const expectedCheckDigit = (10 - (sum % 10)) % 10;
+  return checkDigit === expectedCheckDigit;
+}
 
 // Validation schemas
 const createProductSchema = z.object({
@@ -43,9 +71,14 @@ const createProductSchema = z.object({
       (ids) => {
         if (!ids) return true;
         const gtins = ids.filter((id) => id.type === 'GTIN');
-        return gtins.every((id) => GTIN_REGEX.test(id.value));
+        // Validate format first
+        if (!gtins.every((id) => GTIN_REGEX.test(id.value))) {
+          return false;
+        }
+        // Then validate checksum
+        return gtins.every((id) => isValidGtinChecksum(id.value));
       },
-      { message: 'GTIN must be 8, 12, 13, or 14 digits' }
+      { message: 'GTIN must be 8, 12, 13, or 14 digits with valid checksum' }
     ),
 });
 

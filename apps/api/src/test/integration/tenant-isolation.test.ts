@@ -37,7 +37,7 @@ describe('Tenant Isolation Integration Tests', () => {
     };
 
     // Set up second tenant manually
-    const schema2 = `test_${randomBytes(4).toString('hex')}`;
+    const schema2 = `tenant_test${randomBytes(4).toString('hex')}`;
 
     const org2 = await testPrisma.organization.create({
       data: {
@@ -213,8 +213,8 @@ describe('Tenant Isolation Integration Tests', () => {
       expect(tenant1Context.schemaName).not.toBe(tenant2Context.schemaName);
 
       // Verify schema names follow expected pattern
-      expect(tenant1Context.schemaName).toMatch(/^test_[a-f0-9]{8}$/);
-      expect(tenant2Context.schemaName).toMatch(/^test_[a-f0-9]{8}$/);
+      expect(tenant1Context.schemaName).toMatch(/^tenant_test[a-f0-9]{8}$/);
+      expect(tenant2Context.schemaName).toMatch(/^tenant_test[a-f0-9]{8}$/);
     });
 
     it('should have separate organizations in public schema', async () => {

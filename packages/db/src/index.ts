@@ -4,6 +4,7 @@ export * from '@prisma/client';
 export * from './tenant.js';
 export * from './client.js';
 export * from './events.js';
+export * from './validation.js';
 
 // Singleton pattern for Prisma client
 const globalForPrisma = globalThis as unknown as {

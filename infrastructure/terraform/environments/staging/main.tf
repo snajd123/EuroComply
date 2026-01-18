@@ -79,12 +79,13 @@ provider "aws" {
   }
 }
 
+data "aws_caller_identity" "current" {}
+
 locals {
   project     = var.project
   environment = var.environment
-  # Hardcoded for AWS European Sovereign Cloud
-  # Data sources don't work due to Terraform provider limitations
-  account_id = "075285241396"
+  # Use data source for account ID when available, with fallback for bootstrap
+  account_id = data.aws_caller_identity.current.account_id
   region     = "eusc-de-east-1"
 }
 
@@ -217,7 +218,9 @@ module "ecs" {
     { name = "DB_NAME", value = module.rds.db_name },
     { name = "DB_USER", value = module.rds.db_username },
     { name = "DB_SSL", value = "true" },
-    { name = "REDIS_URL", value = module.elasticache.redis_url },
+    { name = "REDIS_HOST", value = module.elasticache.redis_endpoint },
+    { name = "REDIS_PORT", value = tostring(module.elasticache.redis_port) },
+    { name = "REDIS_TLS", value = tostring(module.elasticache.transit_encryption_enabled) },
     # walt.id SSI endpoints (internal service discovery)
     { name = "WALTID_CORE_URL", value = "http://waltid.${local.environment}.eurocomply.internal:7000" },
     { name = "WALTID_SIGNATORY_URL", value = "http://waltid.${local.environment}.eurocomply.internal:7001" },
@@ -233,12 +236,17 @@ module "ecs" {
     {
       name      = "DB_PASSWORD"
       valueFrom = "${module.rds.db_credentials_secret_arn}:password::"
+    },
+    {
+      name      = "REDIS_AUTH_TOKEN"
+      valueFrom = "${module.elasticache.redis_auth_secret_arn}:auth_token::"
     }
   ]
 
   secrets_arns = [
     aws_secretsmanager_secret.app_secrets.arn,
-    module.rds.db_credentials_secret_arn
+    module.rds.db_credentials_secret_arn,
+    module.elasticache.redis_auth_secret_arn
   ]
 
   container_insights = false
@@ -276,21 +284,46 @@ resource "aws_iam_role_policy" "github_actions_ecs" {
     Version = "2012-10-17"
     Statement = [
       {
+        Sid    = "ECSClusterAccess"
+        Effect = "Allow"
+        Action = [
+          "ecs:DescribeClusters"
+        ]
+        Resource = "arn:aws-eusc:ecs:${local.region}:${local.account_id}:cluster/${local.project}-${local.environment}"
+      },
+      {
+        Sid    = "ECSServiceAccess"
         Effect = "Allow"
         Action = [
           "ecs:UpdateService",
           "ecs:DescribeServices",
-          "ecs:DescribeClusters",
-          "ecs:DescribeTaskDefinition",
-          "ecs:RegisterTaskDefinition",
-          "ecs:DeregisterTaskDefinition",
           "ecs:ListTasks",
           "ecs:DescribeTasks",
           "ecs:RunTask"
         ]
-        Resource = "*"
+        Resource = [
+          "arn:aws-eusc:ecs:${local.region}:${local.account_id}:service/${local.project}-${local.environment}/*",
+          "arn:aws-eusc:ecs:${local.region}:${local.account_id}:task/${local.project}-${local.environment}/*"
+        ]
       },
       {
+        Sid    = "ECSTaskDefinitions"
+        Effect = "Allow"
+        Action = [
+          "ecs:DescribeTaskDefinition",
+          "ecs:RegisterTaskDefinition",
+          "ecs:DeregisterTaskDefinition"
+        ]
+        # Task definitions are region-level resources, must use wildcard
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "aws:RequestedRegion" = local.region
+          }
+        }
+      },
+      {
+        Sid    = "PassRoleForECS"
         Effect = "Allow"
         Action = [
           "iam:PassRole"
@@ -301,6 +334,7 @@ resource "aws_iam_role_policy" "github_actions_ecs" {
         ]
       },
       {
+        Sid    = "SecretsAccess"
         Effect = "Allow"
         Action = [
           "secretsmanager:GetSecretValue"

@@ -5,8 +5,16 @@ import { prisma } from '@eurocomply/db';
 import { VerificationService } from '../services/verification.service.js';
 import { StatusList2021Service } from '../services/status-list.service.js';
 import { TimestampService } from '../services/timestamp.service.js';
+import {
+  verificationRateLimiter,
+  statusListRateLimiter,
+} from '../middleware/rate-limit.js';
 
 const verification = new Hono();
+
+// Apply rate limiting to all verification routes
+// These are public endpoints vulnerable to DoS attacks
+verification.use('/*', verificationRateLimiter);
 
 // Initialize services (lazy initialization to allow for proper configuration)
 let verificationService: VerificationService | null = null;

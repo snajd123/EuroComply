@@ -1,4 +1,5 @@
 import { PrismaClient, Prisma } from '@prisma/client';
+import { validateSchemaName } from './validation.js';
 
 export interface TenantContext {
   organizationId: string;
@@ -9,11 +10,16 @@ export interface TenantContext {
 /**
  * Creates a Prisma client configured for a specific tenant schema.
  * Uses Prisma's $extends to inject schema context.
+ *
+ * @throws Error if schema name fails validation (SQL injection prevention)
  */
 export function createTenantClient(
   baseClient: PrismaClient,
   context: TenantContext
 ) {
+  // Validate schema name to prevent SQL injection
+  validateSchemaName(context.schemaName);
+
   return baseClient.$extends({
     query: {
       $allOperations({ operation, model, args, query }) {

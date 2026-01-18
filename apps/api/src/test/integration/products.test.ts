@@ -133,7 +133,7 @@ describe('Product Routes Integration Tests', () => {
           name: 'Product with GTIN',
           productType: 'FINISHED_GOOD',
           identifiers: [
-            { type: 'GTIN', value: '12345678901234' },
+            { type: 'GTIN', value: '12345678901231' }, // Valid GTIN-14 with correct checksum
             { type: 'SKU', value: 'SKU-001' },
           ],
         }),
@@ -145,7 +145,7 @@ describe('Product Routes Integration Tests', () => {
       expect(json.data.identifiers).toHaveLength(2);
       expect(json.data.identifiers).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ type: 'GTIN', value: '12345678901234' }),
+          expect.objectContaining({ type: 'GTIN', value: '12345678901231' }),
           expect.objectContaining({ type: 'SKU', value: 'SKU-001' }),
         ])
       );
@@ -166,7 +166,7 @@ describe('Product Routes Integration Tests', () => {
     });
 
     it('should reject duplicate GTIN across products (global uniqueness)', async () => {
-      const duplicateGtin = '98765432109876';
+      const duplicateGtin = '98765432109879'; // Valid GTIN-14 with correct checksum
 
       // Create first product with GTIN
       const firstResponse = await app.request('/api/v1/products', {
