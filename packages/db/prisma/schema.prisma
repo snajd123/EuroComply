@@ -44,6 +44,7 @@ model Organization {
 
   // Relations
   users             OrganizationUser[]
+  didHistory        OrgDidHistory[]
 
   @@map("organizations")
 }
@@ -62,6 +63,7 @@ model User {
 
   // Relations
   organizations   OrganizationUser[]
+  didHistory      UserDidHistory[]
 
   @@map("users")
 }
@@ -91,6 +93,48 @@ model OrganizationUser {
   @@unique([organizationId, userId])
   @@index([userId]) // For listUserOrganizations query performance
   @@map("organization_users")
+}
+
+// ============================================
+// DID HISTORY - Key rotation tracking
+// ============================================
+
+model UserDidHistory {
+  id                String    @id @default(cuid())
+  userId            String    @map("user_id")
+  did               String
+  waltIdKeyId       String    @map("walt_id_key_id")
+  validFrom         DateTime  @map("valid_from")
+  validTo           DateTime? @map("valid_to")
+  revokedAt         DateTime? @map("revoked_at")
+  revocationReason  String?   @map("revocation_reason")
+  statusListIndex   Int       @map("status_list_index")
+
+  // Relations
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([did])
+  @@map("user_did_history")
+}
+
+model OrgDidHistory {
+  id                String       @id @default(cuid())
+  organizationId    String       @map("organization_id")
+  did               String
+  waltIdKeyId       String       @map("walt_id_key_id")
+  validFrom         DateTime     @map("valid_from")
+  validTo           DateTime?    @map("valid_to")
+  revokedAt         DateTime?    @map("revoked_at")
+  revocationReason  String?      @map("revocation_reason")
+  statusListIndex   Int          @map("status_list_index")
+
+  // Relations
+  organization      Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([did])
+  @@map("org_did_history")
 }
 
 // ============================================
