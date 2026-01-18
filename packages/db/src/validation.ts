@@ -1,4 +1,47 @@
 /**
+ * Database utility functions for validation and security.
+ */
+
+// =============================================================================
+// URL Masking
+// =============================================================================
+
+/**
+ * Masks sensitive data in a database URL for safe logging.
+ * Replaces password portion with asterisks.
+ *
+ * @param url - The database URL to mask
+ * @returns URL with password masked
+ */
+export function maskDatabaseUrl(url: string): string {
+  // Match postgresql://user:password@host pattern
+  return url.replace(
+    /^(postgresql:\/\/[^:]+:)([^@]+)(@.*)$/,
+    '$1****$3'
+  );
+}
+
+/**
+ * Masks the password in an error message that might contain a database URL.
+ *
+ * @param error - The error to sanitize
+ * @returns Error with masked credentials
+ */
+export function sanitizeErrorForLogging(error: unknown): string {
+  if (error instanceof Error) {
+    return maskDatabaseUrl(error.message);
+  }
+  if (typeof error === 'string') {
+    return maskDatabaseUrl(error);
+  }
+  return String(error);
+}
+
+// =============================================================================
+// Schema Name Validation
+// =============================================================================
+
+/**
  * Schema name validation utilities to prevent SQL injection.
  *
  * All tenant schema names MUST:

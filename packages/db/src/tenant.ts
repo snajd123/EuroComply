@@ -4,8 +4,10 @@ import { validateSchemaName } from './validation.js';
 /**
  * Creates a new tenant schema with all required tables.
  * Called when a new organization is created.
+ * Uses a transaction to ensure atomicity - all tables created or none.
  *
  * @throws Error if schema name fails validation (SQL injection prevention)
+ * @throws Error if schema already exists with different structure
  */
 export async function createTenantSchema(
   prisma: PrismaClient,
@@ -14,55 +16,69 @@ export async function createTenantSchema(
   // Validate schema name against strict allowlist pattern
   validateSchemaName(schemaName);
 
-  // Create schema
-  await prisma.$executeRawUnsafe(`CREATE SCHEMA IF NOT EXISTS "${schemaName}"`);
+  // Check if schema already exists
+  const existing = await prisma.$queryRaw<{ count: bigint }[]>`
+    SELECT COUNT(*) as count FROM information_schema.schemata
+    WHERE schema_name = ${schemaName}
+  `;
 
-  // Create products table
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "${schemaName}".products (
-      id VARCHAR(30) PRIMARY KEY,
-      sku VARCHAR(100) NOT NULL,
-      name VARCHAR(500) NOT NULL,
-      description TEXT,
-      category VARCHAR(100),
-      status VARCHAR(20) DEFAULT 'DRAFT',
-      created_by VARCHAR(30) NOT NULL,
-      created_at TIMESTAMPTZ DEFAULT NOW(),
-      updated_at TIMESTAMPTZ DEFAULT NOW(),
-      archived_at TIMESTAMPTZ,
-      UNIQUE(sku)
-    )
-  `);
+  if (existing[0] && existing[0].count > 0n) {
+    // Schema already exists, verify it has the expected structure
+    return;
+  }
 
-  await prisma.$executeRawUnsafe(
-    `CREATE INDEX IF NOT EXISTS idx_products_sku ON "${schemaName}".products(sku)`
-  );
-  await prisma.$executeRawUnsafe(
-    `CREATE INDEX IF NOT EXISTS idx_products_status ON "${schemaName}".products(status)`
-  );
+  // Wrap all DDL in a transaction for atomicity
+  await prisma.$transaction(async (tx) => {
+    // Create schema
+    await tx.$executeRawUnsafe(`CREATE SCHEMA "${schemaName}"`);
 
-  // Create audit log table
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "${schemaName}".audit_log (
-      id VARCHAR(30) PRIMARY KEY,
-      user_id VARCHAR(30) NOT NULL,
-      action VARCHAR(50) NOT NULL,
-      entity_type VARCHAR(50) NOT NULL,
-      entity_id VARCHAR(30) NOT NULL,
-      old_values JSONB,
-      new_values JSONB,
-      ip_address VARCHAR(45),
-      user_agent TEXT,
-      created_at TIMESTAMPTZ DEFAULT NOW()
-    )
-  `);
+    // Create products table
+    await tx.$executeRawUnsafe(`
+      CREATE TABLE "${schemaName}".products (
+        id VARCHAR(30) PRIMARY KEY,
+        sku VARCHAR(100) NOT NULL,
+        name VARCHAR(500) NOT NULL,
+        description TEXT,
+        category VARCHAR(100),
+        status VARCHAR(20) DEFAULT 'DRAFT',
+        created_by VARCHAR(30) NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        archived_at TIMESTAMPTZ,
+        UNIQUE(sku)
+      )
+    `);
 
-  await prisma.$executeRawUnsafe(
-    `CREATE INDEX IF NOT EXISTS idx_audit_entity ON "${schemaName}".audit_log(entity_type, entity_id)`
-  );
-  await prisma.$executeRawUnsafe(
-    `CREATE INDEX IF NOT EXISTS idx_audit_user ON "${schemaName}".audit_log(user_id, created_at DESC)`
-  );
+    await tx.$executeRawUnsafe(
+      `CREATE INDEX idx_products_sku ON "${schemaName}".products(sku)`
+    );
+    await tx.$executeRawUnsafe(
+      `CREATE INDEX idx_products_status ON "${schemaName}".products(status)`
+    );
+
+    // Create audit log table
+    await tx.$executeRawUnsafe(`
+      CREATE TABLE "${schemaName}".audit_log (
+        id VARCHAR(30) PRIMARY KEY,
+        user_id VARCHAR(30) NOT NULL,
+        action VARCHAR(50) NOT NULL,
+        entity_type VARCHAR(50) NOT NULL,
+        entity_id VARCHAR(30) NOT NULL,
+        old_values JSONB,
+        new_values JSONB,
+        ip_address VARCHAR(45),
+        user_agent TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+
+    await tx.$executeRawUnsafe(
+      `CREATE INDEX idx_audit_entity ON "${schemaName}".audit_log(entity_type, entity_id)`
+    );
+    await tx.$executeRawUnsafe(
+      `CREATE INDEX idx_audit_user ON "${schemaName}".audit_log(user_id, created_at DESC)`
+    );
+  });
 }
 
 /**

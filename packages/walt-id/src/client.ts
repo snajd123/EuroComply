@@ -162,40 +162,76 @@ export class WaltIdClient {
   }
 
   private async request<T>(url: string, init: RequestInit): Promise<T> {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.config.timeout);
+    const maxRetries = 3;
+    const baseDelay = 1000; // 1 second
 
-    try {
-      const response = await fetch(url, {
-        ...init,
-        signal: controller.signal,
-      });
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), this.config.timeout);
 
-      if (!response.ok) {
-        const errorBody = await response.text().catch(() => '');
-        throw new WaltIdError(
-          `Request failed: ${response.statusText}`,
-          'REQUEST_FAILED',
-          response.status,
-          errorBody
+      try {
+        const response = await fetch(url, {
+          ...init,
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          const errorBody = await response.text().catch(() => '');
+
+          // Don't retry client errors (4xx)
+          if (response.status >= 400 && response.status < 500) {
+            throw new WaltIdError(
+              `Request failed: ${response.statusText}`,
+              'REQUEST_FAILED',
+              response.status,
+              errorBody
+            );
+          }
+
+          // Retry server errors (5xx) unless last attempt
+          if (attempt < maxRetries) {
+            const delay = baseDelay * Math.pow(2, attempt);
+            await new Promise((resolve) => setTimeout(resolve, delay));
+            continue;
+          }
+
+          throw new WaltIdError(
+            `Request failed after ${maxRetries + 1} attempts: ${response.statusText}`,
+            'REQUEST_FAILED',
+            response.status,
+            errorBody
+          );
+        }
+
+        return await response.json() as T;
+      } catch (error) {
+        clearTimeout(timeoutId);
+
+        if (error instanceof WaltIdError) {
+          throw error;
+        }
+
+        // Retry network errors unless last attempt
+        if (attempt < maxRetries) {
+          const delay = baseDelay * Math.pow(2, attempt);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          continue;
+        }
+
+        if (error instanceof Error && error.name === 'AbortError') {
+          throw new WaltIdConnectionError('timeout');
+        }
+        throw new WaltIdConnectionError(
+          url,
+          error instanceof Error ? error : undefined
         );
       }
-
-      return await response.json() as T;
-    } catch (error) {
-      if (error instanceof WaltIdError) {
-        throw error;
-      }
-      if (error instanceof Error && error.name === 'AbortError') {
-        throw new WaltIdConnectionError('timeout');
-      }
-      throw new WaltIdConnectionError(
-        url,
-        error instanceof Error ? error : undefined
-      );
-    } finally {
-      clearTimeout(timeoutId);
     }
+
+    // This should never be reached, but TypeScript needs it
+    throw new WaltIdConnectionError(url);
   }
 }
 
@@ -207,12 +243,26 @@ export function createWaltIdClient(env?: {
   WALTID_AUDITOR_URL?: string;
   WALTID_API_KEY?: string;
 }): WaltIdClient {
-  return new WaltIdClient({
+  const config = {
     coreApiUrl: env?.WALTID_CORE_URL ?? 'http://localhost:7000',
     signatoryUrl: env?.WALTID_SIGNATORY_URL ?? 'http://localhost:7001',
     custodianUrl: env?.WALTID_CUSTODIAN_URL ?? 'http://localhost:7002',
     auditorUrl: env?.WALTID_AUDITOR_URL ?? 'http://localhost:7003',
     apiKey: env?.WALTID_API_KEY,
     timeout: 30000,
-  });
+  };
+
+  // Warn if using non-HTTPS URLs in non-development environment
+  if (process.env['NODE_ENV'] !== 'development' && process.env['NODE_ENV'] !== 'test') {
+    const urls = [config.coreApiUrl, config.signatoryUrl, config.custodianUrl, config.auditorUrl];
+    const insecureUrls = urls.filter((url) => url.startsWith('http://'));
+    if (insecureUrls.length > 0) {
+      console.warn(
+        '[WaltIdClient] WARNING: Using insecure HTTP URLs in non-development environment. ' +
+        'Configure HTTPS URLs for production: ' + insecureUrls.join(', ')
+      );
+    }
+  }
+
+  return new WaltIdClient(config);
 }
