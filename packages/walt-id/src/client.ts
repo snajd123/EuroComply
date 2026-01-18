@@ -88,6 +88,10 @@ export class WaltIdClient {
         }
       );
     } catch (error) {
+      // Preserve WaltIdError context (status codes, details)
+      if (error instanceof WaltIdError) {
+        throw error;
+      }
       throw new WaltIdSigningError(
         error instanceof Error ? error.message : 'Signing failed',
         request.keyId
