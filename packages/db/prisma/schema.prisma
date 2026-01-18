@@ -168,6 +168,60 @@ model OutboxEvent {
 }
 
 // ============================================
+// OPERATIONS EVENTS - Forensic Ledger
+// ============================================
+
+enum EventStatus {
+  PENDING_VERIFICATION
+  VERIFIED
+}
+
+model OperationsEvent {
+  id                  String       @id @default(cuid())
+  organizationId      String       @map("organization_id")
+
+  // Event type and payload (polymorphic)
+  eventType           String       @map("event_type")
+  payload             Json
+
+  // Hash chain (tamper-evident)
+  eventHash           String       @map("event_hash")
+  previousEventHash   String?      @map("previous_event_hash")
+  sequenceNumber      Int          @map("sequence_number")
+
+  // Workflow
+  status              EventStatus  @default(PENDING_VERIFICATION)
+
+  // Created by (CONTRIBUTOR)
+  createdAt           DateTime     @default(now()) @map("created_at")
+  createdBy           String       @map("created_by")
+
+  // Verified by (EDITOR) - The "Seal"
+  verifiedAt          DateTime?    @map("verified_at")
+  verifiedBy          String?      @map("verified_by")
+
+  // User signature (EDITOR's DID)
+  userSignatureDid    String?      @map("user_signature_did")
+  userSignatureJws    String?      @map("user_signature_jws")
+
+  // Organization signature (Corporate Envelope)
+  orgSignatureDid     String?      @map("org_signature_did")
+  orgSignatureJws     String?      @map("org_signature_jws")
+
+  // Forensic context (embedded at sign-time)
+  forensicContext     Json?        @map("forensic_context")
+
+  // Credential status (for revocation)
+  credentialStatusIndex Int?       @map("credential_status_index")
+  timestampProof      Json?        @map("timestamp_proof")
+
+  @@index([organizationId, eventType])
+  @@index([organizationId, sequenceNumber])
+  @@index([status])
+  @@map("operations_events")
+}
+
+// ============================================
 // PRODUCT - Central Hub Entity
 // ============================================
 
