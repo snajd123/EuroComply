@@ -151,8 +151,8 @@ resource "aws_iam_role" "github_actions" {
             "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
           }
           StringLike = {
-            # Restrict to eurocomply GitHub organization only
-            "token.actions.githubusercontent.com:sub" = "repo:eurocomply/*:*"
+            # Restrict to snajd123 GitHub account repos
+            "token.actions.githubusercontent.com:sub" = "repo:snajd123/*:*"
           }
         }
       }
