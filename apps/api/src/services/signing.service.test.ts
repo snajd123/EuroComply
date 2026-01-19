@@ -4,7 +4,6 @@ import { SigningService } from './signing.service.js';
 import type {
   UserForensicContext,
   OrgForensicContext,
-  SealedArtifact,
   CredentialStatus,
   TimestampProof,
 } from '@eurocomply/shared';
@@ -40,12 +39,12 @@ describe('SigningService', () => {
   };
 
   beforeEach(() => {
-    service = new SigningService();
+    service = new SigningService({ forceMock: true });
   });
 
   describe('signWithUserDid', () => {
-    it('should_create_valid_signature_when_payload_and_did_provided', () => {
-      const result = service.signWithUserDid(
+    it('should_create_valid_signature_when_payload_and_did_provided', async () => {
+      const result = await service.signWithUserDid(
         testPayload,
         testUserDid,
         testUserForensicContext
@@ -59,8 +58,8 @@ describe('SigningService', () => {
       expect(result.forensicContext).toEqual(testUserForensicContext);
     });
 
-    it('should_use_correct_verification_method_format_with_fragment', () => {
-      const result = service.signWithUserDid(
+    it('should_use_correct_verification_method_format_with_fragment', async () => {
+      const result = await service.signWithUserDid(
         testPayload,
         testUserDid,
         testUserForensicContext
@@ -71,13 +70,13 @@ describe('SigningService', () => {
       expect(result.verificationMethod).toBe(`${testUserDid}#${keyId}`);
     });
 
-    it('should_produce_deterministic_signature_for_same_inputs', () => {
-      const result1 = service.signWithUserDid(
+    it('should_produce_deterministic_signature_for_same_inputs', async () => {
+      const result1 = await service.signWithUserDid(
         testPayload,
         testUserDid,
         testUserForensicContext
       );
-      const result2 = service.signWithUserDid(
+      const result2 = await service.signWithUserDid(
         testPayload,
         testUserDid,
         testUserForensicContext
@@ -86,13 +85,13 @@ describe('SigningService', () => {
       expect(result1.signatureValue).toBe(result2.signatureValue);
     });
 
-    it('should_produce_different_signature_for_different_payloads', () => {
-      const result1 = service.signWithUserDid(
+    it('should_produce_different_signature_for_different_payloads', async () => {
+      const result1 = await service.signWithUserDid(
         testPayload,
         testUserDid,
         testUserForensicContext
       );
-      const result2 = service.signWithUserDid(
+      const result2 = await service.signWithUserDid(
         { ...testPayload, version: '2.0.0' },
         testUserDid,
         testUserForensicContext
@@ -101,15 +100,15 @@ describe('SigningService', () => {
       expect(result1.signatureValue).not.toBe(result2.signatureValue);
     });
 
-    it('should_produce_different_signature_for_different_dids', () => {
+    it('should_produce_different_signature_for_different_dids', async () => {
       const otherDid = 'did:key:z6MkjX7VzQzzADpUBqkSK1KXHZ4xE7bPyVvhLiN8LMuLf6pR';
 
-      const result1 = service.signWithUserDid(
+      const result1 = await service.signWithUserDid(
         testPayload,
         testUserDid,
         testUserForensicContext
       );
-      const result2 = service.signWithUserDid(
+      const result2 = await service.signWithUserDid(
         testPayload,
         otherDid,
         testUserForensicContext
@@ -118,8 +117,8 @@ describe('SigningService', () => {
       expect(result1.signatureValue).not.toBe(result2.signatureValue);
     });
 
-    it('should_include_created_timestamp_from_forensic_context', () => {
-      const result = service.signWithUserDid(
+    it('should_include_created_timestamp_from_forensic_context', async () => {
+      const result = await service.signWithUserDid(
         testPayload,
         testUserDid,
         testUserForensicContext
@@ -128,20 +127,20 @@ describe('SigningService', () => {
       expect(result.created).toBe(testUserForensicContext.signedAt);
     });
 
-    it('should_throw_validation_error_for_invalid_did_format', () => {
-      expect(() =>
+    it('should_throw_validation_error_for_invalid_did_format', async () => {
+      await expect(
         service.signWithUserDid(testPayload, 'invalid-did', testUserForensicContext)
-      ).toThrow(ValidationError);
+      ).rejects.toThrow(ValidationError);
 
-      expect(() =>
+      await expect(
         service.signWithUserDid(testPayload, 'did:web:example.com', testUserForensicContext)
-      ).toThrow(ValidationError);
+      ).rejects.toThrow(ValidationError);
     });
   });
 
   describe('signWithOrgDid', () => {
-    it('should_create_valid_signature_when_payload_and_org_did_provided', () => {
-      const result = service.signWithOrgDid(
+    it('should_create_valid_signature_when_payload_and_org_did_provided', async () => {
+      const result = await service.signWithOrgDid(
         testPayload,
         testOrgDid,
         testOrgForensicContext
@@ -155,8 +154,8 @@ describe('SigningService', () => {
       expect(result.forensicContext).toEqual(testOrgForensicContext);
     });
 
-    it('should_use_correct_verification_method_format_with_fragment', () => {
-      const result = service.signWithOrgDid(
+    it('should_use_correct_verification_method_format_with_fragment', async () => {
+      const result = await service.signWithOrgDid(
         testPayload,
         testOrgDid,
         testOrgForensicContext
@@ -166,13 +165,13 @@ describe('SigningService', () => {
       expect(result.verificationMethod).toBe(`${testOrgDid}#${keyId}`);
     });
 
-    it('should_produce_deterministic_signature_for_same_inputs', () => {
-      const result1 = service.signWithOrgDid(
+    it('should_produce_deterministic_signature_for_same_inputs', async () => {
+      const result1 = await service.signWithOrgDid(
         testPayload,
         testOrgDid,
         testOrgForensicContext
       );
-      const result2 = service.signWithOrgDid(
+      const result2 = await service.signWithOrgDid(
         testPayload,
         testOrgDid,
         testOrgForensicContext
@@ -181,16 +180,16 @@ describe('SigningService', () => {
       expect(result1.signatureValue).toBe(result2.signatureValue);
     });
 
-    it('should_throw_validation_error_for_invalid_did_format', () => {
-      expect(() =>
+    it('should_throw_validation_error_for_invalid_did_format', async () => {
+      await expect(
         service.signWithOrgDid(testPayload, 'not-a-did', testOrgForensicContext)
-      ).toThrow(ValidationError);
+      ).rejects.toThrow(ValidationError);
     });
   });
 
   describe('createCorporateEnvelope', () => {
-    it('should_create_sealed_artifact_with_dual_signatures', () => {
-      const result = service.createCorporateEnvelope(
+    it('should_create_sealed_artifact_with_dual_signatures', async () => {
+      const result = await service.createCorporateEnvelope(
         testPayload,
         { did: testUserDid, forensicContext: testUserForensicContext },
         { did: testOrgDid, forensicContext: testOrgForensicContext }
@@ -202,8 +201,8 @@ describe('SigningService', () => {
       expect(result.payload).toEqual(testPayload);
     });
 
-    it('should_include_valid_user_proof_structure', () => {
-      const result = service.createCorporateEnvelope(
+    it('should_include_valid_user_proof_structure', async () => {
+      const result = await service.createCorporateEnvelope(
         testPayload,
         { did: testUserDid, forensicContext: testUserForensicContext },
         { did: testOrgDid, forensicContext: testOrgForensicContext }
@@ -216,8 +215,8 @@ describe('SigningService', () => {
       expect(result.userProof.forensicContext).toEqual(testUserForensicContext);
     });
 
-    it('should_include_valid_corporate_proof_structure', () => {
-      const result = service.createCorporateEnvelope(
+    it('should_include_valid_corporate_proof_structure', async () => {
+      const result = await service.createCorporateEnvelope(
         testPayload,
         { did: testUserDid, forensicContext: testUserForensicContext },
         { did: testOrgDid, forensicContext: testOrgForensicContext }
@@ -230,8 +229,8 @@ describe('SigningService', () => {
       expect(result.corporateProof.forensicContext).toEqual(testOrgForensicContext);
     });
 
-    it('should_have_different_signatures_for_user_and_org', () => {
-      const result = service.createCorporateEnvelope(
+    it('should_have_different_signatures_for_user_and_org', async () => {
+      const result = await service.createCorporateEnvelope(
         testPayload,
         { did: testUserDid, forensicContext: testUserForensicContext },
         { did: testOrgDid, forensicContext: testOrgForensicContext }
@@ -242,8 +241,8 @@ describe('SigningService', () => {
       );
     });
 
-    it('should_not_include_credential_status_by_default', () => {
-      const result = service.createCorporateEnvelope(
+    it('should_not_include_credential_status_by_default', async () => {
+      const result = await service.createCorporateEnvelope(
         testPayload,
         { did: testUserDid, forensicContext: testUserForensicContext },
         { did: testOrgDid, forensicContext: testOrgForensicContext }
@@ -252,8 +251,8 @@ describe('SigningService', () => {
       expect(result.credentialStatus).toBeUndefined();
     });
 
-    it('should_not_include_timestamp_proof_by_default', () => {
-      const result = service.createCorporateEnvelope(
+    it('should_not_include_timestamp_proof_by_default', async () => {
+      const result = await service.createCorporateEnvelope(
         testPayload,
         { did: testUserDid, forensicContext: testUserForensicContext },
         { did: testOrgDid, forensicContext: testOrgForensicContext }
@@ -262,7 +261,7 @@ describe('SigningService', () => {
       expect(result.timestampProof).toBeUndefined();
     });
 
-    it('should_include_credential_status_when_provided', () => {
+    it('should_include_credential_status_when_provided', async () => {
       const credentialStatus: CredentialStatus = {
         type: 'StatusList2021Entry',
         statusPurpose: 'revocation',
@@ -270,7 +269,7 @@ describe('SigningService', () => {
         statusListCredential: 'https://example.com/status/1',
       };
 
-      const result = service.createCorporateEnvelope(
+      const result = await service.createCorporateEnvelope(
         testPayload,
         { did: testUserDid, forensicContext: testUserForensicContext },
         { did: testOrgDid, forensicContext: testOrgForensicContext },
@@ -280,7 +279,7 @@ describe('SigningService', () => {
       expect(result.credentialStatus).toEqual(credentialStatus);
     });
 
-    it('should_include_timestamp_proof_when_provided', () => {
+    it('should_include_timestamp_proof_when_provided', async () => {
       const timestampProof: TimestampProof = {
         type: 'RFC3161',
         timestamp: '2026-01-15T10:00:00.000Z',
@@ -289,7 +288,7 @@ describe('SigningService', () => {
         hashAlgorithm: 'SHA-256',
       };
 
-      const result = service.createCorporateEnvelope(
+      const result = await service.createCorporateEnvelope(
         testPayload,
         { did: testUserDid, forensicContext: testUserForensicContext },
         { did: testOrgDid, forensicContext: testOrgForensicContext },
@@ -299,13 +298,13 @@ describe('SigningService', () => {
       expect(result.timestampProof).toEqual(timestampProof);
     });
 
-    it('should_produce_deterministic_envelope_for_same_inputs', () => {
-      const result1 = service.createCorporateEnvelope(
+    it('should_produce_deterministic_envelope_for_same_inputs', async () => {
+      const result1 = await service.createCorporateEnvelope(
         testPayload,
         { did: testUserDid, forensicContext: testUserForensicContext },
         { did: testOrgDid, forensicContext: testOrgForensicContext }
       );
-      const result2 = service.createCorporateEnvelope(
+      const result2 = await service.createCorporateEnvelope(
         testPayload,
         { did: testUserDid, forensicContext: testUserForensicContext },
         { did: testOrgDid, forensicContext: testOrgForensicContext }
@@ -315,30 +314,30 @@ describe('SigningService', () => {
       expect(result1.corporateProof.signatureValue).toBe(result2.corporateProof.signatureValue);
     });
 
-    it('should_throw_validation_error_for_invalid_user_did', () => {
-      expect(() =>
+    it('should_throw_validation_error_for_invalid_user_did', async () => {
+      await expect(
         service.createCorporateEnvelope(
           testPayload,
           { did: 'invalid', forensicContext: testUserForensicContext },
           { did: testOrgDid, forensicContext: testOrgForensicContext }
         )
-      ).toThrow(ValidationError);
+      ).rejects.toThrow(ValidationError);
     });
 
-    it('should_throw_validation_error_for_invalid_org_did', () => {
-      expect(() =>
+    it('should_throw_validation_error_for_invalid_org_did', async () => {
+      await expect(
         service.createCorporateEnvelope(
           testPayload,
           { did: testUserDid, forensicContext: testUserForensicContext },
           { did: 'invalid', forensicContext: testOrgForensicContext }
         )
-      ).toThrow(ValidationError);
+      ).rejects.toThrow(ValidationError);
     });
   });
 
   describe('deterministic signature verification', () => {
-    it('should_use_sha256_hash_of_canonical_json_plus_did', () => {
-      const result = service.signWithUserDid(
+    it('should_use_sha256_hash_of_canonical_json_plus_did', async () => {
+      const result = await service.signWithUserDid(
         testPayload,
         testUserDid,
         testUserForensicContext

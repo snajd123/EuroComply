@@ -35,7 +35,8 @@ jobs:
       - name: Configure AWS credentials for Sovereign Cloud
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws-eusc:iam::075285241396:role/github-actions-eurocomply
+          # Role ARN uses aws-eusc partition - account ID from secret
+          role-to-assume: arn:aws-eusc:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-actions-eurocomply
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Configure AWS CLI for Sovereign Cloud

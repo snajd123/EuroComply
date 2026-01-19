@@ -27,26 +27,13 @@ export interface RevocationInfo {
  * - bit = 0 means valid (not revoked)
  * - bit = 1 means revoked
  *
- * For MVP, this implementation:
+ * Implementation:
  * - Uses Organization.statusListIndex counter for index allocation
  * - Queries UserDidHistory and OrgDidHistory for DID revocation status
- * - Maintains an in-memory map for non-DID revocations (e.g., OperationsEvents)
- *
- * TODO: Consider adding a dedicated StatusListEntry table for full persistence
- * TODO: Implement actual bitstring encoding for Status List 2021 credential
+ * - Uses StatusListEntry table for non-DID revocations (e.g., OperationsEvents)
  */
 export class StatusList2021Service {
   private readonly baseUrl: string;
-
-  /**
-   * In-memory tracking for revoked indices that aren't in DID history tables.
-   * Key format: `${organizationId}:${index}`
-   *
-   * NOTE: This is an MVP approach. For production, consider:
-   * - Adding a dedicated database table for revocation tracking
-   * - Using Redis for distributed caching
-   */
-  private readonly revokedIndices: Map<string, RevocationInfo> = new Map();
 
   /**
    * Create a new StatusList2021Service.
@@ -99,33 +86,51 @@ export class StatusList2021Service {
    * Mark a status list index as revoked.
    *
    * This method handles revocation for both DID-based entries (tracked in
-   * UserDidHistory/OrgDidHistory) and non-DID entries (tracked in-memory).
+   * UserDidHistory/OrgDidHistory) and non-DID entries (tracked in StatusListEntry).
    *
    * @param organizationId - The organization ID
    * @param index - The status list index to revoke
    * @param reason - Optional reason for revocation
+   * @param reference - Optional reference to what this entry tracks (e.g., { type: 'operations_event', id: 'abc123' })
    * @throws ValidationError if index is negative
    */
   async revoke(
     organizationId: string,
     index: number,
-    reason?: string
+    reason?: string,
+    reference?: { type: string; id: string }
   ): Promise<void> {
     this.validateIndex(index);
 
-    // For MVP, we just store in our in-memory map
-    // The DID history tables will be updated by the DID rotation service when applicable
-    const key = this.buildKey(organizationId, index);
-    this.revokedIndices.set(key, {
-      revokedAt: new Date(),
-      reason,
+    // Persist revocation to database (upsert to handle re-revocation)
+    await this.prisma.statusListEntry.upsert({
+      where: {
+        organizationId_statusIndex: {
+          organizationId,
+          statusIndex: index,
+        },
+      },
+      create: {
+        organizationId,
+        statusIndex: index,
+        revokedAt: new Date(),
+        reason,
+        referenceType: reference?.type,
+        referenceId: reference?.id,
+      },
+      update: {
+        revokedAt: new Date(),
+        reason,
+        referenceType: reference?.type,
+        referenceId: reference?.id,
+      },
     });
   }
 
   /**
    * Check if a status list index is revoked.
    *
-   * Checks both DID history tables and the in-memory revocation map.
+   * Checks StatusListEntry table, UserDidHistory, and OrgDidHistory.
    *
    * @param organizationId - The organization ID
    * @param index - The status list index to check
@@ -135,9 +140,18 @@ export class StatusList2021Service {
   async isRevoked(organizationId: string, index: number): Promise<boolean> {
     this.validateIndex(index);
 
-    // Check in-memory revocations first (fast path)
-    const key = this.buildKey(organizationId, index);
-    if (this.revokedIndices.has(key)) {
+    // Check StatusListEntry table first
+    const entry = await this.prisma.statusListEntry.findUnique({
+      where: {
+        organizationId_statusIndex: {
+          organizationId,
+          statusIndex: index,
+        },
+      },
+      select: { revokedAt: true },
+    });
+
+    if (entry?.revokedAt) {
       return true;
     }
 
@@ -215,11 +229,22 @@ export class StatusList2021Service {
   ): Promise<RevocationInfo | null> {
     this.validateIndex(index);
 
-    // Check in-memory revocations
-    const key = this.buildKey(organizationId, index);
-    const inMemoryRevocation = this.revokedIndices.get(key);
-    if (inMemoryRevocation) {
-      return inMemoryRevocation;
+    // Check StatusListEntry table
+    const entry = await this.prisma.statusListEntry.findUnique({
+      where: {
+        organizationId_statusIndex: {
+          organizationId,
+          statusIndex: index,
+        },
+      },
+      select: { revokedAt: true, reason: true },
+    });
+
+    if (entry?.revokedAt) {
+      return {
+        revokedAt: entry.revokedAt,
+        reason: entry.reason ?? undefined,
+      };
     }
 
     // Check UserDidHistory
@@ -278,21 +303,10 @@ export class StatusList2021Service {
   }
 
   /**
-   * Build a unique key for the in-memory revocation map.
-   *
-   * @param organizationId - The organization ID
-   * @param index - The status list index
-   * @returns Composite key string
-   */
-  private buildKey(organizationId: string, index: number): string {
-    return `${organizationId}:${index}`;
-  }
-
-  /**
    * Build the complete bitstring for an organization's status list.
    *
    * This aggregates revocation status from:
-   * - In-memory revocation map
+   * - StatusListEntry table
    * - UserDidHistory table
    * - OrgDidHistory table
    *
@@ -302,14 +316,15 @@ export class StatusList2021Service {
   async buildBitstring(organizationId: string): Promise<Uint8Array> {
     const bitstring = createBitstring();
 
-    // Set bits from in-memory revocations
-    for (const [key] of this.revokedIndices) {
-      const [orgId, indexStr] = key.split(':');
-      if (orgId === organizationId) {
-        const index = parseInt(indexStr ?? '0', 10);
-        if (index < BITSTRING_SIZE) {
-          setBit(bitstring, index);
-        }
+    // Set bits from StatusListEntry table
+    const revokedEntries = await this.prisma.statusListEntry.findMany({
+      where: { organizationId },
+      select: { statusIndex: true },
+    });
+
+    for (const { statusIndex } of revokedEntries) {
+      if (statusIndex < BITSTRING_SIZE) {
+        setBit(bitstring, statusIndex);
       }
     }
 

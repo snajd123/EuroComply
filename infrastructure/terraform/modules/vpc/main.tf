@@ -253,6 +253,114 @@ resource "aws_flow_log" "main" {
 }
 
 # =============================================================================
+# VPC Endpoints (for private connectivity to AWS services)
+# =============================================================================
+variable "enable_vpc_endpoints" {
+  description = "Enable VPC endpoints for private AWS service access"
+  type        = bool
+  default     = true
+}
+
+# Security group for VPC endpoints
+resource "aws_security_group" "vpc_endpoints" {
+  count = var.enable_vpc_endpoints ? 1 : 0
+
+  name        = "${local.name_prefix}-vpc-endpoints-sg"
+  description = "Security group for VPC endpoints"
+  vpc_id      = aws_vpc.main.id
+
+  ingress {
+    description = "HTTPS from VPC"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc_cidr]
+  }
+
+  tags = {
+    Name = "${local.name_prefix}-vpc-endpoints-sg"
+  }
+}
+
+# Secrets Manager endpoint (for secret rotation without internet)
+resource "aws_vpc_endpoint" "secretsmanager" {
+  count = var.enable_vpc_endpoints ? 1 : 0
+
+  vpc_id              = aws_vpc.main.id
+  service_name        = "com.amazonaws.eusc-de-east-1.secretsmanager"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = aws_subnet.private[*].id
+  security_group_ids  = [aws_security_group.vpc_endpoints[0].id]
+  private_dns_enabled = true
+
+  tags = {
+    Name = "${local.name_prefix}-secretsmanager-endpoint"
+  }
+}
+
+# CloudWatch Logs endpoint (for Lambda and ECS logging)
+resource "aws_vpc_endpoint" "logs" {
+  count = var.enable_vpc_endpoints ? 1 : 0
+
+  vpc_id              = aws_vpc.main.id
+  service_name        = "com.amazonaws.eusc-de-east-1.logs"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = aws_subnet.private[*].id
+  security_group_ids  = [aws_security_group.vpc_endpoints[0].id]
+  private_dns_enabled = true
+
+  tags = {
+    Name = "${local.name_prefix}-logs-endpoint"
+  }
+}
+
+# S3 Gateway endpoint (free, for ECR image layers and general S3 access)
+resource "aws_vpc_endpoint" "s3" {
+  count = var.enable_vpc_endpoints ? 1 : 0
+
+  vpc_id            = aws_vpc.main.id
+  service_name      = "com.amazonaws.eusc-de-east-1.s3"
+  vpc_endpoint_type = "Gateway"
+  route_table_ids   = aws_route_table.private[*].id
+
+  tags = {
+    Name = "${local.name_prefix}-s3-endpoint"
+  }
+}
+
+# ECR API endpoint (for docker pull)
+resource "aws_vpc_endpoint" "ecr_api" {
+  count = var.enable_vpc_endpoints ? 1 : 0
+
+  vpc_id              = aws_vpc.main.id
+  service_name        = "com.amazonaws.eusc-de-east-1.ecr.api"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = aws_subnet.private[*].id
+  security_group_ids  = [aws_security_group.vpc_endpoints[0].id]
+  private_dns_enabled = true
+
+  tags = {
+    Name = "${local.name_prefix}-ecr-api-endpoint"
+  }
+}
+
+# ECR DKR endpoint (for docker image layers)
+resource "aws_vpc_endpoint" "ecr_dkr" {
+  count = var.enable_vpc_endpoints ? 1 : 0
+
+  vpc_id              = aws_vpc.main.id
+  service_name        = "com.amazonaws.eusc-de-east-1.ecr.dkr"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = aws_subnet.private[*].id
+  security_group_ids  = [aws_security_group.vpc_endpoints[0].id]
+  private_dns_enabled = true
+
+  tags = {
+    Name = "${local.name_prefix}-ecr-dkr-endpoint"
+  }
+}
+
+# =============================================================================
 # Outputs
 # =============================================================================
 output "vpc_id" {
@@ -273,4 +381,14 @@ output "private_subnet_ids" {
 
 output "availability_zones" {
   value = local.azs
+}
+
+output "vpc_endpoints_security_group_id" {
+  description = "Security group ID for VPC endpoints"
+  value       = var.enable_vpc_endpoints ? aws_security_group.vpc_endpoints[0].id : null
+}
+
+output "s3_endpoint_prefix_list_id" {
+  description = "Prefix list ID for S3 VPC endpoint (for security group rules)"
+  value       = var.enable_vpc_endpoints ? aws_vpc_endpoint.s3[0].prefix_list_id : null
 }

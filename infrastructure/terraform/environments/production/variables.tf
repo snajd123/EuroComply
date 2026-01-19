@@ -7,7 +7,7 @@ variable "project" {
 variable "environment" {
   description = "Environment name"
   type        = string
-  default     = "staging"
+  default     = "production"
 }
 
 variable "aws_region" {
@@ -20,13 +20,13 @@ variable "aws_region" {
 variable "vpc_cidr" {
   description = "VPC CIDR block"
   type        = string
-  default     = "10.0.0.0/16"
+  default     = "10.1.0.0/16" # Different CIDR from staging for potential peering
 }
 
 variable "az_count" {
   description = "Number of availability zones"
   type        = number
-  default     = 2
+  default     = 3 # More AZs for production HA
 }
 
 # Application
@@ -39,54 +39,71 @@ variable "app_port" {
 variable "certificate_arn" {
   description = "ACM certificate ARN for HTTPS. Required - must be provided via terraform.tfvars or CI/CD."
   type        = string
-  # No default - this is a required environment-specific value
+  # No default - required for production
 }
 
-# Database (t4g = Graviton instances for Sovereign Cloud)
+# Database (Production-grade instances)
 variable "db_instance_class" {
-  description = "RDS instance class"
+  description = "RDS instance class (production-grade)"
   type        = string
-  default     = "db.t4g.micro"
+  default     = "db.t4g.medium" # Larger for production
 }
 
 variable "db_allocated_storage" {
   description = "RDS allocated storage in GB"
   type        = number
-  default     = 20
+  default     = 100 # Larger for production
 }
 
-# Redis (t4g = Graviton instances for Sovereign Cloud)
+variable "backup_retention_period" {
+  description = "Database backup retention in days (30+ recommended for production)"
+  type        = number
+  default     = 30
+}
+
+variable "enable_secret_rotation" {
+  description = "Enable automatic secret rotation for database credentials"
+  type        = bool
+  default     = true # Enabled for production
+}
+
+variable "secret_rotation_days" {
+  description = "Number of days between automatic secret rotations"
+  type        = number
+  default     = 30
+}
+
+# Redis (Production-grade instances)
 variable "redis_node_type" {
-  description = "ElastiCache node type"
+  description = "ElastiCache node type (production-grade)"
   type        = string
-  default     = "cache.t4g.micro"
+  default     = "cache.t4g.medium" # Larger for production
 }
 
-# ECS
+# ECS (Production-grade)
 variable "ecs_cpu" {
   description = "ECS task CPU units"
   type        = number
-  default     = 256
+  default     = 512 # Higher for production
 }
 
 variable "ecs_memory" {
   description = "ECS task memory in MB"
   type        = number
-  default     = 512
+  default     = 1024 # Higher for production
 }
 
 variable "ecs_desired_count" {
-  description = "Desired number of ECS tasks"
+  description = "Desired number of ECS tasks (2+ for production HA)"
   type        = number
-  default     = 1
+  default     = 2 # Multiple tasks for production HA
 }
 
-# Secrets (passed via environment or tfvars)
+# Secrets
 variable "clerk_secret_key" {
-  description = "Clerk secret key. Required - must be set in Secrets Manager or passed via CI/CD. Never commit actual values."
+  description = "Clerk secret key. Required - must be set in Secrets Manager or passed via CI/CD."
   type        = string
   sensitive   = true
-  # No default - this is a required secret that must be explicitly provided
 
   validation {
     condition     = !can(regex("^placeholder", var.clerk_secret_key))

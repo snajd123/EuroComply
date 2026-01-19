@@ -7,6 +7,7 @@ import type {
   TimestampProof,
 } from '@eurocomply/shared';
 import { ValidationError } from '../lib/errors.js';
+import { WaltIdClient, createWaltIdClient } from '@eurocomply/walt-id';
 
 /**
  * User proof structure for Ed25519Signature2020 signatures.
@@ -58,16 +59,43 @@ export interface CorporateEnvelopeOptions {
 const DID_KEY_PATTERN = /^did:key:z[a-zA-Z0-9]+$/;
 
 /**
+ * Configuration options for SigningService.
+ */
+export interface SigningServiceConfig {
+  /**
+   * WaltIdClient for real Ed25519 signatures.
+   * If not provided, falls back to mock signatures (for testing).
+   */
+  waltIdClient?: WaltIdClient;
+
+  /**
+   * Force mock signatures even if waltIdClient is provided.
+   * Useful for testing.
+   */
+  forceMock?: boolean;
+}
+
+/**
  * SigningService implements the Corporate Envelope pattern for DID-based digital signatures.
  *
- * This service provides deterministic mock signatures for testing and development.
- * In production, this will integrate with walt.id for real Ed25519 signatures.
- *
- * TODO: Integrate with walt.id signature service for production Ed25519 signatures
- * TODO: Add key resolution from DID documents
- * TODO: Implement signature verification methods
+ * This service integrates with walt.id for real Ed25519 signatures in production,
+ * and provides deterministic mock signatures for testing and development.
  */
 export class SigningService {
+  private readonly waltIdClient?: WaltIdClient;
+  private readonly forceMock: boolean;
+
+  constructor(config?: SigningServiceConfig) {
+    this.waltIdClient = config?.waltIdClient;
+    this.forceMock = config?.forceMock ?? false;
+  }
+
+  /**
+   * Check if real signatures are available (walt.id configured and not forcing mock).
+   */
+  get usesRealSignatures(): boolean {
+    return !!this.waltIdClient && !this.forceMock;
+  }
   /**
    * Sign a payload with a user's DID (Ed25519Signature2020).
    *
@@ -79,17 +107,15 @@ export class SigningService {
    * @param forensicContext - User forensic context to embed in the proof
    * @returns UserProof with Ed25519Signature2020 signature
    * @throws ValidationError if DID format is invalid
-   *
-   * TODO: Replace mock signature with walt.id Ed25519 signature
    */
-  signWithUserDid(
+  async signWithUserDid(
     payload: Record<string, unknown>,
     userDid: string,
     forensicContext: UserForensicContext
-  ): UserProof {
+  ): Promise<UserProof> {
     this.validateDid(userDid);
 
-    const signatureValue = this.createMockSignature(payload, userDid);
+    const signatureValue = await this.createSignature(payload, userDid);
     const verificationMethod = this.buildVerificationMethod(userDid);
 
     return {
@@ -112,17 +138,15 @@ export class SigningService {
    * @param forensicContext - Organization forensic context to embed in the proof
    * @returns CorporateProof with Ed25519Signature2020 signature
    * @throws ValidationError if DID format is invalid
-   *
-   * TODO: Replace mock signature with walt.id Ed25519 signature
    */
-  signWithOrgDid(
+  async signWithOrgDid(
     payload: Record<string, unknown>,
     orgDid: string,
     forensicContext: OrgForensicContext
-  ): CorporateProof {
+  ): Promise<CorporateProof> {
     this.validateDid(orgDid);
 
-    const signatureValue = this.createMockSignature(payload, orgDid);
+    const signatureValue = await this.createSignature(payload, orgDid);
     const verificationMethod = this.buildVerificationMethod(orgDid);
 
     return {
@@ -147,34 +171,22 @@ export class SigningService {
    * @param options - Optional credential status and timestamp proof
    * @returns SealedArtifact with dual signatures and embedded forensic contexts
    * @throws ValidationError if either DID format is invalid
-   *
-   * TODO: Integrate with walt.id for production signatures
-   * TODO: Add support for real RFC3161 timestamping
-   * TODO: Add support for StatusList2021 credential status
    */
-  createCorporateEnvelope(
+  async createCorporateEnvelope(
     payload: Record<string, unknown>,
     userContext: UserSigningContext,
     orgContext: OrgSigningContext,
     options?: CorporateEnvelopeOptions
-  ): SealedArtifact {
+  ): Promise<SealedArtifact> {
     // Validate both DIDs upfront
     this.validateDid(userContext.did);
     this.validateDid(orgContext.did);
 
-    // Create user proof
-    const userProof = this.signWithUserDid(
-      payload,
-      userContext.did,
-      userContext.forensicContext
-    );
-
-    // Create corporate proof
-    const corporateProof = this.signWithOrgDid(
-      payload,
-      orgContext.did,
-      orgContext.forensicContext
-    );
+    // Create both proofs (can be parallelized)
+    const [userProof, corporateProof] = await Promise.all([
+      this.signWithUserDid(payload, userContext.did, userContext.forensicContext),
+      this.signWithOrgDid(payload, orgContext.did, orgContext.forensicContext),
+    ]);
 
     // Build the sealed artifact
     const artifact: SealedArtifact = {
@@ -228,6 +240,54 @@ export class SigningService {
   }
 
   /**
+   * Create a signature using walt.id (real Ed25519) or mock (for testing).
+   *
+   * @param payload - The data to sign
+   * @param did - The signer's DID
+   * @returns Base64-encoded signature
+   */
+  private async createSignature(
+    payload: Record<string, unknown>,
+    did: string
+  ): Promise<string> {
+    // Use real walt.id signatures if available
+    if (this.waltIdClient && !this.forceMock) {
+      return this.createRealSignature(payload, did);
+    }
+
+    // Fall back to mock signature for testing
+    return this.createMockSignature(payload, did);
+  }
+
+  /**
+   * Create a real Ed25519 signature using walt.id signatory service.
+   *
+   * @param payload - The data to sign
+   * @param did - The signer's DID (key ID is extracted from DID)
+   * @returns Base64-encoded Ed25519 signature
+   */
+  private async createRealSignature(
+    payload: Record<string, unknown>,
+    did: string
+  ): Promise<string> {
+    if (!this.waltIdClient) {
+      throw new ValidationError('WaltIdClient not configured for real signatures');
+    }
+
+    // Extract key ID from DID (did:key:z6Mk... -> z6Mk...)
+    const keyId = did.replace('did:key:', '');
+
+    const response = await this.waltIdClient.sign({
+      keyId,
+      payload,
+      proofType: 'Ed25519Signature2020',
+      proofPurpose: 'assertionMethod',
+    });
+
+    return response.jws;
+  }
+
+  /**
    * Create a deterministic mock signature for testing.
    *
    * This generates a SHA-256 hash of the canonical JSON payload concatenated
@@ -237,8 +297,6 @@ export class SigningService {
    * @param payload - The data to sign
    * @param did - The signer's DID
    * @returns Hex-encoded SHA-256 hash as mock signature
-   *
-   * TODO: Replace with real Ed25519 signature via walt.id
    */
   private createMockSignature(
     payload: Record<string, unknown>,
@@ -252,4 +310,22 @@ export class SigningService {
       .update(canonicalPayload + did)
       .digest('hex');
   }
+}
+
+/**
+ * Factory function to create a SigningService with walt.id integration.
+ * Uses environment variables for configuration.
+ */
+export function createSigningService(options?: {
+  forceMock?: boolean;
+}): SigningService {
+  // Only create real client if walt.id URLs are configured
+  const hasWaltIdConfig = process.env['WALTID_SIGNATORY_URL'];
+
+  if (hasWaltIdConfig && !options?.forceMock) {
+    const waltIdClient = createWaltIdClient(process.env as Record<string, string>);
+    return new SigningService({ waltIdClient });
+  }
+
+  return new SigningService({ forceMock: true });
 }

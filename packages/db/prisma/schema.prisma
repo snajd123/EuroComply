@@ -510,3 +510,29 @@ model StatusList {
   @@unique([organizationId])
   @@map("status_lists")
 }
+
+/// Tracks individual status list entry revocations.
+/// Replaces the in-memory map in StatusList2021Service for persistence.
+model StatusListEntry {
+  id             String @id @default(cuid())
+  organizationId String @map("organization_id")
+
+  /// The index in the status list bitstring
+  statusIndex Int @map("status_index")
+
+  /// Reference to what this entry tracks (optional, for auditing)
+  /// e.g., "operations_event:abc123" or "dpp_snapshot:xyz789"
+  referenceType String? @map("reference_type")
+  referenceId   String? @map("reference_id")
+
+  /// Revocation info
+  revokedAt DateTime  @map("revoked_at")
+  reason    String?
+
+  /// Timestamps
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([organizationId, statusIndex])
+  @@index([organizationId])
+  @@map("status_list_entries")
+}

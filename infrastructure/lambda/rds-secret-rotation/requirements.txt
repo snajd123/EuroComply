@@ -1,0 +1,3 @@
+# Dependencies for RDS PostgreSQL secret rotation Lambda
+psycopg2-binary>=2.9.9
+boto3>=1.34.0

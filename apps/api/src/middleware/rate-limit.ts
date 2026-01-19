@@ -1,11 +1,12 @@
 /**
  * Rate Limiting Middleware
  *
- * Implements a simple in-memory sliding window rate limiter.
- * For production at scale, consider using Redis-based rate limiting.
+ * Implements a distributed sliding window rate limiter using Redis.
+ * Falls back to in-memory rate limiting if Redis is unavailable.
  */
 import type { Context, Next, MiddlewareHandler } from 'hono';
 import { RateLimitError } from '../lib/errors.js';
+import { checkRateLimit } from '../lib/redis.js';
 
 interface RateLimitOptions {
   /** Maximum requests per window */
@@ -62,6 +63,7 @@ function getClientIp(c: Context): string {
 
 /**
  * Creates a rate limiting middleware with the specified options.
+ * Uses Redis for distributed rate limiting when available, falls back to in-memory.
  */
 export function rateLimiter(options: RateLimitOptions): MiddlewareHandler {
   const {
@@ -69,7 +71,6 @@ export function rateLimiter(options: RateLimitOptions): MiddlewareHandler {
     windowMs,
     keyExtractor = getClientIp,
     skip,
-    message = 'Too many requests, please try again later',
   } = options;
 
   return async (c: Context, next: Next) => {
@@ -80,21 +81,36 @@ export function rateLimiter(options: RateLimitOptions): MiddlewareHandler {
 
     const key = keyExtractor(c);
     const now = Date.now();
-    const windowEnd = now + windowMs;
 
-    // Get or create entry
+    // Try Redis-based rate limiting first
+    const redisResult = await checkRateLimit(key, limit, windowMs);
+
+    if (redisResult) {
+      // Redis is available - use distributed rate limiting
+      c.header('X-RateLimit-Limit', String(limit));
+      c.header('X-RateLimit-Remaining', String(redisResult.remaining));
+      c.header('X-RateLimit-Reset', String(Math.ceil(redisResult.resetTime / 1000)));
+
+      if (redisResult.exceeded) {
+        const retryAfterSeconds = Math.ceil((redisResult.resetTime - now) / 1000);
+        c.header('Retry-After', String(retryAfterSeconds));
+        throw new RateLimitError(retryAfterSeconds);
+      }
+
+      return next();
+    }
+
+    // Fallback to in-memory rate limiting
+    const windowEnd = now + windowMs;
     let entry = rateLimitStore.get(key);
 
     if (!entry || entry.resetTime < now) {
-      // Create new entry or reset expired one
       entry = { count: 1, resetTime: windowEnd };
       rateLimitStore.set(key, entry);
     } else {
-      // Increment count
       entry.count++;
     }
 
-    // Set rate limit headers
     const remaining = Math.max(0, limit - entry.count);
     const reset = Math.ceil(entry.resetTime / 1000);
 
@@ -102,7 +118,6 @@ export function rateLimiter(options: RateLimitOptions): MiddlewareHandler {
     c.header('X-RateLimit-Remaining', String(remaining));
     c.header('X-RateLimit-Reset', String(reset));
 
-    // Check if rate limit exceeded
     if (entry.count > limit) {
       const retryAfterSeconds = Math.ceil((entry.resetTime - now) / 1000);
       c.header('Retry-After', String(retryAfterSeconds));

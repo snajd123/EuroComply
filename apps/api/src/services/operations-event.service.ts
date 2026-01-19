@@ -162,7 +162,7 @@ export class OperationsEventService {
     };
 
     // Create corporate envelope with dual signatures
-    const sealedArtifact = this.signingService.createCorporateEnvelope(
+    const sealedArtifact = await this.signingService.createCorporateEnvelope(
       payload,
       {
         did: signingContext.userDid,

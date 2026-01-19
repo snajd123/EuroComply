@@ -34,7 +34,25 @@ variable "multi_az" {
 
 variable "backup_retention_period" {
   type    = number
-  default = 7
+  default = 14 # 14 days for staging, 30+ for production
+}
+
+variable "enable_secret_rotation" {
+  description = "Enable automatic secret rotation for database credentials"
+  type        = bool
+  default     = false
+}
+
+variable "secret_rotation_days" {
+  description = "Number of days between automatic secret rotations"
+  type        = number
+  default     = 30
+}
+
+variable "kms_key_arn" {
+  description = "ARN of KMS key for encryption. Uses AWS-managed key if not provided."
+  type        = string
+  default     = null
 }
 
 locals {
@@ -133,7 +151,148 @@ resource "aws_secretsmanager_secret_version" "db_credentials" {
     host     = aws_db_instance.main.address
     port     = aws_db_instance.main.port
     database = aws_db_instance.main.db_name
+    engine   = "postgres"
   })
+}
+
+# =============================================================================
+# Secret Rotation (optional, for production)
+# Uses AWS-managed rotation Lambda for RDS PostgreSQL
+# =============================================================================
+resource "aws_secretsmanager_secret_rotation" "db_credentials" {
+  count = var.enable_secret_rotation ? 1 : 0
+
+  secret_id           = aws_secretsmanager_secret.db_credentials.id
+  rotation_lambda_arn = aws_lambda_function.secret_rotation[0].arn
+
+  rotation_rules {
+    automatically_after_days = var.secret_rotation_days
+  }
+
+  depends_on = [aws_lambda_permission.secret_rotation]
+}
+
+# Build rotation Lambda package
+resource "null_resource" "build_rotation_lambda" {
+  count = var.enable_secret_rotation ? 1 : 0
+
+  triggers = {
+    source_hash       = filemd5("${path.module}/../../../lambda/rds-secret-rotation/lambda_function.py")
+    requirements_hash = filemd5("${path.module}/../../../lambda/rds-secret-rotation/requirements.txt")
+  }
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      cd ${path.module}/../../../lambda/rds-secret-rotation
+      rm -rf package lambda.zip
+      pip install -r requirements.txt -t package --platform manylinux2014_x86_64 --only-binary=:all: --quiet
+      cp lambda_function.py package/
+      cd package && zip -r ../lambda.zip . -q
+    EOT
+  }
+}
+
+# Lambda for secret rotation (single-user rotation strategy)
+resource "aws_lambda_function" "secret_rotation" {
+  count = var.enable_secret_rotation ? 1 : 0
+
+  function_name = "${local.name_prefix}-rds-secret-rotation"
+  description   = "Rotates RDS PostgreSQL credentials"
+  role          = aws_iam_role.secret_rotation[0].arn
+  handler       = "lambda_function.lambda_handler"
+  runtime       = "python3.11"
+  timeout       = 30
+  memory_size   = 128
+
+  filename         = "${path.module}/../../../lambda/rds-secret-rotation/lambda.zip"
+  source_code_hash = filebase64sha256("${path.module}/../../../lambda/rds-secret-rotation/lambda_function.py")
+
+  vpc_config {
+    subnet_ids         = var.lambda_subnet_ids
+    security_group_ids = [var.lambda_security_group_id]
+  }
+
+  environment {
+    variables = {
+      SECRETS_MANAGER_ENDPOINT = "https://secretsmanager.eusc-de-east-1.amazonaws.eu"
+    }
+  }
+
+  depends_on = [null_resource.build_rotation_lambda]
+
+  tags = {
+    Name = "${local.name_prefix}-rds-secret-rotation"
+  }
+}
+
+resource "aws_iam_role" "secret_rotation" {
+  count = var.enable_secret_rotation ? 1 : 0
+  name  = "${local.name_prefix}-secret-rotation"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action = "sts:AssumeRole"
+      Effect = "Allow"
+      Principal = {
+        Service = "lambda.amazonaws.com"
+      }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "secret_rotation" {
+  count = var.enable_secret_rotation ? 1 : 0
+  name  = "secret-rotation-policy"
+  role  = aws_iam_role.secret_rotation[0].id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:DescribeSecret",
+          "secretsmanager:GetSecretValue",
+          "secretsmanager:PutSecretValue",
+          "secretsmanager:UpdateSecretVersionStage"
+        ]
+        Resource = aws_secretsmanager_secret.db_credentials.arn
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetRandomPassword"]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents"
+        ]
+        Resource = "arn:aws-eusc:logs:*:*:*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "ec2:CreateNetworkInterface",
+          "ec2:DescribeNetworkInterfaces",
+          "ec2:DeleteNetworkInterface"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+resource "aws_lambda_permission" "secret_rotation" {
+  count = var.enable_secret_rotation ? 1 : 0
+
+  statement_id  = "AllowSecretsManagerInvocation"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.secret_rotation[0].function_name
+  principal     = "secretsmanager.amazonaws.com"
 }
 
 # =============================================================================
@@ -150,6 +309,7 @@ resource "aws_db_instance" "main" {
   max_allocated_storage = var.allocated_storage * 2
   storage_type          = "gp3"
   storage_encrypted     = true
+  kms_key_id            = var.kms_key_arn # Uses AWS-managed key if null
 
   db_name  = "eurocomply"
   username = "eurocomply"
@@ -354,14 +514,47 @@ resource "aws_lambda_invocation" "iam_setup" {
   count = var.setup_iam_auth ? 1 : 0
 
   function_name = aws_lambda_function.iam_setup[0].function_name
-  input         = jsonencode({})
+  input         = jsonencode({
+    # Include a trigger to allow re-invocation when needed
+    db_instance_id = aws_db_instance.main.id
+  })
 
   depends_on = [aws_lambda_function.iam_setup]
 
-  lifecycle {
-    # Only run once - don't re-invoke on subsequent applies
-    ignore_changes = [input]
+  # Removed ignore_changes to detect Lambda errors on subsequent applies
+  # If re-invocation is undesired, use a separate trigger mechanism
+}
+
+# Verify Lambda execution succeeded
+resource "null_resource" "verify_iam_setup" {
+  count = var.setup_iam_auth ? 1 : 0
+
+  triggers = {
+    lambda_result = aws_lambda_invocation.iam_setup[0].result
   }
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      RESULT='${aws_lambda_invocation.iam_setup[0].result}'
+      echo "Lambda result: $RESULT"
+
+      # Check if result contains error
+      if echo "$RESULT" | grep -qi "error"; then
+        echo "ERROR: IAM setup Lambda returned an error"
+        exit 1
+      fi
+
+      # Check for success indicator
+      if echo "$RESULT" | grep -qi "success\|granted"; then
+        echo "IAM authentication setup completed successfully"
+        exit 0
+      fi
+
+      echo "WARNING: Could not verify Lambda result, check logs"
+    EOT
+  }
+
+  depends_on = [aws_lambda_invocation.iam_setup]
 }
 
 output "iam_setup_result" {

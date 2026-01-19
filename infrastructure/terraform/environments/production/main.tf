@@ -1,5 +1,6 @@
-# EuroComply Staging Environment
-# Deploys full infrastructure stack for staging
+# EuroComply Production Environment
+# Deploys full infrastructure stack for production
+# Production-specific settings: Multi-AZ, deletion protection, enhanced monitoring
 
 terraform {
   required_version = ">= 1.0"
@@ -24,19 +25,16 @@ terraform {
   }
 
   # AWS European Sovereign Cloud state backend
-  # Note: Run bootstrap/main.tf first to create this bucket
   backend "s3" {
     bucket         = "eurocomply-terraform-state"
-    key            = "staging/terraform.tfstate"
+    key            = "production/terraform.tfstate"
     region         = "eusc-de-east-1"
     dynamodb_table = "eurocomply-terraform-locks"
     encrypt        = true
-    # Sovereign Cloud S3 endpoint (amazonaws.eu domain)
     endpoints = {
       s3       = "https://s3.eusc-de-east-1.amazonaws.eu"
       dynamodb = "https://dynamodb.eusc-de-east-1.amazonaws.eu"
     }
-    # Skip validation for Sovereign Cloud region
     skip_region_validation      = true
     skip_credentials_validation = true
     skip_metadata_api_check     = true
@@ -45,13 +43,9 @@ terraform {
 }
 
 # AWS European Sovereign Cloud Provider
-# Region: eusc-de-east-1 (Brandenburg, Germany)
-# Partition: aws-eusc (isolated from global AWS)
-# Console: https://console.aws.eu
 provider "aws" {
   region = "eusc-de-east-1"
 
-  # Sovereign Cloud endpoints (amazonaws.eu domain)
   endpoints {
     sts                    = "https://sts.eusc-de-east-1.amazonaws.eu"
     iam                    = "https://iam.eusc-de-east-1.amazonaws.eu"
@@ -84,9 +78,8 @@ data "aws_caller_identity" "current" {}
 locals {
   project     = var.project
   environment = var.environment
-  # Use data source for account ID when available, with fallback for bootstrap
-  account_id = data.aws_caller_identity.current.account_id
-  region     = "eusc-de-east-1"
+  account_id  = data.aws_caller_identity.current.account_id
+  region      = "eusc-de-east-1"
 
   # walt.id service discovery URLs (centralized to avoid duplication)
   # These are determined by the Cloud Map namespace and service name
@@ -117,7 +110,10 @@ module "vpc" {
   environment        = local.environment
   vpc_cidr           = var.vpc_cidr
   az_count           = var.az_count
-  single_nat_gateway = true # Cost savings for staging
+  single_nat_gateway = false # Multi-NAT for production HA
+
+  # Extended retention for production compliance
+  flow_logs_retention_days = 90
 }
 
 # =============================================================================
@@ -150,7 +146,7 @@ module "alb" {
 }
 
 # =============================================================================
-# RDS PostgreSQL
+# RDS PostgreSQL (Production Settings)
 # =============================================================================
 module "rds" {
   source = "../../modules/rds"
@@ -162,14 +158,18 @@ module "rds" {
 
   instance_class          = var.db_instance_class
   allocated_storage       = var.db_allocated_storage
-  multi_az                = false # Single AZ for staging
-  backup_retention_period = 14    # 14 days for staging, use 30+ for production
+  multi_az                = true # Multi-AZ for production HA
+  backup_retention_period = var.backup_retention_period
   kms_key_arn             = module.kms.primary_key_arn
 
-  # IAM Authentication Setup (run Lambda to grant rds_iam role)
+  # IAM Authentication Setup
   setup_iam_auth           = true
   lambda_subnet_ids        = module.vpc.private_subnet_ids
   lambda_security_group_id = module.security_groups.ecs_security_group_id
+
+  # Secret rotation for production
+  enable_secret_rotation = var.enable_secret_rotation
+  secret_rotation_days   = var.secret_rotation_days
 }
 
 # =============================================================================
@@ -208,7 +208,7 @@ resource "aws_secretsmanager_secret_version" "app_secrets" {
 }
 
 # =============================================================================
-# ECS Fargate
+# ECS Fargate (Production Settings)
 # =============================================================================
 module "ecs" {
   source = "../../modules/ecs"
@@ -220,9 +220,8 @@ module "ecs" {
   security_group_id  = module.security_groups.ecs_security_group_id
   target_group_arn   = module.alb.target_group_arn
 
-  container_name = "api"
-  # Sovereign Cloud ECR endpoint format (amazonaws.eu domain)
-  container_image = "${local.account_id}.dkr.ecr.${local.region}.amazonaws.eu/${local.project}-api:staging"
+  container_name  = "api"
+  container_image = "${local.account_id}.dkr.ecr.${local.region}.amazonaws.eu/${local.project}-api:production"
   container_port  = var.app_port
 
   cpu    = var.ecs_cpu
@@ -233,7 +232,6 @@ module "ecs" {
   environment_variables = [
     { name = "NODE_ENV", value = "production" },
     { name = "PORT", value = tostring(var.app_port) },
-    # Database connection
     { name = "DB_HOST", value = module.rds.db_instance_address },
     { name = "DB_PORT", value = tostring(module.rds.db_instance_port) },
     { name = "DB_NAME", value = module.rds.db_name },
@@ -270,18 +268,18 @@ module "ecs" {
     module.elasticache.redis_auth_secret_arn
   ]
 
-  container_insights = false
-  log_retention_days = 30
-  enable_autoscaling = false
+  # Production settings
+  container_insights = true # Enhanced monitoring for production
+  log_retention_days = 90   # Extended log retention for production
+  enable_autoscaling = true # Auto-scaling for production
 
-  # RDS IAM authentication (scoped policy)
   rds_resource_id = module.rds.db_resource_id
   db_username     = module.rds.db_username
   aws_account_id  = local.account_id
 }
 
 # =============================================================================
-# walt.id SSI Services (DID/VC Operations)
+# walt.id SSI Services
 # =============================================================================
 module "waltid" {
   source = "../../modules/waltid"
@@ -294,13 +292,13 @@ module "waltid" {
   security_group_id  = module.security_groups.waltid_security_group_id
   ecs_cluster_id     = module.ecs.cluster_id
 
-  cpu                = 512
-  memory             = 1024
-  log_retention_days = 30
+  cpu                = 1024 # Higher CPU for production
+  memory             = 2048 # Higher memory for production
+  log_retention_days = 90
 }
 
 # =============================================================================
-# Update GitHub Actions Role with ECS permissions
+# GitHub Actions Role with ECS permissions
 # =============================================================================
 resource "aws_iam_role_policy" "github_actions_ecs" {
   name = "github-actions-ecs-deploy"
@@ -340,7 +338,6 @@ resource "aws_iam_role_policy" "github_actions_ecs" {
           "ecs:RegisterTaskDefinition",
           "ecs:DeregisterTaskDefinition"
         ]
-        # Task definitions are region-level resources, must use wildcard
         Resource = "*"
         Condition = {
           StringEquals = {

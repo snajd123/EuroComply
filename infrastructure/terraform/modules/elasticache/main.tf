@@ -33,6 +33,12 @@ variable "enable_auth" {
   default     = true
 }
 
+variable "kms_key_arn" {
+  description = "ARN of KMS key for at-rest encryption. Uses AWS-managed key if not provided."
+  type        = string
+  default     = null
+}
+
 locals {
   name_prefix = "${var.project}-${var.environment}"
 }
@@ -128,6 +134,7 @@ resource "aws_elasticache_replication_group" "main" {
   auth_token                 = var.enable_auth ? random_password.redis_auth[0].result : null
   transit_encryption_enabled = var.enable_auth
   at_rest_encryption_enabled = true
+  kms_key_id                 = var.kms_key_arn # Uses AWS-managed key if null
 
   # Automatic failover requires multi-AZ (only for production)
   automatic_failover_enabled = var.environment == "production" && var.num_cache_nodes > 1

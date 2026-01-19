@@ -18,7 +18,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.0"
+      version = "~> 6.0" # Aligned with staging/production environments
     }
   }
 }
@@ -391,9 +391,20 @@ resource "aws_iam_role_policy" "github_actions_deploy_supporting" {
 # =============================================================================
 # ECR Repository
 # =============================================================================
+variable "ecr_image_tag_mutability" {
+  description = "ECR image tag mutability. Use MUTABLE for staging (allows re-tagging), IMMUTABLE for production (prevents tag overwrites)"
+  type        = string
+  default     = "MUTABLE"
+
+  validation {
+    condition     = contains(["MUTABLE", "IMMUTABLE"], var.ecr_image_tag_mutability)
+    error_message = "ecr_image_tag_mutability must be MUTABLE or IMMUTABLE"
+  }
+}
+
 resource "aws_ecr_repository" "api" {
   name                 = "eurocomply-api"
-  image_tag_mutability = "MUTABLE"
+  image_tag_mutability = var.ecr_image_tag_mutability
 
   image_scanning_configuration {
     scan_on_push = true

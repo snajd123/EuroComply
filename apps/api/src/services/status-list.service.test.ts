@@ -17,6 +17,11 @@ interface MockPrismaClient {
     findFirst: Mock;
     findMany: Mock;
   };
+  statusListEntry: {
+    upsert: Mock;
+    findUnique: Mock;
+    findMany: Mock;
+  };
   $transaction: Mock;
 }
 
@@ -49,6 +54,11 @@ describe('StatusList2021Service', () => {
       },
       orgDidHistory: {
         findFirst: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+      statusListEntry: {
+        upsert: vi.fn().mockResolvedValue({ id: 'entry-1', statusIndex: 0 }),
+        findUnique: vi.fn().mockResolvedValue(null),
         findMany: vi.fn().mockResolvedValue([]),
       },
       $transaction: vi.fn((fn) => fn({
@@ -269,6 +279,12 @@ describe('StatusList2021Service', () => {
       // First revoke the index manually
       await service.revoke(testOrganizationId, 20, 'Manual revocation');
 
+      // Mock that the entry is found as revoked
+      mockPrisma.statusListEntry.findUnique.mockResolvedValue({
+        revokedAt: new Date(),
+        reason: 'Manual revocation',
+      });
+
       // Act
       const result = await service.isRevoked(testOrganizationId, 20);
 
@@ -360,7 +376,14 @@ describe('StatusList2021Service', () => {
       mockPrisma.orgDidHistory.findFirst.mockResolvedValue(null);
 
       const reason = 'Key compromised';
+      const revokedAt = new Date();
       await service.revoke(testOrganizationId, 25, reason);
+
+      // Mock that the entry is found with details
+      mockPrisma.statusListEntry.findUnique.mockResolvedValue({
+        revokedAt,
+        reason,
+      });
 
       // Act
       const result = await service.getRevocationInfo(testOrganizationId, 25);
@@ -472,10 +495,12 @@ describe('StatusList2021Service', () => {
       expect(bitstring.every(byte => byte === 0)).toBe(true);
     });
 
-    it('should_set_bits_from_in_memory_revocations', async () => {
-      // Arrange
-      await service.revoke(testOrganizationId, 0);
-      await service.revoke(testOrganizationId, 100);
+    it('should_set_bits_from_database_revocations', async () => {
+      // Arrange - mock the revoked entries from database
+      mockPrisma.statusListEntry.findMany.mockResolvedValue([
+        { statusIndex: 0, revokedAt: new Date() },
+        { statusIndex: 100, revokedAt: new Date() },
+      ]);
 
       // Act
       const bitstring = await service.buildBitstring(testOrganizationId);
@@ -528,8 +553,10 @@ describe('StatusList2021Service', () => {
     });
 
     it('should_produce_decodable_output', async () => {
-      // Arrange
-      await service.revoke(testOrganizationId, 123);
+      // Arrange - mock the revoked entry from database
+      mockPrisma.statusListEntry.findMany.mockResolvedValue([
+        { statusIndex: 123, revokedAt: new Date() },
+      ]);
 
       // Act
       const encoded = await service.getEncodedList(testOrganizationId);
@@ -543,8 +570,10 @@ describe('StatusList2021Service', () => {
 
   describe('checkRevocationFromEncodedList', () => {
     it('should_return_true_for_revoked_index', async () => {
-      // Arrange
-      await service.revoke(testOrganizationId, 500);
+      // Arrange - mock the revoked entry from database
+      mockPrisma.statusListEntry.findMany.mockResolvedValue([
+        { statusIndex: 500, revokedAt: new Date() },
+      ]);
       const encoded = await service.getEncodedList(testOrganizationId);
 
       // Act
@@ -598,7 +627,14 @@ describe('StatusList2021Service', () => {
     it('should_include_revoked_credentials_in_encoded_list', async () => {
       // Arrange
       const issuerId = 'did:key:z6MkTest123';
+
+      // Mock revocation - service saves to statusListEntry
       await service.revoke(testOrganizationId, 777);
+
+      // Mock findMany to return the revoked entry (buildBitstring reads from this)
+      mockPrisma.statusListEntry.findMany.mockResolvedValue([
+        { statusIndex: 777, revokedAt: new Date() },
+      ]);
 
       // Act
       const credential = await service.generateStatusListCredential(testOrganizationId, issuerId);

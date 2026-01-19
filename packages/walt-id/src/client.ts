@@ -252,13 +252,25 @@ export function createWaltIdClient(env?: {
     timeout: 30000,
   };
 
-  // Warn if using non-HTTPS URLs in non-development environment
-  if (process.env['NODE_ENV'] !== 'development' && process.env['NODE_ENV'] !== 'test') {
-    const urls = [config.coreApiUrl, config.signatoryUrl, config.custodianUrl, config.auditorUrl];
-    const insecureUrls = urls.filter((url) => url.startsWith('http://'));
-    if (insecureUrls.length > 0) {
+  // Block HTTP URLs in production (security requirement)
+  const isProduction = process.env['NODE_ENV'] === 'production';
+  const allowInsecure = process.env['WALTID_ALLOW_INSECURE'] === 'true';
+
+  const urls = [config.coreApiUrl, config.signatoryUrl, config.custodianUrl, config.auditorUrl];
+  const insecureUrls = urls.filter((url) => url.startsWith('http://'));
+
+  if (insecureUrls.length > 0) {
+    if (isProduction && !allowInsecure) {
+      throw new Error(
+        '[WaltIdClient] SECURITY ERROR: HTTP URLs are not allowed in production. ' +
+        'Configure HTTPS URLs or set WALTID_ALLOW_INSECURE=true (not recommended): ' +
+        insecureUrls.join(', ')
+      );
+    }
+
+    if (process.env['NODE_ENV'] !== 'development' && process.env['NODE_ENV'] !== 'test') {
       console.warn(
-        '[WaltIdClient] WARNING: Using insecure HTTP URLs in non-development environment. ' +
+        '[WaltIdClient] WARNING: Using insecure HTTP URLs. ' +
         'Configure HTTPS URLs for production: ' + insecureUrls.join(', ')
       );
     }

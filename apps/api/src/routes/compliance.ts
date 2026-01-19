@@ -14,6 +14,13 @@ import { NotFoundError, ValidationError } from '../lib/errors.js';
 import {
   ListSnapshotsQuerySchema,
   validateAuthority,
+  CreateReadinessProfileBodySchema,
+  UpdateReadinessProfileBodySchema,
+  CreateSnapshotBodySchema,
+  AttestSnapshotBodySchema,
+  SealSnapshotBodySchema,
+  IssueSnapshotBodySchema,
+  validateBody,
 } from '../lib/schemas.js';
 import type { AppVariables } from '../types/context.js';
 
@@ -82,8 +89,12 @@ compliance.post('/profiles', async (c) => {
   }
 
   try {
-    const body = await c.req.json();
-    const profile = await profileService.create(body);
+    const rawBody = await c.req.json();
+    const validation = validateBody(CreateReadinessProfileBodySchema, rawBody);
+    if (!validation.success) {
+      return c.json(err('VALIDATION_ERROR', validation.error), 400);
+    }
+    const profile = await profileService.create(validation.data);
     return c.json(ok(profile), 201);
   } catch (error) {
     if (error instanceof ValidationError) {
@@ -108,8 +119,12 @@ compliance.put('/profiles/:id', async (c) => {
   }
 
   try {
-    const body = await c.req.json();
-    const profile = await profileService.update(profileId, body);
+    const rawBody = await c.req.json();
+    const validation = validateBody(UpdateReadinessProfileBodySchema, rawBody);
+    if (!validation.success) {
+      return c.json(err('VALIDATION_ERROR', validation.error), 400);
+    }
+    const profile = await profileService.update(profileId, validation.data);
     return c.json(ok(profile));
   } catch (error) {
     if (error instanceof NotFoundError) {
@@ -232,8 +247,12 @@ compliance.post('/snapshots', async (c) => {
   }
 
   try {
-    const body = await c.req.json();
-    const snapshot = await snapshotService.createSnapshot(organizationId, body);
+    const rawBody = await c.req.json();
+    const validation = validateBody(CreateSnapshotBodySchema, rawBody);
+    if (!validation.success) {
+      return c.json(err('VALIDATION_ERROR', validation.error), 400);
+    }
+    const snapshot = await snapshotService.createSnapshot(organizationId, validation.data);
     return c.json(ok(snapshot), 201);
   } catch (error) {
     if (error instanceof NotFoundError) {
@@ -357,8 +376,12 @@ compliance.post('/snapshots/:id/attest', async (c) => {
   }
 
   try {
-    const body = await c.req.json();
-    const snapshot = await snapshotService.attest(organizationId, snapshotId, userId, body);
+    const rawBody = await c.req.json();
+    const validation = validateBody(AttestSnapshotBodySchema, rawBody);
+    if (!validation.success) {
+      return c.json(err('VALIDATION_ERROR', validation.error), 400);
+    }
+    const snapshot = await snapshotService.attest(organizationId, snapshotId, userId, validation.data);
     return c.json(ok(snapshot));
   } catch (error) {
     if (error instanceof NotFoundError) {
@@ -388,8 +411,12 @@ compliance.post('/snapshots/:id/seal', async (c) => {
   }
 
   try {
-    const body = await c.req.json();
-    const snapshot = await snapshotService.seal(organizationId, snapshotId, body);
+    const rawBody = await c.req.json();
+    const validation = validateBody(SealSnapshotBodySchema, rawBody);
+    if (!validation.success) {
+      return c.json(err('VALIDATION_ERROR', validation.error), 400);
+    }
+    const snapshot = await snapshotService.seal(organizationId, snapshotId, validation.data);
     return c.json(ok(snapshot));
   } catch (error) {
     if (error instanceof NotFoundError) {
@@ -418,8 +445,12 @@ compliance.post('/snapshots/:id/issue', async (c) => {
   }
 
   try {
-    const body = await c.req.json();
-    const snapshot = await snapshotService.issue(organizationId, snapshotId, body);
+    const rawBody = await c.req.json();
+    const validation = validateBody(IssueSnapshotBodySchema, rawBody);
+    if (!validation.success) {
+      return c.json(err('VALIDATION_ERROR', validation.error), 400);
+    }
+    const snapshot = await snapshotService.issue(organizationId, snapshotId, validation.data);
     return c.json(ok(snapshot));
   } catch (error) {
     if (error instanceof NotFoundError) {

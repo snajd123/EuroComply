@@ -28,6 +28,10 @@ const productInclude = {
   },
 };
 
+// TODO: Phase 2 - Make workspace configurable for multi-workspace BOM inheritance.
+// Currently MVP only supports DESIGN workspace for variant BOM cloning.
+const BOM_INHERITANCE_WORKSPACE = 'DESIGN' as const;
+
 export class ProductService {
   constructor(private prisma: PrismaClient) {}
 
@@ -97,7 +101,7 @@ export class ProductService {
             where: {
               productId: input.parentId,
               product: { organizationId }, // Cross-tenant protection
-              workspace: 'DESIGN', // MVP: BOM inheritance only from DESIGN workspace
+              workspace: BOM_INHERITANCE_WORKSPACE,
               status: 'RELEASED',
             },
             orderBy: { versionNumber: 'desc' },
@@ -114,7 +118,7 @@ export class ProductService {
             const variantVersion = await tx.productVersion.create({
               data: {
                 productId: product.id,
-                workspace: 'DESIGN',
+                workspace: BOM_INHERITANCE_WORKSPACE,
                 versionNumber: 1,
                 status: 'DRAFT',
                 createdBy: input.createdBy,

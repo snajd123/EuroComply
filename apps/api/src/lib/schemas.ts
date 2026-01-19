@@ -122,3 +122,120 @@ export function parseQueryParams<T extends z.ZodSchema>(
   }
   return result.data;
 }
+
+// ===========================================
+// READINESS PROFILE BODY SCHEMAS
+// ===========================================
+
+/**
+ * Schema for required fields per workspace in readiness profiles.
+ * Maps workspace name to an array of required field names.
+ */
+export const RequiredFieldsSchema = z.record(
+  z.string(),
+  z.array(z.string().min(1))
+);
+
+/**
+ * Schema for creating a new readiness profile.
+ */
+export const CreateReadinessProfileBodySchema = z.object({
+  name: z.string().min(1, 'Name is required').max(255),
+  category: z.string().min(1, 'Category is required').max(100),
+  description: z.string().max(1000).optional(),
+  requiredFields: RequiredFieldsSchema,
+  requiredAttestations: z.array(z.string().min(1)).optional(),
+});
+
+export type CreateReadinessProfileBody = z.infer<typeof CreateReadinessProfileBodySchema>;
+
+/**
+ * Schema for updating an existing readiness profile.
+ * All fields are optional for partial updates.
+ * Matches ReadinessProfileService.UpdateReadinessProfileInput
+ */
+export const UpdateReadinessProfileBodySchema = z.object({
+  name: z.string().min(1).max(255).optional(),
+  description: z.string().max(1000).optional(),
+  requiredFields: RequiredFieldsSchema.optional(),
+  requiredAttestations: z.array(z.string().min(1)).optional(),
+});
+
+export type UpdateReadinessProfileBody = z.infer<typeof UpdateReadinessProfileBodySchema>;
+
+// ===========================================
+// DPP SNAPSHOT BODY SCHEMAS
+// ===========================================
+
+/**
+ * Schema for creating a new DPP snapshot.
+ */
+export const CreateSnapshotBodySchema = z.object({
+  productId: z.string().min(1, 'Product ID is required'),
+  readinessProfileId: z.string().min(1, 'Readiness profile ID is required'),
+  designVersionId: z.string().min(1, 'Design version ID is required'),
+  marketingVersionId: z.string().optional(),
+});
+
+export type CreateSnapshotBody = z.infer<typeof CreateSnapshotBodySchema>;
+
+/**
+ * Schema for attesting a snapshot.
+ * Matches DPPSnapshotService.AttestInput
+ */
+export const AttestSnapshotBodySchema = z.object({
+  userSignatureDid: z.string().min(1, 'User signature DID is required'),
+  userSignatureJws: z.string().min(1, 'User signature JWS is required'),
+  userForensicContext: z.record(z.unknown()),
+});
+
+export type AttestSnapshotBody = z.infer<typeof AttestSnapshotBodySchema>;
+
+/**
+ * Schema for sealing a snapshot.
+ * Matches DPPSnapshotService.SealInput
+ */
+export const SealSnapshotBodySchema = z.object({
+  orgSignatureDid: z.string().min(1, 'Organization signature DID is required'),
+  orgSignatureJws: z.string().min(1, 'Organization signature JWS is required'),
+  orgForensicContext: z.record(z.unknown()),
+});
+
+export type SealSnapshotBody = z.infer<typeof SealSnapshotBodySchema>;
+
+/**
+ * Schema for issuing a snapshot.
+ * Matches DPPSnapshotService.IssueInput
+ */
+export const IssueSnapshotBodySchema = z.object({
+  vcId: z.string().min(1, 'VC ID is required'),
+  vcJwt: z.string().min(1, 'VC JWT is required'),
+  dppUrl: z.string().url('DPP URL must be valid'),
+  qrCodeUrl: z.string().url().optional(),
+  credentialStatusIndex: z.number().int().nonnegative().optional(),
+  timestampProof: z.record(z.unknown()).optional(),
+});
+
+export type IssueSnapshotBody = z.infer<typeof IssueSnapshotBodySchema>;
+
+// ===========================================
+// VALIDATION HELPERS
+// ===========================================
+
+/**
+ * Validates a request body against a Zod schema.
+ * Returns a formatted error message if validation fails.
+ */
+export function validateBody<T extends z.ZodSchema>(
+  schema: T,
+  body: unknown
+): { success: true; data: z.infer<T> } | { success: false; error: string } {
+  const result = schema.safeParse(body);
+  if (!result.success) {
+    const errors = result.error.errors
+      .map((e) => `${e.path.join('.') || 'body'}: ${e.message}`)
+      .join(', ');
+    return { success: false, error: errors };
+  }
+  return { success: true, data: result.data };
+}

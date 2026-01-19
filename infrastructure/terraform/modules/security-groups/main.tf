@@ -18,6 +18,12 @@ variable "app_port" {
   default = 3000
 }
 
+variable "vpc_endpoints_security_group_id" {
+  description = "Security group ID for VPC endpoints (for restricted egress)"
+  type        = string
+  default     = null
+}
+
 locals {
   name_prefix = "${var.project}-${var.environment}"
 }
@@ -102,20 +108,35 @@ resource "aws_security_group" "rds" {
     security_groups = [aws_security_group.ecs.id]
   }
 
-  # Allow egress for AWS service endpoints (CloudWatch, etc.)
-  # Security groups are stateful - response traffic is auto-allowed
-  # TODO: For production, restrict to VPC endpoints only
-  egress {
-    description = "HTTPS to AWS services"
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
   tags = {
     Name = "${local.name_prefix}-rds-sg"
   }
+}
+
+# RDS egress rules - restricted to VPC endpoints when available
+# If VPC endpoints are not configured, allow broad HTTPS (fallback for bootstrapping)
+resource "aws_security_group_rule" "rds_egress_vpc_endpoints" {
+  count = var.vpc_endpoints_security_group_id != null ? 1 : 0
+
+  type                     = "egress"
+  from_port                = 443
+  to_port                  = 443
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.rds.id
+  source_security_group_id = var.vpc_endpoints_security_group_id
+  description              = "HTTPS to VPC endpoints only"
+}
+
+resource "aws_security_group_rule" "rds_egress_fallback" {
+  count = var.vpc_endpoints_security_group_id == null ? 1 : 0
+
+  type              = "egress"
+  from_port         = 443
+  to_port           = 443
+  protocol          = "tcp"
+  security_group_id = aws_security_group.rds.id
+  cidr_blocks       = ["0.0.0.0/0"]
+  description       = "HTTPS to AWS services (fallback - configure VPC endpoints for production)"
 }
 
 # =============================================================================

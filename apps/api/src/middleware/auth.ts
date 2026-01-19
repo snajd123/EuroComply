@@ -8,6 +8,15 @@ import type { AppVariables, UserOnlyVariables } from '../types/context.js';
 const CLERK_SECRET_KEY = process.env['CLERK_SECRET_KEY'];
 const ENABLE_TEST_AUTH_BYPASS = process.env['ENABLE_TEST_AUTH_BYPASS'] === 'true';
 
+// Fail fast in production if test auth bypass is enabled
+// This is a critical security check - test auth bypass must NEVER be enabled in production
+if (ENABLE_TEST_AUTH_BYPASS && process.env['NODE_ENV'] === 'production') {
+  throw new Error(
+    'SECURITY ERROR: ENABLE_TEST_AUTH_BYPASS=true is not allowed in production. ' +
+    'This flag bypasses authentication and must only be used in test environments.'
+  );
+}
+
 // Fail fast in production if Clerk is not configured
 if (!CLERK_SECRET_KEY) {
   if (process.env['NODE_ENV'] === 'production') {
@@ -95,11 +104,28 @@ async function performOrgAuth(
 
   c.set('db', tenantClient);
 
-  // Update last login (fire and forget, but log errors)
-  prisma.user.update({
-    where: { id: user.id },
-    data: { lastLoginAt: new Date() },
-  }).catch((err) => console.error('Failed to update lastLoginAt:', err));
+  // Update last login with timeout to avoid blocking authentication
+  // We await this to ensure proper error handling, but use a timeout
+  // to prevent slow DB writes from delaying the auth response
+  const UPDATE_TIMEOUT_MS = 1000;
+
+  try {
+    await Promise.race([
+      prisma.user.update({
+        where: { id: user.id },
+        data: { lastLoginAt: new Date() },
+      }),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('lastLoginAt update timeout')), UPDATE_TIMEOUT_MS)
+      ),
+    ]);
+  } catch (err) {
+    // Log but don't fail auth - lastLoginAt is non-critical
+    console.error(
+      'Failed to update lastLoginAt:',
+      err instanceof Error ? err.message : err
+    );
+  }
 }
 
 /**
