@@ -272,6 +272,14 @@ export class SigningService {
       return this.createRealSignature(payload, did);
     }
 
+    // Security warning: mock signatures should only be used in test environment
+    if (process.env['NODE_ENV'] === 'production') {
+      console.warn(
+        '[SigningService] WARNING: Using mock signatures in production! ' +
+        'Configure WALTID_SIGNATORY_URL for real Ed25519 signatures.'
+      );
+    }
+
     // Fall back to mock signature for testing
     return this.createMockSignature(payload, did);
   }

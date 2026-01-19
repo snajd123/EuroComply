@@ -188,9 +188,11 @@ verification.get('/status/:orgId', async (c) => {
       orgDid.did
     );
 
+    // Short cache for faster revocation propagation
+    // (revocations should be visible within 60s)
     return c.json(credential, 200, {
       'Content-Type': 'application/vc+ld+json',
-      'Cache-Control': 'public, max-age=300', // 5 minute cache
+      'Cache-Control': 'public, max-age=60, stale-while-revalidate=300',
     });
   } catch (error) {
     console.error('Status list error:', error);

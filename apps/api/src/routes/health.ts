@@ -1,7 +1,11 @@
 import { Hono } from 'hono';
 import { prisma } from '@eurocomply/db';
+import { healthRateLimiter } from '../middleware/rate-limit.js';
 
 const health = new Hono();
+
+// Rate limit health endpoints to prevent monitoring abuse
+health.use('/*', healthRateLimiter);
 
 /**
  * Basic health check endpoint.

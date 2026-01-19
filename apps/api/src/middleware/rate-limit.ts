@@ -150,3 +150,14 @@ export const strictRateLimiter = rateLimiter({
   windowMs: 60 * 1000, // 1 minute
   message: 'Rate limit exceeded for this operation. Please try again later.',
 });
+
+/**
+ * Rate limiter for health check endpoints.
+ * Allows 60 requests per minute per IP.
+ * Prevents monitoring abuse while allowing legitimate health checks.
+ */
+export const healthRateLimiter = rateLimiter({
+  limit: 60,
+  windowMs: 60 * 1000, // 1 minute
+  message: 'Too many health check requests. Please reduce polling frequency.',
+});
