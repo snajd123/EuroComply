@@ -168,11 +168,11 @@ describe('Verification E2E Flow', () => {
     it('should reject invalid DID format', async () => {
       await expect(
         signingService.signWithUserDid(testPayload, 'invalid-did', userForensicContext)
-      ).rejects.toThrow('Invalid DID format');
+      ).rejects.toThrow('Invalid DID: must be did:key format');
 
       await expect(
         signingService.signWithUserDid(testPayload, 'did:web:example.com', userForensicContext)
-      ).rejects.toThrow('Invalid DID format');
+      ).rejects.toThrow('Invalid DID: must be did:key format');
     });
   });
 

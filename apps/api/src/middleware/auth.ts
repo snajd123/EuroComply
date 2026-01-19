@@ -4,6 +4,7 @@ import type { Context } from 'hono';
 import { verifyToken } from '@clerk/backend';
 import { prisma, getTenantConnectionManager } from '@eurocomply/db';
 import type { AppVariables, UserOnlyVariables } from '../types/context.js';
+import { isValidOrgId } from '../lib/validators.js';
 
 const CLERK_SECRET_KEY = process.env['CLERK_SECRET_KEY'];
 const ENABLE_TEST_AUTH_BYPASS = process.env['ENABLE_TEST_AUTH_BYPASS'] === 'true';
@@ -164,6 +165,11 @@ export const authMiddleware = createMiddleware<{ Variables: AppVariables }>(
     const orgId = c.req.header('X-Organization-ID') || c.req.query('org');
     if (!orgId) {
       throw new HTTPException(400, { message: 'Missing organization ID' });
+    }
+
+    // Validate org ID format before database query (security: prevents injection)
+    if (!isValidOrgId(orgId)) {
+      throw new HTTPException(400, { message: 'Invalid organization ID format' });
     }
 
     try {
