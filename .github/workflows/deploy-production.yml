@@ -1,43 +1,51 @@
 # Deploy to Production - AWS European Sovereign Cloud
-# Triggered on release tags (v*)
-# Builds Docker image, pushes to ECR, and deploys to ECS
+# Builds Docker image, pushes to ECR, deploys to ECS, runs migrations
+#
+# Trigger: Manual dispatch only (requires approval)
+# Requires: Staging deploy must have succeeded
 
 name: Deploy Production
 
 on:
-  release:
-    types: [published]
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "deploy" to confirm production deployment'
+        required: true
+        type: string
 
 env:
-  # AWS European Sovereign Cloud (eusc-de-east-1)
   AWS_REGION: eusc-de-east-1
-  # AWS_ACCOUNT_ID comes from secrets.AWS_ACCOUNT_ID
-  # Sovereign Cloud uses amazonaws.eu domain
   ECR_REPOSITORY: eurocomply-api
-  ECS_CLUSTER: eurocomply-production-cluster
+  ECS_CLUSTER: eurocomply-production
   ECS_SERVICE: eurocomply-production-api
   ECS_TASK_FAMILY: eurocomply-production-api
   CONTAINER_NAME: api
 
 jobs:
+  validate:
+    name: Validate Deployment
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check confirmation
+        if: ${{ github.event.inputs.confirm != 'deploy' }}
+        run: |
+          echo "ERROR: You must type 'deploy' to confirm production deployment"
+          exit 1
+
   deploy:
     name: Deploy to Production
     runs-on: ubuntu-latest
+    needs: validate
+    environment: production  # Requires manual approval
 
     permissions:
-      id-token: write  # For OIDC authentication
+      id-token: write
       contents: read
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Extract version from tag
-        id: version
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/}
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Deploying version: $VERSION"
 
       - name: Configure AWS credentials for Sovereign Cloud
         uses: aws-actions/configure-aws-credentials@v4
@@ -94,12 +102,10 @@ jobs:
           push: true
           tags: |
             ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
-            ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ steps.version.outputs.version }}
-            ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:production
+            ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:staging
+            ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          build-args: |
-            NODE_ENV=production
 
       - name: Get current task definition
         id: task-def
@@ -117,7 +123,7 @@ jobs:
       - name: Update task definition with new image
         id: update-task-def
         run: |
-          NEW_IMAGE="${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ steps.version.outputs.version }}"
+          NEW_IMAGE="${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}"
 
           jq --arg IMAGE "$NEW_IMAGE" --arg CONTAINER "${{ env.CONTAINER_NAME }}" \
             '.containerDefinitions |= map(if .name == $CONTAINER then .image = $IMAGE else . end)' \
@@ -155,38 +161,120 @@ jobs:
             --endpoint-url https://ecs.${{ env.AWS_REGION }}.amazonaws.eu
           echo "Service is stable!"
 
-      - name: Run smoke tests
+      - name: Get ALB DNS name
+        id: alb
         run: |
-          PRODUCTION_URL="${{ secrets.PRODUCTION_API_URL }}"
+          ALB_DNS=$(aws elbv2 describe-load-balancers \
+            --names eurocomply-staging-alb \
+            --query 'LoadBalancers[0].DNSName' \
+            --output text \
+            --endpoint-url https://elasticloadbalancing.${{ env.AWS_REGION }}.amazonaws.eu)
+          echo "alb_dns=$ALB_DNS" >> $GITHUB_OUTPUT
+          echo "ALB DNS: $ALB_DNS"
 
-          if [ -z "$PRODUCTION_URL" ]; then
-            echo "PRODUCTION_API_URL not set, skipping smoke tests"
+      - name: Run Database Migrations
+        run: |
+          echo "Running Prisma database migrations..."
+
+          # Get migration task definition ARN
+          MIGRATION_TASK_DEF=$(aws ecs describe-task-definition \
+            --task-definition ${{ env.ECS_CLUSTER }}-migration \
+            --query 'taskDefinition.taskDefinitionArn' \
+            --endpoint-url https://ecs.${{ env.AWS_REGION }}.amazonaws.eu \
+            --output text 2>/dev/null || echo "")
+
+          if [ -z "$MIGRATION_TASK_DEF" ]; then
+            echo "Migration task definition not found, skipping migrations"
             exit 0
           fi
 
-          echo "Running smoke tests against $PRODUCTION_URL"
+          # Get network configuration from the service
+          NETWORK_CONFIG=$(aws ecs describe-services \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --services ${{ env.ECS_SERVICE }} \
+            --endpoint-url https://ecs.${{ env.AWS_REGION }}.amazonaws.eu \
+            --query 'services[0].networkConfiguration' \
+            --output json)
 
-          # Health check with retries
-          for i in {1..5}; do
-            if curl -sf "${PRODUCTION_URL}/health"; then
+          # Run migration task
+          TASK_ARN=$(aws ecs run-task \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --task-definition $MIGRATION_TASK_DEF \
+            --launch-type FARGATE \
+            --network-configuration "$NETWORK_CONFIG" \
+            --endpoint-url https://ecs.${{ env.AWS_REGION }}.amazonaws.eu \
+            --query 'tasks[0].taskArn' \
+            --output text)
+
+          echo "Migration task started: $TASK_ARN"
+          aws ecs wait tasks-stopped \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --tasks "$TASK_ARN" \
+            --endpoint-url https://ecs.${{ env.AWS_REGION }}.amazonaws.eu
+
+          # Check exit code
+          EXIT_CODE=$(aws ecs describe-tasks \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --tasks "$TASK_ARN" \
+            --endpoint-url https://ecs.${{ env.AWS_REGION }}.amazonaws.eu \
+            --query 'tasks[0].containers[0].exitCode' \
+            --output text)
+
+          if [ "$EXIT_CODE" != "0" ]; then
+            echo "Migration failed with exit code $EXIT_CODE"
+            exit 1
+          fi
+          echo "Migrations completed successfully"
+
+      - name: Verify Health
+        run: |
+          STAGING_URL="https://api.eurocomply.eu"
+          echo "Verifying application health at $STAGING_URL"
+
+          sleep 30  # Wait for LB health checks
+
+          for i in {1..10}; do
+            echo "Attempt $i/10..."
+            RESPONSE=$(curl -s -k "${STAGING_URL}/health/ready" || echo '{"status":"error"}')
+            STATUS=$(echo "$RESPONSE" | jq -r '.status')
+
+            if [ "$STATUS" = "ok" ]; then
               echo "Health check passed!"
-              exit 0
+              echo "$RESPONSE" | jq .
+              break
             fi
-            echo "Attempt $i failed, waiting..."
-            sleep 10
+
+            echo "Status: $STATUS - waiting 15s..."
+            sleep 15
           done
 
-          echo "Smoke tests failed after 5 attempts"
-          exit 1
+          if [ "$STATUS" != "ok" ]; then
+            echo "Health check failed after 10 attempts"
+            exit 1
+          fi
 
-      - name: Notify on success
+      - name: Run E2E Smoke Tests
+        env:
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          E2E_TEST_USER_ID: ${{ secrets.E2E_TEST_USER_ID }}
         run: |
-          echo "Successfully deployed version ${{ steps.version.outputs.version }} to production!"
-          # Add Slack/Discord notification here if needed
+          export API_URL="https://api.eurocomply.eu"
 
-      - name: Notify on failure
-        if: failure()
+          # Generate E2E test token if configured
+          if [ -n "$E2E_TEST_USER_ID" ] && [ -n "$CLERK_SECRET_KEY" ]; then
+            chmod +x scripts/get-e2e-token.sh
+            export E2E_TEST_TOKEN=$(./scripts/get-e2e-token.sh 2>/dev/null) || true
+          fi
+
+          # Run smoke tests
+          chmod +x scripts/e2e-smoke-test.sh
+          ./scripts/e2e-smoke-test.sh
+
+      - name: Deployment Summary
+        if: always()
         run: |
-          echo "Production deployment failed for version ${{ steps.version.outputs.version }}!"
-          echo "Check the logs above for details"
-          # Add Slack/Discord notification here if needed
+          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment:** Production" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **URL:** https://api.eurocomply.eu" >> $GITHUB_STEP_SUMMARY

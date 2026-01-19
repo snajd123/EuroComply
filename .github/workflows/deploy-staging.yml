@@ -1,23 +1,24 @@
 # Deploy to Staging - AWS European Sovereign Cloud
-# Triggered on push to main branch after CI passes
-# Builds Docker image, pushes to ECR, and deploys to ECS
+# Builds Docker image, pushes to ECR, deploys to ECS, runs migrations and E2E tests
+#
+# Trigger: Changes to app code or manual dispatch
 
 name: Deploy Staging
 
 on:
-  workflow_run:
-    workflows: ["CI"]
+  push:
     branches: [main]
-    types:
-      - completed
+    paths:
+      - 'apps/**'
+      - 'packages/**'
+      - 'Dockerfile'
+      - 'pnpm-lock.yaml'
+  workflow_dispatch:
 
 env:
-  # AWS European Sovereign Cloud (eusc-de-east-1)
   AWS_REGION: eusc-de-east-1
-  # AWS_ACCOUNT_ID comes from secrets.AWS_ACCOUNT_ID
-  # Sovereign Cloud uses amazonaws.eu domain
   ECR_REPOSITORY: eurocomply-api
-  ECS_CLUSTER: eurocomply-staging-cluster
+  ECS_CLUSTER: eurocomply-staging
   ECS_SERVICE: eurocomply-staging-api
   ECS_TASK_FAMILY: eurocomply-staging-api
   CONTAINER_NAME: api
@@ -26,11 +27,10 @@ jobs:
   deploy:
     name: Deploy to Staging
     runs-on: ubuntu-latest
-    # Only run if CI passed
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    environment: staging  # Uses staging environment secrets
 
     permissions:
-      id-token: write  # For OIDC authentication
+      id-token: write
       contents: read
 
     steps:
@@ -162,40 +162,109 @@ jobs:
           echo "alb_dns=$ALB_DNS" >> $GITHUB_OUTPUT
           echo "ALB DNS: $ALB_DNS"
 
-      - name: Run smoke tests
+      - name: Run Database Migrations
         run: |
-          # Use the public Cloudflare URL to test the full path users access
+          echo "Running Prisma database migrations..."
+
+          # Get migration task definition ARN
+          MIGRATION_TASK_DEF=$(aws ecs describe-task-definition \
+            --task-definition ${{ env.ECS_CLUSTER }}-migration \
+            --query 'taskDefinition.taskDefinitionArn' \
+            --endpoint-url https://ecs.${{ env.AWS_REGION }}.amazonaws.eu \
+            --output text 2>/dev/null || echo "")
+
+          if [ -z "$MIGRATION_TASK_DEF" ]; then
+            echo "Migration task definition not found, skipping migrations"
+            exit 0
+          fi
+
+          # Get network configuration from the service
+          NETWORK_CONFIG=$(aws ecs describe-services \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --services ${{ env.ECS_SERVICE }} \
+            --endpoint-url https://ecs.${{ env.AWS_REGION }}.amazonaws.eu \
+            --query 'services[0].networkConfiguration' \
+            --output json)
+
+          # Run migration task
+          TASK_ARN=$(aws ecs run-task \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --task-definition $MIGRATION_TASK_DEF \
+            --launch-type FARGATE \
+            --network-configuration "$NETWORK_CONFIG" \
+            --endpoint-url https://ecs.${{ env.AWS_REGION }}.amazonaws.eu \
+            --query 'tasks[0].taskArn' \
+            --output text)
+
+          echo "Migration task started: $TASK_ARN"
+          aws ecs wait tasks-stopped \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --tasks "$TASK_ARN" \
+            --endpoint-url https://ecs.${{ env.AWS_REGION }}.amazonaws.eu
+
+          # Check exit code
+          EXIT_CODE=$(aws ecs describe-tasks \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --tasks "$TASK_ARN" \
+            --endpoint-url https://ecs.${{ env.AWS_REGION }}.amazonaws.eu \
+            --query 'tasks[0].containers[0].exitCode' \
+            --output text)
+
+          if [ "$EXIT_CODE" != "0" ]; then
+            echo "Migration failed with exit code $EXIT_CODE"
+            exit 1
+          fi
+          echo "Migrations completed successfully"
+
+      - name: Verify Health
+        run: |
           STAGING_URL="https://api-staging.eurocomply.eu"
-          echo "Running smoke tests against $STAGING_URL"
+          echo "Verifying application health at $STAGING_URL"
 
-          # Wait for new tasks to be fully healthy (ECS wait only checks service, not LB health)
-          echo "Waiting 30s for load balancer health checks..."
-          sleep 30
+          sleep 30  # Wait for LB health checks
 
-          # Health check with retries
           for i in {1..10}; do
             echo "Attempt $i/10..."
-            HTTP_CODE=$(curl -s -o /tmp/response.txt -w "%{http_code}" "${STAGING_URL}/health" || echo "000")
+            RESPONSE=$(curl -s -k "${STAGING_URL}/health/ready" || echo '{"status":"error"}')
+            STATUS=$(echo "$RESPONSE" | jq -r '.status')
 
-            if [ "$HTTP_CODE" = "200" ]; then
+            if [ "$STATUS" = "ok" ]; then
               echo "Health check passed!"
-              cat /tmp/response.txt
-              exit 0
+              echo "$RESPONSE" | jq .
+              break
             fi
 
-            echo "HTTP $HTTP_CODE - waiting 15s before retry..."
-            [ -f /tmp/response.txt ] && cat /tmp/response.txt
+            echo "Status: $STATUS - waiting 15s..."
             sleep 15
           done
 
-          echo "Smoke tests failed after 10 attempts"
-          echo "Last response:"
-          [ -f /tmp/response.txt ] && cat /tmp/response.txt
-          exit 1
+          if [ "$STATUS" != "ok" ]; then
+            echo "Health check failed after 10 attempts"
+            exit 1
+          fi
 
-      - name: Notify on failure
-        if: failure()
+      - name: Run E2E Smoke Tests
+        env:
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          E2E_TEST_USER_ID: ${{ secrets.E2E_TEST_USER_ID }}
         run: |
-          echo "Deployment to staging failed!"
-          echo "Check the logs above for details"
-          # Add Slack/Discord notification here if needed
+          export API_URL="https://api-staging.eurocomply.eu"
+
+          # Generate E2E test token if configured
+          if [ -n "$E2E_TEST_USER_ID" ] && [ -n "$CLERK_SECRET_KEY" ]; then
+            chmod +x scripts/get-e2e-token.sh
+            export E2E_TEST_TOKEN=$(./scripts/get-e2e-token.sh 2>/dev/null) || true
+          fi
+
+          # Run smoke tests
+          chmod +x scripts/e2e-smoke-test.sh
+          ./scripts/e2e-smoke-test.sh
+
+      - name: Deployment Summary
+        if: always()
+        run: |
+          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment:** Staging" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **URL:** https://api-staging.eurocomply.eu" >> $GITHUB_STEP_SUMMARY

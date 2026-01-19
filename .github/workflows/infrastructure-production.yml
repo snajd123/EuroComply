@@ -1,0 +1,91 @@
+# Infrastructure Deployment - Production
+# Deploys Terraform changes to production environment
+#
+# Trigger: Changes to production terraform files or manual dispatch
+# Requires: Manual approval via GitHub Environment
+
+name: Infrastructure - Production
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'infrastructure/terraform/environments/production/**'
+      - 'infrastructure/terraform/modules/**'
+  workflow_dispatch:
+
+env:
+  AWS_REGION: eusc-de-east-1
+  TF_VERSION: "1.14.3"
+  ENVIRONMENT: production
+
+jobs:
+  terraform:
+    name: Terraform
+    runs-on: ubuntu-latest
+    environment: production  # Requires manual approval
+
+    permissions:
+      id-token: write
+      contents: read
+
+    defaults:
+      run:
+        working-directory: infrastructure/terraform/environments/production
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws-eusc:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-actions-eurocomply
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Python for Lambda builds
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Build Lambda packages
+        run: |
+          LAMBDA_DIR="${GITHUB_WORKSPACE}/infrastructure/lambda/rds-iam-setup"
+          if [ -f "$LAMBDA_DIR/requirements.txt" ]; then
+            echo "Building RDS IAM setup Lambda..."
+            cd "$LAMBDA_DIR"
+            rm -rf package lambda.zip /tmp/psycopg2-download
+            pip download -r requirements.txt -d /tmp/psycopg2-download \
+              --platform manylinux2014_x86_64 \
+              --python-version 3.11 \
+              --only-binary=:all: \
+              --quiet
+            mkdir -p package
+            for whl in /tmp/psycopg2-download/*.whl; do
+              unzip -q -o "$whl" -d package
+            done
+            cp index.py package/
+            cd package && zip -r ../lambda.zip . -q -x "*.pyc" -x "__pycache__/*"
+            rm -rf /tmp/psycopg2-download
+            echo "Lambda package created"
+          fi
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Validate
+        run: terraform validate -no-color
+
+      - name: Terraform Plan
+        run: |
+          terraform plan -no-color -out=tfplan \
+            -var="clerk_secret_key=${{ secrets.CLERK_SECRET_KEY }}" \
+            -var="clerk_webhook_secret=${{ secrets.CLERK_WEBHOOK_SECRET }}"
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve tfplan
