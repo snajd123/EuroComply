@@ -1,40 +1,63 @@
 # RDS Module for EuroComply
 # Creates PostgreSQL RDS instance with Secrets Manager credentials
 
+terraform {
+  required_version = ">= 1.0"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 6.0"
+    }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.0"
+    }
+  }
+}
+
 variable "project" {
-  type = string
+  description = "Project name used for resource naming"
+  type        = string
 }
 
 variable "environment" {
-  type = string
+  description = "Environment name (e.g., staging, production)"
+  type        = string
 }
 
 variable "private_subnet_ids" {
-  type = list(string)
+  description = "List of private subnet IDs for RDS subnet group"
+  type        = list(string)
 }
 
 variable "security_group_id" {
-  type = string
+  description = "Security group ID for RDS instance"
+  type        = string
 }
 
 variable "instance_class" {
-  type    = string
-  default = "db.t4g.micro"
+  description = "RDS instance class (e.g., db.t4g.micro, db.t4g.small)"
+  type        = string
+  default     = "db.t4g.micro"
 }
 
 variable "allocated_storage" {
-  type    = number
-  default = 20
+  description = "Allocated storage in GB for RDS instance"
+  type        = number
+  default     = 20
 }
 
 variable "multi_az" {
-  type    = bool
-  default = false
+  description = "Enable Multi-AZ deployment for high availability"
+  type        = bool
+  default     = false
 }
 
 variable "backup_retention_period" {
-  type    = number
-  default = 14 # 14 days for staging, 30+ for production
+  description = "Number of days to retain automated backups (14 for staging, 30+ for production)"
+  type        = number
+  default     = 14
 }
 
 variable "enable_secret_rotation" {
@@ -514,7 +537,7 @@ resource "aws_lambda_invocation" "iam_setup" {
   count = var.setup_iam_auth ? 1 : 0
 
   function_name = aws_lambda_function.iam_setup[0].function_name
-  input         = jsonencode({
+  input = jsonencode({
     # Include a trigger to allow re-invocation when needed
     db_instance_id = aws_db_instance.main.id
   })

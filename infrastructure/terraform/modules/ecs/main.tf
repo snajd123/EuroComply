@@ -1,6 +1,17 @@
 # ECS Module for EuroComply
 # Creates ECS Fargate cluster, service, and task definition
 
+terraform {
+  required_version = ">= 1.0"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 6.0"
+    }
+  }
+}
+
 variable "project" {
   type = string
 }
@@ -84,6 +95,12 @@ variable "log_retention_days" {
   default = 30
 }
 
+variable "kms_key_arn" {
+  description = "KMS key ARN for encrypting CloudWatch log groups"
+  type        = string
+  default     = null
+}
+
 variable "enable_autoscaling" {
   type    = bool
   default = false
@@ -146,6 +163,7 @@ resource "aws_ecs_cluster" "main" {
 resource "aws_cloudwatch_log_group" "ecs" {
   name              = "/ecs/${local.name_prefix}"
   retention_in_days = var.log_retention_days
+  kms_key_id        = var.kms_key_arn
 
   tags = {
     Name = "${local.name_prefix}-ecs-logs"

@@ -2,13 +2,24 @@
 # Deploys walt.id SSI Kit as internal ECS service for DID/VC operations
 # with persistent EFS storage for DIDs and keys
 
+terraform {
+  required_version = ">= 1.0"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 6.0"
+    }
+  }
+}
+
 locals {
   name_prefix = "${var.project}-${var.environment}"
   partition   = "aws-eusc"
 
-  # walt.id SSI Kit - pinned version for reproducibility
-  # Update this version deliberately, not automatically
-  waltid_image = "waltid/ssikit:1.2312.1"
+  # walt.id SSI Kit image constructed from configurable variables
+  # Update version via waltid_image_tag variable after testing
+  waltid_image = "${var.waltid_image}:${var.waltid_image_tag}"
 }
 
 # =============================================================================
@@ -93,6 +104,7 @@ resource "aws_efs_access_point" "waltid" {
 resource "aws_cloudwatch_log_group" "waltid" {
   name              = "/ecs/${local.name_prefix}-waltid"
   retention_in_days = var.log_retention_days
+  kms_key_id        = var.kms_key_arn
 
   tags = {
     Name = "${local.name_prefix}-waltid-logs"
@@ -327,4 +339,86 @@ resource "aws_ecs_service" "waltid" {
   tags = {
     Name = "${local.name_prefix}-waltid"
   }
+}
+
+# =============================================================================
+# AWS Backup for EFS (Production recommended)
+# =============================================================================
+resource "aws_backup_vault" "waltid" {
+  count = var.enable_backup ? 1 : 0
+
+  name = "${local.name_prefix}-waltid-backup"
+
+  tags = {
+    Name = "${local.name_prefix}-waltid-backup"
+  }
+}
+
+resource "aws_backup_plan" "waltid" {
+  count = var.enable_backup ? 1 : 0
+
+  name = "${local.name_prefix}-waltid-backup"
+
+  rule {
+    rule_name         = "daily-backup"
+    target_vault_name = aws_backup_vault.waltid[0].name
+    schedule          = "cron(0 5 ? * * *)" # Daily at 5 AM UTC
+
+    lifecycle {
+      delete_after = var.backup_retention_days
+    }
+  }
+
+  tags = {
+    Name = "${local.name_prefix}-waltid-backup-plan"
+  }
+}
+
+resource "aws_iam_role" "backup" {
+  count = var.enable_backup ? 1 : 0
+
+  name = "${local.name_prefix}-waltid-backup"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "backup.amazonaws.com"
+        }
+      }
+    ]
+  })
+
+  tags = {
+    Name = "${local.name_prefix}-waltid-backup"
+  }
+}
+
+resource "aws_iam_role_policy_attachment" "backup" {
+  count = var.enable_backup ? 1 : 0
+
+  role       = aws_iam_role.backup[0].name
+  policy_arn = "arn:${local.partition}:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForBackup"
+}
+
+resource "aws_iam_role_policy_attachment" "backup_restore" {
+  count = var.enable_backup ? 1 : 0
+
+  role       = aws_iam_role.backup[0].name
+  policy_arn = "arn:${local.partition}:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForRestores"
+}
+
+resource "aws_backup_selection" "waltid" {
+  count = var.enable_backup ? 1 : 0
+
+  name         = "${local.name_prefix}-waltid-efs"
+  plan_id      = aws_backup_plan.waltid[0].id
+  iam_role_arn = aws_iam_role.backup[0].arn
+
+  resources = [
+    aws_efs_file_system.waltid.arn
+  ]
 }

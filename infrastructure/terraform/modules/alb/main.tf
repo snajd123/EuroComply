@@ -1,6 +1,17 @@
 # ALB Module for EuroComply
 # Creates Application Load Balancer with HTTPS support
 
+terraform {
+  required_version = ">= 1.0"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 6.0"
+    }
+  }
+}
+
 variable "project" {
   type = string
 }
@@ -36,6 +47,30 @@ variable "certificate_arn" {
   default = ""
 }
 
+variable "enable_access_logs" {
+  description = "Enable ALB access logs to S3"
+  type        = bool
+  default     = false
+}
+
+variable "access_logs_bucket" {
+  description = "S3 bucket name for ALB access logs (required if enable_access_logs is true)"
+  type        = string
+  default     = ""
+}
+
+variable "access_logs_prefix" {
+  description = "S3 prefix for ALB access logs"
+  type        = string
+  default     = "alb-logs"
+}
+
+variable "ssl_policy" {
+  description = "SSL policy for HTTPS listener. Use TLS 1.3 policies for best security."
+  type        = string
+  default     = "ELBSecurityPolicy-TLS13-1-2-2021-06"
+}
+
 locals {
   name_prefix = "${var.project}-${var.environment}"
 }
@@ -51,6 +86,16 @@ resource "aws_lb" "main" {
   subnets            = var.public_subnet_ids
 
   enable_deletion_protection = var.environment == "production"
+
+  # Access logs configuration (optional - requires S3 bucket with proper policy)
+  dynamic "access_logs" {
+    for_each = var.enable_access_logs && var.access_logs_bucket != "" ? [1] : []
+    content {
+      bucket  = var.access_logs_bucket
+      prefix  = var.access_logs_prefix
+      enabled = true
+    }
+  }
 
   tags = {
     Name = "${local.name_prefix}-alb"
@@ -124,7 +169,7 @@ resource "aws_lb_listener" "https" {
   load_balancer_arn = aws_lb.main.arn
   port              = 443
   protocol          = "HTTPS"
-  ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
+  ssl_policy        = var.ssl_policy
   certificate_arn   = var.certificate_arn
 
   default_action {

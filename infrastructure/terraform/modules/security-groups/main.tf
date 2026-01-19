@@ -1,21 +1,36 @@
 # Security Groups Module for EuroComply
 # Creates security groups for ALB, ECS, RDS, and ElastiCache
 
+terraform {
+  required_version = ">= 1.0"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 6.0"
+    }
+  }
+}
+
 variable "project" {
-  type = string
+  description = "Project name used for resource naming"
+  type        = string
 }
 
 variable "environment" {
-  type = string
+  description = "Environment name (e.g., staging, production)"
+  type        = string
 }
 
 variable "vpc_id" {
-  type = string
+  description = "VPC ID where security groups will be created"
+  type        = string
 }
 
 variable "app_port" {
-  type    = number
-  default = 3000
+  description = "Application port for ECS containers"
+  type        = number
+  default     = 3000
 }
 
 variable "vpc_endpoints_security_group_id" {

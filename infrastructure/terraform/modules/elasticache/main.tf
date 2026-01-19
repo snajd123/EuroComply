@@ -1,6 +1,21 @@
 # ElastiCache Module for EuroComply
 # Creates Redis cluster for caching and session storage with AUTH enabled
 
+terraform {
+  required_version = ">= 1.0"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 6.0"
+    }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.0"
+    }
+  }
+}
+
 variable "project" {
   type = string
 }
@@ -27,6 +42,12 @@ variable "num_cache_nodes" {
   default = 1
 }
 
+variable "multi_az_enabled" {
+  description = "Enable Multi-AZ deployment for high availability. Requires num_cache_nodes > 1."
+  type        = bool
+  default     = null # If null, auto-determine based on environment and node count
+}
+
 variable "enable_auth" {
   description = "Enable Redis AUTH token authentication"
   type        = bool
@@ -41,6 +62,12 @@ variable "kms_key_arn" {
 
 locals {
   name_prefix = "${var.project}-${var.environment}"
+
+  # Multi-AZ logic: explicit setting takes precedence, otherwise auto-determine
+  # Multi-AZ requires at least 2 nodes to be effective
+  multi_az = var.multi_az_enabled != null ? var.multi_az_enabled : (
+    var.environment == "production" && var.num_cache_nodes > 1
+  )
 }
 
 # =============================================================================
@@ -136,8 +163,9 @@ resource "aws_elasticache_replication_group" "main" {
   at_rest_encryption_enabled = true
   kms_key_id                 = var.kms_key_arn # Uses AWS-managed key if null
 
-  # Automatic failover requires multi-AZ (only for production)
-  automatic_failover_enabled = var.environment == "production" && var.num_cache_nodes > 1
+  # Automatic failover requires multi-AZ and multiple nodes
+  automatic_failover_enabled = local.multi_az && var.num_cache_nodes > 1
+  multi_az_enabled           = local.multi_az && var.num_cache_nodes > 1
 
   snapshot_retention_limit = var.environment == "production" ? 7 : 0
 

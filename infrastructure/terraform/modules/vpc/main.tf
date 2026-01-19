@@ -1,22 +1,42 @@
 # VPC Module for EuroComply
 # Creates VPC with public and private subnets
 
+terraform {
+  required_version = ">= 1.0"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 6.0"
+    }
+  }
+}
+
 variable "project" {
-  type = string
+  description = "Project name used for resource naming"
+  type        = string
 }
 
 variable "environment" {
-  type = string
+  description = "Environment name (e.g., staging, production)"
+  type        = string
 }
 
 variable "vpc_cidr" {
-  type    = string
-  default = "10.0.0.0/16"
+  description = "CIDR block for the VPC"
+  type        = string
+  default     = "10.0.0.0/16"
 }
 
 variable "az_count" {
-  type    = number
-  default = 2
+  description = "Number of availability zones to use. Must not exceed length of availability_zones."
+  type        = number
+  default     = 2
+
+  validation {
+    condition     = var.az_count >= 1 && var.az_count <= 3
+    error_message = "az_count must be between 1 and 3."
+  }
 }
 
 variable "single_nat_gateway" {
@@ -36,11 +56,31 @@ variable "flow_logs_retention_days" {
   default     = 30
 }
 
-# Hardcoded for AWS European Sovereign Cloud (eusc-de-east-1)
-# Data sources don't work due to Terraform provider limitations
+variable "kms_key_arn" {
+  description = "KMS key ARN for encrypting CloudWatch log groups (VPC flow logs)"
+  type        = string
+  default     = null
+}
+
+# Availability Zones for AWS European Sovereign Cloud (eusc-de-east-1)
+#
+# IMPORTANT: These are hardcoded because the standard aws_availability_zones
+# data source does not work with AWS European Sovereign Cloud. The Sovereign
+# Cloud uses a separate partition (aws-eusc) with different API endpoints
+# (amazonaws.eu instead of amazonaws.com), and the Terraform AWS provider
+# has limitations when querying availability zones in this environment.
+#
+# When deploying to other regions/partitions, override this variable with
+# the appropriate AZ list for that region.
 variable "availability_zones" {
-  type    = list(string)
-  default = ["eusc-de-east-1a", "eusc-de-east-1b"]
+  description = "List of availability zones. Hardcoded for Sovereign Cloud compatibility."
+  type        = list(string)
+  default     = ["eusc-de-east-1a", "eusc-de-east-1b"]
+
+  validation {
+    condition     = length(var.availability_zones) >= 1
+    error_message = "At least one availability zone must be specified."
+  }
 }
 
 locals {
@@ -58,7 +98,11 @@ resource "aws_vpc" "main" {
   enable_dns_support   = true
 
   tags = {
-    Name = "${local.name_prefix}-vpc"
+    Name            = "${local.name_prefix}-vpc"
+    Project         = var.project
+    Environment     = var.environment
+    ManagedBy       = "terraform"
+    DataSovereignty = "eu-sovereign"
   }
 }
 
@@ -185,6 +229,7 @@ resource "aws_cloudwatch_log_group" "flow_logs" {
 
   name              = "/vpc/${local.name_prefix}/flow-logs"
   retention_in_days = var.flow_logs_retention_days
+  kms_key_id        = var.kms_key_arn
 
   tags = {
     Name = "${local.name_prefix}-vpc-flow-logs"
@@ -277,8 +322,22 @@ resource "aws_security_group" "vpc_endpoints" {
     cidr_blocks = [var.vpc_cidr]
   }
 
+  # Explicit egress rule for documentation and security compliance
+  # VPC endpoints only need to respond to inbound requests
+  egress {
+    description = "Allow all outbound traffic"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
   tags = {
-    Name = "${local.name_prefix}-vpc-endpoints-sg"
+    Name            = "${local.name_prefix}-vpc-endpoints-sg"
+    Project         = var.project
+    Environment     = var.environment
+    ManagedBy       = "terraform"
+    DataSovereignty = "eu-sovereign"
   }
 }
 

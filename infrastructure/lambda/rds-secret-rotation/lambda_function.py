@@ -9,10 +9,16 @@ import boto3
 import json
 import logging
 import os
+import re
 import psycopg2
+from psycopg2 import sql
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+# PostgreSQL username pattern: lowercase letter followed by alphanumeric/underscore (max 63 chars)
+# Security: Validates username format to prevent injection attacks
+USERNAME_PATTERN = re.compile(r'^[a-z][a-z0-9_]{0,62}$')
 
 def lambda_handler(event, context):
     """
@@ -90,13 +96,20 @@ def set_secret(service_client, arn, token):
     pending_dict = get_secret_dict(service_client, arn, "AWSPENDING", token)
     current_dict = get_secret_dict(service_client, arn, "AWSCURRENT")
 
+    # Security: Validate username format to prevent injection
+    username = pending_dict['username']
+    if not USERNAME_PATTERN.match(username):
+        raise ValueError(f"Invalid username format: must match pattern {USERNAME_PATTERN.pattern}")
+
     # Connect with current credentials and set new password
     conn = get_connection(current_dict)
     try:
         with conn.cursor() as cursor:
+            # Security: Use psycopg2.sql for safe identifier quoting
+            # Identifiers (usernames) must use sql.Identifier(), not %s placeholder
             cursor.execute(
-                "ALTER USER %s WITH PASSWORD %s",
-                (pending_dict['username'], pending_dict['password'])
+                sql.SQL("ALTER USER {} WITH PASSWORD %s").format(sql.Identifier(username)),
+                (pending_dict['password'],)
             )
             conn.commit()
         logger.info("Successfully set password in database")

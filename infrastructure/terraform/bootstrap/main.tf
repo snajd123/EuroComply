@@ -106,8 +106,14 @@ resource "aws_dynamodb_table" "terraform_locks" {
     type = "S"
   }
 
+  # Enable Point-in-Time Recovery for data protection
+  point_in_time_recovery {
+    enabled = true
+  }
+
   tags = {
-    Name = "EuroComply Terraform Locks"
+    Name        = "EuroComply Terraform Locks"
+    Environment = "shared"
   }
 }
 
@@ -289,10 +295,37 @@ resource "aws_iam_role_policy" "github_actions_deploy_compute" {
     Version = "2012-10-17"
     Statement = [
       {
-        Sid      = "ECS"
-        Effect   = "Allow"
-        Action   = ["ecs:*"]
+        # ECS Describe actions require * resource (AWS limitation)
+        Sid    = "ECSRead"
+        Effect = "Allow"
+        Action = [
+          "ecs:Describe*",
+          "ecs:List*"
+        ]
         Resource = "*"
+      },
+      {
+        # ECS write actions scoped to eurocomply-* resources
+        Sid    = "ECSWrite"
+        Effect = "Allow"
+        Action = [
+          "ecs:CreateCluster",
+          "ecs:DeleteCluster",
+          "ecs:UpdateCluster",
+          "ecs:CreateService",
+          "ecs:UpdateService",
+          "ecs:DeleteService",
+          "ecs:RegisterTaskDefinition",
+          "ecs:DeregisterTaskDefinition",
+          "ecs:TagResource",
+          "ecs:UntagResource",
+          "ecs:PutClusterCapacityProviders"
+        ]
+        Resource = [
+          "arn:aws-eusc:ecs:eusc-de-east-1:${data.aws_caller_identity.current.account_id}:cluster/eurocomply-*",
+          "arn:aws-eusc:ecs:eusc-de-east-1:${data.aws_caller_identity.current.account_id}:service/eurocomply-*/*",
+          "arn:aws-eusc:ecs:eusc-de-east-1:${data.aws_caller_identity.current.account_id}:task-definition/eurocomply-*:*"
+        ]
       },
       {
         Sid      = "Lambda"
@@ -319,16 +352,77 @@ resource "aws_iam_role_policy" "github_actions_deploy_data" {
     Version = "2012-10-17"
     Statement = [
       {
-        Sid      = "RDS"
-        Effect   = "Allow"
-        Action   = ["rds:*"]
+        # RDS Describe actions require * resource (AWS limitation)
+        Sid    = "RDSRead"
+        Effect = "Allow"
+        Action = [
+          "rds:Describe*",
+          "rds:List*"
+        ]
         Resource = "*"
       },
       {
-        Sid      = "ElastiCache"
-        Effect   = "Allow"
-        Action   = ["elasticache:*"]
+        # RDS write actions scoped to eurocomply-* resources
+        Sid    = "RDSWrite"
+        Effect = "Allow"
+        Action = [
+          "rds:CreateDBInstance",
+          "rds:DeleteDBInstance",
+          "rds:ModifyDBInstance",
+          "rds:CreateDBSubnetGroup",
+          "rds:DeleteDBSubnetGroup",
+          "rds:ModifyDBSubnetGroup",
+          "rds:CreateDBParameterGroup",
+          "rds:DeleteDBParameterGroup",
+          "rds:ModifyDBParameterGroup",
+          "rds:AddTagsToResource",
+          "rds:RemoveTagsFromResource",
+          "rds:RebootDBInstance",
+          "rds:StartDBInstance",
+          "rds:StopDBInstance"
+        ]
+        Resource = [
+          "arn:aws-eusc:rds:eusc-de-east-1:${data.aws_caller_identity.current.account_id}:db:eurocomply-*",
+          "arn:aws-eusc:rds:eusc-de-east-1:${data.aws_caller_identity.current.account_id}:subgrp:eurocomply-*",
+          "arn:aws-eusc:rds:eusc-de-east-1:${data.aws_caller_identity.current.account_id}:pg:eurocomply-*"
+        ]
+      },
+      {
+        # ElastiCache Describe actions require * resource (AWS limitation)
+        Sid    = "ElastiCacheRead"
+        Effect = "Allow"
+        Action = [
+          "elasticache:Describe*",
+          "elasticache:List*"
+        ]
         Resource = "*"
+      },
+      {
+        # ElastiCache write actions scoped to eurocomply-* resources
+        Sid    = "ElastiCacheWrite"
+        Effect = "Allow"
+        Action = [
+          "elasticache:CreateCacheCluster",
+          "elasticache:DeleteCacheCluster",
+          "elasticache:ModifyCacheCluster",
+          "elasticache:CreateReplicationGroup",
+          "elasticache:DeleteReplicationGroup",
+          "elasticache:ModifyReplicationGroup",
+          "elasticache:CreateCacheSubnetGroup",
+          "elasticache:DeleteCacheSubnetGroup",
+          "elasticache:ModifyCacheSubnetGroup",
+          "elasticache:CreateCacheParameterGroup",
+          "elasticache:DeleteCacheParameterGroup",
+          "elasticache:ModifyCacheParameterGroup",
+          "elasticache:AddTagsToResource",
+          "elasticache:RemoveTagsFromResource"
+        ]
+        Resource = [
+          "arn:aws-eusc:elasticache:eusc-de-east-1:${data.aws_caller_identity.current.account_id}:cluster:eurocomply-*",
+          "arn:aws-eusc:elasticache:eusc-de-east-1:${data.aws_caller_identity.current.account_id}:replicationgroup:eurocomply-*",
+          "arn:aws-eusc:elasticache:eusc-de-east-1:${data.aws_caller_identity.current.account_id}:subnetgroup:eurocomply-*",
+          "arn:aws-eusc:elasticache:eusc-de-east-1:${data.aws_caller_identity.current.account_id}:parametergroup:eurocomply-*"
+        ]
       },
       {
         Sid      = "SecretsManager"
@@ -391,6 +485,22 @@ resource "aws_iam_role_policy" "github_actions_deploy_supporting" {
 # =============================================================================
 # ECR Repository
 # =============================================================================
+#
+# NOTE: ECR is also available as a reusable module at modules/ecr/
+# For new repositories, prefer using the module. This bootstrap ECR exists
+# for historical reasons and manages the main API repository.
+#
+# To migrate to the module (optional):
+# 1. Add module "ecr" block to staging/main.tf
+# 2. Run: terraform state mv -state=bootstrap/terraform.tfstate \
+#         aws_ecr_repository.api module.ecr.aws_ecr_repository.this
+# 3. Run: terraform state mv -state=bootstrap/terraform.tfstate \
+#         aws_ecr_lifecycle_policy.api module.ecr.aws_ecr_lifecycle_policy.this
+# 4. Remove the ECR resources below from this file
+# 5. Run terraform plan in both bootstrap and staging to verify no changes
+#
+# =============================================================================
+
 variable "ecr_image_tag_mutability" {
   description = "ECR image tag mutability. Use MUTABLE for staging (allows re-tagging), IMMUTABLE for production (prevents tag overwrites)"
   type        = string

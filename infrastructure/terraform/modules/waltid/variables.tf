@@ -52,3 +52,33 @@ variable "log_retention_days" {
   default     = 30
   description = "CloudWatch log retention in days"
 }
+
+variable "kms_key_arn" {
+  type        = string
+  default     = null
+  description = "KMS key ARN for encrypting CloudWatch log groups"
+}
+
+variable "enable_backup" {
+  type        = bool
+  default     = false
+  description = "Enable AWS Backup for EFS (recommended for production)"
+}
+
+variable "backup_retention_days" {
+  type        = number
+  default     = 30
+  description = "Number of days to retain EFS backups"
+}
+
+variable "waltid_image" {
+  type        = string
+  default     = "waltid/ssikit"
+  description = "walt.id SSI Kit Docker image repository"
+}
+
+variable "waltid_image_tag" {
+  type        = string
+  default     = "1.2312.1"
+  description = "walt.id SSI Kit Docker image tag. Update deliberately after testing."
+}
