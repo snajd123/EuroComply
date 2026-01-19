@@ -124,14 +124,23 @@ export class VerificationService {
       const { statusListCredential, statusListIndex } =
         artifact.credentialStatus;
 
-      // Parse organization ID from status list URL
+      // Parse organization ID from status list URL using URL parsing
       // Format: https://api.eurocomply.eu/organizations/{orgId}/status-list
-      const urlMatch = statusListCredential.match(
-        /\/organizations\/([^/]+)\/status-list/
-      );
+      // Security: Use URL parsing instead of regex to prevent injection attacks
+      let orgId: string | null = null;
+      try {
+        const url = new URL(statusListCredential);
+        const pathParts = url.pathname.split('/').filter(Boolean);
+        // Expected: ['organizations', '{orgId}', 'status-list']
+        const orgIndex = pathParts.indexOf('organizations');
+        if (orgIndex !== -1 && pathParts[orgIndex + 1] && pathParts[orgIndex + 2] === 'status-list') {
+          orgId = decodeURIComponent(pathParts[orgIndex + 1]!);
+        }
+      } catch {
+        // Invalid URL - will be handled below
+      }
 
-      if (urlMatch) {
-        const orgId = urlMatch[1]!;
+      if (orgId) {
         const index = parseInt(statusListIndex, 10);
 
         const isRevoked = await this.statusListService.isRevoked(orgId, index);
