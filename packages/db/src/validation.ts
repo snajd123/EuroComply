@@ -107,16 +107,36 @@ export function isValidSchemaName(schemaName: string): boolean {
 }
 
 /**
+ * Result of schema name generation with sanitization details.
+ */
+export interface SchemaNameResult {
+  /** The generated schema name */
+  schemaName: string;
+  /** Whether the input was sanitized (modified from original) */
+  sanitized: boolean;
+  /** The original input before sanitization */
+  originalInput: string;
+  /** Whether the name was truncated to fit max length */
+  truncated: boolean;
+}
+
+/**
  * Generates a valid tenant schema name from an organization slug.
  *
  * @param orgSlug - The organization slug (will be sanitized)
- * @returns A valid tenant schema name
+ * @returns Result object with schema name and sanitization details
  * @throws Error if the resulting schema name would be invalid
+ *
+ * @example
+ * const result = generateSchemaName('Acme-Corp');
+ * // result = { schemaName: 'tenant_acme_corp', sanitized: true, originalInput: 'Acme-Corp', truncated: false }
  */
-export function generateSchemaName(orgSlug: string): string {
+export function generateSchemaName(orgSlug: string): SchemaNameResult {
   if (!orgSlug || typeof orgSlug !== 'string') {
     throw new Error('Organization slug is required');
   }
+
+  const originalInput = orgSlug;
 
   // Sanitize: lowercase, replace non-alphanumeric with underscore, collapse multiple underscores
   const sanitized = orgSlug
@@ -134,13 +154,18 @@ export function generateSchemaName(orgSlug: string): string {
   const schemaName = `tenant_${sanitized}`;
 
   // Truncate if too long
-  const finalName =
-    schemaName.length > MAX_SCHEMA_LENGTH
-      ? schemaName.substring(0, MAX_SCHEMA_LENGTH)
-      : schemaName;
+  const truncated = schemaName.length > MAX_SCHEMA_LENGTH;
+  const finalName = truncated
+    ? schemaName.substring(0, MAX_SCHEMA_LENGTH)
+    : schemaName;
 
   // Final validation
   validateSchemaName(finalName);
 
-  return finalName;
+  return {
+    schemaName: finalName,
+    sanitized: originalInput !== sanitized,
+    originalInput,
+    truncated,
+  };
 }

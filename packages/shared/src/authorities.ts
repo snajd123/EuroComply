@@ -23,6 +23,15 @@ const AUTHORITY_HIERARCHY: AuthorityLevel[] = [
 
 /**
  * Check if user has at least the required authority level.
+ *
+ * @param userAuthority - The user's current authority level
+ * @param requiredAuthority - The minimum authority level required
+ * @returns true if the user's authority meets or exceeds the required level, false otherwise
+ *
+ * @example
+ * hasAuthority(Authority.MANAGER, Authority.VIEWER) // true
+ * hasAuthority(Authority.VIEWER, Authority.MANAGER) // false
+ * hasAuthority('INVALID' as AuthorityLevel, Authority.VIEWER) // false
  */
 export function hasAuthority(
   userAuthority: AuthorityLevel,
@@ -30,6 +39,12 @@ export function hasAuthority(
 ): boolean {
   const userLevel = AUTHORITY_HIERARCHY.indexOf(userAuthority);
   const requiredLevel = AUTHORITY_HIERARCHY.indexOf(requiredAuthority);
+
+  // Return false if either authority level is invalid
+  if (userLevel === -1 || requiredLevel === -1) {
+    return false;
+  }
+
   return userLevel >= requiredLevel;
 }
 

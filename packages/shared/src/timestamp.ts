@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { DEFAULT_HASH_ALGORITHM } from './constants.js';
 
 // ============================================
 // RFC3161 TIMESTAMP TYPES
@@ -6,7 +7,7 @@ import { z } from 'zod';
 
 export const TimestampRequestSchema = z.object({
   hash: z.string().regex(/^[a-f0-9]{64}$/i, 'Must be SHA-256 hex string'),
-  hashAlgorithm: z.literal('SHA-256'),
+  hashAlgorithm: z.literal(DEFAULT_HASH_ALGORITHM),
 });
 
 export type TimestampRequest = z.infer<typeof TimestampRequestSchema>;
@@ -16,7 +17,7 @@ export const TimestampResponseSchema = z.object({
   timestamp: z.string().datetime(),
   authority: z.string().url(),
   token: z.string(), // Base64 encoded DER
-  hashAlgorithm: z.literal('SHA-256'),
+  hashAlgorithm: z.literal(DEFAULT_HASH_ALGORITHM),
 });
 
 export type TimestampResponse = z.infer<typeof TimestampResponseSchema>;

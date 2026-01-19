@@ -16,6 +16,20 @@ import { gzipSync, gunzipSync } from 'zlib';
 /** Size of the bitstring in bits (16KB = 131072 bits) */
 export const BITSTRING_SIZE = 131072;
 
+/**
+ * Error thrown when the status list is full and no more credentials can be added.
+ */
+export class StatusListFullError extends Error {
+  /** The maximum capacity of the status list */
+  readonly capacity: number;
+
+  constructor() {
+    super(`Status list is full (max ${BITSTRING_SIZE} entries)`);
+    this.name = 'StatusListFullError';
+    this.capacity = BITSTRING_SIZE;
+  }
+}
+
 /** Size of the bitstring in bytes */
 export const BITSTRING_BYTES = BITSTRING_SIZE / 8;
 
@@ -144,4 +158,31 @@ export function getNextAvailableIndex(bitstring: Uint8Array): number {
     }
   }
   return -1;
+}
+
+/**
+ * Get the next available index in the bitstring, throwing if full.
+ * This is a convenience wrapper that throws StatusListFullError when
+ * the bitstring has no available slots.
+ *
+ * @param bitstring The bitstring to search
+ * @returns The next available index
+ * @throws StatusListFullError if no slots are available
+ *
+ * @example
+ * try {
+ *   const index = getNextAvailableIndexOrThrow(bitstring);
+ *   console.log(`Allocated index: ${index}`);
+ * } catch (error) {
+ *   if (error instanceof StatusListFullError) {
+ *     console.log('Need to create a new status list');
+ *   }
+ * }
+ */
+export function getNextAvailableIndexOrThrow(bitstring: Uint8Array): number {
+  const index = getNextAvailableIndex(bitstring);
+  if (index === -1) {
+    throw new StatusListFullError();
+  }
+  return index;
 }

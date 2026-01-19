@@ -18,11 +18,133 @@ import {
   WaltIdKeyNotFoundError,
 } from './errors.js';
 
+// =============================================================================
+// Constants
+// =============================================================================
+
+/** Maximum retry attempts for transient failures */
+const MAX_RETRIES = 3;
+
+/** Base delay in milliseconds for exponential backoff */
+const BASE_DELAY_MS = 1000;
+
+/** Number of failures before circuit opens */
+const CIRCUIT_BREAKER_THRESHOLD = 5;
+
+/** Time in milliseconds before circuit resets to half-open state */
+const CIRCUIT_BREAKER_RESET_TIMEOUT_MS = 30000;
+
+// =============================================================================
+// Circuit Breaker
+// =============================================================================
+
+/**
+ * Circuit breaker states.
+ */
+type CircuitState = 'closed' | 'open' | 'half-open';
+
+/**
+ * Circuit breaker error thrown when circuit is open.
+ */
+export class CircuitBreakerOpenError extends Error {
+  constructor() {
+    super('Circuit breaker is open - service unavailable');
+    this.name = 'CircuitBreakerOpenError';
+  }
+}
+
+/**
+ * Simple circuit breaker implementation to prevent cascading failures.
+ *
+ * States:
+ * - closed: Normal operation, requests pass through
+ * - open: Too many failures, requests are rejected immediately
+ * - half-open: Testing if service recovered, allows one request through
+ */
+class CircuitBreaker {
+  private failures = 0;
+  private lastFailure = 0;
+  private state: CircuitState = 'closed';
+
+  /**
+   * Check if the circuit allows requests through.
+   * @returns true if request should be allowed, false if circuit is open
+   */
+  canExecute(): boolean {
+    if (this.state === 'closed') {
+      return true;
+    }
+
+    if (this.state === 'open') {
+      // Check if reset timeout has passed
+      if (Date.now() - this.lastFailure > CIRCUIT_BREAKER_RESET_TIMEOUT_MS) {
+        this.state = 'half-open';
+        return true;
+      }
+      return false;
+    }
+
+    // half-open: allow one request to test
+    return true;
+  }
+
+  /**
+   * Record a successful request. Resets the circuit to closed state.
+   */
+  recordSuccess(): void {
+    this.failures = 0;
+    this.state = 'closed';
+  }
+
+  /**
+   * Record a failed request. Opens circuit if threshold is exceeded.
+   */
+  recordFailure(): void {
+    this.failures++;
+    this.lastFailure = Date.now();
+
+    if (this.failures >= CIRCUIT_BREAKER_THRESHOLD) {
+      this.state = 'open';
+    }
+  }
+
+  /**
+   * Get the current circuit state.
+   */
+  getState(): CircuitState {
+    return this.state;
+  }
+
+  /**
+   * Reset the circuit breaker to closed state.
+   */
+  reset(): void {
+    this.failures = 0;
+    this.state = 'closed';
+  }
+}
+
 export class WaltIdClient {
   private readonly config: WaltIdConfig;
+  private readonly circuitBreaker: CircuitBreaker;
 
   constructor(config: WaltIdConfig) {
     this.config = WaltIdConfigSchema.parse(config);
+    this.circuitBreaker = new CircuitBreaker();
+  }
+
+  /**
+   * Get the current circuit breaker state for monitoring.
+   */
+  getCircuitState(): CircuitState {
+    return this.circuitBreaker.getState();
+  }
+
+  /**
+   * Reset the circuit breaker (for testing or manual recovery).
+   */
+  resetCircuitBreaker(): void {
+    this.circuitBreaker.reset();
   }
 
   // ============================================
@@ -162,10 +284,12 @@ export class WaltIdClient {
   }
 
   private async request<T>(url: string, init: RequestInit): Promise<T> {
-    const maxRetries = 3;
-    const baseDelay = 1000; // 1 second
+    // Check circuit breaker before making request
+    if (!this.circuitBreaker.canExecute()) {
+      throw new CircuitBreakerOpenError();
+    }
 
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), this.config.timeout);
 
@@ -180,8 +304,9 @@ export class WaltIdClient {
         if (!response.ok) {
           const errorBody = await response.text().catch(() => '');
 
-          // Don't retry client errors (4xx)
+          // Don't retry client errors (4xx) - these don't trigger circuit breaker
           if (response.status >= 400 && response.status < 500) {
+            // Client errors are not service failures, don't affect circuit
             throw new WaltIdError(
               `Request failed: ${response.statusText}`,
               'REQUEST_FAILED',
@@ -190,32 +315,45 @@ export class WaltIdClient {
             );
           }
 
-          // Retry server errors (5xx) unless last attempt
-          if (attempt < maxRetries) {
-            const delay = baseDelay * Math.pow(2, attempt);
+          // Server errors (5xx) - record failure for circuit breaker
+          this.circuitBreaker.recordFailure();
+
+          // Retry unless last attempt
+          if (attempt < MAX_RETRIES) {
+            const delay = BASE_DELAY_MS * Math.pow(2, attempt);
             await new Promise((resolve) => setTimeout(resolve, delay));
             continue;
           }
 
           throw new WaltIdError(
-            `Request failed after ${maxRetries + 1} attempts: ${response.statusText}`,
+            `Request failed after ${MAX_RETRIES + 1} attempts: ${response.statusText}`,
             'REQUEST_FAILED',
             response.status,
             errorBody
           );
         }
 
+        // Success - reset circuit breaker
+        this.circuitBreaker.recordSuccess();
         return await response.json() as T;
       } catch (error) {
         clearTimeout(timeoutId);
+
+        // Re-throw circuit breaker errors immediately
+        if (error instanceof CircuitBreakerOpenError) {
+          throw error;
+        }
 
         if (error instanceof WaltIdError) {
           throw error;
         }
 
+        // Network errors - record failure for circuit breaker
+        this.circuitBreaker.recordFailure();
+
         // Retry network errors unless last attempt
-        if (attempt < maxRetries) {
-          const delay = baseDelay * Math.pow(2, attempt);
+        if (attempt < MAX_RETRIES) {
+          const delay = BASE_DELAY_MS * Math.pow(2, attempt);
           await new Promise((resolve) => setTimeout(resolve, delay));
           continue;
         }

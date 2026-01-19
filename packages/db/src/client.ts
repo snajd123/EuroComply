@@ -1,6 +1,16 @@
 import { PrismaClient, Prisma } from '@prisma/client';
 import { validateSchemaName } from './validation.js';
 
+// =============================================================================
+// Constants
+// =============================================================================
+
+/** Maximum number of tenant clients to cache */
+const MAX_CACHE_SIZE = 1000;
+
+/** Percentage of cache to evict when at capacity (10%) */
+const EVICTION_PERCENTAGE = 0.1;
+
 export interface TenantContext {
   organizationId: string;
   schemaName: string;
@@ -53,37 +63,81 @@ export function createTenantClient(
 export type TenantPrismaClient = ReturnType<typeof createTenantClient>;
 
 /**
+ * Cached client entry with access time tracking for LRU eviction.
+ */
+interface CachedClient {
+  client: TenantPrismaClient;
+  lastAccess: number;
+}
+
+/**
  * Connection pool manager for tenant connections.
  * Caches extended clients per organization to avoid recreation overhead.
+ * Uses LRU (Least Recently Used) eviction when cache is full.
  */
 class TenantConnectionManager {
-  private clients: Map<string, TenantPrismaClient> = new Map();
+  private clients: Map<string, CachedClient> = new Map();
   private baseClient: PrismaClient;
 
   constructor(baseClient: PrismaClient) {
     this.baseClient = baseClient;
   }
 
+  /**
+   * Get or create a tenant client for the given context.
+   * Updates last access time for LRU tracking.
+   */
   getClient(context: TenantContext): TenantPrismaClient {
     const cacheKey = `${context.organizationId}:${context.userId}`;
 
-    let client = this.clients.get(cacheKey);
-    if (!client) {
-      client = createTenantClient(this.baseClient, context);
-      this.clients.set(cacheKey, client);
-
-      // Limit cache size (LRU-style cleanup)
-      if (this.clients.size > 1000) {
-        const firstKey = this.clients.keys().next().value;
-        if (firstKey) this.clients.delete(firstKey);
-      }
+    const existing = this.clients.get(cacheKey);
+    if (existing) {
+      // Update last access time for LRU tracking
+      existing.lastAccess = Date.now();
+      return existing.client;
     }
+
+    // Evict oldest entries if at capacity
+    if (this.clients.size >= MAX_CACHE_SIZE) {
+      this.evictOldest(Math.floor(MAX_CACHE_SIZE * EVICTION_PERCENTAGE));
+    }
+
+    const client = createTenantClient(this.baseClient, context);
+    this.clients.set(cacheKey, {
+      client,
+      lastAccess: Date.now(),
+    });
 
     return client;
   }
 
+  /**
+   * Evict the oldest (least recently used) entries from the cache.
+   */
+  private evictOldest(count: number): void {
+    const entries = Array.from(this.clients.entries())
+      .sort((a, b) => a[1].lastAccess - b[1].lastAccess);
+
+    for (let i = 0; i < count && i < entries.length; i++) {
+      const entry = entries[i];
+      if (entry) {
+        this.clients.delete(entry[0]);
+      }
+    }
+  }
+
+  /**
+   * Clear all cached clients.
+   */
   clearCache(): void {
     this.clients.clear();
+  }
+
+  /**
+   * Get the current cache size (for monitoring).
+   */
+  getCacheSize(): number {
+    return this.clients.size;
   }
 }
 

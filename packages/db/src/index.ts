@@ -6,6 +6,21 @@ export * from './client.js';
 export * from './events.js';
 export * from './validation.js';
 
+// =============================================================================
+// Debug Logging
+// =============================================================================
+
+const DEBUG = process.env['DEBUG'] === 'true' || process.env['NODE_ENV'] === 'development';
+
+/**
+ * Log a debug message. Only outputs in development or when DEBUG=true.
+ */
+function debugLog(message: string): void {
+  if (DEBUG) {
+    console.log(message);
+  }
+}
+
 // Singleton pattern for Prisma client
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
@@ -43,7 +58,7 @@ async function createPrismaClient(): Promise<PrismaClient> {
   const logLevel = process.env['NODE_ENV'] === 'development' ? ['query', 'error', 'warn'] : ['error'];
 
   const databaseUrl = buildDatabaseUrl();
-  console.log(`Initializing Prisma client (host: ${process.env['DB_HOST'] || 'from DATABASE_URL'})`);
+  debugLog(`Initializing Prisma client (host: ${process.env['DB_HOST'] || 'from DATABASE_URL'})`);
 
   return new PrismaClient({
     log: logLevel as any,
@@ -77,7 +92,7 @@ export async function initializeDatabase(): Promise<PrismaClient> {
   globalForPrisma.prisma = client;
   globalForPrisma.prismaInitialized = true;
 
-  console.log('Database initialized');
+  debugLog('Database initialized');
   return client;
 }
 
@@ -95,6 +110,31 @@ export function getPrisma(): PrismaClient {
 }
 
 /**
+ * Gracefully shuts down the database connection.
+ * Call this during application shutdown to cleanly close connections.
+ *
+ * @example
+ * ```typescript
+ * import { shutdownDatabase } from '@eurocomply/db';
+ *
+ * // In your shutdown handler:
+ * process.on('SIGTERM', async () => {
+ *   await shutdownDatabase();
+ *   process.exit(0);
+ * });
+ * ```
+ */
+export async function shutdownDatabase(): Promise<void> {
+  if (globalForPrisma.prisma) {
+    debugLog('Shutting down database connection...');
+    await globalForPrisma.prisma.$disconnect();
+    globalForPrisma.prisma = undefined;
+    globalForPrisma.prismaInitialized = false;
+    debugLog('Database connection closed');
+  }
+}
+
+/**
  * Lazily creates a default Prisma client.
  * This is used when code accesses prisma before initializeDatabase() is called.
  */
@@ -109,8 +149,11 @@ function getOrCreateDefaultClient(): PrismaClient {
           db: { url },
         },
       });
-    } catch {
-      // Fallback to default DATABASE_URL
+    } catch (error) {
+      // Log the error and fallback to default DATABASE_URL
+      if (DEBUG) {
+        console.warn('Failed to build database URL, using default:', error);
+      }
       globalForPrisma.prisma = new PrismaClient({
         log: process.env['NODE_ENV'] === 'development' ? ['query', 'error', 'warn'] : ['error'],
       });

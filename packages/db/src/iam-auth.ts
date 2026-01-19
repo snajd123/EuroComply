@@ -1,5 +1,21 @@
 import { Signer } from '@aws-sdk/rds-signer';
 
+// =============================================================================
+// Debug Logging
+// =============================================================================
+
+const DEBUG = process.env['DEBUG'] === 'true' || process.env['NODE_ENV'] === 'development';
+
+function debugLog(message: string, data?: unknown): void {
+  if (DEBUG) {
+    if (data !== undefined) {
+      console.log(message, data);
+    } else {
+      console.log(message);
+    }
+  }
+}
+
 /**
  * Configuration for RDS IAM authentication.
  */
@@ -17,7 +33,7 @@ export interface RdsIamConfig {
  * @see https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.IAMDBAuth.html
  */
 export async function generateRdsAuthToken(config: RdsIamConfig): Promise<string> {
-  console.log(`[RDS IAM] Generating token for ${config.username}@${config.hostname}:${config.port} in ${config.region}`);
+  debugLog(`[RDS IAM] Generating token for ${config.username}@${config.hostname}:${config.port} in ${config.region}`);
 
   try {
     const signer = new Signer({
@@ -28,7 +44,7 @@ export async function generateRdsAuthToken(config: RdsIamConfig): Promise<string
     });
 
     const token = await signer.getAuthToken();
-    console.log(`[RDS IAM] Token generated successfully (length: ${token.length})`);
+    debugLog(`[RDS IAM] Token generated successfully (length: ${token.length})`);
     return token;
   } catch (error) {
     console.error('[RDS IAM] Failed to generate token:', error);
@@ -70,7 +86,7 @@ export function getRdsIamConfig(): RdsIamConfig | null {
  * Includes SSL requirement (mandatory for IAM auth).
  */
 export async function buildIamDatabaseUrl(): Promise<string> {
-  console.log('[RDS IAM] Building database URL with IAM authentication...');
+  debugLog('[RDS IAM] Building database URL with IAM authentication...');
 
   const config = getRdsIamConfig();
   if (!config) {
@@ -79,7 +95,7 @@ export async function buildIamDatabaseUrl(): Promise<string> {
     throw new Error(error);
   }
 
-  console.log('[RDS IAM] Config:', {
+  debugLog('[RDS IAM] Config:', {
     hostname: config.hostname,
     port: config.port,
     username: config.username,
@@ -93,7 +109,7 @@ export async function buildIamDatabaseUrl(): Promise<string> {
   const encodedToken = encodeURIComponent(token);
 
   const url = `postgresql://${config.username}:${encodedToken}@${config.hostname}:${config.port}/${dbName}?sslmode=require`;
-  console.log(`[RDS IAM] Database URL built (token length: ${token.length}, URL length: ${url.length})`);
+  debugLog(`[RDS IAM] Database URL built (token length: ${token.length}, URL length: ${url.length})`);
 
   return url;
 }

@@ -126,7 +126,63 @@ const EventSchemas: Record<EventType, z.ZodSchema> = {
   SUPPLIER_AUDIT: SupplierAuditSchema,
 };
 
-export function validateEventPayload(input: { eventType: string; payload: unknown }): void {
+/**
+ * Result of event payload validation.
+ */
+export type EventValidationResult<T> =
+  | { success: true; payload: T }
+  | { success: false; error: z.ZodError };
+
+/**
+ * Validates an event payload without throwing.
+ * Returns a discriminated union indicating success or failure.
+ *
+ * @example
+ * const result = validateEventPayload({ eventType: 'BATCH_PRODUCED', payload });
+ * if (result.success) {
+ *   console.log(result.payload); // Typed payload
+ * } else {
+ *   console.log(result.error.issues); // Zod validation errors
+ * }
+ */
+export function validateEventPayload<T extends EventType>(
+  input: { eventType: T; payload: unknown }
+): EventValidationResult<z.infer<typeof EventSchemas[T]>>;
+export function validateEventPayload(
+  input: { eventType: string; payload: unknown }
+): EventValidationResult<unknown>;
+export function validateEventPayload(
+  input: { eventType: string; payload: unknown }
+): EventValidationResult<unknown> {
+  if (!EVENT_TYPES.includes(input.eventType as EventType)) {
+    // Return a synthetic ZodError for unknown event type
+    const zodError = new z.ZodError([
+      {
+        code: 'custom',
+        path: ['eventType'],
+        message: `Unknown event type: ${input.eventType}`,
+      },
+    ]);
+    return { success: false, error: zodError };
+  }
+
+  const schema = EventSchemas[input.eventType as EventType];
+  const result = schema.safeParse(input.payload);
+
+  if (result.success) {
+    return { success: true, payload: result.data };
+  }
+  return { success: false, error: result.error };
+}
+
+/**
+ * Validates an event payload and throws on failure.
+ * Use validateEventPayload for non-throwing validation.
+ *
+ * @throws Error if event type is unknown
+ * @throws z.ZodError if payload validation fails
+ */
+export function validateEventPayloadOrThrow(input: { eventType: string; payload: unknown }): void {
   if (!EVENT_TYPES.includes(input.eventType as EventType)) {
     throw new Error(`Unknown event type: ${input.eventType}`);
   }
