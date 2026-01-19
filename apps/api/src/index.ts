@@ -14,7 +14,22 @@ const app = new Hono();
 // Global middleware
 app.use('*', process.env['NODE_ENV'] === 'development' ? devLoggerMiddleware : loggerMiddleware);
 
-app.use('*', secureHeaders());
+app.use('*', secureHeaders({
+  contentSecurityPolicy: {
+    defaultSrc: ["'self'"],
+    scriptSrc: ["'self'"],
+    styleSrc: ["'self'", "'unsafe-inline'"],
+    imgSrc: ["'self'", 'data:', 'https:'],
+    connectSrc: ["'self'"],
+    fontSrc: ["'self'"],
+    objectSrc: ["'none'"],
+    frameAncestors: ["'none'"],
+  },
+  strictTransportSecurity: 'max-age=31536000; includeSubDomains',
+  xContentTypeOptions: 'nosniff',
+  xFrameOptions: 'DENY',
+  referrerPolicy: 'strict-origin-when-cross-origin',
+}));
 
 // Body size limit: 1MB max for JSON payloads
 app.use('*', bodyLimit({
