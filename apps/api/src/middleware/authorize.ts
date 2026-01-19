@@ -24,7 +24,7 @@ export function requireAuthority(
 
     if (!hasAuthority(userAuthority, requiredAuthority)) {
       throw new HTTPException(403, {
-        message: `Insufficient permissions. Required: ${requiredAuthority} for ${workspace}, have: ${userAuthority}`,
+        message: 'Insufficient permissions for this operation',
       });
     }
 
