@@ -86,6 +86,12 @@ jobs:
         id: init
         run: terraform init
 
+      - name: Force Unlock Stale State Lock (if needed)
+        run: |
+          # Try to unlock stale lock from cancelled runs
+          terraform force-unlock -force 26a06356-423e-15c2-da28-b98302a96eff 2>/dev/null || true
+        continue-on-error: true
+
       - name: Terraform Validate
         id: validate
         run: terraform validate -no-color
