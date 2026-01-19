@@ -552,20 +552,33 @@ resource "aws_iam_role_policy" "github_actions_terraform_deploy" {
           "servicediscovery:CreatePrivateDnsNamespace",
           "servicediscovery:DeleteNamespace",
           "servicediscovery:GetNamespace",
+          "servicediscovery:GetOperation",
           "servicediscovery:ListNamespaces",
+          "servicediscovery:ListOperations",
           "servicediscovery:CreateService",
           "servicediscovery:DeleteService",
           "servicediscovery:GetService",
           "servicediscovery:ListServices",
           "servicediscovery:TagResource",
-          "servicediscovery:UntagResource"
+          "servicediscovery:UntagResource",
+          "servicediscovery:ListTagsForResource"
+        ]
+        # Note: aws:RequestedRegion condition removed - not supported for ServiceDiscovery in Sovereign Cloud
+        Resource = "*"
+      },
+      {
+        Sid    = "Route53ForServiceDiscovery"
+        Effect = "Allow"
+        Action = [
+          "route53:CreateHostedZone",
+          "route53:DeleteHostedZone",
+          "route53:GetHostedZone",
+          "route53:ListHostedZones",
+          "route53:ChangeResourceRecordSets",
+          "route53:ListResourceRecordSets",
+          "route53:GetChange"
         ]
         Resource = "*"
-        Condition = {
-          StringEquals = {
-            "aws:RequestedRegion" = "eusc-de-east-1"
-          }
-        }
       },
       {
         Sid    = "EFSManagement"
@@ -577,18 +590,18 @@ resource "aws_iam_role_policy" "github_actions_terraform_deploy" {
           "elasticfilesystem:CreateMountTarget",
           "elasticfilesystem:DeleteMountTarget",
           "elasticfilesystem:DescribeMountTargets",
+          "elasticfilesystem:DescribeMountTargetSecurityGroups",
           "elasticfilesystem:CreateAccessPoint",
           "elasticfilesystem:DeleteAccessPoint",
           "elasticfilesystem:DescribeAccessPoints",
           "elasticfilesystem:TagResource",
-          "elasticfilesystem:UntagResource"
+          "elasticfilesystem:UntagResource",
+          "elasticfilesystem:ListTagsForResource",
+          "elasticfilesystem:PutLifecycleConfiguration",
+          "elasticfilesystem:DescribeLifecycleConfiguration"
         ]
+        # Note: aws:RequestedRegion condition removed - not supported for EFS in Sovereign Cloud
         Resource = "*"
-        Condition = {
-          StringEquals = {
-            "aws:RequestedRegion" = "eusc-de-east-1"
-          }
-        }
       }
     ]
   })
