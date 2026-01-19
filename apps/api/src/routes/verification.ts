@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 import { ok, err } from '@eurocomply/shared';
 import { createWaltIdClient } from '@eurocomply/walt-id';
 import { prisma } from '@eurocomply/db';
@@ -7,14 +8,29 @@ import { StatusList2021Service } from '../services/status-list.service.js';
 import { TimestampService } from '../services/timestamp.service.js';
 import {
   verificationRateLimiter,
-  statusListRateLimiter,
 } from '../middleware/rate-limit.js';
+import {
+  VerifyArtifactBodySchema,
+  VerifySignatureBodySchema,
+  validateBody,
+} from '../lib/schemas.js';
 
 const verification = new Hono();
 
 // Apply rate limiting to all verification routes
 // These are public endpoints vulnerable to DoS attacks
 verification.use('/*', verificationRateLimiter);
+
+// Limit body size for verification endpoints (512KB max for artifacts)
+verification.use('/*', bodyLimit({
+  maxSize: 512 * 1024, // 512KB
+  onError: (c) => {
+    return c.json(
+      err('PAYLOAD_TOO_LARGE', 'Artifact exceeds maximum size of 512KB'),
+      413
+    );
+  },
+}));
 
 // Initialize services (lazy initialization to allow for proper configuration)
 let verificationService: VerificationService | null = null;
@@ -31,7 +47,18 @@ function getVerificationService(): VerificationService {
   if (!verificationService) {
     const waltIdClient = createWaltIdClient();
     const statusList = getStatusListService();
-    const timestampService = TimestampService.forProvider('FREETSA');
+
+    // Use configurable TSA provider (default: FREETSA)
+    const tsaProvider = process.env['TSA_PROVIDER'] || 'FREETSA';
+    if (tsaProvider === 'FREETSA' && process.env['NODE_ENV'] === 'production') {
+      console.warn(
+        '[Timestamp] WARNING: Using FREETSA in production. ' +
+        'Consider using a qualified TSA for legally binding timestamps. ' +
+        'Set TSA_PROVIDER environment variable to configure.'
+      );
+    }
+
+    const timestampService = TimestampService.forProvider(tsaProvider as 'FREETSA');
     verificationService = new VerificationService(
       waltIdClient,
       statusList,
@@ -63,31 +90,27 @@ function getVerificationService(): VerificationService {
  */
 verification.post('/', async (c) => {
   try {
-    const body = await c.req.json();
+    const rawBody = await c.req.json();
 
-    if (!body.artifact) {
-      return c.json(
-        err('VALIDATION_ERROR', 'Missing artifact in request body'),
-        400
-      );
+    // Validate request body with Zod schema
+    const validation = validateBody(VerifyArtifactBodySchema, rawBody);
+    if (!validation.success) {
+      return c.json(err('VALIDATION_ERROR', validation.error), 400);
     }
 
+    const { artifact, checkRevocation, revocationTime } = validation.data;
+
     const service = getVerificationService();
-    const result = await service.verifySealedArtifact(body.artifact, {
-      checkRevocation: body.checkRevocation ?? true,
-      revocationTime: body.revocationTime
-        ? new Date(body.revocationTime)
-        : undefined,
+    const result = await service.verifySealedArtifact(artifact as any, {
+      checkRevocation,
+      revocationTime: revocationTime ? new Date(revocationTime) : undefined,
     });
 
     return c.json(ok(result));
   } catch (error) {
     console.error('Verification error:', error);
     return c.json(
-      err(
-        'VERIFICATION_ERROR',
-        error instanceof Error ? error.message : 'Verification failed'
-      ),
+      err('VERIFICATION_ERROR', 'Verification failed'),
       500
     );
   }
@@ -113,26 +136,22 @@ verification.post('/', async (c) => {
  */
 verification.post('/signature', async (c) => {
   try {
-    const body = await c.req.json();
+    const rawBody = await c.req.json();
 
-    if (!body.artifact) {
-      return c.json(
-        err('VALIDATION_ERROR', 'Missing artifact in request body'),
-        400
-      );
+    // Validate request body with Zod schema
+    const validation = validateBody(VerifySignatureBodySchema, rawBody);
+    if (!validation.success) {
+      return c.json(err('VALIDATION_ERROR', validation.error), 400);
     }
 
     const service = getVerificationService();
-    const result = await service.verifySignaturesOnly(body.artifact);
+    const result = await service.verifySignaturesOnly(validation.data.artifact as any);
 
     return c.json(ok(result));
   } catch (error) {
     console.error('Signature verification error:', error);
     return c.json(
-      err(
-        'VERIFICATION_ERROR',
-        error instanceof Error ? error.message : 'Verification failed'
-      ),
+      err('VERIFICATION_ERROR', 'Verification failed'),
       500
     );
   }

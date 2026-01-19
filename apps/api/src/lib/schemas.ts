@@ -239,3 +239,89 @@ export function validateBody<T extends z.ZodSchema>(
   }
   return { success: true, data: result.data };
 }
+
+// ===========================================
+// VERIFICATION SCHEMAS
+// ===========================================
+
+/**
+ * User forensic context embedded in proofs.
+ */
+export const UserForensicContextSchema = z.object({
+  signedAt: z.string(),
+  signerName: z.string(),
+  signerEmail: z.string(),
+}).passthrough();
+
+/**
+ * Organization forensic context embedded in proofs.
+ */
+export const OrgForensicContextSchema = z.object({
+  signedAt: z.string(),
+  organizationName: z.string(),
+  organizationId: z.string(),
+}).passthrough();
+
+/**
+ * Ed25519Signature2020 proof structure.
+ */
+export const ProofSchema = z.object({
+  type: z.literal('Ed25519Signature2020'),
+  verificationMethod: z.string().min(1),
+  signatureValue: z.string().min(1),
+  created: z.string(),
+  forensicContext: z.union([UserForensicContextSchema, OrgForensicContextSchema]),
+});
+
+/**
+ * Credential status for revocation checking.
+ */
+export const CredentialStatusSchema = z.object({
+  id: z.string().optional(),
+  type: z.string().optional(),
+  statusPurpose: z.string().optional(),
+  statusListIndex: z.string(),
+  statusListCredential: z.string().url(),
+});
+
+/**
+ * Timestamp proof from TSA.
+ */
+export const TimestampProofSchema = z.object({
+  timestamp: z.string(),
+  token: z.string(),
+  authority: z.string().optional(),
+}).passthrough();
+
+/**
+ * Sealed artifact structure for verification.
+ */
+export const SealedArtifactSchema = z.object({
+  payload: z.record(z.unknown()),
+  userProof: ProofSchema,
+  corporateProof: ProofSchema,
+  credentialStatus: CredentialStatusSchema.optional(),
+  timestampProof: TimestampProofSchema.optional(),
+});
+
+export type SealedArtifactInput = z.infer<typeof SealedArtifactSchema>;
+
+/**
+ * Request body for POST /api/v1/verify
+ */
+export const VerifyArtifactBodySchema = z.object({
+  artifact: SealedArtifactSchema,
+  checkRevocation: z.boolean().default(true),
+  revocationTime: z.string().datetime().optional(),
+});
+
+export type VerifyArtifactBody = z.infer<typeof VerifyArtifactBodySchema>;
+
+/**
+ * Request body for POST /api/v1/verify/signature
+ */
+export const VerifySignatureBodySchema = z.object({
+  artifact: SealedArtifactSchema,
+});
+
+export type VerifySignatureBody = z.infer<typeof VerifySignatureBodySchema>;
