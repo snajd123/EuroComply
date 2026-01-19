@@ -355,10 +355,16 @@ resource "aws_iam_role_policy" "github_actions_deploy_supporting" {
         Resource = "*"
       },
       {
-        Sid      = "IAM"
+        Sid      = "IAMEurocomplyRoles"
         Effect   = "Allow"
         Action   = ["iam:GetRole", "iam:CreateRole", "iam:DeleteRole", "iam:GetRolePolicy", "iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:AttachRolePolicy", "iam:DetachRolePolicy", "iam:PassRole", "iam:ListAttachedRolePolicies", "iam:ListRolePolicies", "iam:TagRole", "iam:UntagRole", "iam:ListInstanceProfilesForRole"]
         Resource = "arn:aws-eusc:iam::${data.aws_caller_identity.current.account_id}:role/eurocomply-*"
+      },
+      {
+        Sid      = "IAMSelfManage"
+        Effect   = "Allow"
+        Action   = ["iam:GetRole", "iam:GetRolePolicy", "iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:ListAttachedRolePolicies", "iam:ListRolePolicies"]
+        Resource = "arn:aws-eusc:iam::${data.aws_caller_identity.current.account_id}:role/github-actions-eurocomply"
       },
       {
         Sid      = "ServiceDiscovery"
