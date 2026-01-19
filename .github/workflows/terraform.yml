@@ -304,12 +304,29 @@ jobs:
 
       - name: Run E2E Smoke Tests
         if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        env:
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          E2E_TEST_USER_ID: ${{ secrets.E2E_TEST_USER_ID }}
         run: |
           echo "Running E2E smoke tests..."
 
           # Get API URL
           ALB_DNS=$(terraform output -raw alb_dns_name)
           export API_URL="https://$ALB_DNS"
+
+          # Generate E2E test token if test user is configured
+          if [ -n "$E2E_TEST_USER_ID" ]; then
+            echo "Generating E2E test token for authenticated tests..."
+            chmod +x "${GITHUB_WORKSPACE}/scripts/get-e2e-token.sh"
+            export E2E_TEST_TOKEN=$("${GITHUB_WORKSPACE}/scripts/get-e2e-token.sh")
+            if [ -n "$E2E_TEST_TOKEN" ]; then
+              echo "✓ E2E test token generated successfully"
+            else
+              echo "⚠ Failed to generate E2E test token, running public tests only"
+            fi
+          else
+            echo "⚠ E2E_TEST_USER_ID not configured, running public tests only"
+          fi
 
           # Run the smoke test script
           chmod +x "${GITHUB_WORKSPACE}/scripts/e2e-smoke-test.sh"
