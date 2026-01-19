@@ -60,16 +60,32 @@ jobs:
 
       - name: Build Lambda packages
         run: |
-          # Build RDS IAM setup Lambda
+          # Build RDS IAM setup Lambda with Python 3.11 dependencies (Lambda runtime version)
           LAMBDA_DIR="${GITHUB_WORKSPACE}/infrastructure/lambda/rds-iam-setup"
           if [ -f "$LAMBDA_DIR/requirements.txt" ]; then
             echo "Building RDS IAM setup Lambda..."
             cd "$LAMBDA_DIR"
-            rm -rf package lambda.zip
-            pip install -r requirements.txt -t package --platform manylinux2014_x86_64 --only-binary=:all: --quiet
+            rm -rf package lambda.zip /tmp/psycopg2-download
+
+            # Download dependencies for Python 3.11 (must match Lambda runtime)
+            pip download -r requirements.txt -d /tmp/psycopg2-download \
+              --platform manylinux2014_x86_64 \
+              --python-version 3.11 \
+              --only-binary=:all: \
+              --quiet
+
+            # Extract wheel files
+            mkdir -p package
+            for whl in /tmp/psycopg2-download/*.whl; do
+              unzip -q -o "$whl" -d package
+            done
+
             cp index.py package/
-            cd package && zip -r ../lambda.zip . -q
+            cd package && zip -r ../lambda.zip . -q -x "*.pyc" -x "__pycache__/*"
+            rm -rf /tmp/psycopg2-download
+
             echo "Lambda package created: $LAMBDA_DIR/lambda.zip"
+            ls -la "$LAMBDA_DIR/lambda.zip"
           fi
 
       - name: Setup Terraform

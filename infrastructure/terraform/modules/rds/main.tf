@@ -395,8 +395,41 @@ output "db_resource_id" {
 }
 
 # =============================================================================
-# IAM Authentication Setup Lambda
-# Grants rds_iam role to database user (required for IAM auth)
+# Migration User Credentials (for CI/CD Prisma migrations)
+# =============================================================================
+resource "aws_secretsmanager_secret" "migrate_credentials" {
+  count       = var.setup_iam_auth ? 1 : 0
+  name        = "${var.project}/${var.environment}/database-migrate"
+  description = "RDS PostgreSQL migration user credentials for ${var.project} ${var.environment}"
+
+  tags = {
+    Name = "${local.name_prefix}-db-migrate-credentials"
+  }
+}
+
+# Initial placeholder - Lambda will populate with actual credentials
+resource "aws_secretsmanager_secret_version" "migrate_credentials" {
+  count     = var.setup_iam_auth ? 1 : 0
+  secret_id = aws_secretsmanager_secret.migrate_credentials[0].id
+  secret_string = jsonencode({
+    username = "eurocomply_migrate"
+    password = "placeholder-will-be-set-by-lambda"
+    host     = aws_db_instance.main.address
+    port     = aws_db_instance.main.port
+    database = aws_db_instance.main.db_name
+    engine   = "postgres"
+  })
+
+  lifecycle {
+    # Lambda manages the actual credentials - don't overwrite on apply
+    ignore_changes = [secret_string]
+  }
+}
+
+# =============================================================================
+# Three-User Database Architecture Setup Lambda
+# Creates: eurocomply_app (IAM auth), eurocomply_migrate (password auth)
+# Fixes: PostgreSQL 15+ schema permissions, PAM authentication conflicts
 # =============================================================================
 
 variable "setup_iam_auth" {
@@ -452,9 +485,19 @@ resource "aws_iam_role_policy" "iam_setup_lambda" {
         Resource = "arn:aws-eusc:logs:*:*:*"
       },
       {
+        # Read master credentials
         Effect   = "Allow"
         Action   = ["secretsmanager:GetSecretValue"]
         Resource = aws_secretsmanager_secret.db_credentials.arn
+      },
+      {
+        # Write migration user credentials (Lambda generates and stores password)
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:GetSecretValue",
+          "secretsmanager:PutSecretValue"
+        ]
+        Resource = aws_secretsmanager_secret.migrate_credentials[0].arn
       },
       {
         Effect = "Allow"
@@ -464,10 +507,24 @@ resource "aws_iam_role_policy" "iam_setup_lambda" {
           "ec2:DeleteNetworkInterface"
         ]
         Resource = "*"
+      },
+      {
+        # Allow IAM token auth for master user (recovery scenario)
+        # Needed when master user already has rds_iam granted from previous run
+        Effect   = "Allow"
+        Action   = ["rds-db:connect"]
+        Resource = "arn:${local.partition}:rds-db:*:*:dbuser:${aws_db_instance.main.resource_id}/${aws_db_instance.main.username}"
       }
     ]
   })
 }
+
+# Partition for ARN (aws, aws-cn, aws-eusc, etc.)
+locals {
+  partition = data.aws_partition.current.partition
+}
+
+data "aws_partition" "current" {}
 
 # Build Lambda package with dependencies
 resource "null_resource" "build_iam_setup_lambda" {
@@ -482,9 +539,16 @@ resource "null_resource" "build_iam_setup_lambda" {
     command = <<-EOT
       cd ${path.module}/../../../lambda/rds-iam-setup
       rm -rf package lambda.zip
-      pip install -r requirements.txt -t package --platform manylinux2014_x86_64 --only-binary=:all: --quiet
+      # Download dependencies for Python 3.11 (Lambda runtime version)
+      pip download -r requirements.txt -d /tmp/psycopg2-download --platform manylinux2014_x86_64 --python-version 3.11 --only-binary=:all: --quiet
+      mkdir -p package
+      # Extract wheel files
+      for whl in /tmp/psycopg2-download/*.whl; do
+        unzip -q -o "$whl" -d package
+      done
       cp index.py package/
-      cd package && zip -r ../lambda.zip . -q
+      cd package && zip -r ../lambda.zip . -q -x "*.pyc" -x "__pycache__/*"
+      rm -rf /tmp/psycopg2-download
     EOT
   }
 }
@@ -513,12 +577,17 @@ resource "aws_lambda_function" "iam_setup" {
 
   environment {
     variables = {
-      DB_SECRET_ARN = aws_secretsmanager_secret.db_credentials.arn
+      DB_SECRET_ARN            = aws_secretsmanager_secret.db_credentials.arn
+      MIGRATE_SECRET_ARN       = aws_secretsmanager_secret.migrate_credentials[0].arn
+      # Use password auth for master user (default for fresh deployments)
+      # Only set to "true" if master user already has rds_iam granted (recovery scenario)
+      USE_IAM_AUTH_FOR_MASTER  = "false"
     }
   }
 
   depends_on = [
     aws_db_instance.main,
+    aws_secretsmanager_secret_version.migrate_credentials,
     null_resource.build_iam_setup_lambda
   ]
 
@@ -578,4 +647,23 @@ resource "null_resource" "verify_iam_setup" {
 output "iam_setup_result" {
   description = "Result of IAM authentication setup"
   value       = var.setup_iam_auth ? jsondecode(aws_lambda_invocation.iam_setup[0].result) : null
+}
+
+# =============================================================================
+# Three-User Architecture Outputs
+# =============================================================================
+
+output "db_app_username" {
+  description = "Application database username (IAM token auth, DML only)"
+  value       = "eurocomply_app"
+}
+
+output "db_migrate_username" {
+  description = "Migration database username (password auth, schema owner)"
+  value       = "eurocomply_migrate"
+}
+
+output "db_migrate_credentials_secret_arn" {
+  description = "ARN of migration user credentials secret"
+  value       = var.setup_iam_auth ? aws_secretsmanager_secret.migrate_credentials[0].arn : null
 }

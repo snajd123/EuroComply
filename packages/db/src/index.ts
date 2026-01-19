@@ -1,10 +1,12 @@
 import { PrismaClient } from '@prisma/client';
+import { isIamAuthEnabled, buildIamDatabaseUrl, getRdsIamConfig } from './iam-auth.js';
 
 export * from '@prisma/client';
 export * from './tenant.js';
 export * from './client.js';
 export * from './events.js';
 export * from './validation.js';
+export * from './iam-auth.js';
 
 // =============================================================================
 // Debug Logging
@@ -25,12 +27,17 @@ function debugLog(message: string): void {
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
   prismaInitialized: boolean | undefined;
+  tokenRefreshInterval: NodeJS.Timeout | undefined;
 };
+
+// IAM token refresh interval (10 minutes - token valid for 15)
+const TOKEN_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
 
 /**
  * Builds database URL from individual components if DATABASE_URL is not set.
+ * For password authentication (used by migrations and development).
  */
-function buildDatabaseUrl(): string {
+function buildPasswordDatabaseUrl(): string {
   // If DATABASE_URL is set, use it directly
   if (process.env['DATABASE_URL']) {
     return process.env['DATABASE_URL'];
@@ -52,13 +59,29 @@ function buildDatabaseUrl(): string {
 }
 
 /**
+ * Builds database URL with appropriate authentication method.
+ * - If DB_IAM_AUTH=true: Uses IAM token authentication (for eurocomply_app)
+ * - Otherwise: Uses password authentication (for migrations or development)
+ */
+async function buildDatabaseUrl(): Promise<string> {
+  if (isIamAuthEnabled()) {
+    debugLog('[DB] Using IAM token authentication');
+    return buildIamDatabaseUrl();
+  }
+
+  debugLog('[DB] Using password authentication');
+  return buildPasswordDatabaseUrl();
+}
+
+/**
  * Creates a Prisma client with appropriate configuration.
  */
 async function createPrismaClient(): Promise<PrismaClient> {
   const logLevel = process.env['NODE_ENV'] === 'development' ? ['query', 'error', 'warn'] : ['error'];
 
-  const databaseUrl = buildDatabaseUrl();
-  debugLog(`Initializing Prisma client (host: ${process.env['DB_HOST'] || 'from DATABASE_URL'})`);
+  const databaseUrl = await buildDatabaseUrl();
+  const authMethod = isIamAuthEnabled() ? 'IAM token' : 'password';
+  debugLog(`[DB] Initializing Prisma client (host: ${process.env['DB_HOST'] || 'from DATABASE_URL'}, auth: ${authMethod})`);
 
   return new PrismaClient({
     log: logLevel as any,
@@ -71,9 +94,78 @@ async function createPrismaClient(): Promise<PrismaClient> {
 }
 
 /**
+ * Reconnects Prisma with a fresh IAM token.
+ * Called periodically to refresh the token before expiration.
+ */
+async function reconnectWithNewToken(): Promise<void> {
+  if (!globalForPrisma.prisma || !isIamAuthEnabled()) {
+    return;
+  }
+
+  debugLog('[DB] Refreshing IAM token and reconnecting...');
+
+  try {
+    // Disconnect existing client
+    await globalForPrisma.prisma.$disconnect();
+
+    // Create new client with fresh token
+    const newClient = await createPrismaClient();
+    globalForPrisma.prisma = newClient;
+
+    debugLog('[DB] Successfully reconnected with new IAM token');
+  } catch (error) {
+    console.error('[DB] Failed to reconnect with new token:', error);
+    // Don't throw - the next request will fail and can be retried
+  }
+}
+
+/**
+ * Starts the IAM token refresh timer.
+ * Automatically reconnects before the token expires.
+ */
+function startTokenRefresh(): void {
+  if (!isIamAuthEnabled() || globalForPrisma.tokenRefreshInterval) {
+    return;
+  }
+
+  debugLog(`[DB] Starting IAM token refresh timer (interval: ${TOKEN_REFRESH_INTERVAL_MS}ms)`);
+
+  globalForPrisma.tokenRefreshInterval = setInterval(async () => {
+    try {
+      await reconnectWithNewToken();
+    } catch (error) {
+      console.error('[DB] Token refresh failed:', error);
+    }
+  }, TOKEN_REFRESH_INTERVAL_MS);
+
+  // Don't block process exit
+  globalForPrisma.tokenRefreshInterval.unref();
+}
+
+/**
+ * Stops the IAM token refresh timer.
+ */
+function stopTokenRefresh(): void {
+  if (globalForPrisma.tokenRefreshInterval) {
+    clearInterval(globalForPrisma.tokenRefreshInterval);
+    globalForPrisma.tokenRefreshInterval = undefined;
+    debugLog('[DB] Stopped IAM token refresh timer');
+  }
+}
+
+/**
  * Initializes the database connection.
  * Call this at application startup before using the database.
  * MUST be called before any database operations.
+ *
+ * For IAM authentication (eurocomply_app user):
+ * - Set DB_IAM_AUTH=true
+ * - Set DB_HOST, DB_PORT, DB_USER, DB_NAME, AWS_REGION
+ * - Do NOT set DB_PASSWORD (IAM tokens are generated automatically)
+ *
+ * For password authentication (eurocomply_migrate user or development):
+ * - Set DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME
+ * - Or set DATABASE_URL directly
  *
  * @example
  * ```typescript
@@ -92,7 +184,11 @@ export async function initializeDatabase(): Promise<PrismaClient> {
   globalForPrisma.prisma = client;
   globalForPrisma.prismaInitialized = true;
 
-  debugLog('Database initialized');
+  // Start token refresh for IAM auth
+  startTokenRefresh();
+
+  const authMethod = isIamAuthEnabled() ? 'IAM token' : 'password';
+  debugLog(`[DB] Database initialized (auth: ${authMethod})`);
   return client;
 }
 
@@ -125,24 +221,36 @@ export function getPrisma(): PrismaClient {
  * ```
  */
 export async function shutdownDatabase(): Promise<void> {
+  // Stop token refresh first
+  stopTokenRefresh();
+
   if (globalForPrisma.prisma) {
-    debugLog('Shutting down database connection...');
+    debugLog('[DB] Shutting down database connection...');
     await globalForPrisma.prisma.$disconnect();
     globalForPrisma.prisma = undefined;
     globalForPrisma.prismaInitialized = false;
-    debugLog('Database connection closed');
+    debugLog('[DB] Database connection closed');
   }
 }
 
 /**
  * Lazily creates a default Prisma client.
  * This is used when code accesses prisma before initializeDatabase() is called.
+ * Note: This uses synchronous password auth - for IAM auth, call initializeDatabase() first.
  */
 function getOrCreateDefaultClient(): PrismaClient {
   if (!globalForPrisma.prisma) {
-    // Create default client for backwards compatibility
+    // Warn if IAM auth is enabled but client accessed before initialization
+    if (isIamAuthEnabled()) {
+      console.warn(
+        '[DB] Warning: Accessing database before initializeDatabase() with IAM auth enabled. ' +
+        'This will use password auth fallback. Call initializeDatabase() at startup for IAM auth.'
+      );
+    }
+
+    // Create default client for backwards compatibility (password auth only)
     try {
-      const url = buildDatabaseUrl();
+      const url = buildPasswordDatabaseUrl();
       globalForPrisma.prisma = new PrismaClient({
         log: process.env['NODE_ENV'] === 'development' ? ['query', 'error', 'warn'] : ['error'],
         datasources: {
@@ -152,7 +260,7 @@ function getOrCreateDefaultClient(): PrismaClient {
     } catch (error) {
       // Log the error and fallback to default DATABASE_URL
       if (DEBUG) {
-        console.warn('Failed to build database URL, using default:', error);
+        console.warn('[DB] Failed to build database URL, using default:', error);
       }
       globalForPrisma.prisma = new PrismaClient({
         log: process.env['NODE_ENV'] === 'development' ? ['query', 'error', 'warn'] : ['error'],
@@ -165,6 +273,9 @@ function getOrCreateDefaultClient(): PrismaClient {
 /**
  * Prisma client getter - use this for database operations.
  * For backwards compatibility, returns a proxy that lazily gets/creates the client.
+ *
+ * Note: For IAM token authentication, call initializeDatabase() at startup.
+ * The lazy proxy uses password authentication for backwards compatibility.
  */
 export const prisma: PrismaClient = new Proxy({} as PrismaClient, {
   get(_target, prop) {

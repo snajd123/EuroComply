@@ -123,9 +123,9 @@ variable "rds_resource_id" {
 }
 
 variable "db_username" {
-  description = "Database username for IAM authentication"
+  description = "Database username for IAM authentication (should be eurocomply_app, NOT master user)"
   type        = string
-  default     = ""
+  default     = "eurocomply_app"
 }
 
 variable "enable_rds_iam_auth" {
@@ -247,6 +247,10 @@ resource "aws_iam_role" "task" {
 }
 
 # IAM policy for RDS IAM authentication (most secure - no passwords)
+# Three-User Architecture: This grants access ONLY for eurocomply_app user
+# - eurocomply_app uses IAM token auth (15-min tokens, DML only)
+# - eurocomply_migrate uses password auth (schema owner, for migrations)
+# - eurocomply (master) uses password auth (Lambda only, admin)
 # Scoped to specific region, account, RDS instance, and database user
 resource "aws_iam_role_policy" "task_rds_connect" {
   count = var.enable_rds_iam_auth ? 1 : 0

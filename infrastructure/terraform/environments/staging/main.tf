@@ -237,12 +237,16 @@ module "ecs" {
   environment_variables = [
     { name = "NODE_ENV", value = "production" },
     { name = "PORT", value = tostring(var.app_port) },
-    # Database connection
+    # Database connection - Three-User Architecture
+    # Uses eurocomply_app (IAM token auth, DML only) for runtime
+    # eurocomply_migrate (password auth, schema owner) is for migrations only
     { name = "DB_HOST", value = module.rds.db_instance_address },
     { name = "DB_PORT", value = tostring(module.rds.db_instance_port) },
     { name = "DB_NAME", value = module.rds.db_name },
-    { name = "DB_USER", value = module.rds.db_username },
+    { name = "DB_USER", value = module.rds.db_app_username },
     { name = "DB_SSL", value = "true" },
+    { name = "DB_IAM_AUTH", value = "true" },
+    { name = "AWS_REGION", value = local.region },
     { name = "REDIS_HOST", value = module.elasticache.redis_endpoint },
     { name = "REDIS_PORT", value = tostring(module.elasticache.redis_port) },
     { name = "REDIS_TLS", value = tostring(module.elasticache.transit_encryption_enabled) },
@@ -253,14 +257,12 @@ module "ecs" {
     { name = "WALTID_AUDITOR_URL", value = local.waltid_auditor_url },
   ]
 
+  # Note: DB_PASSWORD removed - eurocomply_app uses IAM token authentication
+  # For migrations, use eurocomply_migrate with password from database-migrate secret
   secrets = [
     {
       name      = "CLERK_SECRET_KEY"
       valueFrom = "${aws_secretsmanager_secret.app_secrets.arn}:CLERK_SECRET_KEY::"
-    },
-    {
-      name      = "DB_PASSWORD"
-      valueFrom = "${module.rds.db_credentials_secret_arn}:password::"
     },
     {
       name      = "REDIS_AUTH_TOKEN"
@@ -270,7 +272,6 @@ module "ecs" {
 
   secrets_arns = [
     aws_secretsmanager_secret.app_secrets.arn,
-    module.rds.db_credentials_secret_arn,
     module.elasticache.redis_auth_secret_arn
   ]
 
@@ -278,10 +279,11 @@ module "ecs" {
   log_retention_days = 30
   enable_autoscaling = false
 
-  # RDS IAM authentication (scoped policy)
+  # RDS IAM authentication (scoped policy for eurocomply_app)
+  # Three-User Architecture: IAM auth ONLY for eurocomply_app user
   enable_rds_iam_auth = true
   rds_resource_id     = module.rds.db_resource_id
-  db_username         = module.rds.db_username
+  db_username         = module.rds.db_app_username
   aws_account_id      = local.account_id
 }
 
