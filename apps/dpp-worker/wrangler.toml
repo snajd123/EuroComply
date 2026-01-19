@@ -7,6 +7,9 @@ compatibility_date = "2024-01-17"
 name = "dpp-serve-staging"
 route = { pattern = "dpp-staging.eurocomply.eu/*", zone_name = "eurocomply.eu" }
 
+[env.staging.vars]
+ALLOWED_ORIGINS = "https://staging.eurocomply.eu,https://app-staging.eurocomply.eu"
+
 [[env.staging.r2_buckets]]
 binding = "DPP_BUCKET"
 bucket_name = "eurocomply-dpps-staging"
@@ -15,6 +18,9 @@ bucket_name = "eurocomply-dpps-staging"
 [env.production]
 name = "dpp-serve-production"
 route = { pattern = "dpp.eurocomply.eu/*", zone_name = "eurocomply.eu" }
+
+[env.production.vars]
+ALLOWED_ORIGINS = "https://eurocomply.eu,https://app.eurocomply.eu"
 
 [[env.production.r2_buckets]]
 binding = "DPP_BUCKET"

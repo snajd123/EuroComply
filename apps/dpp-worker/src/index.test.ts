@@ -30,8 +30,11 @@ function createMockR2Object(content: string, contentType: string, etag = '"test-
 /**
  * Creates a mock environment with the given bucket
  */
-function createMockEnv(bucket: R2Bucket): Env {
-  return { DPP_BUCKET: bucket };
+function createMockEnv(bucket: R2Bucket, allowedOrigins?: string): Env {
+  return {
+    DPP_BUCKET: bucket,
+    ...(allowedOrigins && { ALLOWED_ORIGINS: allowedOrigins }),
+  };
 }
 
 describe('DPP Worker Main Handler', () => {
@@ -322,7 +325,7 @@ describe('DPP Worker Main Handler', () => {
       const response = await worker.fetch(request, env);
 
       expect(response.status).toBe(200);
-      expect(response.headers.get('Cache-Control')).toBe('public, max-age=3600');
+      expect(response.headers.get('Cache-Control')).toBe('public, max-age=300, stale-while-revalidate=3600');
     });
 
     it('includes ETag header', async () => {
@@ -364,7 +367,7 @@ describe('DPP Worker Main Handler', () => {
 
       expect(response.status).toBe(200);
       expect(response.headers.get('Content-Type')).toBe('application/vc+ld+json');
-      expect(response.headers.get('Cache-Control')).toBe('public, max-age=3600');
+      expect(response.headers.get('Cache-Control')).toBe('public, max-age=300, stale-while-revalidate=3600');
       expect(response.headers.get('ETag')).toBe('"full-test-etag"');
       expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
     });
@@ -395,6 +398,79 @@ describe('DPP Worker Main Handler', () => {
       expect(response.status).toBe(405);
       const body = await response.text();
       expect(body).toContain('Method Not Allowed');
+    });
+  });
+
+  describe('CORS and Security Headers', () => {
+    it('returns wildcard CORS when ALLOWED_ORIGINS not configured', async () => {
+      const mockR2Object = createMockR2Object('{}', 'application/json');
+      const mockBucket = createMockBucket(mockR2Object);
+      const env = createMockEnv(mockBucket); // No ALLOWED_ORIGINS
+
+      const request = new Request('https://dpp.example.com/org_123/pass_456/credential.json');
+      const response = await worker.fetch(request, env);
+
+      expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
+    });
+
+    it('returns matching origin when request origin is allowed', async () => {
+      const mockR2Object = createMockR2Object('{}', 'application/json');
+      const mockBucket = createMockBucket(mockR2Object);
+      const env = createMockEnv(mockBucket, 'https://app.eurocomply.eu,https://eurocomply.eu');
+
+      const request = new Request('https://dpp.example.com/org_123/pass_456/credential.json', {
+        headers: { Origin: 'https://app.eurocomply.eu' },
+      });
+      const response = await worker.fetch(request, env);
+
+      expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://app.eurocomply.eu');
+    });
+
+    it('returns first allowed origin when request origin is not in list', async () => {
+      const mockR2Object = createMockR2Object('{}', 'application/json');
+      const mockBucket = createMockBucket(mockR2Object);
+      const env = createMockEnv(mockBucket, 'https://app.eurocomply.eu,https://eurocomply.eu');
+
+      const request = new Request('https://dpp.example.com/org_123/pass_456/credential.json', {
+        headers: { Origin: 'https://malicious.com' },
+      });
+      const response = await worker.fetch(request, env);
+
+      expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://app.eurocomply.eu');
+    });
+
+    it('includes X-Content-Type-Options: nosniff in all responses', async () => {
+      const mockR2Object = createMockR2Object('{}', 'application/json');
+      const mockBucket = createMockBucket(mockR2Object);
+      const env = createMockEnv(mockBucket);
+
+      const request = new Request('https://dpp.example.com/org_123/pass_456/credential.json');
+      const response = await worker.fetch(request, env);
+
+      expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
+    });
+
+    it('includes X-Frame-Options: DENY in all responses', async () => {
+      const mockR2Object = createMockR2Object('{}', 'application/json');
+      const mockBucket = createMockBucket(mockR2Object);
+      const env = createMockEnv(mockBucket);
+
+      const request = new Request('https://dpp.example.com/org_123/pass_456/credential.json');
+      const response = await worker.fetch(request, env);
+
+      expect(response.headers.get('X-Frame-Options')).toBe('DENY');
+    });
+
+    it('includes security headers in 404 responses', async () => {
+      const mockBucket = createMockBucket(null);
+      const env = createMockEnv(mockBucket);
+
+      const request = new Request('https://dpp.example.com/org_123/pass_456/credential.json');
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(404);
+      expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
+      expect(response.headers.get('X-Frame-Options')).toBe('DENY');
     });
   });
 });

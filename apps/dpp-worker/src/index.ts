@@ -12,6 +12,7 @@ import { getDppFile } from './storage.js';
 
 export interface Env {
   DPP_BUCKET: R2Bucket;
+  ALLOWED_ORIGINS?: string;
 }
 
 /**
@@ -20,19 +21,52 @@ export interface Env {
 const ALLOWED_METHODS = ['GET', 'HEAD', 'OPTIONS'];
 
 /**
- * Standard cache control header for DPP responses
+ * Standard cache control header for DPP responses (5 minutes with stale-while-revalidate)
  */
-const CACHE_CONTROL = 'public, max-age=3600';
+const CACHE_CONTROL = 'public, max-age=300, stale-while-revalidate=3600';
+
+/**
+ * Common security headers for all responses
+ */
+const SECURITY_HEADERS = {
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+};
+
+/**
+ * Get CORS origin based on request and allowed origins config.
+ * Returns the origin if allowed, or '*' if no restrictions configured.
+ */
+function getCorsOrigin(request: Request, allowedOrigins?: string): string {
+  // If no allowed origins configured, allow all (backwards compat for dev)
+  if (!allowedOrigins) {
+    return '*';
+  }
+
+  const origin = request.headers.get('Origin');
+
+  // Parse allowed origins
+  const allowed = allowedOrigins.split(',').map((o) => o.trim());
+
+  // Check if request origin is allowed
+  if (origin && allowed.includes(origin)) {
+    return origin;
+  }
+
+  // For non-browser requests (no Origin header), return first allowed origin
+  return allowed[0] || '*';
+}
 
 /**
  * Creates a 404 Not Found response
  */
-function notFoundResponse(): Response {
+function notFoundResponse(corsOrigin: string): Response {
   return new Response('Not Found', {
     status: 404,
     headers: {
       'Content-Type': 'text/plain',
-      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Origin': corsOrigin,
+      ...SECURITY_HEADERS,
     },
   });
 }
@@ -40,13 +74,14 @@ function notFoundResponse(): Response {
 /**
  * Creates a 405 Method Not Allowed response
  */
-function methodNotAllowedResponse(): Response {
+function methodNotAllowedResponse(corsOrigin: string): Response {
   return new Response('Method Not Allowed', {
     status: 405,
     headers: {
       'Content-Type': 'text/plain',
       Allow: ALLOWED_METHODS.join(', '),
-      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Origin': corsOrigin,
+      ...SECURITY_HEADERS,
     },
   });
 }
@@ -54,14 +89,15 @@ function methodNotAllowedResponse(): Response {
 /**
  * Creates a 204 No Content response for OPTIONS preflight requests
  */
-function optionsResponse(): Response {
+function optionsResponse(corsOrigin: string): Response {
   return new Response(null, {
     status: 204,
     headers: {
-      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Origin': corsOrigin,
       'Access-Control-Allow-Methods': ALLOWED_METHODS.join(', '),
       'Access-Control-Allow-Headers': 'Accept, Content-Type',
       'Access-Control-Max-Age': '86400',
+      ...SECURITY_HEADERS,
     },
   });
 }
@@ -72,7 +108,8 @@ function optionsResponse(): Response {
 function createDppResponse(
   body: ReadableStream | null,
   contentType: string,
-  etag: string
+  etag: string,
+  corsOrigin: string
 ): Response {
   return new Response(body, {
     status: 200,
@@ -80,7 +117,8 @@ function createDppResponse(
       'Content-Type': contentType,
       'Cache-Control': CACHE_CONTROL,
       ETag: etag,
-      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Origin': corsOrigin,
+      ...SECURITY_HEADERS,
     },
   });
 }
@@ -106,16 +144,18 @@ function getContentTypeForFile(
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    // Calculate CORS origin based on config
+    const corsOrigin = getCorsOrigin(request, env.ALLOWED_ORIGINS);
     const method = request.method.toUpperCase();
 
     // Handle OPTIONS preflight requests
     if (method === 'OPTIONS') {
-      return optionsResponse();
+      return optionsResponse(corsOrigin);
     }
 
     // Reject non-allowed methods
     if (!ALLOWED_METHODS.includes(method)) {
-      return methodNotAllowedResponse();
+      return methodNotAllowedResponse(corsOrigin);
     }
 
     // Parse the URL to extract organization ID, passport ID, and optional file
@@ -124,7 +164,7 @@ export default {
 
     // Return 404 for invalid URLs
     if (params === null) {
-      return notFoundResponse();
+      return notFoundResponse(corsOrigin);
     }
 
     const { organizationId, passportId, file: requestedFile } = params;
@@ -156,7 +196,7 @@ export default {
 
     // Return 404 if file not found
     if (dppFile === null) {
-      return notFoundResponse();
+      return notFoundResponse(corsOrigin);
     }
 
     // Determine final content type
@@ -166,10 +206,10 @@ export default {
 
     // For HEAD requests, return response without body
     if (method === 'HEAD') {
-      return createDppResponse(null, finalContentType, dppFile.etag);
+      return createDppResponse(null, finalContentType, dppFile.etag, corsOrigin);
     }
 
     // Return the DPP file with proper headers
-    return createDppResponse(dppFile.body, finalContentType, dppFile.etag);
+    return createDppResponse(dppFile.body, finalContentType, dppFile.etag, corsOrigin);
   },
 };
