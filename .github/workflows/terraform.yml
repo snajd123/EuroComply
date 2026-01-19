@@ -248,6 +248,60 @@ jobs:
 
           echo "Database migrations completed successfully!"
 
+      - name: Deploy Fresh ECS Tasks
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        run: |
+          echo "Forcing new ECS deployment to ensure fresh database connections..."
+
+          CLUSTER_NAME=$(terraform output -raw ecs_cluster_name)
+          SERVICE_NAME=$(terraform output -raw ecs_service_name)
+
+          # Force new deployment
+          aws ecs update-service \
+            --cluster "$CLUSTER_NAME" \
+            --service "$SERVICE_NAME" \
+            --force-new-deployment \
+            --query 'service.serviceName' \
+            --output text
+
+          echo "Waiting for deployment to stabilize..."
+          aws ecs wait services-stable \
+            --cluster "$CLUSTER_NAME" \
+            --services "$SERVICE_NAME"
+
+          echo "ECS deployment completed successfully!"
+
+      - name: Verify Health
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        run: |
+          echo "Verifying application health..."
+
+          ALB_DNS=$(terraform output -raw alb_dns_name)
+
+          # Wait for ALB to route to new tasks
+          sleep 10
+
+          # Check health endpoint
+          for i in 1 2 3 4 5; do
+            RESPONSE=$(curl -s -k "https://$ALB_DNS/health/ready" || echo '{"status":"error"}')
+            STATUS=$(echo "$RESPONSE" | jq -r '.status')
+
+            echo "Health check attempt $i: $STATUS"
+
+            if [ "$STATUS" = "ok" ]; then
+              echo "Application is healthy!"
+              echo "$RESPONSE" | jq .
+              exit 0
+            fi
+
+            echo "Waiting 15 seconds before retry..."
+            sleep 15
+          done
+
+          echo "ERROR: Health check failed after 5 attempts"
+          echo "Response: $RESPONSE"
+          exit 1
+
       - name: Upload Plan Artifact
         if: github.event_name == 'pull_request'
         uses: actions/upload-artifact@v4
