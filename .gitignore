@@ -48,3 +48,4 @@ terraform.rc
 
 # Cloudflare Wrangler
 .wrangler/
+secrets.tfvars
