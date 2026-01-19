@@ -17,12 +17,12 @@ if (ENABLE_TEST_AUTH_BYPASS && process.env['NODE_ENV'] === 'production') {
   );
 }
 
-// Fail fast in production if Clerk is not configured
-if (!CLERK_SECRET_KEY) {
-  if (process.env['NODE_ENV'] === 'production') {
-    throw new Error('CLERK_SECRET_KEY is required in production');
-  }
-  console.warn('CLERK_SECRET_KEY not set - auth will fail');
+// Fail fast if Clerk is not configured (all environments except test)
+// This prevents undefined behavior from missing auth configuration
+if (!CLERK_SECRET_KEY && process.env['NODE_ENV'] !== 'test') {
+  throw new Error(
+    'CLERK_SECRET_KEY is required. Set this environment variable to enable authentication.'
+  );
 }
 
 /**
@@ -36,8 +36,13 @@ async function performOrgAuth(
   orgId: string
 ): Promise<void> {
   // Verify JWT with Clerk
+  // Note: CLERK_SECRET_KEY is validated at startup (except in test mode)
+  if (!CLERK_SECRET_KEY) {
+    throw new HTTPException(500, { message: 'Authentication service not configured' });
+  }
+
   const payload = await verifyToken(token, {
-    secretKey: CLERK_SECRET_KEY!,
+    secretKey: CLERK_SECRET_KEY,
   });
 
   const clerkUserId = payload.sub;
@@ -189,8 +194,13 @@ export const userAuthMiddleware = createMiddleware<{ Variables: UserOnlyVariable
     const token = authHeader.slice(7);
 
     try {
+      // Note: CLERK_SECRET_KEY is validated at startup (except in test mode)
+      if (!CLERK_SECRET_KEY) {
+        throw new HTTPException(500, { message: 'Authentication service not configured' });
+      }
+
       const payload = await verifyToken(token, {
-        secretKey: CLERK_SECRET_KEY!,
+        secretKey: CLERK_SECRET_KEY,
       });
 
       const clerkUserId = payload.sub;
