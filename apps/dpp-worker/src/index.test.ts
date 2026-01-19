@@ -268,15 +268,29 @@ describe('DPP Worker Main Handler', () => {
       expect(mockBucket.get).toHaveBeenCalledWith('org_123/pass_456/preview.html');
     });
 
-    it('returns 404 for specific file that does not exist', async () => {
+    it('returns 404 for whitelisted file that does not exist in R2', async () => {
       const mockBucket = createMockBucket(null);
       const env = createMockEnv(mockBucket);
+      // credential.json is whitelisted but not in R2
+      const request = new Request('https://dpp.example.com/org_123/pass_456/credential.json');
+
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(404);
+      expect(mockBucket.get).toHaveBeenCalledWith('org_123/pass_456/credential.json');
+    });
+
+    it('returns 404 for non-whitelisted file without calling R2 (security)', async () => {
+      const mockBucket = createMockBucket(null);
+      const env = createMockEnv(mockBucket);
+      // nonexistent.txt is not whitelisted - should be rejected at URL parsing
       const request = new Request('https://dpp.example.com/org_123/pass_456/nonexistent.txt');
 
       const response = await worker.fetch(request, env);
 
       expect(response.status).toBe(404);
-      expect(mockBucket.get).toHaveBeenCalledWith('org_123/pass_456/nonexistent.txt');
+      // R2 should NOT be called for non-whitelisted files (security measure)
+      expect(mockBucket.get).not.toHaveBeenCalled();
     });
 
     it('ignores Accept header when specific file is requested', async () => {

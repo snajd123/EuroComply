@@ -4,6 +4,7 @@
  * Parses DPP URLs in the format: /{organizationId}/{passportId}[/{file}]
  * - organizationId must start with "org_"
  * - passportId must start with "pass_"
+ * - file must be one of the allowed files (security: prevents path traversal)
  */
 
 export interface DppUrlParams {
@@ -11,6 +12,12 @@ export interface DppUrlParams {
   passportId: string;
   file: string | null;
 }
+
+/**
+ * Whitelist of allowed DPP files.
+ * Security: Prevents path traversal attacks by only allowing known files.
+ */
+const ALLOWED_FILES = new Set(['credential.json', 'preview.html', 'qr.png']);
 
 /**
  * Parse a DPP URL and extract organization ID, passport ID, and optional file
@@ -35,8 +42,9 @@ export function parseDppUrl(url: URL): DppUrlParams | null {
   // Split into segments
   const segments = path.split('/').filter((segment) => segment.length > 0);
 
-  // Must have at least 2 segments (org and passport)
-  if (segments.length < 2) {
+  // Must have exactly 2 or 3 segments (org, passport, optional file)
+  // Security: Reject paths with more segments to prevent traversal
+  if (segments.length < 2 || segments.length > 3) {
     return null;
   }
 
@@ -57,6 +65,14 @@ export function parseDppUrl(url: URL): DppUrlParams | null {
   // Validate passportId prefix
   if (!passportId.startsWith('pass_')) {
     return null;
+  }
+
+  // Validate file if provided
+  // Security: Only allow whitelisted files to prevent path traversal attacks
+  if (file !== undefined) {
+    if (!ALLOWED_FILES.has(file)) {
+      return null;
+    }
   }
 
   return {
