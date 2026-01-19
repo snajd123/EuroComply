@@ -17,7 +17,7 @@ on:
 env:
   AWS_REGION: eusc-de-east-1
   ECR_REPOSITORY: eurocomply-api
-  ECS_CLUSTER: eurocomply-production
+  ECS_CLUSTER: eurocomply-production-cluster
   ECS_SERVICE: eurocomply-production-api
   ECS_TASK_FAMILY: eurocomply-production-api
   CONTAINER_NAME: api
