@@ -7,6 +7,7 @@
 import type { Context, Next, MiddlewareHandler } from 'hono';
 import { RateLimitError } from '../lib/errors.js';
 import { checkRateLimit } from '../lib/redis.js';
+import { getClientIp } from '../lib/trusted-proxy.js';
 
 interface RateLimitOptions {
   /** Maximum requests per window */
@@ -30,6 +31,9 @@ interface RateLimitEntry {
 // For production, use Redis or similar distributed cache
 const rateLimitStore = new Map<string, RateLimitEntry>();
 
+// Track if we've warned about in-memory fallback (to avoid log spam)
+let hasWarnedAboutFallback = false;
+
 // Clean up expired entries periodically (every minute)
 setInterval(() => {
   const now = Date.now();
@@ -39,27 +43,6 @@ setInterval(() => {
     }
   }
 }, 60000);
-
-/**
- * Extract client IP from request headers or connection.
- */
-function getClientIp(c: Context): string {
-  // Check common proxy headers first
-  const forwardedFor = c.req.header('x-forwarded-for');
-  if (forwardedFor) {
-    // Get first IP in chain (client IP)
-    const firstIp = forwardedFor.split(',')[0];
-    return firstIp ? firstIp.trim() : 'unknown';
-  }
-
-  const realIp = c.req.header('x-real-ip');
-  if (realIp) {
-    return realIp;
-  }
-
-  // Fallback to connection info (may not be available in all environments)
-  return 'unknown';
-}
 
 /**
  * Creates a rate limiting middleware with the specified options.
@@ -101,6 +84,16 @@ export function rateLimiter(options: RateLimitOptions): MiddlewareHandler {
     }
 
     // Fallback to in-memory rate limiting
+    // Security warning: In multi-instance deployments, in-memory rate limiting
+    // can be bypassed by distributing requests across instances
+    if (!hasWarnedAboutFallback && process.env['NODE_ENV'] === 'production') {
+      console.warn(
+        '[RateLimit] WARNING: Redis unavailable, using in-memory fallback. ' +
+        'Rate limiting is per-instance only and can be bypassed in multi-instance deployments.'
+      );
+      hasWarnedAboutFallback = true;
+    }
+
     const windowEnd = now + windowMs;
     let entry = rateLimitStore.get(key);
 
