@@ -38,9 +38,17 @@ variable "deletion_window_days" {
   }
 }
 
+variable "aws_region" {
+  description = "AWS region for region-specific service principals"
+  type        = string
+  default     = "eusc-de-east-1"
+}
+
 locals {
   name_prefix = "${var.project}-${var.environment}"
   partition   = "aws-eusc"
+  # AWS European Sovereign Cloud uses .amazonaws.eu domain
+  service_domain = "amazonaws.eu"
 }
 
 data "aws_caller_identity" "current" {}
@@ -57,9 +65,8 @@ resource "aws_kms_key" "primary" {
   customer_master_key_spec = "SYMMETRIC_DEFAULT"
   key_usage                = "ENCRYPT_DECRYPT"
 
-  # Simplified policy for AWS European Sovereign Cloud compatibility
-  # Root account access only - services use IAM roles to access keys
-  # This avoids invalid service principal errors in sovereign cloud
+  # AWS European Sovereign Cloud KMS key policy
+  # Uses .amazonaws.eu service principals for sovereign cloud compatibility
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -71,6 +78,67 @@ resource "aws_kms_key" "primary" {
         }
         Action   = "kms:*"
         Resource = "*"
+      },
+      {
+        Sid    = "AllowRDSEncryption"
+        Effect = "Allow"
+        Principal = {
+          Service = "rds.${local.service_domain}"
+        }
+        Action = [
+          "kms:Encrypt",
+          "kms:Decrypt",
+          "kms:ReEncrypt*",
+          "kms:GenerateDataKey*",
+          "kms:DescribeKey",
+          "kms:CreateGrant"
+        ]
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "kms:CallerAccount" = data.aws_caller_identity.current.account_id
+          }
+        }
+      },
+      {
+        Sid    = "AllowSecretsManagerEncryption"
+        Effect = "Allow"
+        Principal = {
+          Service = "secretsmanager.${local.service_domain}"
+        }
+        Action = [
+          "kms:Encrypt",
+          "kms:Decrypt",
+          "kms:ReEncrypt*",
+          "kms:GenerateDataKey*",
+          "kms:DescribeKey"
+        ]
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "kms:CallerAccount" = data.aws_caller_identity.current.account_id
+          }
+        }
+      },
+      {
+        Sid    = "AllowLogsEncryption"
+        Effect = "Allow"
+        Principal = {
+          Service = "logs.${var.aws_region}.${local.service_domain}"
+        }
+        Action = [
+          "kms:Encrypt",
+          "kms:Decrypt",
+          "kms:ReEncrypt*",
+          "kms:GenerateDataKey*",
+          "kms:DescribeKey"
+        ]
+        Resource = "*"
+        Condition = {
+          ArnLike = {
+            "kms:EncryptionContext:aws:logs:arn" = "arn:${local.partition}:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:*"
+          }
+        }
       }
     ]
   })
@@ -97,8 +165,8 @@ resource "aws_kms_key" "ecr" {
   customer_master_key_spec = "SYMMETRIC_DEFAULT"
   key_usage                = "ENCRYPT_DECRYPT"
 
-  # Simplified policy for AWS European Sovereign Cloud compatibility
-  # Root account access allows delegation via IAM policies
+  # AWS European Sovereign Cloud KMS key policy
+  # Uses .amazonaws.eu service principals for sovereign cloud compatibility
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -109,6 +177,21 @@ resource "aws_kms_key" "ecr" {
           AWS = "arn:${local.partition}:iam::${data.aws_caller_identity.current.account_id}:root"
         }
         Action   = "kms:*"
+        Resource = "*"
+      },
+      {
+        Sid    = "AllowECREncryption"
+        Effect = "Allow"
+        Principal = {
+          Service = "ecr.${local.service_domain}"
+        }
+        Action = [
+          "kms:Encrypt",
+          "kms:Decrypt",
+          "kms:ReEncrypt*",
+          "kms:GenerateDataKey*",
+          "kms:DescribeKey"
+        ]
         Resource = "*"
       }
     ]
@@ -136,8 +219,8 @@ resource "aws_kms_key" "elasticache" {
   customer_master_key_spec = "SYMMETRIC_DEFAULT"
   key_usage                = "ENCRYPT_DECRYPT"
 
-  # Simplified policy for AWS European Sovereign Cloud compatibility
-  # Root account access allows delegation via IAM policies
+  # AWS European Sovereign Cloud KMS key policy
+  # Uses .amazonaws.eu service principals for sovereign cloud compatibility
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -149,6 +232,27 @@ resource "aws_kms_key" "elasticache" {
         }
         Action   = "kms:*"
         Resource = "*"
+      },
+      {
+        Sid    = "AllowElastiCacheEncryption"
+        Effect = "Allow"
+        Principal = {
+          Service = "elasticache.${local.service_domain}"
+        }
+        Action = [
+          "kms:Encrypt",
+          "kms:Decrypt",
+          "kms:ReEncrypt*",
+          "kms:GenerateDataKey*",
+          "kms:DescribeKey",
+          "kms:CreateGrant"
+        ]
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "kms:CallerAccount" = data.aws_caller_identity.current.account_id
+          }
+        }
       }
     ]
   })
