@@ -8,12 +8,19 @@ import { err } from '@eurocomply/shared';
  * Converts all errors to consistent API response format.
  */
 export const errorHandler: ErrorHandler = (error, c) => {
-  console.error('Request error:', {
+  // Sanitize log output - only include stack traces in development
+  const logData: Record<string, unknown> = {
     method: c.req.method,
     path: c.req.path,
     error: error.message,
-    stack: error.stack,
-  });
+  };
+
+  // Only include stack trace in development to prevent information leakage
+  if (process.env['NODE_ENV'] === 'development') {
+    logData['stack'] = error.stack;
+  }
+
+  console.error('Request error:', logData);
 
   // Handle our custom errors
   if (error instanceof AppError) {
