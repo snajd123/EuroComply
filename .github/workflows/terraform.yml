@@ -302,6 +302,19 @@ jobs:
           echo "Response: $RESPONSE"
           exit 1
 
+      - name: Run E2E Smoke Tests
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        run: |
+          echo "Running E2E smoke tests..."
+
+          # Get API URL
+          ALB_DNS=$(terraform output -raw alb_dns_name)
+          export API_URL="https://$ALB_DNS"
+
+          # Run the smoke test script
+          chmod +x "${GITHUB_WORKSPACE}/scripts/e2e-smoke-test.sh"
+          "${GITHUB_WORKSPACE}/scripts/e2e-smoke-test.sh"
+
       - name: Upload Plan Artifact
         if: github.event_name == 'pull_request'
         uses: actions/upload-artifact@v4
