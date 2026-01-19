@@ -128,7 +128,7 @@ jobs:
             });
 
       - name: Import Existing HTTPS Listener (if needed)
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         run: |
           # Check if HTTPS listener already exists in AWS but not in Terraform state
           ALB_ARN=$(aws elbv2 describe-load-balancers \
@@ -155,11 +155,11 @@ jobs:
         continue-on-error: true
 
       - name: Terraform Plan (refresh after import)
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         run: terraform plan -no-color -out=tfplan
 
       - name: Terraform Apply
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         run: terraform apply -auto-approve tfplan
 
       - name: Upload Plan Artifact
