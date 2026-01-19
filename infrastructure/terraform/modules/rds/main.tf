@@ -489,15 +489,10 @@ resource "null_resource" "build_iam_setup_lambda" {
   }
 }
 
-# Package Lambda code
-data "archive_file" "iam_setup_lambda" {
-  count       = var.setup_iam_auth ? 1 : 0
-  type        = "zip"
-  source_file = "${path.module}/../../../lambda/rds-iam-setup/index.py"
-  output_path = "${path.module}/../../../lambda/rds-iam-setup-source.zip"
-}
-
 # Lambda function
+# Note: lambda.zip must be pre-built with dependencies using:
+#   cd lambda/rds-iam-setup && pip download psycopg2-binary -d package --platform manylinux2014_x86_64 --python-version 311 --only-binary=:all:
+#   cd package && unzip *.whl && rm *.whl && cp ../index.py . && zip -r ../lambda.zip .
 resource "aws_lambda_function" "iam_setup" {
   count = var.setup_iam_auth ? 1 : 0
 
@@ -509,7 +504,7 @@ resource "aws_lambda_function" "iam_setup" {
   memory_size   = 256
 
   filename         = "${path.module}/../../../lambda/rds-iam-setup/lambda.zip"
-  source_code_hash = data.archive_file.iam_setup_lambda[0].output_base64sha256
+  source_code_hash = filebase64sha256("${path.module}/../../../lambda/rds-iam-setup/lambda.zip")
 
   vpc_config {
     subnet_ids         = var.lambda_subnet_ids

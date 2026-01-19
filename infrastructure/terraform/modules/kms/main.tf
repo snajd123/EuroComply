@@ -47,8 +47,10 @@ variable "aws_region" {
 locals {
   name_prefix = "${var.project}-${var.environment}"
   partition   = "aws-eusc"
-  # AWS European Sovereign Cloud uses .amazonaws.eu domain
-  service_domain = "amazonaws.eu"
+  # AWS European Sovereign Cloud service principals:
+  # All services use standard .amazonaws.com domain (not .amazonaws.eu)
+  # Including regionalized services like CloudWatch Logs: logs.<region>.amazonaws.com
+  service_domain = "amazonaws.com"
 }
 
 data "aws_caller_identity" "current" {}

@@ -127,6 +127,42 @@
 
 ---
 
+## Phase 5b: AWS European Sovereign Cloud Fixes ✅ COMPLETED (2026-01-19)
+
+Critical fixes to enable deployment on AWS European Sovereign Cloud (eusc-de-east-1).
+
+### KMS Service Principals
+- [x] 5b.1 `infrastructure/terraform/modules/kms/main.tf` - Fix service principals for Sovereign Cloud
+
+  **Key Finding:** AWS European Sovereign Cloud uses standard `.amazonaws.com` service principals (NOT `.amazonaws.eu`):
+  - `rds.amazonaws.com`
+  - `secretsmanager.amazonaws.com`
+  - `ecr.amazonaws.com`
+  - `elasticache.amazonaws.com`
+  - `logs.eusc-de-east-1.amazonaws.com` (regionalized but still .com)
+
+  **Sovereignty is maintained via:**
+  - API endpoints: `*.amazonaws.eu`
+  - ARN partition: `aws-eusc`
+  - Region: `eusc-de-east-1`
+  - Service principals are just IAM identity strings, not network destinations
+
+### IAM Permissions
+- [x] 5b.2 `infrastructure/terraform/bootstrap/main.tf` - Add KMS permissions for Terraform deployment
+- [x] 5b.3 `infrastructure/terraform/bootstrap/main.tf` - Add VPC endpoint creation permissions
+
+### VPC Endpoints
+- [x] 5b.4 `infrastructure/terraform/modules/vpc/main.tf` - Disable ECR endpoints (not available in Sovereign Cloud)
+  - Added `enable_ecr_endpoints` variable (default: false)
+
+### Lambda Build Process
+- [x] 5b.5 `infrastructure/terraform/modules/rds/main.tf` - Fix Lambda source_code_hash to use pre-built zip
+  - Lambda requires psycopg2-binary built for `manylinux2014_x86_64` platform
+
+**Deployed:** 2026-01-19 manually via terraform apply
+
+---
+
 ## Phase 6: Final Cleanup & Documentation (9 fixes)
 
 ### DPP Worker
@@ -159,5 +195,6 @@
 | Phase 3 | 10 |
 | Phase 4 | 9 |
 | Phase 5 | 10 |
+| Phase 5b | 5 |
 | Phase 6 | 9 |
-| **Total** | **55** |
+| **Total** | **60** |

@@ -352,6 +352,38 @@ aws --profile eurocomply-sovereign sts get-caller-identity
 | Billing | USD default | EUR default |
 | Data location | Region-specific | EU-only guaranteed |
 
+### Service Principals vs API Endpoints (Critical)
+
+**Important distinction discovered 2026-01-19:** AWS European Sovereign Cloud uses different domains for API endpoints versus IAM service principals.
+
+| Component | Domain | Example |
+|-----------|--------|---------|
+| **API Endpoints** | `.amazonaws.eu` | `rds.eusc-de-east-1.amazonaws.eu` |
+| **Service Principals** | `.amazonaws.com` | `rds.amazonaws.com` |
+| **ARN Partition** | `aws-eusc` | `arn:aws-eusc:rds:...` |
+
+**KMS Key Policy Service Principals** (all use `.amazonaws.com`):
+- `rds.amazonaws.com`
+- `secretsmanager.amazonaws.com`
+- `ecr.amazonaws.com`
+- `elasticache.amazonaws.com`
+- `logs.eusc-de-east-1.amazonaws.com` (regionalized but still `.com`)
+
+**Why this doesn't compromise sovereignty:**
+- Service principals are IAM identity strings for policy evaluation, not network destinations
+- All API calls still go to `.amazonaws.eu` endpoints
+- Data remains in EU Sovereign Cloud infrastructure
+- ARN partition `aws-eusc` ensures resource isolation
+
+### Service Limitations
+
+Some services have limited availability in Sovereign Cloud:
+
+| Service | Status | Workaround |
+|---------|--------|------------|
+| ECR VPC Endpoints | **Not Available** | Use NAT Gateway for ECR access |
+| Some Lambda Layers | Limited | Pre-build dependencies for `manylinux2014_x86_64` |
+
 ### Terraform Configuration
 
 ```hcl
