@@ -1,7 +1,7 @@
 import { PrismaClient, OperationsEvent } from '@eurocomply/db';
 import { createHash } from 'crypto';
 import {
-  validateEventPayload,
+  validateEventPayloadOrThrow,
   type EventType,
   type EventStatus,
   type UserForensicContext,
@@ -43,8 +43,8 @@ export class OperationsEventService {
     createdBy: string,
     input: RecordEventInput
   ): Promise<OperationsEvent> {
-    // Validate payload against schema
-    validateEventPayload({
+    // Validate payload against schema (throws on invalid)
+    validateEventPayloadOrThrow({
       eventType: input.eventType,
       payload: input.payload,
     });
