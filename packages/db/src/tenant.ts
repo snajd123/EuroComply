@@ -32,6 +32,13 @@ export async function createTenantSchema(
     // Create schema
     await tx.$executeRawUnsafe(`CREATE SCHEMA "${schemaName}"`);
 
+    // Revoke default PUBLIC access to enforce tenant isolation
+    // This prevents other database roles from accessing this schema
+    await tx.$executeRawUnsafe(`REVOKE ALL ON SCHEMA "${schemaName}" FROM PUBLIC`);
+    await tx.$executeRawUnsafe(
+      `ALTER DEFAULT PRIVILEGES IN SCHEMA "${schemaName}" REVOKE ALL ON TABLES FROM PUBLIC`
+    );
+
     // Create products table
     await tx.$executeRawUnsafe(`
       CREATE TABLE "${schemaName}".products (
