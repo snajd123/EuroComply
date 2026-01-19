@@ -12,6 +12,16 @@ on:
     branches: [main]
     paths:
       - 'infrastructure/terraform/**'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
 
 env:
   # AWS European Sovereign Cloud (eusc-de-east-1)
