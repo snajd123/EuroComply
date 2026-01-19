@@ -526,32 +526,10 @@ locals {
 
 data "aws_partition" "current" {}
 
-# Build Lambda package with dependencies
-resource "null_resource" "build_iam_setup_lambda" {
-  count = var.setup_iam_auth ? 1 : 0
-
-  triggers = {
-    source_hash       = filemd5("${path.module}/../../../lambda/rds-iam-setup/index.py")
-    requirements_hash = filemd5("${path.module}/../../../lambda/rds-iam-setup/requirements.txt")
-  }
-
-  provisioner "local-exec" {
-    command = <<-EOT
-      cd ${path.module}/../../../lambda/rds-iam-setup
-      rm -rf package lambda.zip
-      # Download dependencies for Python 3.11 (Lambda runtime version)
-      pip download -r requirements.txt -d /tmp/psycopg2-download --platform manylinux2014_x86_64 --python-version 3.11 --only-binary=:all: --quiet
-      mkdir -p package
-      # Extract wheel files
-      for whl in /tmp/psycopg2-download/*.whl; do
-        unzip -q -o "$whl" -d package
-      done
-      cp index.py package/
-      cd package && zip -r ../lambda.zip . -q -x "*.pyc" -x "__pycache__/*"
-      rm -rf /tmp/psycopg2-download
-    EOT
-  }
-}
+# Note: Lambda package (lambda.zip) is built by GitHub Actions workflow
+# in .github/workflows/terraform.yml before terraform plan/apply.
+# Do NOT use a null_resource to build it during terraform apply as this
+# causes hash inconsistencies between plan and apply.
 
 # Lambda function
 # Note: lambda.zip must be pre-built with dependencies using:
@@ -587,8 +565,7 @@ resource "aws_lambda_function" "iam_setup" {
 
   depends_on = [
     aws_db_instance.main,
-    aws_secretsmanager_secret_version.migrate_credentials,
-    null_resource.build_iam_setup_lambda
+    aws_secretsmanager_secret_version.migrate_credentials
   ]
 
   tags = {
