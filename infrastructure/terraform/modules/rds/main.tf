@@ -42,6 +42,57 @@ locals {
 }
 
 # =============================================================================
+# Custom Parameter Group (security-focused settings)
+# =============================================================================
+resource "aws_db_parameter_group" "main" {
+  name   = "${local.name_prefix}-postgres-params"
+  family = "postgres15"
+
+  # Log connection events for security auditing
+  parameter {
+    name  = "log_connections"
+    value = "1"
+  }
+
+  parameter {
+    name  = "log_disconnections"
+    value = "1"
+  }
+
+  # Log DDL statements for audit trail
+  parameter {
+    name  = "log_statement"
+    value = "ddl"
+  }
+
+  # Log slow queries (> 1 second) for performance monitoring
+  parameter {
+    name  = "log_min_duration_statement"
+    value = "1000"
+  }
+
+  # Enable checkpoints logging for crash recovery diagnostics
+  parameter {
+    name  = "log_checkpoints"
+    value = "1"
+  }
+
+  # Enforce SSL connections
+  parameter {
+    name  = "rds.force_ssl"
+    value = "1"
+  }
+
+  tags = {
+    Name = "${local.name_prefix}-postgres-params"
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+# =============================================================================
 # DB Subnet Group
 # =============================================================================
 resource "aws_db_subnet_group" "main" {
@@ -110,6 +161,7 @@ resource "aws_db_instance" "main" {
   multi_az               = var.multi_az
   db_subnet_group_name   = aws_db_subnet_group.main.name
   vpc_security_group_ids = [var.security_group_id]
+  parameter_group_name   = aws_db_parameter_group.main.name
 
   backup_retention_period = var.backup_retention_period
   backup_window           = "03:00-04:00"

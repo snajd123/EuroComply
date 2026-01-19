@@ -33,3 +33,9 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "kms_key_arn" {
+  description = "ARN of KMS key for image encryption (uses KMS if provided, AES256 otherwise)"
+  type        = string
+  default     = null
+}

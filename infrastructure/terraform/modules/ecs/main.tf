@@ -111,6 +111,12 @@ variable "db_username" {
   default     = ""
 }
 
+variable "aws_account_id" {
+  description = "AWS account ID for IAM policy scoping"
+  type        = string
+  default     = ""
+}
+
 # Hardcoded for AWS European Sovereign Cloud
 # Data sources don't work due to Terraform provider limitations
 locals {
@@ -217,6 +223,7 @@ resource "aws_iam_role" "task" {
 }
 
 # IAM policy for RDS IAM authentication (most secure - no passwords)
+# Scoped to specific region, account, RDS instance, and database user
 resource "aws_iam_role_policy" "task_rds_connect" {
   count = var.rds_resource_id != "" ? 1 : 0
   name  = "rds-iam-connect"
@@ -228,7 +235,7 @@ resource "aws_iam_role_policy" "task_rds_connect" {
       {
         Effect   = "Allow"
         Action   = ["rds-db:connect"]
-        Resource = "arn:${local.partition}:rds-db:*:*:dbuser:${var.rds_resource_id}/${var.db_username}"
+        Resource = "arn:${local.partition}:rds-db:${var.aws_region}:${var.aws_account_id}:dbuser:${var.rds_resource_id}/${var.db_username}"
       }
     ]
   })

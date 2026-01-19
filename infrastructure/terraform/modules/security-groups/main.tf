@@ -102,10 +102,14 @@ resource "aws_security_group" "rds" {
     security_groups = [aws_security_group.ecs.id]
   }
 
+  # Allow egress for AWS service endpoints (CloudWatch, etc.)
+  # Security groups are stateful - response traffic is auto-allowed
+  # TODO: For production, restrict to VPC endpoints only
   egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
+    description = "HTTPS to AWS services"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
 
@@ -130,12 +134,8 @@ resource "aws_security_group" "elasticache" {
     security_groups = [aws_security_group.ecs.id]
   }
 
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
+  # No egress rules needed - Redis only responds to incoming connections
+  # Security groups are stateful, so response traffic is automatically allowed
 
   tags = {
     Name = "${local.name_prefix}-elasticache-sg"

@@ -66,6 +66,36 @@ resource "aws_secretsmanager_secret_version" "redis_auth" {
 }
 
 # =============================================================================
+# Custom Parameter Group (security-focused settings)
+# =============================================================================
+resource "aws_elasticache_parameter_group" "main" {
+  name   = "${local.name_prefix}-redis-params"
+  family = "redis7"
+
+  # Set maxmemory policy to prevent OOM (evict least recently used keys with expiry)
+  parameter {
+    name  = "maxmemory-policy"
+    value = "volatile-lru"
+  }
+
+  # Enable keyspace notifications for cache invalidation events
+  parameter {
+    name  = "notify-keyspace-events"
+    value = "Ex"
+  }
+
+  # Connection timeout (5 minutes)
+  parameter {
+    name  = "timeout"
+    value = "300"
+  }
+
+  tags = {
+    Name = "${local.name_prefix}-redis-params"
+  }
+}
+
+# =============================================================================
 # Subnet Group
 # =============================================================================
 resource "aws_elasticache_subnet_group" "main" {
@@ -89,7 +119,7 @@ resource "aws_elasticache_replication_group" "main" {
   node_type            = var.node_type
   num_cache_clusters   = var.num_cache_nodes
   port                 = 6379
-  parameter_group_name = "default.redis7"
+  parameter_group_name = aws_elasticache_parameter_group.main.name
 
   subnet_group_name  = aws_elasticache_subnet_group.main.name
   security_group_ids = [var.security_group_id]
