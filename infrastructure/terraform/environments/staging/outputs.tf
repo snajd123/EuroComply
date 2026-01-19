@@ -57,3 +57,19 @@ output "waltid_dns_namespace" {
   description = "walt.id service discovery namespace"
   value       = module.waltid.dns_namespace_name
 }
+
+# Migration task outputs
+output "migration_task_definition_arn" {
+  description = "ARN of the migration task definition for CI/CD"
+  value       = module.ecs.migration_task_definition_arn
+}
+
+output "private_subnet_ids" {
+  description = "Private subnet IDs for running migration tasks"
+  value       = module.vpc.private_subnet_ids
+}
+
+output "ecs_security_group_id" {
+  description = "Security group ID for ECS tasks"
+  value       = module.security_groups.ecs_security_group_id
+}

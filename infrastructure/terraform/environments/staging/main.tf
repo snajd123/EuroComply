@@ -428,25 +428,3 @@ resource "aws_iam_role_policy" "github_actions_ecs" {
   })
 }
 
-# =============================================================================
-# Outputs
-# =============================================================================
-output "migration_task_definition_arn" {
-  description = "ARN of the migration task definition for CI/CD"
-  value       = module.ecs.migration_task_definition_arn
-}
-
-output "ecs_cluster_name" {
-  description = "ECS cluster name for running migration tasks"
-  value       = module.ecs.cluster_name
-}
-
-output "private_subnet_ids" {
-  description = "Private subnet IDs for running migration tasks"
-  value       = module.vpc.private_subnet_ids
-}
-
-output "ecs_security_group_id" {
-  description = "Security group ID for ECS tasks"
-  value       = module.security_groups.ecs_security_group_id
-}
