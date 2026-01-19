@@ -66,8 +66,8 @@ export function getClientIp(c: Context): string {
 function getSocketIp(c: Context): string | null {
   // Try Hono's built-in method first
   try {
-    // @ts-expect-error - env.incoming may exist in Node adapter
-    const socket = c.env?.incoming?.socket;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const socket = (c.env as any)?.incoming?.socket;
     if (socket?.remoteAddress) {
       return socket.remoteAddress;
     }
