@@ -188,6 +188,66 @@ jobs:
         if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         run: terraform apply -auto-approve tfplan
 
+      - name: Run Database Migrations
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        run: |
+          echo "Running Prisma database migrations..."
+
+          # Get migration task details from Terraform outputs
+          CLUSTER_NAME=$(terraform output -raw ecs_cluster_name)
+          TASK_DEF=$(terraform output -raw migration_task_definition_arn)
+          SUBNETS=$(terraform output -json private_subnet_ids | jq -r 'join(",")')
+          SECURITY_GROUP=$(terraform output -raw ecs_security_group_id)
+
+          echo "Cluster: $CLUSTER_NAME"
+          echo "Task Definition: $TASK_DEF"
+          echo "Subnets: $SUBNETS"
+          echo "Security Group: $SECURITY_GROUP"
+
+          # Run the migration task
+          TASK_ARN=$(aws ecs run-task \
+            --cluster "$CLUSTER_NAME" \
+            --task-definition "$TASK_DEF" \
+            --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$SECURITY_GROUP],assignPublicIp=DISABLED}" \
+            --query 'tasks[0].taskArn' \
+            --output text)
+
+          echo "Migration task started: $TASK_ARN"
+
+          # Wait for the task to complete
+          echo "Waiting for migration task to complete..."
+          aws ecs wait tasks-stopped --cluster "$CLUSTER_NAME" --tasks "$TASK_ARN"
+
+          # Check the exit code
+          EXIT_CODE=$(aws ecs describe-tasks \
+            --cluster "$CLUSTER_NAME" \
+            --tasks "$TASK_ARN" \
+            --query 'tasks[0].containers[0].exitCode' \
+            --output text)
+
+          echo "Migration task exit code: $EXIT_CODE"
+
+          if [ "$EXIT_CODE" != "0" ]; then
+            echo "ERROR: Migration failed with exit code $EXIT_CODE"
+
+            # Get the task ID for log stream name
+            TASK_ID=$(echo "$TASK_ARN" | sed 's/.*\///')
+
+            # Try to fetch logs for debugging
+            echo "Fetching migration logs..."
+            aws logs get-log-events \
+              --log-group-name "/ecs/eurocomply-staging" \
+              --log-stream-name "migration/migration/$TASK_ID" \
+              --limit 100 \
+              --query 'events[*].message' \
+              --output text || echo "Could not fetch logs"
+
+            exit 1
+          fi
+
+          echo "Database migrations completed successfully!"
+
       - name: Upload Plan Artifact
         if: github.event_name == 'pull_request'
         uses: actions/upload-artifact@v4

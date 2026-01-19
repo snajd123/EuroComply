@@ -285,6 +285,31 @@ module "ecs" {
   rds_resource_id     = module.rds.db_resource_id
   db_username         = module.rds.db_app_username
   aws_account_id      = local.account_id
+
+  # Migration task configuration (uses eurocomply_migrate with password auth)
+  enable_migration_task = true
+
+  migration_environment_variables = [
+    { name = "NODE_ENV", value = "production" },
+    { name = "DB_HOST", value = module.rds.db_instance_address },
+    { name = "DB_PORT", value = tostring(module.rds.db_instance_port) },
+    { name = "DB_NAME", value = module.rds.db_name },
+    { name = "DB_USER", value = module.rds.db_migrate_username },
+    { name = "DB_SSL", value = "true" },
+    # Password auth for migrations (not IAM)
+    { name = "DB_IAM_AUTH", value = "false" },
+  ]
+
+  migration_secrets = [
+    {
+      name      = "DB_PASSWORD"
+      valueFrom = "${module.rds.db_migrate_credentials_secret_arn}:password::"
+    }
+  ]
+
+  migration_secrets_arns = [
+    module.rds.db_migrate_credentials_secret_arn
+  ]
 }
 
 # =============================================================================
@@ -376,7 +401,52 @@ resource "aws_iam_role_policy" "github_actions_ecs" {
           aws_secretsmanager_secret.app_secrets.arn,
           module.rds.db_credentials_secret_arn
         ]
+      },
+      {
+        Sid    = "CloudWatchLogsForMigrations"
+        Effect = "Allow"
+        Action = [
+          "logs:GetLogEvents",
+          "logs:FilterLogEvents",
+          "logs:DescribeLogStreams"
+        ]
+        Resource = [
+          "arn:aws-eusc:logs:${local.region}:${local.account_id}:log-group:/ecs/${local.project}-${local.environment}:*"
+        ]
+      },
+      {
+        Sid    = "RunMigrationTask"
+        Effect = "Allow"
+        Action = [
+          "ecs:RunTask"
+        ]
+        Resource = [
+          "arn:aws-eusc:ecs:${local.region}:${local.account_id}:task-definition/${local.project}-${local.environment}-migration:*"
+        ]
       }
     ]
   })
+}
+
+# =============================================================================
+# Outputs
+# =============================================================================
+output "migration_task_definition_arn" {
+  description = "ARN of the migration task definition for CI/CD"
+  value       = module.ecs.migration_task_definition_arn
+}
+
+output "ecs_cluster_name" {
+  description = "ECS cluster name for running migration tasks"
+  value       = module.ecs.cluster_name
+}
+
+output "private_subnet_ids" {
+  description = "Private subnet IDs for running migration tasks"
+  value       = module.vpc.private_subnet_ids
+}
+
+output "ecs_security_group_id" {
+  description = "Security group ID for ECS tasks"
+  value       = module.security_groups.ecs_security_group_id
 }

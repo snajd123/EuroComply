@@ -140,6 +140,37 @@ variable "aws_account_id" {
   default     = ""
 }
 
+# Migration task configuration
+variable "enable_migration_task" {
+  description = "Whether to create a separate task definition for database migrations"
+  type        = bool
+  default     = false
+}
+
+variable "migration_secrets" {
+  description = "Secrets for migration task (should include DB_PASSWORD from migrate credentials)"
+  type = list(object({
+    name      = string
+    valueFrom = string
+  }))
+  default = []
+}
+
+variable "migration_secrets_arns" {
+  description = "ARNs of secrets for migration task execution role"
+  type    = list(string)
+  default = []
+}
+
+variable "migration_environment_variables" {
+  description = "Environment variables for migration task"
+  type = list(object({
+    name  = string
+    value = string
+  }))
+  default = []
+}
+
 # Hardcoded for AWS European Sovereign Cloud
 # Data sources don't work due to Terraform provider limitations
 locals {
@@ -390,6 +421,84 @@ resource "aws_appautoscaling_policy" "ecs_cpu" {
 }
 
 # =============================================================================
+# Migration Task Definition
+# =============================================================================
+
+# IAM policy for execution role to access migration secrets
+resource "aws_iam_role_policy" "execution_migration_secrets" {
+  count = var.enable_migration_task && length(var.migration_secrets_arns) > 0 ? 1 : 0
+  name  = "migration-secrets-access"
+  role  = aws_iam_role.execution.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
+        Resource = var.migration_secrets_arns
+      }
+    ]
+  })
+}
+
+# Task definition for running Prisma migrations
+# Uses eurocomply_migrate user (password auth, schema owner)
+resource "aws_ecs_task_definition" "migration" {
+  count                    = var.enable_migration_task ? 1 : 0
+  family                   = "${local.name_prefix}-migration"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  cpu                      = var.cpu
+  memory                   = var.memory
+  execution_role_arn       = aws_iam_role.execution.arn
+  task_role_arn            = aws_iam_role.task.arn
+
+  container_definitions = jsonencode([
+    {
+      name      = "migration"
+      image     = var.container_image
+      essential = true
+
+      # Override the default command to run migrations
+      # Uses shell to construct DATABASE_URL from components and run prisma migrate
+      entryPoint = ["/bin/sh", "-c"]
+      command = [
+        <<-EOT
+        set -e
+        echo "Building DATABASE_URL from components..."
+        SSL_PARAM=""
+        if [ "$DB_SSL" = "true" ]; then
+          SSL_PARAM="?sslmode=require"
+        fi
+        export DATABASE_URL="postgresql://$DB_USER:$DB_PASSWORD@$DB_HOST:$DB_PORT/$DB_NAME$SSL_PARAM"
+        echo "Running Prisma migrations..."
+        cd /app/packages/db
+        npx prisma migrate deploy
+        echo "Migrations completed successfully!"
+        EOT
+      ]
+
+      environment = var.migration_environment_variables
+      secrets     = var.migration_secrets
+
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = aws_cloudwatch_log_group.ecs.name
+          "awslogs-region"        = var.aws_region
+          "awslogs-stream-prefix" = "migration"
+        }
+      }
+    }
+  ])
+
+  tags = {
+    Name = "${local.name_prefix}-migration"
+  }
+}
+
+# =============================================================================
 # Outputs
 # =============================================================================
 output "cluster_id" {
@@ -422,4 +531,14 @@ output "task_role_arn" {
 
 output "log_group_name" {
   value = aws_cloudwatch_log_group.ecs.name
+}
+
+output "migration_task_definition_arn" {
+  description = "ARN of the migration task definition"
+  value       = var.enable_migration_task ? aws_ecs_task_definition.migration[0].arn : null
+}
+
+output "migration_task_definition_family" {
+  description = "Family of the migration task definition"
+  value       = var.enable_migration_task ? aws_ecs_task_definition.migration[0].family : null
 }
