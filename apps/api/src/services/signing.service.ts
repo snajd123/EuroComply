@@ -55,8 +55,15 @@ export interface CorporateEnvelopeOptions {
   timestampProof?: TimestampProof;
 }
 
-// DID:key prefix validation pattern (basic MVP validation)
-const DID_KEY_PATTERN = /^did:key:z[a-zA-Z0-9]+$/;
+/**
+ * Ed25519 DID:key validation pattern.
+ * - Must start with 'did:key:'
+ * - Must have 'z6Mk' prefix (multicodec for Ed25519 public key)
+ * - Followed by 44-46 base58btc characters (256-bit key)
+ *
+ * Security: Prevents injection of non-Ed25519 keys or malformed DIDs.
+ */
+const DID_KEY_ED25519_PATTERN = /^did:key:z6Mk[a-km-zA-HJ-NP-Z1-9]{43,45}$/;
 
 /**
  * Configuration options for SigningService.
@@ -208,21 +215,31 @@ export class SigningService {
   }
 
   /**
-   * Validate that a DID is in the expected did:key:z format.
+   * Validate that a DID is a valid Ed25519 did:key.
    *
-   * For MVP, we only validate the basic format. In production, this would
-   * resolve the DID document and verify the key type.
+   * Validates:
+   * - Starts with 'did:key:'
+   * - Uses Ed25519 multicodec prefix 'z6Mk'
+   * - Has correct length for Ed25519 public key
+   * - Uses valid base58btc characters
    *
    * @param did - The DID to validate
-   * @throws ValidationError if DID format is invalid
-   *
-   * TODO: Add DID document resolution and key type verification
+   * @throws ValidationError if DID format is invalid or not Ed25519
    */
   private validateDid(did: string): void {
-    if (!DID_KEY_PATTERN.test(did)) {
-      throw new ValidationError(
-        `Invalid DID format: expected did:key:z... but got '${did}'`
-      );
+    // Must be did:key format
+    if (!did.startsWith('did:key:')) {
+      throw new ValidationError('Invalid DID: must be did:key format');
+    }
+
+    // Must be Ed25519 (z6Mk prefix)
+    if (!did.startsWith('did:key:z6Mk')) {
+      throw new ValidationError('Invalid DID: must be Ed25519 key (z6Mk prefix)');
+    }
+
+    // Validate full pattern including length
+    if (!DID_KEY_ED25519_PATTERN.test(did)) {
+      throw new ValidationError('Invalid DID: malformed Ed25519 key identifier');
     }
   }
 
