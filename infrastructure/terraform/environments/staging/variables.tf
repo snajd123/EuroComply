@@ -93,3 +93,10 @@ variable "clerk_secret_key" {
     error_message = "clerk_secret_key cannot be a placeholder value. Set the actual secret in AWS Secrets Manager or pass via CI/CD."
   }
 }
+
+variable "clerk_webhook_secret" {
+  description = "Clerk webhook signing secret for verifying webhook payloads. Get this from Clerk Dashboard > Webhooks."
+  type        = string
+  sensitive   = true
+  default     = "" # Optional - webhooks won't work without it but app will still run
+}

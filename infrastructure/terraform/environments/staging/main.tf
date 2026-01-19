@@ -207,7 +207,8 @@ resource "aws_secretsmanager_secret" "app_secrets" {
 resource "aws_secretsmanager_secret_version" "app_secrets" {
   secret_id = aws_secretsmanager_secret.app_secrets.id
   secret_string = jsonencode({
-    CLERK_SECRET_KEY = var.clerk_secret_key
+    CLERK_SECRET_KEY       = var.clerk_secret_key
+    CLERK_WEBHOOK_SECRET   = var.clerk_webhook_secret
   })
 }
 
@@ -263,6 +264,10 @@ module "ecs" {
     {
       name      = "CLERK_SECRET_KEY"
       valueFrom = "${aws_secretsmanager_secret.app_secrets.arn}:CLERK_SECRET_KEY::"
+    },
+    {
+      name      = "CLERK_WEBHOOK_SECRET"
+      valueFrom = "${aws_secretsmanager_secret.app_secrets.arn}:CLERK_WEBHOOK_SECRET::"
     },
     {
       name      = "REDIS_AUTH_TOKEN"

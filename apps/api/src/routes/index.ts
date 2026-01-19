@@ -6,11 +6,15 @@ import { versions } from './versions.js';
 import { operationsEvents } from './operations-events.js';
 import { compliance } from './compliance.js';
 import { verification } from './verification.js';
+import { webhooks } from './webhooks.js';
 import { authenticatedRateLimiter } from '../middleware/rate-limit.js';
 
 export function registerRoutes(app: Hono): void {
   // Health endpoints (no auth required)
   app.route('/health', health);
+
+  // Webhook endpoints (no auth - uses signature verification)
+  app.route('/webhooks', webhooks);
 
   // Verification endpoints (public, no auth required)
   app.route('/api/v1/verify', verification);

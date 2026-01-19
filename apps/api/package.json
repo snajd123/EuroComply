@@ -27,6 +27,7 @@
     "@peculiar/asn1-tsp": "^2.3.8",
     "hono": "^4.0.0",
     "redis": "^5.10.0",
+    "svix": "^1.84.1",
     "zod": "^3.22.0"
   },
   "devDependencies": {
