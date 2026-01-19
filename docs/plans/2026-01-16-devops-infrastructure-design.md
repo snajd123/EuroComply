@@ -1,8 +1,8 @@
 # EuroComply DevOps & Infrastructure Design
 
-**Status:** In Progress (Phases 1-4 Complete, CI/CD Complete)
+**Status:** Staging Deployed (Phases 1-5 Complete, CI/CD Complete)
 **Date:** 2026-01-16
-**Updated:** 2026-01-17
+**Updated:** 2026-01-19
 **Purpose:** Cloud infrastructure deployment and CI/CD for staging/production environments
 
 > **Note:** This document covers CLOUD INFRASTRUCTURE (AWS, Cloudflare, CI/CD).
@@ -55,30 +55,37 @@
 │                    AWS INFRASTRUCTURE                                        │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  VPC (10.0.0.0/16)                                                          │
+│  VPC (10.0.0.0/16) + VPC Flow Logs                                          │
 │  ├── Public Subnets (2 AZs)                                                 │
-│  │   └── ALB (Application Load Balancer)                                    │
+│  │   └── ALB (Application Load Balancer, TLS 1.3)                           │
 │  │                                                                          │
 │  └── Private Subnets (2 AZs)                                                │
 │      ├── ECS Fargate Cluster                                                │
-│      │   ├── api-service (2 tasks)         ← Hono API                       │
-│      │   ├── worker-service (1 task)       ← Background jobs                │
-│      │   └── outbox-service (1 task)       ← Event processing               │
+│      │   ├── api-service (1-2 tasks)       ← Hono API                       │
+│      │   └── waltid-service (1 task)       ← SSI/DID operations             │
 │      │                                                                      │
-│      ├── RDS PostgreSQL                                                     │
+│      ├── RDS PostgreSQL + Custom Parameter Group                            │
 │      │   ├── Staging: db.t4g.micro                                         │
-│      │   └── Production: db.t4g.small Multi-AZ                             │
+│      │   ├── Production: db.t4g.small Multi-AZ                             │
+│      │   └── Security: log_connections, rds.force_ssl enabled              │
 │      │                                                                      │
-│      └── ElastiCache Redis                                                  │
-│          └── cache.t4g.micro                                               │
+│      ├── ElastiCache Redis + Custom Parameter Group + AUTH                  │
+│      │   └── cache.t4g.micro (transit encryption enabled)                  │
+│      │                                                                      │
+│      └── EFS (walt.id persistent storage)                                   │
+│          └── Access Point for DID/key material                             │
 │                                                                              │
-│  ECR (Container Registry)                                                   │
+│  Service Discovery (Cloud Map)                                              │
+│  └── eurocomply.internal private DNS namespace                             │
+│      └── waltid.{env}.eurocomply.internal                                  │
+│                                                                              │
+│  ECR (Container Registry, KMS encryption option)                            │
 │  └── eurocomply-api:latest, :staging, :v1.0.0                              │
 │                                                                              │
 │  Secrets Manager                                                            │
-│  ├── /eurocomply/{env}/database                                            │
-│  ├── /eurocomply/{env}/clerk                                               │
-│  └── /eurocomply/{env}/redis                                               │
+│  ├── /eurocomply/{env}/app-secrets (Clerk)                                 │
+│  ├── /eurocomply/{env}/database (RDS credentials)                          │
+│  └── /eurocomply/{env}/redis (AUTH token)                                  │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -128,27 +135,29 @@
 
 ```
 infrastructure/
-└── terraform/
-    ├── modules/                    ← Reusable components
-    │   ├── vpc/
-    │   ├── ecs-cluster/
-    │   ├── rds/
-    │   ├── elasticache/
-    │   ├── alb/
-    │   └── secrets/
-    │
-    ├── environments/               ← Environment configs
-    │   ├── staging/
-    │   │   ├── main.tf
-    │   │   ├── terraform.tfvars
-    │   │   └── backend.tf
-    │   └── production/
-    │       ├── main.tf
-    │       ├── terraform.tfvars
-    │       └── backend.tf
-    │
-    └── bootstrap/                  ← One-time setup
-        └── main.tf                 (S3 state bucket, IAM)
+├── terraform/
+│   ├── modules/                    ← Reusable components
+│   │   ├── vpc/                    (VPC, subnets, NAT, flow logs)
+│   │   ├── security-groups/        (ALB, ECS, RDS, ElastiCache, walt.id SGs)
+│   │   ├── alb/                    (Load balancer, HTTPS listener)
+│   │   ├── ecs/                    (Cluster, API service, task definitions)
+│   │   ├── rds/                    (PostgreSQL, parameter group, IAM auth)
+│   │   ├── elasticache/            (Redis, parameter group, AUTH token)
+│   │   ├── ecr/                    (Container registry, lifecycle policy)
+│   │   └── waltid/                 (SSI services, EFS, service discovery)
+│   │
+│   ├── environments/               ← Environment configs
+│   │   ├── staging/
+│   │   │   ├── main.tf
+│   │   │   ├── variables.tf
+│   │   │   └── terraform.tfvars
+│   │   └── production/             (not yet created)
+│   │
+│   └── bootstrap/                  ← One-time setup
+│       └── main.tf                 (S3 state, DynamoDB locks, ECR, GitHub OIDC)
+│
+└── lambda/
+    └── rds-iam-setup/              (Lambda for RDS IAM auth setup)
 ```
 
 **Environment differences via terraform.tfvars:**
@@ -237,7 +246,8 @@ apps/api/src/test/
 | **2. Docker & ECR** | Dockerfile, ECR repo, build pipeline | ✅ Complete | Manual setup + GitHub Actions |
 | **3. Staging Infra** | Terraform modules, deploy staging, DNS/HTTPS | ✅ Complete | Terraform applied, documented in [CREDENTIALS.md](../CREDENTIALS.md) |
 | **4. Cloudflare** | R2, Workers, WAF | 🔄 In Progress | See [Cloudflare Worker Implementation](./2026-01-17-cloudflare-worker-implementation.md) |
-| **5. Production** | Multi-AZ, monitoring, first deploy | ⏳ Not Started | Requires Phase 4 complete |
+| **5. Security Hardening** | VPC Flow Logs, parameter groups, egress rules | ✅ Complete | See [Security Fixes Plan](./2026-01-18-security-fixes-plan.md) |
+| **6. Production** | Multi-AZ, monitoring, first deploy | ⏳ Not Started | Requires Phase 4 complete |
 
 ### Phase Status Details
 
@@ -253,7 +263,16 @@ apps/api/src/test/
 - Cloudflare Worker for content negotiation
 - WAF rate limiting rules
 
-**Phase 5 Status:**
+**Phase 5 Complete (2026-01-19):**
+- ✅ VPC Flow Logs enabled
+- ✅ Custom RDS parameter group (log_connections, rds.force_ssl)
+- ✅ Custom ElastiCache parameter group (maxmemory-policy, timeout)
+- ✅ Security group egress restrictions (RDS: HTTPS only)
+- ✅ walt.id SSI services with EFS persistence
+- ✅ Service Discovery for internal DNS
+- ✅ Scoped IAM policies (RDS IAM auth, GitHub Actions)
+
+**Phase 6 Status:**
 - ✅ CI/CD Pipelines (ci.yml, deploy-staging.yml, deploy-production.yml, terraform.yml)
 - ⏳ Production Terraform environment (when ready for production)
 - ⏳ Multi-AZ RDS (production only)

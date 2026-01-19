@@ -19,7 +19,7 @@
 
 ### Authentication Gaps
 - [x] 1.5 `infrastructure/terraform/modules/elasticache/main.tf` - Enable Redis AUTH token
-- [x] 1.6 `infrastructure/terraform/bootstrap/main.tf` - Fix GitHub OIDC thumbprint, restrict to `eurocomply/*`
+- [x] 1.6 `infrastructure/terraform/bootstrap/main.tf` - Fix GitHub OIDC thumbprint, restrict to `snajd123/*`
 
 ### Data Loss Prevention
 - [x] 1.7 `infrastructure/terraform/modules/waltid/main.tf` - Add EFS volume for persistent data
@@ -101,29 +101,29 @@
 
 ---
 
-## Phase 5: Infrastructure Hardening (10 fixes) ✅ COMPLETED
+## Phase 5: Infrastructure Hardening (10 fixes) ✅ DEPLOYED (5 complete, 5 deferred)
 
 ### Security Groups
-- [x] 5.1 `infrastructure/terraform/modules/security-groups/main.tf` - Restrict egress rules
-- [ ] 5.2 Document HTTP→HTTPS redirect requirement (deferred - already auto-redirects with cert)
+- [x] 5.1 `infrastructure/terraform/modules/security-groups/main.tf` - Restrict egress rules (RDS: HTTPS only, ElastiCache: no egress)
+- [ ] 5.2 Document HTTP→HTTPS redirect requirement (deferred - ALB already auto-redirects with cert)
 
 ### Database & Cache
-- [x] 5.3 `infrastructure/terraform/modules/rds/main.tf` - Custom parameter group
+- [x] 5.3 `infrastructure/terraform/modules/rds/main.tf` - Custom parameter group (`log_connections`, `rds.force_ssl`, etc.)
 - [ ] 5.4 `infrastructure/terraform/modules/rds/main.tf` - Increase storage multiplier (deferred - 2x already configured)
-- [x] 5.5 `infrastructure/terraform/modules/elasticache/main.tf` - Custom parameter group
+- [x] 5.5 `infrastructure/terraform/modules/elasticache/main.tf` - Custom parameter group (`maxmemory-policy`, `timeout`, etc.)
 
 ### ECR & Images
-- [x] 5.6 `infrastructure/terraform/modules/ecr/main.tf` - KMS encryption
+- [x] 5.6 `infrastructure/terraform/modules/ecr/main.tf` - KMS encryption option added
 - [ ] 5.7 `infrastructure/terraform/modules/ecr/main.tf` - Simplify lifecycle rules (deferred - rules working)
 
 ### ECS & Containers
 - [ ] 5.8 `infrastructure/terraform/modules/ecs/main.tf` - wget → curl health check (deferred - wget works)
-- [x] 5.9 `infrastructure/terraform/modules/ecs/main.tf` - Scope RDS IAM policy
+- [x] 5.9 `infrastructure/terraform/modules/ecs/main.tf` - Scope RDS IAM policy to specific resource
 
 ### Lambda
 - [ ] 5.10 `infrastructure/terraform/modules/rds/main.tf` - Document pip compatibility (deferred)
 
-**Deploy:** Terraform plan + apply to staging
+**Deployed:** 2026-01-19 via GitHub Actions Terraform workflow
 
 ---
 
