@@ -306,6 +306,12 @@ variable "enable_vpc_endpoints" {
   default     = true
 }
 
+variable "enable_ecr_endpoints" {
+  description = "Enable ECR VPC endpoints. Set to false for AWS European Sovereign Cloud where ECR endpoints are not available."
+  type        = bool
+  default     = false
+}
+
 # Security group for VPC endpoints
 resource "aws_security_group" "vpc_endpoints" {
   count = var.enable_vpc_endpoints ? 1 : 0
@@ -388,8 +394,9 @@ resource "aws_vpc_endpoint" "s3" {
 }
 
 # ECR API endpoint (for docker pull)
+# NOTE: Not available in AWS European Sovereign Cloud - set enable_ecr_endpoints = false
 resource "aws_vpc_endpoint" "ecr_api" {
-  count = var.enable_vpc_endpoints ? 1 : 0
+  count = var.enable_vpc_endpoints && var.enable_ecr_endpoints ? 1 : 0
 
   vpc_id              = aws_vpc.main.id
   service_name        = "com.amazonaws.eusc-de-east-1.ecr.api"
@@ -404,8 +411,9 @@ resource "aws_vpc_endpoint" "ecr_api" {
 }
 
 # ECR DKR endpoint (for docker image layers)
+# NOTE: Not available in AWS European Sovereign Cloud - set enable_ecr_endpoints = false
 resource "aws_vpc_endpoint" "ecr_dkr" {
-  count = var.enable_vpc_endpoints ? 1 : 0
+  count = var.enable_vpc_endpoints && var.enable_ecr_endpoints ? 1 : 0
 
   vpc_id              = aws_vpc.main.id
   service_name        = "com.amazonaws.eusc-de-east-1.ecr.dkr"

@@ -272,7 +272,8 @@ resource "aws_iam_role_policy" "github_actions_deploy_network" {
           "ec2:AuthorizeSecurityGroupIngress", "ec2:RevokeSecurityGroupIngress",
           "ec2:AuthorizeSecurityGroupEgress", "ec2:RevokeSecurityGroupEgress",
           "ec2:CreateTags", "ec2:DeleteTags", "ec2:CreateNetworkInterface", "ec2:DeleteNetworkInterface",
-          "ec2:CreateFlowLogs", "ec2:DeleteFlowLogs"
+          "ec2:CreateFlowLogs", "ec2:DeleteFlowLogs",
+          "ec2:CreateVpcEndpoint", "ec2:DeleteVpcEndpoints", "ec2:ModifyVpcEndpoint"
         ]
         Resource = "*"
       },
@@ -476,6 +477,39 @@ resource "aws_iam_role_policy" "github_actions_deploy_supporting" {
         Sid      = "EFS"
         Effect   = "Allow"
         Action   = ["elasticfilesystem:*"]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+# Policy 5: KMS (encryption key management)
+resource "aws_iam_role_policy" "github_actions_deploy_kms" {
+  name = "terraform-deploy-kms"
+  role = aws_iam_role.github_actions.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "KMSKeyManagement"
+        Effect = "Allow"
+        Action = [
+          "kms:Create*",
+          "kms:Describe*",
+          "kms:Enable*",
+          "kms:List*",
+          "kms:Put*",
+          "kms:Update*",
+          "kms:Revoke*",
+          "kms:Disable*",
+          "kms:Get*",
+          "kms:Delete*",
+          "kms:TagResource",
+          "kms:UntagResource",
+          "kms:ScheduleKeyDeletion",
+          "kms:CancelKeyDeletion"
+        ]
         Resource = "*"
       }
     ]

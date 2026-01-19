@@ -118,6 +118,9 @@ module "vpc" {
   vpc_cidr           = var.vpc_cidr
   az_count           = var.az_count
   single_nat_gateway = true # Cost savings for staging
+
+  # ECR endpoints not available in AWS European Sovereign Cloud
+  enable_ecr_endpoints = false
 }
 
 # =============================================================================
