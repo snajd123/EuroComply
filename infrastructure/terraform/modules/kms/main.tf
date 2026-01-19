@@ -58,8 +58,8 @@ resource "aws_kms_key" "primary" {
   key_usage                = "ENCRYPT_DECRYPT"
 
   # Simplified policy for AWS European Sovereign Cloud compatibility
-  # Root account access allows delegation via IAM policies
-  # Service-specific grants are created by AWS services automatically when needed
+  # Root account access only - services use IAM roles to access keys
+  # This avoids invalid service principal errors in sovereign cloud
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -71,26 +71,6 @@ resource "aws_kms_key" "primary" {
         }
         Action   = "kms:*"
         Resource = "*"
-      },
-      {
-        Sid    = "AllowLogsEncryption"
-        Effect = "Allow"
-        Principal = {
-          Service = "logs.eusc-de-east-1.amazonaws.eu"
-        }
-        Action = [
-          "kms:Encrypt",
-          "kms:Decrypt",
-          "kms:ReEncrypt*",
-          "kms:GenerateDataKey*",
-          "kms:DescribeKey"
-        ]
-        Resource = "*"
-        Condition = {
-          ArnLike = {
-            "kms:EncryptionContext:aws:logs:arn" = "arn:${local.partition}:logs:eusc-de-east-1:${data.aws_caller_identity.current.account_id}:*"
-          }
-        }
       }
     ]
   })
