@@ -257,10 +257,13 @@ export class OperationsEventService {
 
     for (const event of events) {
       if (event.previousEventHash !== previousHash) {
+        // Security: Only expose break location in development
         return {
           valid: false,
           checkedCount: event.sequenceNumber,
-          brokenAt: event.sequenceNumber,
+          ...(process.env['NODE_ENV'] === 'development' && {
+            brokenAt: event.sequenceNumber,
+          }),
         };
       }
       previousHash = event.eventHash;
