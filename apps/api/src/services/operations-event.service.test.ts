@@ -114,6 +114,42 @@ describe('OperationsEventService', () => {
         })
       ).rejects.toThrow();
     });
+
+    it('should use SERIALIZABLE isolation level to prevent race conditions', async () => {
+      mockPrisma.organization.findUnique.mockResolvedValue({
+        id: orgId,
+        lastEventHash: null,
+        eventSequence: 0,
+      });
+      mockPrisma.operationsEvent.create.mockResolvedValue({
+        id: 'evt_123',
+        eventType: 'BATCH_PRODUCED',
+        sequenceNumber: 1,
+        eventHash: 'abc123',
+        previousEventHash: 'GENESIS',
+      });
+      mockPrisma.organization.update.mockResolvedValue({});
+
+      await service.recordEvent(orgId, userId, {
+        eventType: 'BATCH_PRODUCED',
+        payload: {
+          productId: 'prod_123',
+          designVersionId: 'ver_456',
+          batchNumber: 'BATCH-001',
+          quantity: 100,
+          unit: 'PCS',
+          facilityId: 'fac_789',
+          startedAt: '2026-01-18T08:00:00Z',
+          completedAt: '2026-01-18T16:00:00Z',
+        },
+      });
+
+      // Verify transaction was called with SERIALIZABLE isolation
+      expect(mockPrisma.$transaction).toHaveBeenCalledWith(
+        expect.any(Function),
+        { isolationLevel: 'Serializable' }
+      );
+    });
   });
 
   describe('verifyEvent', () => {
