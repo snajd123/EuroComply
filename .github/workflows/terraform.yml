@@ -117,6 +117,37 @@ jobs:
               body: output
             });
 
+      - name: Import Existing HTTPS Listener (if needed)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          # Check if HTTPS listener already exists in AWS but not in Terraform state
+          ALB_ARN=$(aws elbv2 describe-load-balancers \
+            --names eurocomply-staging-alb \
+            --query 'LoadBalancers[0].LoadBalancerArn' \
+            --output text 2>/dev/null || echo "")
+
+          if [ -n "$ALB_ARN" ] && [ "$ALB_ARN" != "None" ]; then
+            LISTENER_ARN=$(aws elbv2 describe-listeners \
+              --load-balancer-arn "$ALB_ARN" \
+              --query "Listeners[?Port==\`443\`].ListenerArn" \
+              --output text 2>/dev/null || echo "")
+
+            if [ -n "$LISTENER_ARN" ] && [ "$LISTENER_ARN" != "None" ]; then
+              # Check if already in state
+              if ! terraform state show 'module.alb.aws_lb_listener.https[0]' >/dev/null 2>&1; then
+                echo "Importing existing HTTPS listener: $LISTENER_ARN"
+                terraform import 'module.alb.aws_lb_listener.https[0]' "$LISTENER_ARN" || true
+              else
+                echo "HTTPS listener already in Terraform state"
+              fi
+            fi
+          fi
+        continue-on-error: true
+
+      - name: Terraform Plan (refresh after import)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: terraform plan -no-color -out=tfplan
+
       - name: Terraform Apply
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: terraform apply -auto-approve tfplan
