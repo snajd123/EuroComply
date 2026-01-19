@@ -61,6 +61,14 @@ export function getClientIp(c: Context): string {
 }
 
 /**
+ * Check if Cloudflare headers should be trusted.
+ * Only trust CF-Connecting-IP when TRUST_CLOUDFLARE env var is set to 'true'.
+ */
+function shouldTrustCloudflare(): boolean {
+  return process.env['TRUST_CLOUDFLARE'] === 'true';
+}
+
+/**
  * Get the socket/connection IP address.
  */
 function getSocketIp(c: Context): string | null {
@@ -75,10 +83,13 @@ function getSocketIp(c: Context): string | null {
     // Ignore
   }
 
-  // Try Cloudflare's CF-Connecting-IP (always trusted from CF edge)
-  const cfIp = c.req.header('cf-connecting-ip');
-  if (cfIp) {
-    return cfIp;
+  // Try Cloudflare's CF-Connecting-IP only when explicitly trusted
+  // This prevents IP spoofing when not running behind Cloudflare
+  if (shouldTrustCloudflare()) {
+    const cfIp = c.req.header('cf-connecting-ip');
+    if (cfIp) {
+      return cfIp;
+    }
   }
 
   return null;

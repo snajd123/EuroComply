@@ -4,6 +4,13 @@ import { StatusList2021Service } from './status-list.service.js';
 import { TimestampService } from './timestamp.service.js';
 
 /**
+ * Expected domain for status list URLs.
+ * Security: Only fetch status lists from trusted domains to prevent SSRF attacks.
+ * Configure via STATUS_LIST_DOMAIN env var (e.g., "api.eurocomply.eu").
+ */
+const EXPECTED_STATUS_LIST_DOMAIN = process.env['STATUS_LIST_DOMAIN'] || null;
+
+/**
  * Result of verifying a sealed artifact.
  */
 export interface VerificationResult {
@@ -130,11 +137,21 @@ export class VerificationService {
       let orgId: string | null = null;
       try {
         const url = new URL(statusListCredential);
-        const pathParts = url.pathname.split('/').filter(Boolean);
-        // Expected: ['organizations', '{orgId}', 'status-list']
-        const orgIndex = pathParts.indexOf('organizations');
-        if (orgIndex !== -1 && pathParts[orgIndex + 1] && pathParts[orgIndex + 2] === 'status-list') {
-          orgId = decodeURIComponent(pathParts[orgIndex + 1]!);
+
+        // Security: Validate that status list URL comes from expected domain
+        // This prevents SSRF attacks via malicious status list URLs
+        if (EXPECTED_STATUS_LIST_DOMAIN && url.hostname !== EXPECTED_STATUS_LIST_DOMAIN) {
+          warnings.push(
+            `Status list URL domain '${url.hostname}' does not match expected domain '${EXPECTED_STATUS_LIST_DOMAIN}'`
+          );
+          // Skip revocation check for untrusted domains
+        } else {
+          const pathParts = url.pathname.split('/').filter(Boolean);
+          // Expected: ['organizations', '{orgId}', 'status-list']
+          const orgIndex = pathParts.indexOf('organizations');
+          if (orgIndex !== -1 && pathParts[orgIndex + 1] && pathParts[orgIndex + 2] === 'status-list') {
+            orgId = decodeURIComponent(pathParts[orgIndex + 1]!);
+          }
         }
       } catch {
         // Invalid URL - will be handled below

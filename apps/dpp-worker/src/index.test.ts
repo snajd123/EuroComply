@@ -42,7 +42,7 @@ describe('DPP Worker Main Handler', () => {
     it('returns 405 for POST requests', async () => {
       const mockBucket = createMockBucket();
       const env = createMockEnv(mockBucket);
-      const request = new Request('https://dpp.example.com/org_123/pass_456', {
+      const request = new Request('https://dpp.example.com/org_1234567890abcdef/pass_1234567890abcdef', {
         method: 'POST',
       });
 
@@ -55,7 +55,7 @@ describe('DPP Worker Main Handler', () => {
     it('returns 405 for PUT requests', async () => {
       const mockBucket = createMockBucket();
       const env = createMockEnv(mockBucket);
-      const request = new Request('https://dpp.example.com/org_123/pass_456', {
+      const request = new Request('https://dpp.example.com/org_1234567890abcdef/pass_1234567890abcdef', {
         method: 'PUT',
       });
 
@@ -67,7 +67,7 @@ describe('DPP Worker Main Handler', () => {
     it('returns 405 for DELETE requests', async () => {
       const mockBucket = createMockBucket();
       const env = createMockEnv(mockBucket);
-      const request = new Request('https://dpp.example.com/org_123/pass_456', {
+      const request = new Request('https://dpp.example.com/org_1234567890abcdef/pass_1234567890abcdef', {
         method: 'DELETE',
       });
 
@@ -80,7 +80,7 @@ describe('DPP Worker Main Handler', () => {
       const mockR2Object = createMockR2Object('<html></html>', 'text/html');
       const mockBucket = createMockBucket(mockR2Object);
       const env = createMockEnv(mockBucket);
-      const request = new Request('https://dpp.example.com/org_123/pass_456', {
+      const request = new Request('https://dpp.example.com/org_1234567890abcdef/pass_1234567890abcdef', {
         method: 'HEAD',
       });
 
@@ -93,7 +93,7 @@ describe('DPP Worker Main Handler', () => {
     it('handles OPTIONS requests for CORS preflight', async () => {
       const mockBucket = createMockBucket();
       const env = createMockEnv(mockBucket);
-      const request = new Request('https://dpp.example.com/org_123/pass_456', {
+      const request = new Request('https://dpp.example.com/org_1234567890abcdef/pass_1234567890abcdef', {
         method: 'OPTIONS',
       });
 
@@ -119,7 +119,7 @@ describe('DPP Worker Main Handler', () => {
     it('returns 404 for invalid path (missing passport)', async () => {
       const mockBucket = createMockBucket();
       const env = createMockEnv(mockBucket);
-      const request = new Request('https://dpp.example.com/org_123');
+      const request = new Request('https://dpp.example.com/org_1234567890abcdef');
 
       const response = await worker.fetch(request, env);
 
@@ -129,7 +129,7 @@ describe('DPP Worker Main Handler', () => {
     it('returns 404 for invalid path (wrong prefix)', async () => {
       const mockBucket = createMockBucket();
       const env = createMockEnv(mockBucket);
-      const request = new Request('https://dpp.example.com/invalid_123/pass_456');
+      const request = new Request('https://dpp.example.com/invalid_123/pass_1234567890abcdef');
 
       const response = await worker.fetch(request, env);
 
@@ -139,7 +139,7 @@ describe('DPP Worker Main Handler', () => {
     it('returns 404 when DPP not found in storage', async () => {
       const mockBucket = createMockBucket(null); // R2 returns null for missing files
       const env = createMockEnv(mockBucket);
-      const request = new Request('https://dpp.example.com/org_123/pass_456');
+      const request = new Request('https://dpp.example.com/org_1234567890abcdef/pass_1234567890abcdef');
 
       const response = await worker.fetch(request, env);
 
@@ -154,7 +154,7 @@ describe('DPP Worker Main Handler', () => {
       const mockR2Object = createMockR2Object(credentialContent, 'application/vc+ld+json');
       const mockBucket = createMockBucket(mockR2Object);
       const env = createMockEnv(mockBucket);
-      const request = new Request('https://dpp.example.com/org_123/pass_456', {
+      const request = new Request('https://dpp.example.com/org_1234567890abcdef/pass_1234567890abcdef', {
         headers: { Accept: 'application/vc+ld+json' },
       });
 
@@ -162,7 +162,7 @@ describe('DPP Worker Main Handler', () => {
 
       expect(response.status).toBe(200);
       expect(response.headers.get('Content-Type')).toBe('application/vc+ld+json');
-      expect(mockBucket.get).toHaveBeenCalledWith('org_123/pass_456/credential.json');
+      expect(mockBucket.get).toHaveBeenCalledWith('org_1234567890abcdef/pass_1234567890abcdef/credential.json');
     });
 
     it('returns credential.json for application/json Accept header', async () => {
@@ -170,7 +170,7 @@ describe('DPP Worker Main Handler', () => {
       const mockR2Object = createMockR2Object(credentialContent, 'application/vc+ld+json');
       const mockBucket = createMockBucket(mockR2Object);
       const env = createMockEnv(mockBucket);
-      const request = new Request('https://dpp.example.com/org_123/pass_456', {
+      const request = new Request('https://dpp.example.com/org_1234567890abcdef/pass_1234567890abcdef', {
         headers: { Accept: 'application/json' },
       });
 
@@ -178,7 +178,7 @@ describe('DPP Worker Main Handler', () => {
 
       expect(response.status).toBe(200);
       expect(response.headers.get('Content-Type')).toBe('application/vc+ld+json');
-      expect(mockBucket.get).toHaveBeenCalledWith('org_123/pass_456/credential.json');
+      expect(mockBucket.get).toHaveBeenCalledWith('org_1234567890abcdef/pass_1234567890abcdef/credential.json');
     });
 
     it('returns preview.html for browser request (text/html)', async () => {
@@ -186,7 +186,7 @@ describe('DPP Worker Main Handler', () => {
       const mockR2Object = createMockR2Object(htmlContent, 'text/html');
       const mockBucket = createMockBucket(mockR2Object);
       const env = createMockEnv(mockBucket);
-      const request = new Request('https://dpp.example.com/org_123/pass_456', {
+      const request = new Request('https://dpp.example.com/org_1234567890abcdef/pass_1234567890abcdef', {
         headers: { Accept: 'text/html,application/xhtml+xml,*/*;q=0.8' },
       });
 
@@ -194,7 +194,7 @@ describe('DPP Worker Main Handler', () => {
 
       expect(response.status).toBe(200);
       expect(response.headers.get('Content-Type')).toBe('text/html');
-      expect(mockBucket.get).toHaveBeenCalledWith('org_123/pass_456/preview.html');
+      expect(mockBucket.get).toHaveBeenCalledWith('org_1234567890abcdef/pass_1234567890abcdef/preview.html');
     });
 
     it('returns preview.html for wildcard Accept header', async () => {
@@ -202,7 +202,7 @@ describe('DPP Worker Main Handler', () => {
       const mockR2Object = createMockR2Object(htmlContent, 'text/html');
       const mockBucket = createMockBucket(mockR2Object);
       const env = createMockEnv(mockBucket);
-      const request = new Request('https://dpp.example.com/org_123/pass_456', {
+      const request = new Request('https://dpp.example.com/org_1234567890abcdef/pass_1234567890abcdef', {
         headers: { Accept: '*/*' },
       });
 
@@ -210,7 +210,7 @@ describe('DPP Worker Main Handler', () => {
 
       expect(response.status).toBe(200);
       expect(response.headers.get('Content-Type')).toBe('text/html');
-      expect(mockBucket.get).toHaveBeenCalledWith('org_123/pass_456/preview.html');
+      expect(mockBucket.get).toHaveBeenCalledWith('org_1234567890abcdef/pass_1234567890abcdef/preview.html');
     });
 
     it('returns preview.html when no Accept header is provided', async () => {
@@ -218,13 +218,13 @@ describe('DPP Worker Main Handler', () => {
       const mockR2Object = createMockR2Object(htmlContent, 'text/html');
       const mockBucket = createMockBucket(mockR2Object);
       const env = createMockEnv(mockBucket);
-      const request = new Request('https://dpp.example.com/org_123/pass_456');
+      const request = new Request('https://dpp.example.com/org_1234567890abcdef/pass_1234567890abcdef');
 
       const response = await worker.fetch(request, env);
 
       expect(response.status).toBe(200);
       expect(response.headers.get('Content-Type')).toBe('text/html');
-      expect(mockBucket.get).toHaveBeenCalledWith('org_123/pass_456/preview.html');
+      expect(mockBucket.get).toHaveBeenCalledWith('org_1234567890abcdef/pass_1234567890abcdef/preview.html');
     });
   });
 
@@ -234,13 +234,13 @@ describe('DPP Worker Main Handler', () => {
       const mockR2Object = createMockR2Object(pngContent, 'image/png');
       const mockBucket = createMockBucket(mockR2Object);
       const env = createMockEnv(mockBucket);
-      const request = new Request('https://dpp.example.com/org_x/pass_y/qr.png');
+      const request = new Request('https://dpp.example.com/org_abcdef1234567890/pass_xyz1234567890abc/qr.png');
 
       const response = await worker.fetch(request, env);
 
       expect(response.status).toBe(200);
       expect(response.headers.get('Content-Type')).toBe('image/png');
-      expect(mockBucket.get).toHaveBeenCalledWith('org_x/pass_y/qr.png');
+      expect(mockBucket.get).toHaveBeenCalledWith('org_abcdef1234567890/pass_xyz1234567890abc/qr.png');
     });
 
     it('handles specific file requests for credential.json', async () => {
@@ -248,13 +248,13 @@ describe('DPP Worker Main Handler', () => {
       const mockR2Object = createMockR2Object(credentialContent, 'application/vc+ld+json');
       const mockBucket = createMockBucket(mockR2Object);
       const env = createMockEnv(mockBucket);
-      const request = new Request('https://dpp.example.com/org_123/pass_456/credential.json');
+      const request = new Request('https://dpp.example.com/org_1234567890abcdef/pass_1234567890abcdef/credential.json');
 
       const response = await worker.fetch(request, env);
 
       expect(response.status).toBe(200);
       expect(response.headers.get('Content-Type')).toBe('application/vc+ld+json');
-      expect(mockBucket.get).toHaveBeenCalledWith('org_123/pass_456/credential.json');
+      expect(mockBucket.get).toHaveBeenCalledWith('org_1234567890abcdef/pass_1234567890abcdef/credential.json');
     });
 
     it('handles specific file requests for preview.html', async () => {
@@ -262,32 +262,32 @@ describe('DPP Worker Main Handler', () => {
       const mockR2Object = createMockR2Object(htmlContent, 'text/html');
       const mockBucket = createMockBucket(mockR2Object);
       const env = createMockEnv(mockBucket);
-      const request = new Request('https://dpp.example.com/org_123/pass_456/preview.html');
+      const request = new Request('https://dpp.example.com/org_1234567890abcdef/pass_1234567890abcdef/preview.html');
 
       const response = await worker.fetch(request, env);
 
       expect(response.status).toBe(200);
       expect(response.headers.get('Content-Type')).toBe('text/html');
-      expect(mockBucket.get).toHaveBeenCalledWith('org_123/pass_456/preview.html');
+      expect(mockBucket.get).toHaveBeenCalledWith('org_1234567890abcdef/pass_1234567890abcdef/preview.html');
     });
 
     it('returns 404 for whitelisted file that does not exist in R2', async () => {
       const mockBucket = createMockBucket(null);
       const env = createMockEnv(mockBucket);
       // credential.json is whitelisted but not in R2
-      const request = new Request('https://dpp.example.com/org_123/pass_456/credential.json');
+      const request = new Request('https://dpp.example.com/org_1234567890abcdef/pass_1234567890abcdef/credential.json');
 
       const response = await worker.fetch(request, env);
 
       expect(response.status).toBe(404);
-      expect(mockBucket.get).toHaveBeenCalledWith('org_123/pass_456/credential.json');
+      expect(mockBucket.get).toHaveBeenCalledWith('org_1234567890abcdef/pass_1234567890abcdef/credential.json');
     });
 
     it('returns 404 for non-whitelisted file without calling R2 (security)', async () => {
       const mockBucket = createMockBucket(null);
       const env = createMockEnv(mockBucket);
       // nonexistent.txt is not whitelisted - should be rejected at URL parsing
-      const request = new Request('https://dpp.example.com/org_123/pass_456/nonexistent.txt');
+      const request = new Request('https://dpp.example.com/org_1234567890abcdef/pass_1234567890abcdef/nonexistent.txt');
 
       const response = await worker.fetch(request, env);
 
@@ -302,7 +302,7 @@ describe('DPP Worker Main Handler', () => {
       const mockBucket = createMockBucket(mockR2Object);
       const env = createMockEnv(mockBucket);
       // Request preview.html but with JSON Accept header
-      const request = new Request('https://dpp.example.com/org_123/pass_456/preview.html', {
+      const request = new Request('https://dpp.example.com/org_1234567890abcdef/pass_1234567890abcdef/preview.html', {
         headers: { Accept: 'application/json' },
       });
 
@@ -310,7 +310,7 @@ describe('DPP Worker Main Handler', () => {
 
       expect(response.status).toBe(200);
       expect(response.headers.get('Content-Type')).toBe('text/html');
-      expect(mockBucket.get).toHaveBeenCalledWith('org_123/pass_456/preview.html');
+      expect(mockBucket.get).toHaveBeenCalledWith('org_1234567890abcdef/pass_1234567890abcdef/preview.html');
     });
   });
 
@@ -320,7 +320,7 @@ describe('DPP Worker Main Handler', () => {
       const mockR2Object = createMockR2Object(htmlContent, 'text/html');
       const mockBucket = createMockBucket(mockR2Object);
       const env = createMockEnv(mockBucket);
-      const request = new Request('https://dpp.example.com/org_123/pass_456');
+      const request = new Request('https://dpp.example.com/org_1234567890abcdef/pass_1234567890abcdef');
 
       const response = await worker.fetch(request, env);
 
@@ -333,7 +333,7 @@ describe('DPP Worker Main Handler', () => {
       const mockR2Object = createMockR2Object(htmlContent, 'text/html', '"abc123etag"');
       const mockBucket = createMockBucket(mockR2Object);
       const env = createMockEnv(mockBucket);
-      const request = new Request('https://dpp.example.com/org_123/pass_456');
+      const request = new Request('https://dpp.example.com/org_1234567890abcdef/pass_1234567890abcdef');
 
       const response = await worker.fetch(request, env);
 
@@ -346,7 +346,7 @@ describe('DPP Worker Main Handler', () => {
       const mockR2Object = createMockR2Object(htmlContent, 'text/html');
       const mockBucket = createMockBucket(mockR2Object);
       const env = createMockEnv(mockBucket);
-      const request = new Request('https://dpp.example.com/org_123/pass_456');
+      const request = new Request('https://dpp.example.com/org_1234567890abcdef/pass_1234567890abcdef');
 
       const response = await worker.fetch(request, env);
 
@@ -359,7 +359,7 @@ describe('DPP Worker Main Handler', () => {
       const mockR2Object = createMockR2Object(credentialContent, 'application/vc+ld+json', '"full-test-etag"');
       const mockBucket = createMockBucket(mockR2Object);
       const env = createMockEnv(mockBucket);
-      const request = new Request('https://dpp.example.com/org_123/pass_456', {
+      const request = new Request('https://dpp.example.com/org_1234567890abcdef/pass_1234567890abcdef', {
         headers: { Accept: 'application/vc+ld+json' },
       });
 
@@ -377,7 +377,7 @@ describe('DPP Worker Main Handler', () => {
     it('404 responses include proper error body', async () => {
       const mockBucket = createMockBucket(null);
       const env = createMockEnv(mockBucket);
-      const request = new Request('https://dpp.example.com/org_123/pass_456');
+      const request = new Request('https://dpp.example.com/org_1234567890abcdef/pass_1234567890abcdef');
 
       const response = await worker.fetch(request, env);
 
@@ -389,7 +389,7 @@ describe('DPP Worker Main Handler', () => {
     it('405 responses include proper error body', async () => {
       const mockBucket = createMockBucket();
       const env = createMockEnv(mockBucket);
-      const request = new Request('https://dpp.example.com/org_123/pass_456', {
+      const request = new Request('https://dpp.example.com/org_1234567890abcdef/pass_1234567890abcdef', {
         method: 'POST',
       });
 
@@ -407,7 +407,7 @@ describe('DPP Worker Main Handler', () => {
       const mockBucket = createMockBucket(mockR2Object);
       const env = createMockEnv(mockBucket); // No ALLOWED_ORIGINS
 
-      const request = new Request('https://dpp.example.com/org_123/pass_456/credential.json');
+      const request = new Request('https://dpp.example.com/org_1234567890abcdef/pass_1234567890abcdef/credential.json');
       const response = await worker.fetch(request, env);
 
       expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
@@ -418,7 +418,7 @@ describe('DPP Worker Main Handler', () => {
       const mockBucket = createMockBucket(mockR2Object);
       const env = createMockEnv(mockBucket, 'https://app.eurocomply.eu,https://eurocomply.eu');
 
-      const request = new Request('https://dpp.example.com/org_123/pass_456/credential.json', {
+      const request = new Request('https://dpp.example.com/org_1234567890abcdef/pass_1234567890abcdef/credential.json', {
         headers: { Origin: 'https://app.eurocomply.eu' },
       });
       const response = await worker.fetch(request, env);
@@ -431,7 +431,7 @@ describe('DPP Worker Main Handler', () => {
       const mockBucket = createMockBucket(mockR2Object);
       const env = createMockEnv(mockBucket, 'https://app.eurocomply.eu,https://eurocomply.eu');
 
-      const request = new Request('https://dpp.example.com/org_123/pass_456/credential.json', {
+      const request = new Request('https://dpp.example.com/org_1234567890abcdef/pass_1234567890abcdef/credential.json', {
         headers: { Origin: 'https://malicious.com' },
       });
       const response = await worker.fetch(request, env);
@@ -444,7 +444,7 @@ describe('DPP Worker Main Handler', () => {
       const mockBucket = createMockBucket(mockR2Object);
       const env = createMockEnv(mockBucket);
 
-      const request = new Request('https://dpp.example.com/org_123/pass_456/credential.json');
+      const request = new Request('https://dpp.example.com/org_1234567890abcdef/pass_1234567890abcdef/credential.json');
       const response = await worker.fetch(request, env);
 
       expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
@@ -455,7 +455,7 @@ describe('DPP Worker Main Handler', () => {
       const mockBucket = createMockBucket(mockR2Object);
       const env = createMockEnv(mockBucket);
 
-      const request = new Request('https://dpp.example.com/org_123/pass_456/credential.json');
+      const request = new Request('https://dpp.example.com/org_1234567890abcdef/pass_1234567890abcdef/credential.json');
       const response = await worker.fetch(request, env);
 
       expect(response.headers.get('X-Frame-Options')).toBe('DENY');
@@ -465,7 +465,7 @@ describe('DPP Worker Main Handler', () => {
       const mockBucket = createMockBucket(null);
       const env = createMockEnv(mockBucket);
 
-      const request = new Request('https://dpp.example.com/org_123/pass_456/credential.json');
+      const request = new Request('https://dpp.example.com/org_1234567890abcdef/pass_1234567890abcdef/credential.json');
       const response = await worker.fetch(request, env);
 
       expect(response.status).toBe(404);

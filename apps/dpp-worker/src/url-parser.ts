@@ -2,8 +2,8 @@
  * URL Parser for Digital Product Passport paths
  *
  * Parses DPP URLs in the format: /{organizationId}/{passportId}[/{file}]
- * - organizationId must start with "org_"
- * - passportId must start with "pass_"
+ * - organizationId must match org_[a-zA-Z0-9]{10,30}
+ * - passportId must match pass_[a-zA-Z0-9]{10,30}
  * - file must be one of the allowed files (security: prevents path traversal)
  */
 
@@ -18,6 +18,18 @@ export interface DppUrlParams {
  * Security: Prevents path traversal attacks by only allowing known files.
  */
 const ALLOWED_FILES = new Set(['credential.json', 'preview.html', 'qr.png']);
+
+/**
+ * Organization ID format: org_ followed by 10-30 alphanumeric characters.
+ * Security: Full pattern validation prevents injection attacks.
+ */
+const ORG_ID_PATTERN = /^org_[a-zA-Z0-9]{10,30}$/;
+
+/**
+ * Passport ID format: pass_ followed by 10-30 alphanumeric characters.
+ * Security: Full pattern validation prevents injection attacks.
+ */
+const PASSPORT_ID_PATTERN = /^pass_[a-zA-Z0-9]{10,30}$/;
 
 /**
  * Parse a DPP URL and extract organization ID, passport ID, and optional file
@@ -57,13 +69,15 @@ export function parseDppUrl(url: URL): DppUrlParams | null {
     return null;
   }
 
-  // Validate organizationId prefix
-  if (!organizationId.startsWith('org_')) {
+  // Validate organizationId format (full pattern, not just prefix)
+  // Security: Ensures IDs match expected format to prevent injection attacks
+  if (!ORG_ID_PATTERN.test(organizationId)) {
     return null;
   }
 
-  // Validate passportId prefix
-  if (!passportId.startsWith('pass_')) {
+  // Validate passportId format (full pattern, not just prefix)
+  // Security: Ensures IDs match expected format to prevent injection attacks
+  if (!PASSPORT_ID_PATTERN.test(passportId)) {
     return null;
   }
 

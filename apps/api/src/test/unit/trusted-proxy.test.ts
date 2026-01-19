@@ -90,17 +90,55 @@ describe('trusted-proxy', () => {
       expect(getClientIp(mockContext as any)).toBe('unknown');
     });
 
-    it('should use CF-Connecting-IP when socket unavailable', () => {
-      const mockContext = {
-        req: {
-          header: vi.fn((name: string) => {
-            if (name === 'cf-connecting-ip') return '198.51.100.25';
-            return undefined;
-          }),
-        },
-        env: {},
-      };
-      expect(getClientIp(mockContext as any)).toBe('198.51.100.25');
+    it('should use CF-Connecting-IP when TRUST_CLOUDFLARE is enabled and socket unavailable', () => {
+      // Set env var for Cloudflare trust
+      const originalEnv = process.env['TRUST_CLOUDFLARE'];
+      process.env['TRUST_CLOUDFLARE'] = 'true';
+
+      try {
+        const mockContext = {
+          req: {
+            header: vi.fn((name: string) => {
+              if (name === 'cf-connecting-ip') return '198.51.100.25';
+              return undefined;
+            }),
+          },
+          env: {},
+        };
+        expect(getClientIp(mockContext as any)).toBe('198.51.100.25');
+      } finally {
+        // Restore original env var
+        if (originalEnv === undefined) {
+          delete process.env['TRUST_CLOUDFLARE'];
+        } else {
+          process.env['TRUST_CLOUDFLARE'] = originalEnv;
+        }
+      }
+    });
+
+    it('should NOT use CF-Connecting-IP when TRUST_CLOUDFLARE is not enabled', () => {
+      // Ensure env var is not set
+      const originalEnv = process.env['TRUST_CLOUDFLARE'];
+      delete process.env['TRUST_CLOUDFLARE'];
+
+      try {
+        const mockContext = {
+          req: {
+            header: vi.fn((name: string) => {
+              if (name === 'cf-connecting-ip') return '198.51.100.25';
+              return undefined;
+            }),
+          },
+          env: {},
+        };
+        // Should return 'unknown' when CF is not trusted
+        expect(getClientIp(mockContext as any)).toBe('unknown');
+      } finally {
+        // Restore original env var
+        if (originalEnv !== undefined) {
+          process.env['TRUST_CLOUDFLARE'] = originalEnv;
+        }
+      }
     });
 
     it('should extract first IP from X-Forwarded-For chain', () => {

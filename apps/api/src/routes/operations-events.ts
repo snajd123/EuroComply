@@ -11,7 +11,9 @@ import { authMiddleware } from '../middleware/auth.js';
 import { NotFoundError, ValidationError } from '../lib/errors.js';
 import {
   ListEventsQuerySchema,
+  CreateOperationsEventBodySchema,
   validateAuthority,
+  validateBody,
 } from '../lib/schemas.js';
 import type { AppVariables } from '../types/context.js';
 
@@ -63,8 +65,15 @@ operationsEvents.post('/', async (c) => {
   }
 
   try {
-    const body = await c.req.json();
-    const event = await eventService.recordEvent(organizationId, userId, body);
+    const rawBody = await c.req.json();
+
+    // Validate request body with Zod schema
+    const validation = validateBody(CreateOperationsEventBodySchema, rawBody);
+    if (!validation.success) {
+      return c.json(err('VALIDATION_ERROR', validation.error), 400);
+    }
+
+    const event = await eventService.recordEvent(organizationId, userId, validation.data);
     return c.json(ok(event), 201);
   } catch (error) {
     if (error instanceof ValidationError) {

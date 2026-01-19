@@ -63,6 +63,17 @@ export const ListEventsQuerySchema = z.object({
 
 export type ListEventsQuery = z.infer<typeof ListEventsQuerySchema>;
 
+/**
+ * Schema for creating a new operations event.
+ * Validates the request body before passing to recordEvent().
+ */
+export const CreateOperationsEventBodySchema = z.object({
+  eventType: OperationsEventTypeSchema,
+  payload: z.record(z.unknown()),
+});
+
+export type CreateOperationsEventBody = z.infer<typeof CreateOperationsEventBodySchema>;
+
 // ===========================================
 // AUTHORITY VALIDATION
 // ===========================================

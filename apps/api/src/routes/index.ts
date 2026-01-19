@@ -6,6 +6,7 @@ import { versions } from './versions.js';
 import { operationsEvents } from './operations-events.js';
 import { compliance } from './compliance.js';
 import { verification } from './verification.js';
+import { authenticatedRateLimiter } from '../middleware/rate-limit.js';
 
 export function registerRoutes(app: Hono): void {
   // Health endpoints (no auth required)
@@ -13,6 +14,13 @@ export function registerRoutes(app: Hono): void {
 
   // Verification endpoints (public, no auth required)
   app.route('/api/v1/verify', verification);
+
+  // Apply rate limiting to authenticated API routes
+  app.use('/api/v1/organizations/*', authenticatedRateLimiter);
+  app.use('/api/v1/products/*', authenticatedRateLimiter);
+  app.use('/api/v1/versions/*', authenticatedRateLimiter);
+  app.use('/api/v1/operations/*', authenticatedRateLimiter);
+  app.use('/api/v1/compliance/*', authenticatedRateLimiter);
 
   // API v1 routes
   app.route('/api/v1/organizations', organizations);

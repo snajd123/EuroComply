@@ -1,4 +1,5 @@
 import { createMiddleware } from 'hono/factory';
+import { getClientIp } from '../lib/trusted-proxy.js';
 
 interface LogEntry {
   timestamp: string;
@@ -41,7 +42,7 @@ export const loggerMiddleware = createMiddleware(async (c, next) => {
       status: c.res.status,
       duration,
       userAgent: c.req.header('User-Agent'),
-      ip: c.req.header('X-Forwarded-For') || c.req.header('X-Real-IP'),
+      ip: getClientIp(c),
     };
 
     // Add user context if available

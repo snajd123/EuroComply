@@ -109,12 +109,14 @@ function createDppResponse(
   body: ReadableStream | null,
   contentType: string,
   etag: string,
-  corsOrigin: string
+  corsOrigin: string,
+  size: number
 ): Response {
   return new Response(body, {
     status: 200,
     headers: {
       'Content-Type': contentType,
+      'Content-Length': String(size),
       'Cache-Control': CACHE_CONTROL,
       ETag: etag,
       'Access-Control-Allow-Origin': corsOrigin,
@@ -206,10 +208,10 @@ export default {
 
     // For HEAD requests, return response without body
     if (method === 'HEAD') {
-      return createDppResponse(null, finalContentType, dppFile.etag, corsOrigin);
+      return createDppResponse(null, finalContentType, dppFile.etag, corsOrigin, dppFile.size);
     }
 
     // Return the DPP file with proper headers
-    return createDppResponse(dppFile.body, finalContentType, dppFile.etag, corsOrigin);
+    return createDppResponse(dppFile.body, finalContentType, dppFile.etag, corsOrigin, dppFile.size);
   },
 };

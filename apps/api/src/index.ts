@@ -49,7 +49,7 @@ app.use('*', bodyLimit({
 }));
 
 app.use('*', cors({
-  origin: process.env['CORS_ORIGINS']?.split(',') || ['http://localhost:3000'],
+  origin: process.env['CORS_ORIGINS']?.split(',').map((o) => o.trim()) || ['http://localhost:3000'],
   credentials: true,
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization', 'X-Organization-ID', 'X-Request-ID'],

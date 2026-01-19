@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
-import { ok, err } from '@eurocomply/shared';
+import { ok, err, type SealedArtifact } from '@eurocomply/shared';
 import { createWaltIdClient } from '@eurocomply/walt-id';
 import { prisma } from '@eurocomply/db';
 import { VerificationService } from '../services/verification.service.js';
@@ -101,7 +101,8 @@ verification.post('/', async (c) => {
     const { artifact, checkRevocation, revocationTime } = validation.data;
 
     const service = getVerificationService();
-    const result = await service.verifySealedArtifact(artifact as any, {
+    // Schema validation ensures structure matches SealedArtifact
+    const result = await service.verifySealedArtifact(artifact as SealedArtifact, {
       checkRevocation,
       revocationTime: revocationTime ? new Date(revocationTime) : undefined,
     });
@@ -145,7 +146,8 @@ verification.post('/signature', async (c) => {
     }
 
     const service = getVerificationService();
-    const result = await service.verifySignaturesOnly(validation.data.artifact as any);
+    // Schema validation ensures structure matches SealedArtifact
+    const result = await service.verifySignaturesOnly(validation.data.artifact as SealedArtifact);
 
     return c.json(ok(result));
   } catch (error) {

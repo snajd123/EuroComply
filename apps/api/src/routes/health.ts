@@ -32,10 +32,15 @@ health.get('/ready', async (c) => {
     await prisma.$queryRaw`SELECT 1`;
     checks['database'] = { status: 'ok', latency: Date.now() - dbStart };
   } catch (error) {
+    // Security: Only expose detailed error messages in development
+    // Production errors are logged server-side but not exposed to clients
+    const errorMessage = process.env['NODE_ENV'] === 'production'
+      ? 'Database connection failed'
+      : (error instanceof Error ? error.message : 'Unknown error');
     checks['database'] = {
       status: 'error',
       latency: Date.now() - dbStart,
-      error: error instanceof Error ? error.message : 'Unknown error',
+      error: errorMessage,
     };
   }
 

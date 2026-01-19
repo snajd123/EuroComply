@@ -34,8 +34,11 @@ const rateLimitStore = new Map<string, RateLimitEntry>();
 // Track if we've warned about in-memory fallback (to avoid log spam)
 let hasWarnedAboutFallback = false;
 
+// Store cleanup interval reference for graceful shutdown
+let cleanupInterval: ReturnType<typeof setInterval> | null = null;
+
 // Clean up expired entries periodically (every minute)
-setInterval(() => {
+cleanupInterval = setInterval(() => {
   const now = Date.now();
   for (const [key, entry] of rateLimitStore.entries()) {
     if (entry.resetTime < now) {
@@ -43,6 +46,17 @@ setInterval(() => {
     }
   }
 }, 60000);
+
+/**
+ * Clear the cleanup interval for graceful shutdown.
+ * Call this when the server is shutting down.
+ */
+export function clearRateLimitCleanup(): void {
+  if (cleanupInterval) {
+    clearInterval(cleanupInterval);
+    cleanupInterval = null;
+  }
+}
 
 /**
  * Creates a rate limiting middleware with the specified options.
@@ -121,43 +135,67 @@ export function rateLimiter(options: RateLimitOptions): MiddlewareHandler {
   };
 }
 
+// ===========================================
+// CONFIGURABLE RATE LIMIT VALUES
+// ===========================================
+
+const RATE_LIMIT_VERIFICATION = parseInt(process.env['RATE_LIMIT_VERIFICATION'] || '100', 10);
+const RATE_LIMIT_STATUS_LIST = parseInt(process.env['RATE_LIMIT_STATUS_LIST'] || '300', 10);
+const RATE_LIMIT_STRICT = parseInt(process.env['RATE_LIMIT_STRICT'] || '10', 10);
+const RATE_LIMIT_HEALTH = parseInt(process.env['RATE_LIMIT_HEALTH'] || '60', 10);
+const RATE_LIMIT_AUTHENTICATED = parseInt(process.env['RATE_LIMIT_AUTHENTICATED'] || '1000', 10);
+
+// ===========================================
+// RATE LIMITER PRESETS
+// ===========================================
+
 /**
  * Rate limiter preset for public verification endpoints.
- * Allows 100 requests per minute per IP.
+ * Default: 100 requests per minute per IP (configurable via RATE_LIMIT_VERIFICATION).
  */
 export const verificationRateLimiter = rateLimiter({
-  limit: 100,
+  limit: RATE_LIMIT_VERIFICATION,
   windowMs: 60 * 1000, // 1 minute
   message: 'Too many verification requests. Please try again later.',
 });
 
 /**
  * Rate limiter preset for status list endpoints.
- * Allows 300 requests per minute per IP (higher as it's cacheable).
+ * Default: 300 requests per minute per IP (configurable via RATE_LIMIT_STATUS_LIST).
  */
 export const statusListRateLimiter = rateLimiter({
-  limit: 300,
+  limit: RATE_LIMIT_STATUS_LIST,
   windowMs: 60 * 1000, // 1 minute
   message: 'Too many status list requests. Please try again later.',
 });
 
 /**
  * Strict rate limiter for sensitive operations.
- * Allows 10 requests per minute per IP.
+ * Default: 10 requests per minute per IP (configurable via RATE_LIMIT_STRICT).
  */
 export const strictRateLimiter = rateLimiter({
-  limit: 10,
+  limit: RATE_LIMIT_STRICT,
   windowMs: 60 * 1000, // 1 minute
   message: 'Rate limit exceeded for this operation. Please try again later.',
 });
 
 /**
  * Rate limiter for health check endpoints.
- * Allows 60 requests per minute per IP.
- * Prevents monitoring abuse while allowing legitimate health checks.
+ * Default: 60 requests per minute per IP (configurable via RATE_LIMIT_HEALTH).
  */
 export const healthRateLimiter = rateLimiter({
-  limit: 60,
+  limit: RATE_LIMIT_HEALTH,
   windowMs: 60 * 1000, // 1 minute
   message: 'Too many health check requests. Please reduce polling frequency.',
+});
+
+/**
+ * Rate limiter for authenticated API routes.
+ * Default: 1000 requests per minute per IP (configurable via RATE_LIMIT_AUTHENTICATED).
+ * Higher limit since these routes require valid authentication.
+ */
+export const authenticatedRateLimiter = rateLimiter({
+  limit: RATE_LIMIT_AUTHENTICATED,
+  windowMs: 60 * 1000, // 1 minute
+  message: 'Too many requests. Please slow down.',
 });
