@@ -128,6 +128,12 @@ variable "db_username" {
   default     = ""
 }
 
+variable "enable_rds_iam_auth" {
+  description = "Whether to enable RDS IAM authentication policy. Must be set explicitly to avoid plan-time unknown values."
+  type        = bool
+  default     = false
+}
+
 variable "aws_account_id" {
   description = "AWS account ID for IAM policy scoping"
   type        = string
@@ -243,7 +249,7 @@ resource "aws_iam_role" "task" {
 # IAM policy for RDS IAM authentication (most secure - no passwords)
 # Scoped to specific region, account, RDS instance, and database user
 resource "aws_iam_role_policy" "task_rds_connect" {
-  count = var.rds_resource_id != "" ? 1 : 0
+  count = var.enable_rds_iam_auth ? 1 : 0
   name  = "rds-iam-connect"
   role  = aws_iam_role.task.id
 

@@ -276,9 +276,10 @@ module "ecs" {
   enable_autoscaling = false
 
   # RDS IAM authentication (scoped policy)
-  rds_resource_id = module.rds.db_resource_id
-  db_username     = module.rds.db_username
-  aws_account_id  = local.account_id
+  enable_rds_iam_auth = true
+  rds_resource_id     = module.rds.db_resource_id
+  db_username         = module.rds.db_username
+  aws_account_id      = local.account_id
 }
 
 # =============================================================================
