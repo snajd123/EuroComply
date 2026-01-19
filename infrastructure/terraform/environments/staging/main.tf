@@ -126,11 +126,12 @@ module "vpc" {
 module "security_groups" {
   source = "../../modules/security-groups"
 
-  project                         = local.project
-  environment                     = local.environment
-  vpc_id                          = module.vpc.vpc_id
-  app_port                        = var.app_port
-  vpc_endpoints_security_group_id = module.vpc.vpc_endpoints_security_group_id
+  project                          = local.project
+  environment                      = local.environment
+  vpc_id                           = module.vpc.vpc_id
+  app_port                         = var.app_port
+  vpc_endpoints_security_group_id  = module.vpc.vpc_endpoints_security_group_id
+  enable_vpc_endpoints_restriction = true
 }
 
 # =============================================================================

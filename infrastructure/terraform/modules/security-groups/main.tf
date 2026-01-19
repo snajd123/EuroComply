@@ -39,6 +39,12 @@ variable "vpc_endpoints_security_group_id" {
   default     = null
 }
 
+variable "enable_vpc_endpoints_restriction" {
+  description = "Whether to restrict RDS egress to VPC endpoints only. Must be set explicitly to avoid plan-time unknown values."
+  type        = bool
+  default     = false
+}
+
 locals {
   name_prefix = "${var.project}-${var.environment}"
 }
@@ -131,7 +137,7 @@ resource "aws_security_group" "rds" {
 # RDS egress rules - restricted to VPC endpoints when available
 # If VPC endpoints are not configured, allow broad HTTPS (fallback for bootstrapping)
 resource "aws_security_group_rule" "rds_egress_vpc_endpoints" {
-  count = var.vpc_endpoints_security_group_id != null ? 1 : 0
+  count = var.enable_vpc_endpoints_restriction ? 1 : 0
 
   type                     = "egress"
   from_port                = 443
@@ -143,7 +149,7 @@ resource "aws_security_group_rule" "rds_egress_vpc_endpoints" {
 }
 
 resource "aws_security_group_rule" "rds_egress_fallback" {
-  count = var.vpc_endpoints_security_group_id == null ? 1 : 0
+  count = var.enable_vpc_endpoints_restriction ? 0 : 1
 
   type              = "egress"
   from_port         = 443
