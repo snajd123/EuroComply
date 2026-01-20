@@ -273,7 +273,9 @@ resource "aws_iam_role_policy" "github_actions_deploy_network" {
           "ec2:AuthorizeSecurityGroupEgress", "ec2:RevokeSecurityGroupEgress",
           "ec2:CreateTags", "ec2:DeleteTags", "ec2:CreateNetworkInterface", "ec2:DeleteNetworkInterface",
           "ec2:CreateFlowLogs", "ec2:DeleteFlowLogs",
-          "ec2:CreateVpcEndpoint", "ec2:DeleteVpcEndpoints", "ec2:ModifyVpcEndpoint"
+          "ec2:CreateVpcEndpoint", "ec2:DeleteVpcEndpoints", "ec2:ModifyVpcEndpoint",
+          "ec2:RunInstances", "ec2:TerminateInstances", "ec2:StartInstances", "ec2:StopInstances",
+          "ec2:ModifyInstanceAttribute"
         ]
         Resource = "*"
       },
@@ -454,6 +456,20 @@ resource "aws_iam_role_policy" "github_actions_deploy_supporting" {
         Effect   = "Allow"
         Action   = ["iam:GetRole", "iam:CreateRole", "iam:DeleteRole", "iam:GetRolePolicy", "iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:AttachRolePolicy", "iam:DetachRolePolicy", "iam:PassRole", "iam:ListAttachedRolePolicies", "iam:ListRolePolicies", "iam:TagRole", "iam:UntagRole", "iam:ListInstanceProfilesForRole"]
         Resource = "arn:aws-eusc:iam::${data.aws_caller_identity.current.account_id}:role/eurocomply-*"
+      },
+      {
+        Sid    = "IAMInstanceProfiles"
+        Effect = "Allow"
+        Action = [
+          "iam:CreateInstanceProfile",
+          "iam:DeleteInstanceProfile",
+          "iam:GetInstanceProfile",
+          "iam:AddRoleToInstanceProfile",
+          "iam:RemoveRoleFromInstanceProfile",
+          "iam:TagInstanceProfile",
+          "iam:UntagInstanceProfile"
+        ]
+        Resource = "arn:aws-eusc:iam::${data.aws_caller_identity.current.account_id}:instance-profile/eurocomply-*"
       },
       {
         Sid      = "IAMSelfManage"
