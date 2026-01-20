@@ -195,9 +195,9 @@ resource "aws_instance" "bastion" {
   # Enable detailed monitoring for troubleshooting
   monitoring = false
 
-  # Minimal root volume
+  # Root volume (AL2023 requires at least 30GB)
   root_block_device {
-    volume_size = 8
+    volume_size = 30
     volume_type = "gp3"
     encrypted   = true
   }
