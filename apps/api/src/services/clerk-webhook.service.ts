@@ -5,10 +5,8 @@
  * This is the industry standard approach for Clerk integration.
  */
 
-import { PrismaClient } from '@eurocomply/db';
+import { prisma } from '@eurocomply/db';
 import { Webhook } from 'svix';
-
-const prisma = new PrismaClient();
 
 // Clerk webhook event types
 interface ClerkUserData {
