@@ -24,9 +24,14 @@
   },
   "dependencies": {
     "@aws-sdk/rds-signer": "^3.0.0",
+    "@mikro-orm/cli": "^6.6.4",
+    "@mikro-orm/core": "^6.6.4",
+    "@mikro-orm/migrations": "^6.6.4",
+    "@mikro-orm/postgresql": "^6.6.4",
     "@prisma/client": "^5.9.0"
   },
   "devDependencies": {
+    "@mikro-orm/reflection": "^6.6.4",
     "@types/node": "^20.19.30",
     "@vitest/coverage-v8": "^1.0.0",
     "prisma": "^5.9.0",
