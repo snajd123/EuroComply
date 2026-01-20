@@ -117,48 +117,10 @@ async function getOrCreateTestUser(): Promise<{ id: string; email: string }> {
   return { id: user.id, email: E2E_TEST_EMAIL };
 }
 
-/**
- * Get a session token for the test user.
- * Note: This function is preserved for future use when Clerk testing tokens
- * become available, but currently throws as session creation requires frontend flow.
- * @internal Reserved for future Clerk testing tokens integration
- */
-async function _getTestUserToken(userId: string): Promise<string> {
-  // Create a session token using Clerk's Backend API
-  // Note: This creates a JWT that can be used for API authentication
-  const sessions = await clerk.sessions.getSessionList({ userId });
-
-  // If there's an active session, get its token
-  if (sessions.data.length > 0) {
-    const session = sessions.data[0]!;
-    const token = await clerk.sessions.getToken(session.id, 'e2e-test');
-    if (token.jwt) {
-      return token.jwt;
-    }
-  }
-
-  // Create a new sign-in token that can be exchanged for a session
-  // For E2E tests, we'll use a workaround: create a signed JWT directly
-  // This requires the Clerk secret key to sign tokens
-
-  // Alternative: Use Clerk's testing tokens feature
-  // For now, we'll create a user token using the sessions API
-  const _signInToken = await clerk.signInTokens.createSignInToken({
-    userId,
-    expiresInSeconds: 3600, // 1 hour
-  });
-
-  // The sign-in token needs to be exchanged for a session
-  // In E2E tests, we can use a different approach: direct JWT creation
-  // Let's use the Clerk Backend SDK to get a proper token
-
-  // Create a session for the user
-  // Note: This is a workaround for E2E testing
-  throw new Error(
-    'Session token creation requires frontend flow. ' +
-    'Consider using Clerk Testing Tokens or a pre-authenticated test user.'
-  );
-}
+// TODO: Implement getTestUserToken when Clerk Testing Tokens become available
+// See: https://clerk.com/docs/testing/overview
+// Currently, E2E tests requiring authentication should use pre-authenticated test users
+// or mock the auth middleware.
 
 /**
  * Initialize E2E test context

@@ -305,15 +305,7 @@ describe('DPP Snapshot Lifecycle', () => {
 
   describe('Complete Lifecycle Flow', () => {
     it('should progress through complete lifecycle', async () => {
-      // This test demonstrates the expected sequence
-      const _states = [
-        'PENDING_REVIEW',
-        'VERIFIED',
-        'ATTESTED',
-        'SEALED',
-        'ISSUED',
-        'REVOKED',
-      ];
+      // Expected state sequence: PENDING_REVIEW -> VERIFIED -> ATTESTED -> SEALED -> ISSUED -> REVOKED
 
       // Track state transitions
       let currentState = 'PENDING_REVIEW';
