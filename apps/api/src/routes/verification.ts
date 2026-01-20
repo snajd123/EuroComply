@@ -54,7 +54,13 @@ if (tsaProvider === 'FREETSA' && process.env['NODE_ENV'] === 'production') {
 }
 
 const timestampService = TimestampService.forProvider(tsaProvider as 'FREETSA');
-const waltIdClient = createWaltIdClient(process.env);
+const waltIdClient = createWaltIdClient({
+  WALTID_CORE_URL: process.env['WALTID_CORE_URL'],
+  WALTID_SIGNATORY_URL: process.env['WALTID_SIGNATORY_URL'],
+  WALTID_CUSTODIAN_URL: process.env['WALTID_CUSTODIAN_URL'],
+  WALTID_AUDITOR_URL: process.env['WALTID_AUDITOR_URL'],
+  WALTID_API_KEY: process.env['WALTID_API_KEY'],
+});
 const verificationService = new VerificationService(
   waltIdClient,
   statusListService,
