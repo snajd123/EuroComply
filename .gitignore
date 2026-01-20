@@ -11,6 +11,9 @@ dist/
 .env.local
 .env.*.local
 
+# Local scripts with credentials
+scripts/*-local.sh
+
 # IDE
 .idea/
 .vscode/
