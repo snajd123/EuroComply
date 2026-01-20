@@ -73,3 +73,8 @@ output "ecs_security_group_id" {
   description = "Security group ID for ECS tasks"
   value       = module.security_groups.ecs_security_group_id
 }
+
+output "bastion_instance_id" {
+  description = "Bastion instance ID for SSM connections"
+  value       = module.bastion.instance_id
+}

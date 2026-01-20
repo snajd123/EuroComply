@@ -177,6 +177,19 @@ module "rds" {
 }
 
 # =============================================================================
+# Bastion Host (for secure database access via SSM)
+# =============================================================================
+module "bastion" {
+  source = "../../modules/bastion"
+
+  project               = local.project
+  environment           = local.environment
+  vpc_id                = module.vpc.vpc_id
+  subnet_id             = module.vpc.private_subnet_ids[0]
+  rds_security_group_id = module.security_groups.rds_security_group_id
+}
+
+# =============================================================================
 # ElastiCache Redis
 # =============================================================================
 module "elasticache" {
