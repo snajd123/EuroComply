@@ -202,10 +202,42 @@ resource "aws_instance" "bastion" {
     encrypted   = true
   }
 
-  # Install PostgreSQL client on startup
+  # Install PostgreSQL client and configure SSM agent for Sovereign Cloud
   user_data = base64encode(<<-EOF
     #!/bin/bash
+    set -e
+
+    # Install PostgreSQL client
     dnf install -y postgresql15
+
+    # Configure SSM agent for AWS European Sovereign Cloud endpoints
+    mkdir -p /etc/amazon/ssm
+    cat > /etc/amazon/ssm/amazon-ssm-agent.json << 'SSMCONFIG'
+    {
+      "Profile": {
+        "Region": "eusc-de-east-1"
+      },
+      "Mds": {
+        "Endpoint": "https://ssmmessages.eusc-de-east-1.amazonaws.eu"
+      },
+      "Ssm": {
+        "Endpoint": "https://ssm.eusc-de-east-1.amazonaws.eu"
+      },
+      "Ec2": {
+        "Endpoint": "https://ec2messages.eusc-de-east-1.amazonaws.eu"
+      },
+      "Kms": {
+        "Endpoint": "https://kms.eusc-de-east-1.amazonaws.eu"
+      },
+      "S3": {
+        "Endpoint": "https://s3.eusc-de-east-1.amazonaws.eu",
+        "Region": "eusc-de-east-1"
+      }
+    }
+    SSMCONFIG
+
+    # Restart SSM agent to pick up new config
+    systemctl restart amazon-ssm-agent
   EOF
   )
 

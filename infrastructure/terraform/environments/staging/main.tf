@@ -121,8 +121,8 @@ module "vpc" {
 
   # ECR endpoints not available in AWS European Sovereign Cloud
   enable_ecr_endpoints = false
-  # SSM endpoints for bastion/Session Manager access
-  enable_ssm_endpoints = true
+  # SSM endpoints also not available in Sovereign Cloud - bastion uses NAT gateway
+  enable_ssm_endpoints = false
 }
 
 # =============================================================================
