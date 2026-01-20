@@ -275,7 +275,8 @@ resource "aws_iam_role_policy" "github_actions_deploy_network" {
           "ec2:CreateFlowLogs", "ec2:DeleteFlowLogs",
           "ec2:CreateVpcEndpoint", "ec2:DeleteVpcEndpoints", "ec2:ModifyVpcEndpoint",
           "ec2:RunInstances", "ec2:TerminateInstances", "ec2:StartInstances", "ec2:StopInstances",
-          "ec2:ModifyInstanceAttribute"
+          "ec2:ModifyInstanceAttribute",
+          "ec2:CreateKeyPair", "ec2:DeleteKeyPair", "ec2:ImportKeyPair", "ec2:DescribeKeyPairs"
         ]
         Resource = "*"
       },
