@@ -1,4 +1,10 @@
 import { MikroORM, EntityManager } from '@mikro-orm/postgresql';
+import { readFileSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 /**
  * Validates a schema name to prevent SQL injection and ensure format.
@@ -95,12 +101,15 @@ export async function dropTenantSchema(
 
 /**
  * Returns the DDL for creating a tenant schema.
- * This is a placeholder - will be populated in Task 1.4.
  */
 export function getTenantSchemaDDL(schemaName: string): string {
-  return `
-    CREATE SCHEMA IF NOT EXISTS "${schemaName}";
-    SET search_path = "${schemaName}";
-    -- Tables will be added in Task 1.4
-  `;
+  if (!validateSchemaName(schemaName)) {
+    throw new Error(`Invalid schema name: ${schemaName}`);
+  }
+
+  const ddlPath = join(__dirname, 'tenant-schema.sql');
+  const ddlTemplate = readFileSync(ddlPath, 'utf-8');
+
+  // Replace all ${schemaName} placeholders
+  return ddlTemplate.replace(/\$\{schemaName\}/g, schemaName);
 }
