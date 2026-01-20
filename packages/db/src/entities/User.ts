@@ -1,8 +1,5 @@
 import { Entity, PrimaryKey, Property, Unique, OneToMany, Collection } from '@mikro-orm/core';
-
-// Forward declaration for OrganizationUser (created in Task 2.4)
-// eslint-disable-next-line @typescript-eslint/no-empty-interface
-interface OrganizationUser {}
+import { OrganizationUser } from './OrganizationUser.js';
 
 @Entity({ tableName: 'users' })
 export class User {
