@@ -26,5 +26,6 @@ export class OperationsEvent {
   signatureJws!: string;
 
   @Property({ type: 'timestamptz', fieldName: 'created_at' })
+  @Index()
   createdAt: Date = new Date();
 }
