@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import { Hono } from 'hono';
+import type { AppVariables, UserOnlyVariables } from '../types/context.js';
 
 // Mock modules before importing the middleware
 vi.mock('@clerk/backend', () => ({
@@ -37,7 +38,7 @@ const mockPrisma = prisma as unknown as {
 const mockIsValidOrgId = isValidOrgId as Mock;
 
 describe('auth middleware', () => {
-  let app: Hono;
+  let app: Hono<{ Variables: AppVariables }>;
   const originalEnv = process.env;
 
   beforeEach(async () => {
@@ -65,7 +66,7 @@ describe('auth middleware', () => {
       // Import fresh middleware after env setup
       const { authMiddleware } = await import('./auth.js');
 
-      app = new Hono();
+      app = new Hono<{ Variables: AppVariables }>();
       app.use('/protected/*', authMiddleware);
       app.get('/protected/test', (c) => {
         const user = c.get('user');
@@ -329,7 +330,7 @@ describe('auth middleware', () => {
     beforeEach(async () => {
       const { userAuthMiddleware } = await import('./auth.js');
 
-      app = new Hono();
+      app = new Hono<{ Variables: AppVariables }>();
       app.use('/user/*', userAuthMiddleware);
       app.get('/user/profile', (c) => {
         const user = c.get('user');
@@ -384,7 +385,7 @@ describe('auth middleware', () => {
     beforeEach(async () => {
       const { optionalAuthMiddleware } = await import('./auth.js');
 
-      app = new Hono();
+      app = new Hono<{ Variables: AppVariables }>();
       app.use('/public/*', optionalAuthMiddleware);
       app.get('/public/data', (c) => {
         const user = c.get('user');
@@ -475,7 +476,7 @@ describe('auth middleware', () => {
 
       const { authMiddleware } = await import('./auth.js');
 
-      app = new Hono();
+      app = new Hono<{ Variables: AppVariables }>();
 
       // Simulate pre-setting context (as integration tests do)
       app.use('/protected/*', async (c, next) => {
@@ -514,7 +515,7 @@ describe('auth middleware', () => {
 
       const { authMiddleware } = await import('./auth.js');
 
-      app = new Hono();
+      app = new Hono<{ Variables: AppVariables }>();
       app.use('/protected/*', authMiddleware);
       app.get('/protected/test', (c) => c.json({ success: true }));
 
