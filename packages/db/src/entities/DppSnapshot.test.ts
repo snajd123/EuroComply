@@ -1,23 +1,24 @@
 import { describe, it, expect } from 'vitest';
-import { DppSnapshot, DppStatus } from './DppSnapshot.js';
+import { DppSnapshot, DppSnapshotStatus } from './DppSnapshot.js';
 import { Product, ProductType, ProductStatus } from './Product.js';
 import { ProductVersion, VersionStatus, Workspace } from './ProductVersion.js';
+import { ReadinessProfile } from './ReadinessProfile.js';
+import { User } from './User.js';
 
 describe('DppSnapshot Entity', () => {
-  describe('DppStatus enum', () => {
-    it('should have ACTIVE status', () => {
-      expect(DppStatus.ACTIVE).toBe('ACTIVE');
+  describe('DppSnapshotStatus enum', () => {
+    it('should have all workflow status values', () => {
+      expect(DppSnapshotStatus.PENDING_REVIEW).toBe('PENDING_REVIEW');
+      expect(DppSnapshotStatus.VERIFIED).toBe('VERIFIED');
+      expect(DppSnapshotStatus.ATTESTED).toBe('ATTESTED');
+      expect(DppSnapshotStatus.SEALED).toBe('SEALED');
+      expect(DppSnapshotStatus.ISSUED).toBe('ISSUED');
+      expect(DppSnapshotStatus.REVOKED).toBe('REVOKED');
     });
 
-    it('should have REVOKED status', () => {
-      expect(DppStatus.REVOKED).toBe('REVOKED');
-    });
-
-    it('should only have two status values', () => {
-      const statusValues = Object.values(DppStatus);
-      expect(statusValues).toHaveLength(2);
-      expect(statusValues).toContain('ACTIVE');
-      expect(statusValues).toContain('REVOKED');
+    it('should have exactly six status values', () => {
+      const statusValues = Object.values(DppSnapshotStatus);
+      expect(statusValues).toHaveLength(6);
     });
   });
 
@@ -27,9 +28,9 @@ describe('DppSnapshot Entity', () => {
       expect(snapshot).toBeInstanceOf(DppSnapshot);
     });
 
-    it('should have default status of ACTIVE', () => {
+    it('should have default status of PENDING_REVIEW', () => {
       const snapshot = new DppSnapshot();
-      expect(snapshot.status).toBe(DppStatus.ACTIVE);
+      expect(snapshot.status).toBe(DppSnapshotStatus.PENDING_REVIEW);
     });
 
     it('should have default createdAt timestamp', () => {
@@ -54,21 +55,25 @@ describe('DppSnapshot Entity', () => {
       designVersion.workspace = Workspace.DESIGN;
       designVersion.versionNumber = 1;
 
+      const profile = new ReadinessProfile();
+      profile.id = 'rp_123';
+      profile.name = 'Test Profile';
+
       snapshot.id = 'dpp_123';
       snapshot.product = product;
       snapshot.designVersion = designVersion;
-      snapshot.credentialHash = 'a'.repeat(64);
-      snapshot.issuerDid = 'did:web:example.com';
-      snapshot.issuedAt = new Date('2024-01-15T10:00:00Z');
-      snapshot.r2Path = '/bucket/path/to/credential.json';
+      snapshot.readinessProfile = profile;
+      snapshot.data = { product: { name: 'Test' } };
+      snapshot.dataHash = 'a'.repeat(64);
+      snapshot.completionScore = 100;
 
       expect(snapshot.id).toBe('dpp_123');
       expect(snapshot.product).toBe(product);
       expect(snapshot.designVersion).toBe(designVersion);
-      expect(snapshot.credentialHash).toHaveLength(64);
-      expect(snapshot.issuerDid).toBe('did:web:example.com');
-      expect(snapshot.issuedAt).toEqual(new Date('2024-01-15T10:00:00Z'));
-      expect(snapshot.r2Path).toBe('/bucket/path/to/credential.json');
+      expect(snapshot.readinessProfile).toBe(profile);
+      expect(snapshot.data).toEqual({ product: { name: 'Test' } });
+      expect(snapshot.dataHash).toHaveLength(64);
+      expect(snapshot.completionScore).toBe(100);
     });
 
     it('should allow setting optional marketingVersion', () => {
@@ -93,24 +98,94 @@ describe('DppSnapshot Entity', () => {
       expect(snapshot.marketingVersion).toBeUndefined();
     });
 
-    it('should allow setting optional qrCodeUrl', () => {
+    it('should allow setting verification fields', () => {
       const snapshot = new DppSnapshot();
-      snapshot.qrCodeUrl = 'https://example.com/qr/123.png';
+      const verifier = new User();
+      verifier.id = 'usr_verifier';
 
-      expect(snapshot.qrCodeUrl).toBe('https://example.com/qr/123.png');
+      snapshot.verifiedAt = new Date('2024-01-15T10:00:00Z');
+      snapshot.verifiedBy = verifier;
+
+      expect(snapshot.verifiedAt).toEqual(new Date('2024-01-15T10:00:00Z'));
+      expect(snapshot.verifiedBy).toBe(verifier);
     });
 
-    it('should allow optional qrCodeUrl to be undefined', () => {
+    it('should allow setting attestation fields', () => {
       const snapshot = new DppSnapshot();
-      expect(snapshot.qrCodeUrl).toBeUndefined();
+      const attester = new User();
+      attester.id = 'usr_attester';
+
+      snapshot.attestedAt = new Date('2024-01-15T11:00:00Z');
+      snapshot.attestedBy = attester;
+      snapshot.userSignatureDid = 'did:key:z123';
+      snapshot.userSignatureJws = 'eyJ...';
+      snapshot.userForensicContext = { signerName: 'Test User' };
+
+      expect(snapshot.attestedAt).toEqual(new Date('2024-01-15T11:00:00Z'));
+      expect(snapshot.attestedBy).toBe(attester);
+      expect(snapshot.userSignatureDid).toBe('did:key:z123');
+      expect(snapshot.userSignatureJws).toBe('eyJ...');
+      expect(snapshot.userForensicContext).toEqual({ signerName: 'Test User' });
     });
 
-    it('should allow changing status to REVOKED', () => {
+    it('should allow setting sealing fields', () => {
       const snapshot = new DppSnapshot();
-      expect(snapshot.status).toBe(DppStatus.ACTIVE);
 
-      snapshot.status = DppStatus.REVOKED;
-      expect(snapshot.status).toBe(DppStatus.REVOKED);
+      snapshot.sealedAt = new Date('2024-01-15T12:00:00Z');
+      snapshot.orgSignatureDid = 'did:key:zOrg123';
+      snapshot.orgSignatureJws = 'eyJ...org';
+      snapshot.orgForensicContext = { organizationName: 'Test Org' };
+
+      expect(snapshot.sealedAt).toEqual(new Date('2024-01-15T12:00:00Z'));
+      expect(snapshot.orgSignatureDid).toBe('did:key:zOrg123');
+      expect(snapshot.orgSignatureJws).toBe('eyJ...org');
+      expect(snapshot.orgForensicContext).toEqual({ organizationName: 'Test Org' });
+    });
+
+    it('should allow setting issuance fields', () => {
+      const snapshot = new DppSnapshot();
+
+      snapshot.issuedAt = new Date('2024-01-15T13:00:00Z');
+      snapshot.vcId = 'vc_123';
+      snapshot.vcJwt = 'eyJ...vc';
+      snapshot.dppUrl = 'https://dpp.eurocomply.eu/org/prod';
+      snapshot.qrCodeUrl = 'https://dpp.eurocomply.eu/qr/123.png';
+
+      expect(snapshot.issuedAt).toEqual(new Date('2024-01-15T13:00:00Z'));
+      expect(snapshot.vcId).toBe('vc_123');
+      expect(snapshot.vcJwt).toBe('eyJ...vc');
+      expect(snapshot.dppUrl).toBe('https://dpp.eurocomply.eu/org/prod');
+      expect(snapshot.qrCodeUrl).toBe('https://dpp.eurocomply.eu/qr/123.png');
+    });
+
+    it('should allow setting revocation fields', () => {
+      const snapshot = new DppSnapshot();
+
+      snapshot.credentialStatusIndex = 42;
+      snapshot.timestampProof = { timestamp: '2024-01-15T14:00:00Z', proof: 'abc' };
+
+      expect(snapshot.credentialStatusIndex).toBe(42);
+      expect(snapshot.timestampProof).toEqual({ timestamp: '2024-01-15T14:00:00Z', proof: 'abc' });
+    });
+
+    it('should allow transitioning through all workflow statuses', () => {
+      const snapshot = new DppSnapshot();
+      expect(snapshot.status).toBe(DppSnapshotStatus.PENDING_REVIEW);
+
+      snapshot.status = DppSnapshotStatus.VERIFIED;
+      expect(snapshot.status).toBe(DppSnapshotStatus.VERIFIED);
+
+      snapshot.status = DppSnapshotStatus.ATTESTED;
+      expect(snapshot.status).toBe(DppSnapshotStatus.ATTESTED);
+
+      snapshot.status = DppSnapshotStatus.SEALED;
+      expect(snapshot.status).toBe(DppSnapshotStatus.SEALED);
+
+      snapshot.status = DppSnapshotStatus.ISSUED;
+      expect(snapshot.status).toBe(DppSnapshotStatus.ISSUED);
+
+      snapshot.status = DppSnapshotStatus.REVOKED;
+      expect(snapshot.status).toBe(DppSnapshotStatus.REVOKED);
     });
   });
 });

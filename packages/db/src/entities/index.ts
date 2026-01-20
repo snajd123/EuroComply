@@ -9,7 +9,7 @@ export { ProductVersion, VersionStatus, Workspace } from './ProductVersion.js';
 export { BomEntry } from './BomEntry.js';
 export { OutboxEvent, OutboxStatus } from './OutboxEvent.js';
 export { OperationsEvent } from './OperationsEvent.js';
-export { DppSnapshot, DppStatus } from './DppSnapshot.js';
+export { DppSnapshot, DppSnapshotStatus } from './DppSnapshot.js';
 export { ReadinessProfile } from './ReadinessProfile.js';
 export { AuditLog } from './AuditLog.js';
 export { StatusList } from './StatusList.js';
