@@ -1,6 +1,9 @@
 import { EntityManager } from '@mikro-orm/postgresql';
 import { MikroOrm, DppSnapshotStatus } from '@eurocomply/db';
 import { NotFoundError } from '../lib/errors.js';
+import { loggers } from '../lib/logger.js';
+
+const log = loggers.compliance;
 
 const { Product, ProductVersion, ReadinessProfile, DppSnapshot } = MikroOrm;
 
@@ -178,8 +181,12 @@ export class DPPReadinessService {
         if (result.isReady) {
           results.push(result);
         }
-      } catch {
-        // Skip products that can't be checked
+      } catch (error) {
+        // Log warning but continue checking other products
+        log.warn(
+          { productId: product.id, profileId, error: error instanceof Error ? error.message : error },
+          'Failed to check product readiness'
+        );
         continue;
       }
     }

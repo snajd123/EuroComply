@@ -1,8 +1,7 @@
-import { EntityManager } from '@mikro-orm/postgresql';
+import { EntityManager, LockMode } from '@mikro-orm/postgresql';
 import { MikroOrm, DppSnapshotStatus } from '@eurocomply/db';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { NotFoundError, ValidationError } from '../lib/errors.js';
-import { randomUUID } from 'crypto';
 
 const { Product, ProductVersion, BomEntry, DppSnapshot, ReadinessProfile, User } = MikroOrm;
 
@@ -107,6 +106,12 @@ export class DPPSnapshotService {
           workspace: 'MARKETING' as unknown as MikroOrm.Workspace,
           status: 'RELEASED' as unknown as MikroOrm.VersionStatus,
         });
+
+        if (!marketingVersion) {
+          throw new ValidationError(
+            `Marketing version ${input.marketingVersionId} not found or not released`
+          );
+        }
       }
 
       // Get readiness profile
@@ -278,35 +283,43 @@ export class DPPSnapshotService {
 
   /**
    * Internal method to handle status transitions with validation.
+   * Uses transaction with pessimistic locking to prevent race conditions.
    */
   private async transitionStatus(
     snapshotId: string,
     targetStatus: SnapshotStatus,
     updateData: Record<string, unknown>
   ): Promise<MikroOrm.DppSnapshot> {
-    const snapshot = await this.em.findOne(DppSnapshot, { id: snapshotId });
-
-    if (!snapshot) {
-      throw new NotFoundError('DPPSnapshot', snapshotId);
-    }
-
-    const currentStatus = snapshot.status as unknown as SnapshotStatus;
-    const allowedTransitions = VALID_TRANSITIONS[currentStatus];
-
-    if (!allowedTransitions.includes(targetStatus)) {
-      throw new ValidationError(
-        `Cannot transition from ${currentStatus} to ${targetStatus}`
+    return this.em.transactional(async (em) => {
+      // Use pessimistic write lock to prevent concurrent transitions
+      const snapshot = await em.findOne(
+        DppSnapshot,
+        { id: snapshotId },
+        { lockMode: LockMode.PESSIMISTIC_WRITE }
       );
-    }
 
-    snapshot.status = targetStatus as unknown as MikroOrm.DppSnapshotStatus;
+      if (!snapshot) {
+        throw new NotFoundError('DPPSnapshot', snapshotId);
+      }
 
-    // Apply update data
-    for (const [key, value] of Object.entries(updateData)) {
-      (snapshot as unknown as Record<string, unknown>)[key] = value;
-    }
+      const currentStatus = snapshot.status as unknown as SnapshotStatus;
+      const allowedTransitions = VALID_TRANSITIONS[currentStatus];
 
-    await this.em.flush();
-    return snapshot;
+      if (!allowedTransitions.includes(targetStatus)) {
+        throw new ValidationError(
+          `Cannot transition from ${currentStatus} to ${targetStatus}`
+        );
+      }
+
+      snapshot.status = targetStatus as unknown as MikroOrm.DppSnapshotStatus;
+
+      // Apply update data - these are typed updates from the calling methods
+      for (const [key, value] of Object.entries(updateData)) {
+        (snapshot as unknown as Record<string, unknown>)[key] = value;
+      }
+
+      await em.flush();
+      return snapshot;
+    });
   }
 }
