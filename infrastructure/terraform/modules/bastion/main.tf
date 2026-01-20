@@ -210,8 +210,12 @@ resource "aws_instance" "bastion" {
     # Wait for cloud-init to complete
     cloud-init status --wait || true
 
-    # Install PostgreSQL client and socat for port forwarding
-    dnf install -y postgresql15 socat
+    # Install PostgreSQL client
+    dnf install -y postgresql15
+
+    # Install socat from EPEL (not in AL2023 base repos)
+    dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
+    dnf install -y socat
 
     # Configure AWS region for the instance
     mkdir -p /root/.aws
