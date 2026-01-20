@@ -1,8 +1,5 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
-import {
-  VerificationService,
-  type VerificationResult,
-} from './verification.service.js';
+import { VerificationService } from './verification.service.js';
 
 interface MockDependencies {
   waltIdClient: {

@@ -118,9 +118,12 @@ async function getOrCreateTestUser(): Promise<{ id: string; email: string }> {
 }
 
 /**
- * Get a session token for the test user
+ * Get a session token for the test user.
+ * Note: This function is preserved for future use when Clerk testing tokens
+ * become available, but currently throws as session creation requires frontend flow.
+ * @internal Reserved for future Clerk testing tokens integration
  */
-async function getTestUserToken(userId: string): Promise<string> {
+async function _getTestUserToken(userId: string): Promise<string> {
   // Create a session token using Clerk's Backend API
   // Note: This creates a JWT that can be used for API authentication
   const sessions = await clerk.sessions.getSessionList({ userId });
@@ -140,7 +143,7 @@ async function getTestUserToken(userId: string): Promise<string> {
 
   // Alternative: Use Clerk's testing tokens feature
   // For now, we'll create a user token using the sessions API
-  const signInToken = await clerk.signInTokens.createSignInToken({
+  const _signInToken = await clerk.signInTokens.createSignInToken({
     userId,
     expiresInSeconds: 3600, // 1 hour
   });

@@ -5,12 +5,7 @@
  * They prove that security controls actually work by trying to bypass them.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import {
-  setupIntegrationTest,
-  teardownIntegrationTest,
-  getTestContext,
-  testPrisma,
-} from './setup.js';
+import { testPrisma } from './setup.js';
 import {
   createTenantSchema,
   dropTenantSchema,

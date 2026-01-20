@@ -35,9 +35,9 @@ describe('DidService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     service = new DidService(
-      mockDeps.waltIdClient as any,
-      mockDeps.statusListService as any,
-      mockDeps.prisma as any
+      mockDeps.waltIdClient as unknown as ConstructorParameters<typeof DidService>[0],
+      mockDeps.statusListService as unknown as ConstructorParameters<typeof DidService>[1],
+      mockDeps.prisma as unknown as ConstructorParameters<typeof DidService>[2]
     );
   });
 

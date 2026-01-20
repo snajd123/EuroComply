@@ -4,7 +4,6 @@
  * Each test file gets an isolated tenant schema that is created before
  * tests run and dropped after tests complete.
  */
-import { beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import { PrismaClient, createTenantSchema, dropTenantSchema } from '@eurocomply/db';
 import { randomBytes } from 'crypto';
 

@@ -22,7 +22,7 @@ export default [
     },
     rules: {
       // TypeScript-specific rules
-      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
       '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/explicit-function-return-type': 'off',
 
@@ -34,6 +34,7 @@ export default [
       // Disable rules that conflict with TypeScript
       'no-undef': 'off', // TypeScript handles this
       'no-unused-vars': 'off', // Use @typescript-eslint/no-unused-vars instead
+      'no-redeclare': 'off', // TypeScript handles this and allows function overloads
     },
   },
 ];

@@ -22,7 +22,7 @@ const createMockPrisma = (): MockDependencies['prisma'] => {
     $transaction: vi.fn(),
   };
   // Make $transaction pass through the callback with the prisma itself
-  prisma.$transaction.mockImplementation(async (cb: any) => cb(prisma));
+  prisma.$transaction.mockImplementation(async (cb: (tx: MockDependencies['prisma']) => Promise<unknown>) => cb(prisma));
   return prisma;
 };
 
@@ -40,8 +40,8 @@ describe('MembershipService', () => {
       prisma: createMockPrisma(),
     };
     service = new MembershipService(
-      mockDeps.didService as any,
-      mockDeps.prisma as any
+      mockDeps.didService as unknown as ConstructorParameters<typeof MembershipService>[0],
+      mockDeps.prisma as unknown as ConstructorParameters<typeof MembershipService>[1]
     );
   });
 

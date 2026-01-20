@@ -1,4 +1,4 @@
-import { PrismaClient, Prisma } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import { validateSchemaName } from './validation.js';
 
 // =============================================================================
@@ -32,7 +32,7 @@ export function createTenantClient(
 
   return baseClient.$extends({
     query: {
-      $allOperations({ operation, model, args, query }) {
+      $allOperations({ args, query }) {
         // For raw queries, we need to handle schema manually
         // For model queries, Prisma handles it
         return query(args);

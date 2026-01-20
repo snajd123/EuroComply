@@ -8,7 +8,6 @@ import {
   setupIntegrationTest,
   teardownIntegrationTest,
   getTestContext,
-  testPrisma,
 } from './setup.js';
 import { requireAuthority, requireOrgAdmin, requireOrgOwner } from '../../middleware/authorize.js';
 import { ok } from '@eurocomply/shared';

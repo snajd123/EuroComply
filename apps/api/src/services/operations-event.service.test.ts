@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import { OperationsEventService } from './operations-event.service.js';
-import { SigningService } from './signing.service.js';
 import { ValidationError } from '../lib/errors.js';
 import type { UserForensicContext, OrgForensicContext, SealedArtifact } from '@eurocomply/shared';
 
@@ -29,7 +28,7 @@ const mockPrisma: MockPrismaClient = {
     findUnique: vi.fn(),
     update: vi.fn(),
   },
-  $transaction: vi.fn((fn) => fn(mockPrisma)),
+  $transaction: vi.fn((fn: (client: MockPrismaClient) => Promise<unknown>) => fn(mockPrisma)),
 };
 
 describe('OperationsEventService', () => {
@@ -39,7 +38,7 @@ describe('OperationsEventService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    service = new OperationsEventService(mockPrisma as any);
+    service = new OperationsEventService(mockPrisma as unknown as ConstructorParameters<typeof OperationsEventService>[0]);
   });
 
   describe('recordEvent', () => {

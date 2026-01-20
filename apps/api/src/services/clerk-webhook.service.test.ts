@@ -348,11 +348,12 @@ describe('clerk-webhook.service', () => {
   });
 
   describe('processWebhookEvent', () => {
-    const createEvent = (type: string, data: any) => ({
+    // Helper to create test webhook events - uses type assertion for flexibility in tests
+    const createEvent = <T extends Record<string, unknown>>(type: string, data: T) => ({
       type,
       data,
       object: 'event' as const,
-    });
+    }) as unknown as Parameters<typeof processWebhookEvent>[0];
 
     const validUserData = {
       id: 'user_abc123def456',

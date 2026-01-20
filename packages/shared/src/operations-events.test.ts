@@ -1,9 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   BatchProducedSchema,
-  MaterialConsumedSchema,
-  QualityCheckSchema,
-  InventoryAdjustmentSchema,
   validateEventPayload,
   validateEventPayloadOrThrow,
 } from './operations-events.js';

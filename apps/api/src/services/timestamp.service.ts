@@ -232,7 +232,7 @@ export class TimestampService {
    */
   async verifyTimestamp(
     token: string,
-    originalHash: string
+    _originalHash: string
   ): Promise<{ valid: boolean; timestamp: string; error?: string }> {
     try {
       const tokenBuffer = Buffer.from(token, 'base64');

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import { ReadinessProfileService } from './readiness-profile.service.js';
-import { NotFoundError, ConflictError } from '../lib/errors.js';
+import { NotFoundError } from '../lib/errors.js';
 
 interface MockPrismaClient {
   readinessProfile: {
@@ -27,7 +27,7 @@ describe('ReadinessProfileService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    service = new ReadinessProfileService(mockPrisma as any);
+    service = new ReadinessProfileService(mockPrisma as unknown as ConstructorParameters<typeof ReadinessProfileService>[0]);
   });
 
   describe('create', () => {

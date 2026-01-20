@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import { Hono } from 'hono';
-import type { AppVariables, UserOnlyVariables } from '../types/context.js';
+import type { AppVariables } from '../types/context.js';
 
 // Mock modules before importing the middleware
 vi.mock('@clerk/backend', () => ({

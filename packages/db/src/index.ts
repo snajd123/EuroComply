@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import { isIamAuthEnabled, buildIamDatabaseUrl, getRdsIamConfig } from './iam-auth.js';
+import { isIamAuthEnabled, buildIamDatabaseUrl } from './iam-auth.js';
 
 export * from '@prisma/client';
 export * from './tenant.js';

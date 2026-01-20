@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import { VersionService } from './version.service.js';
-import { SigningService } from './signing.service.js';
-import { NotFoundError, ValidationError, ConflictError } from '../lib/errors.js';
+import { ValidationError, ConflictError } from '../lib/errors.js';
 import type { UserForensicContext, OrgForensicContext, SealedArtifact } from '@eurocomply/shared';
 
 // Mock Prisma client type

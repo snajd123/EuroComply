@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { createTenantClient, getTenantConnectionManager, type TenantContext } from './client.js';
 
 // Mock PrismaClient

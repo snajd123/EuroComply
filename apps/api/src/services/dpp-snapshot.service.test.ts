@@ -37,7 +37,7 @@ const mockPrisma: MockPrismaClient = {
   readinessProfile: {
     findUnique: vi.fn(),
   },
-  $transaction: vi.fn((fn) => fn(mockPrisma)),
+  $transaction: vi.fn((fn: (client: MockPrismaClient) => Promise<unknown>) => fn(mockPrisma)),
 };
 
 describe('DPPSnapshotService', () => {
@@ -47,7 +47,7 @@ describe('DPPSnapshotService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    service = new DPPSnapshotService(mockPrisma as any);
+    service = new DPPSnapshotService(mockPrisma as unknown as ConstructorParameters<typeof DPPSnapshotService>[0]);
   });
 
   describe('createSnapshot', () => {

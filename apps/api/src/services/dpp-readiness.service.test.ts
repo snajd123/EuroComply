@@ -35,7 +35,7 @@ const mockPrisma: MockPrismaClient = {
     create: vi.fn(),
     findFirst: vi.fn(),
   },
-  $transaction: vi.fn((fn) => fn(mockPrisma)),
+  $transaction: vi.fn((fn: (client: MockPrismaClient) => Promise<unknown>) => fn(mockPrisma)),
 };
 
 describe('DPPReadinessService', () => {
@@ -44,7 +44,7 @@ describe('DPPReadinessService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    service = new DPPReadinessService(mockPrisma as any);
+    service = new DPPReadinessService(mockPrisma as unknown as ConstructorParameters<typeof DPPReadinessService>[0]);
   });
 
   describe('checkProductReadiness', () => {

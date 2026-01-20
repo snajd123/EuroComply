@@ -306,7 +306,7 @@ describe('DPP Snapshot Lifecycle', () => {
   describe('Complete Lifecycle Flow', () => {
     it('should progress through complete lifecycle', async () => {
       // This test demonstrates the expected sequence
-      const states = [
+      const _states = [
         'PENDING_REVIEW',
         'VERIFIED',
         'ATTESTED',
