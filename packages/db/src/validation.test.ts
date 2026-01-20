@@ -31,13 +31,13 @@ describe('validateSchemaName', () => {
   describe('invalid schema names', () => {
     it('should reject empty/null inputs', () => {
       expect(() => validateSchemaName('')).toThrow('Schema name is required and must be a string');
-      expect(() => validateSchemaName(null as any)).toThrow('Schema name is required and must be a string');
-      expect(() => validateSchemaName(undefined as any)).toThrow('Schema name is required and must be a string');
+      expect(() => validateSchemaName(null as unknown as string)).toThrow('Schema name is required and must be a string');
+      expect(() => validateSchemaName(undefined as unknown as string)).toThrow('Schema name is required and must be a string');
     });
 
     it('should reject non-string inputs', () => {
-      expect(() => validateSchemaName(123 as any)).toThrow('Schema name is required and must be a string');
-      expect(() => validateSchemaName({} as any)).toThrow('Schema name is required and must be a string');
+      expect(() => validateSchemaName(123 as unknown as string)).toThrow('Schema name is required and must be a string');
+      expect(() => validateSchemaName({} as unknown as string)).toThrow('Schema name is required and must be a string');
     });
 
     it('should reject names exceeding max length', () => {
@@ -104,7 +104,7 @@ describe('isValidSchemaName', () => {
     expect(isValidSchemaName('')).toBe(false);
     expect(isValidSchemaName('acme')).toBe(false);
     expect(isValidSchemaName("tenant_'; DROP TABLE--")).toBe(false);
-    expect(isValidSchemaName(null as any)).toBe(false);
+    expect(isValidSchemaName(null as unknown as string)).toBe(false);
   });
 });
 
@@ -176,7 +176,7 @@ describe('generateSchemaName', () => {
   describe('invalid inputs', () => {
     it('should throw for empty/null inputs', () => {
       expect(() => generateSchemaName('')).toThrow('Organization slug is required');
-      expect(() => generateSchemaName(null as any)).toThrow('Organization slug is required');
+      expect(() => generateSchemaName(null as unknown as string)).toThrow('Organization slug is required');
     });
 
     it('should throw for inputs that sanitize to empty', () => {

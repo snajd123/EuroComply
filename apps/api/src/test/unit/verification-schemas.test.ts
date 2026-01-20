@@ -83,7 +83,7 @@ describe('verification schemas', () => {
 
     it('should reject invalid proof type', () => {
       const artifact = createValidArtifact();
-      artifact.userProof.type = 'InvalidType' as any;
+      artifact.userProof.type = 'InvalidType' as unknown as typeof artifact.userProof.type;
       const result = SealedArtifactSchema.safeParse(artifact);
       expect(result.success).toBe(false);
     });

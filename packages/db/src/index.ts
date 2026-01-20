@@ -84,7 +84,7 @@ async function createPrismaClient(): Promise<PrismaClient> {
   debugLog(`[DB] Initializing Prisma client (host: ${process.env['DB_HOST'] || 'from DATABASE_URL'}, auth: ${authMethod})`);
 
   return new PrismaClient({
-    log: logLevel as any,
+    log: logLevel as ('query' | 'error' | 'warn' | 'info')[],
     datasources: {
       db: {
         url: databaseUrl,

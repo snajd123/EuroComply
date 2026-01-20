@@ -38,7 +38,7 @@ describe('VersionService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    service = new VersionService(mockPrisma as any);
+    service = new VersionService(mockPrisma as unknown as ConstructorParameters<typeof VersionService>[0]);
   });
 
   describe('createVersion', () => {

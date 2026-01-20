@@ -1,6 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
 import { getClientIp, isPrivateIp } from '../../lib/trusted-proxy.js';
 
+// Type for mock Hono context used in tests
+type MockContext = Parameters<typeof getClientIp>[0];
+
 describe('trusted-proxy', () => {
   describe('isPrivateIp', () => {
     it('should identify private IPv4 addresses in 10.x.x.x range', () => {
@@ -39,7 +42,7 @@ describe('trusted-proxy', () => {
         req: { header: vi.fn().mockReturnValue(undefined) },
         env: { incoming: { socket: { remoteAddress: '10.0.0.5' } } },
       };
-      expect(getClientIp(mockContext as any)).toBe('10.0.0.5');
+      expect(getClientIp(mockContext as unknown as MockContext)).toBe('10.0.0.5');
     });
 
     it('should trust X-Forwarded-For from private IP (ALB scenario)', () => {
@@ -52,7 +55,7 @@ describe('trusted-proxy', () => {
         },
         env: { incoming: { socket: { remoteAddress: '10.0.0.5' } } },
       };
-      expect(getClientIp(mockContext as any)).toBe('203.0.113.50');
+      expect(getClientIp(mockContext as unknown as MockContext)).toBe('203.0.113.50');
     });
 
     it('should NOT trust X-Forwarded-For from public IP (direct attack)', () => {
@@ -66,7 +69,7 @@ describe('trusted-proxy', () => {
         env: { incoming: { socket: { remoteAddress: '203.0.113.100' } } },
       };
       // Should return socket IP, not the spoofed header
-      expect(getClientIp(mockContext as any)).toBe('203.0.113.100');
+      expect(getClientIp(mockContext as unknown as MockContext)).toBe('203.0.113.100');
     });
 
     it('should trust X-Real-IP from private IP when no X-Forwarded-For', () => {
@@ -79,7 +82,7 @@ describe('trusted-proxy', () => {
         },
         env: { incoming: { socket: { remoteAddress: '192.168.1.1' } } },
       };
-      expect(getClientIp(mockContext as any)).toBe('203.0.113.75');
+      expect(getClientIp(mockContext as unknown as MockContext)).toBe('203.0.113.75');
     });
 
     it('should return unknown when no socket info available', () => {
@@ -87,7 +90,7 @@ describe('trusted-proxy', () => {
         req: { header: vi.fn().mockReturnValue(undefined) },
         env: {},
       };
-      expect(getClientIp(mockContext as any)).toBe('unknown');
+      expect(getClientIp(mockContext as unknown as MockContext)).toBe('unknown');
     });
 
     it('should use CF-Connecting-IP when TRUST_CLOUDFLARE is enabled and socket unavailable', () => {
@@ -105,7 +108,7 @@ describe('trusted-proxy', () => {
           },
           env: {},
         };
-        expect(getClientIp(mockContext as any)).toBe('198.51.100.25');
+        expect(getClientIp(mockContext as unknown as MockContext)).toBe('198.51.100.25');
       } finally {
         // Restore original env var
         if (originalEnv === undefined) {
@@ -132,7 +135,7 @@ describe('trusted-proxy', () => {
           env: {},
         };
         // Should return 'unknown' when CF is not trusted
-        expect(getClientIp(mockContext as any)).toBe('unknown');
+        expect(getClientIp(mockContext as unknown as MockContext)).toBe('unknown');
       } finally {
         // Restore original env var
         if (originalEnv !== undefined) {
@@ -151,7 +154,7 @@ describe('trusted-proxy', () => {
         },
         env: { incoming: { socket: { remoteAddress: '10.0.0.7' } } },
       };
-      expect(getClientIp(mockContext as any)).toBe('203.0.113.50');
+      expect(getClientIp(mockContext as unknown as MockContext)).toBe('203.0.113.50');
     });
   });
 });

@@ -31,9 +31,9 @@ describe('VerificationService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     service = new VerificationService(
-      mockDeps.waltIdClient as any,
-      mockDeps.statusListService as any,
-      mockDeps.timestampService as any
+      mockDeps.waltIdClient as unknown as ConstructorParameters<typeof VerificationService>[0],
+      mockDeps.statusListService as unknown as ConstructorParameters<typeof VerificationService>[1],
+      mockDeps.timestampService as unknown as ConstructorParameters<typeof VerificationService>[2]
     );
   });
 

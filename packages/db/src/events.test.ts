@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { publishEvent, publishEvents, EventTypes } from './events.js';
 
+// Type for mock transaction client used in tests
+type MockTx = Parameters<typeof publishEvent>[0];
+
 // Mock Prisma transaction client
 function createMockTx() {
   return {
@@ -25,7 +28,7 @@ describe('publishEvent', () => {
       payload: { name: 'Test Product' },
     };
 
-    const id = await publishEvent(mockTx as any, event);
+    const id = await publishEvent(mockTx as unknown as MockTx, event);
 
     expect(id).toMatch(/^evt_[a-f0-9]{32}$/);
   });
@@ -40,7 +43,7 @@ describe('publishEvent', () => {
       payload: { name: 'Test Product', sku: 'SKU-001' },
     };
 
-    await publishEvent(mockTx as any, event);
+    await publishEvent(mockTx as unknown as MockTx, event);
 
     expect(mockTx.outboxEvent.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -66,8 +69,8 @@ describe('publishEvent', () => {
       payload: {},
     };
 
-    const id1 = await publishEvent(mockTx as any, event);
-    const id2 = await publishEvent(mockTx as any, event);
+    const id1 = await publishEvent(mockTx as unknown as MockTx, event);
+    const id2 = await publishEvent(mockTx as unknown as MockTx, event);
 
     expect(id1).not.toBe(id2);
   });
@@ -97,7 +100,7 @@ describe('publishEvents', () => {
       },
     ];
 
-    const ids = await publishEvents(mockTx as any, events);
+    const ids = await publishEvents(mockTx as unknown as MockTx, events);
 
     expect(ids).toHaveLength(2);
     expect(ids[0]).toMatch(/^evt_/);
@@ -108,7 +111,7 @@ describe('publishEvents', () => {
   it('should return empty array for empty events list', async () => {
     const mockTx = createMockTx();
 
-    const ids = await publishEvents(mockTx as any, []);
+    const ids = await publishEvents(mockTx as unknown as MockTx, []);
 
     expect(ids).toEqual([]);
     expect(mockTx.outboxEvent.create).not.toHaveBeenCalled();

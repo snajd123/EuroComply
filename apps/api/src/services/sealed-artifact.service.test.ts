@@ -43,10 +43,10 @@ describe('SealedArtifactService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     service = new SealedArtifactService(
-      mockDeps.waltIdClient as any,
-      mockDeps.timestampService as any,
-      mockDeps.statusListService as any,
-      mockDeps.prisma as any
+      mockDeps.waltIdClient as unknown as ConstructorParameters<typeof SealedArtifactService>[0],
+      mockDeps.timestampService as unknown as ConstructorParameters<typeof SealedArtifactService>[1],
+      mockDeps.statusListService as unknown as ConstructorParameters<typeof SealedArtifactService>[2],
+      mockDeps.prisma as unknown as ConstructorParameters<typeof SealedArtifactService>[3]
     );
   });
 

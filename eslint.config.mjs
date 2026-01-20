@@ -23,7 +23,7 @@ export default [
     rules: {
       // TypeScript-specific rules
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
-      '@typescript-eslint/no-explicit-any': 'warn',
+      '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/explicit-function-return-type': 'off',
 
       // General rules - allow console.log since we use structured logging

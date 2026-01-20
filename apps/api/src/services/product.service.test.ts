@@ -52,7 +52,7 @@ describe('ProductService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    service = new ProductService(mockPrisma as any);
+    service = new ProductService(mockPrisma as unknown as ConstructorParameters<typeof ProductService>[0]);
   });
 
   describe('createProduct', () => {

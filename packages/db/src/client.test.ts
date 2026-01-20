@@ -1,6 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createTenantClient, getTenantConnectionManager, type TenantContext } from './client.js';
 
+// Type for mock PrismaClient used in tests
+type MockPrismaClient = Parameters<typeof createTenantClient>[0];
+
 // Mock PrismaClient
 function createMockPrismaClient() {
   const mockClient = {
@@ -28,7 +31,7 @@ describe('createTenantClient', () => {
       userId: 'user_456',
     };
 
-    const client = createTenantClient(mockBase as any, context);
+    const client = createTenantClient(mockBase as unknown as MockPrismaClient, context);
 
     expect(mockBase.$extends).toHaveBeenCalled();
     expect(client.$tenant).toEqual(context);
@@ -42,7 +45,7 @@ describe('createTenantClient', () => {
       userId: 'user_456',
     };
 
-    expect(() => createTenantClient(mockBase as any, context)).toThrow('Invalid schema name');
+    expect(() => createTenantClient(mockBase as unknown as MockPrismaClient, context)).toThrow('Invalid schema name');
   });
 
   it('should throw for schema name without tenant_ prefix', () => {
@@ -53,7 +56,7 @@ describe('createTenantClient', () => {
       userId: 'user_456',
     };
 
-    expect(() => createTenantClient(mockBase as any, context)).toThrow('Invalid schema name');
+    expect(() => createTenantClient(mockBase as unknown as MockPrismaClient, context)).toThrow('Invalid schema name');
   });
 
   it('should provide $queryTenant method that sets search_path', async () => {
@@ -64,7 +67,7 @@ describe('createTenantClient', () => {
       userId: 'user_456',
     };
 
-    const client = createTenantClient(mockBase as any, context);
+    const client = createTenantClient(mockBase as unknown as MockPrismaClient, context);
     await client.$queryTenant('SELECT * FROM users', []);
 
     expect(mockBase.$queryRawUnsafe).toHaveBeenCalledWith(
@@ -80,7 +83,7 @@ describe('createTenantClient', () => {
       userId: 'user_456',
     };
 
-    const client = createTenantClient(mockBase as any, context);
+    const client = createTenantClient(mockBase as unknown as MockPrismaClient, context);
     await client.$executeTenant('UPDATE users SET active = true', []);
 
     expect(mockBase.$executeRawUnsafe).toHaveBeenCalledWith(
@@ -92,8 +95,8 @@ describe('createTenantClient', () => {
 describe('TenantConnectionManager', () => {
   it('should return a singleton manager instance', () => {
     const mockBase = createMockPrismaClient();
-    const manager1 = getTenantConnectionManager(mockBase as any);
-    const manager2 = getTenantConnectionManager(mockBase as any);
+    const manager1 = getTenantConnectionManager(mockBase as unknown as MockPrismaClient);
+    const manager2 = getTenantConnectionManager(mockBase as unknown as MockPrismaClient);
 
     // Should return the same singleton instance
     expect(manager1).toBe(manager2);
@@ -101,7 +104,7 @@ describe('TenantConnectionManager', () => {
 
   it('should cache clients by organization and user', () => {
     const mockBase = createMockPrismaClient();
-    const manager = getTenantConnectionManager(mockBase as any);
+    const manager = getTenantConnectionManager(mockBase as unknown as MockPrismaClient);
 
     // Use unique context to avoid collision with other tests
     const context: TenantContext = {
@@ -119,7 +122,7 @@ describe('TenantConnectionManager', () => {
 
   it('should create different clients for different user contexts', () => {
     const mockBase = createMockPrismaClient();
-    const manager = getTenantConnectionManager(mockBase as any);
+    const manager = getTenantConnectionManager(mockBase as unknown as MockPrismaClient);
 
     // Use unique contexts to avoid collision
     const context1: TenantContext = {
@@ -142,7 +145,7 @@ describe('TenantConnectionManager', () => {
 
   it('should clear cache and create new client on next access', () => {
     const mockBase = createMockPrismaClient();
-    const manager = getTenantConnectionManager(mockBase as any);
+    const manager = getTenantConnectionManager(mockBase as unknown as MockPrismaClient);
 
     const context: TenantContext = {
       organizationId: 'org_clear_test',

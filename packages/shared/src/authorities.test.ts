@@ -35,19 +35,19 @@ describe('hasAuthority', () => {
   });
 
   it('should return false for invalid user authority', () => {
-    expect(hasAuthority('INVALID' as any, Authority.VIEWER)).toBe(false);
-    expect(hasAuthority('ADMIN' as any, Authority.VIEWER)).toBe(false);
-    expect(hasAuthority('' as any, Authority.VIEWER)).toBe(false);
+    expect(hasAuthority('INVALID' as unknown as Authority, Authority.VIEWER)).toBe(false);
+    expect(hasAuthority('ADMIN' as unknown as Authority, Authority.VIEWER)).toBe(false);
+    expect(hasAuthority('' as unknown as Authority, Authority.VIEWER)).toBe(false);
   });
 
   it('should return false for invalid required authority', () => {
-    expect(hasAuthority(Authority.MANAGER, 'INVALID' as any)).toBe(false);
-    expect(hasAuthority(Authority.MANAGER, 'ADMIN' as any)).toBe(false);
-    expect(hasAuthority(Authority.MANAGER, '' as any)).toBe(false);
+    expect(hasAuthority(Authority.MANAGER, 'INVALID' as unknown as Authority)).toBe(false);
+    expect(hasAuthority(Authority.MANAGER, 'ADMIN' as unknown as Authority)).toBe(false);
+    expect(hasAuthority(Authority.MANAGER, '' as unknown as Authority)).toBe(false);
   });
 
   it('should return false when both authorities are invalid', () => {
-    expect(hasAuthority('INVALID' as any, 'ALSO_INVALID' as any)).toBe(false);
+    expect(hasAuthority('INVALID' as unknown as Authority, 'ALSO_INVALID' as unknown as Authority)).toBe(false);
   });
 });
 

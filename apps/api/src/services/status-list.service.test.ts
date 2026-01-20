@@ -68,7 +68,7 @@ describe('StatusList2021Service', () => {
         },
       })),
     };
-    service = new StatusList2021Service(mockPrisma as any, testBaseUrl);
+    service = new StatusList2021Service(mockPrisma as unknown as ConstructorParameters<typeof StatusList2021Service>[0], testBaseUrl);
   });
 
   describe('allocateIndex', () => {
@@ -460,7 +460,7 @@ describe('StatusList2021Service', () => {
     it('should_use_provided_base_url', async () => {
       // Arrange
       const customBaseUrl = 'https://custom.eurocomply.eu';
-      const customService = new StatusList2021Service(mockPrisma as any, customBaseUrl);
+      const customService = new StatusList2021Service(mockPrisma as unknown as ConstructorParameters<typeof StatusList2021Service>[0], customBaseUrl);
 
       // Act
       const result = await customService.getCredentialStatus(testOrganizationId, 1);
@@ -471,7 +471,7 @@ describe('StatusList2021Service', () => {
 
     it('should_default_to_standard_base_url_when_not_provided', async () => {
       // Arrange - use default baseUrl by passing only prisma
-      const defaultService = new StatusList2021Service(mockPrisma as any);
+      const defaultService = new StatusList2021Service(mockPrisma as unknown as ConstructorParameters<typeof StatusList2021Service>[0]);
 
       // Act
       const result = await defaultService.getCredentialStatus(testOrganizationId, 1);
