@@ -234,8 +234,8 @@ start_prisma_studio() {
     echo -e "${YELLOW}Press Ctrl+C to stop${NC}"
     echo ""
 
-    # Run Prisma Studio
-    npx prisma studio --port $STUDIO_PORT --browser none
+    # Run Prisma Studio with explicit database URL
+    npx prisma studio --port $STUDIO_PORT --browser none --url "$DATABASE_URL"
 }
 
 # Main

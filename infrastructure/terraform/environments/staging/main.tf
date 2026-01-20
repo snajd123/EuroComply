@@ -189,7 +189,7 @@ module "bastion" {
   vpc_id                = module.vpc.vpc_id
   subnet_id             = module.vpc.public_subnet_ids[0]  # Public subnet for SSH access
   rds_security_group_id = module.security_groups.rds_security_group_id
-  # ssh_allowed_cidrs   = ["YOUR_IP/32"]  # Restrict in production
+  ssh_allowed_cidrs     = ["187.33.149.203/32"]  # Restricted to authorized IP
 }
 
 # =============================================================================
