@@ -1,4 +1,7 @@
 import { prisma, type OutboxEvent } from '@eurocomply/db';
+import { loggers } from '../lib/logger.js';
+
+const log = loggers.outbox;
 
 export interface EventHandler {
   (event: OutboxEvent): Promise<void>;
@@ -40,12 +43,12 @@ export class OutboxProcessor {
    */
   start(): void {
     if (this.isRunning) {
-      console.warn('Outbox processor already running');
+      log.warn('Outbox processor already running');
       return;
     }
 
     this.isRunning = true;
-    console.log('Starting outbox processor...');
+    log.info('Starting outbox processor');
     this.poll();
   }
 
@@ -58,7 +61,7 @@ export class OutboxProcessor {
       clearTimeout(this.pollInterval);
       this.pollInterval = null;
     }
-    console.log('Outbox processor stopped');
+    log.info('Outbox processor stopped');
   }
 
   private async poll(): Promise<void> {
@@ -67,7 +70,7 @@ export class OutboxProcessor {
     try {
       await this.processBatch();
     } catch (error) {
-      console.error('Outbox processor error:', error);
+      log.error({ error }, 'Outbox processor error');
     }
 
     // Schedule next poll
@@ -122,7 +125,7 @@ export class OutboxProcessor {
       const allHandlers = [...typeHandlers, ...wildcardHandlers];
 
       if (allHandlers.length === 0) {
-        console.warn(`No handlers for event type: ${event.eventType}`);
+        log.warn({ eventType: event.eventType }, 'No handlers for event type');
       }
 
       // Execute all handlers
@@ -150,7 +153,7 @@ export class OutboxProcessor {
         },
       });
 
-      console.error(`Event ${event.id} failed (attempt ${event.attempts + 1}):`, errorMessage);
+      log.error({ eventId: event.id, attempt: event.attempts + 1, error: errorMessage }, 'Event processing failed');
     }
   }
 

@@ -8,6 +8,7 @@ import { initializeDatabase } from '@eurocomply/db';
 import { errorHandler } from './middleware/error-handler.js';
 import { devLoggerMiddleware, loggerMiddleware } from './middleware/logger.js';
 import { registerRoutes } from './routes/index.js';
+import { logger } from './lib/logger.js';
 
 const app = new Hono();
 
@@ -83,24 +84,22 @@ async function startServer() {
   // Initialize database (handles IAM auth if enabled)
   await initializeDatabase();
 
-  console.log(`
-╔═══════════════════════════════════════════════════════════╗
-║                    EuroComply API                          ║
-╠═══════════════════════════════════════════════════════════╣
-║  Environment: ${(process.env['NODE_ENV'] || 'development').padEnd(40)} ║
-║  Port:        ${String(port).padEnd(40)} ║
-║  Health:      http://localhost:${port}/health${' '.repeat(24 - String(port).length)}║
-╚═══════════════════════════════════════════════════════════╝
-`);
+  logger.info({
+    environment: process.env['NODE_ENV'] || 'development',
+    port,
+    healthEndpoint: `http://localhost:${port}/health`,
+  }, 'EuroComply API starting');
 
   serve({
     fetch: app.fetch,
     port,
   });
+
+  logger.info({ port }, 'Server started');
 }
 
 startServer().catch((error) => {
-  console.error('Failed to start server:', error);
+  logger.fatal({ error }, 'Failed to start server');
   process.exit(1);
 });
 

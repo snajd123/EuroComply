@@ -10,6 +10,9 @@ import {
   getTestContext,
   cleanupOutboxEvents,
   testPrisma,
+  generateTestGtin,
+  generateTestDppUri,
+  generateTestValue,
 } from './setup.js';
 import { products } from '../../routes/products.js';
 import { versions } from '../../routes/versions.js';
@@ -166,7 +169,7 @@ describe('Product Routes Integration Tests', () => {
     });
 
     it('should reject duplicate GTIN across products (global uniqueness)', async () => {
-      const duplicateGtin = '98765432109879'; // Valid GTIN-14 with correct checksum
+      const duplicateGtin = generateTestGtin(); // Generate unique valid GTIN-14
 
       // Create first product with GTIN
       const firstResponse = await app.request('/api/v1/products', {
@@ -200,7 +203,7 @@ describe('Product Routes Integration Tests', () => {
     });
 
     it('should reject duplicate DPP_URI across products (global uniqueness)', async () => {
-      const duplicateDppUri = 'https://dpp.eurocomply.eu/org123/prod456';
+      const duplicateDppUri = generateTestDppUri(); // Generate unique DPP URI
 
       // Create first product with DPP_URI
       const firstResponse = await app.request('/api/v1/products', {
@@ -234,7 +237,7 @@ describe('Product Routes Integration Tests', () => {
     });
 
     it('should allow same identifier value with different types', async () => {
-      const sameValue = 'SHARED-VALUE-123';
+      const sameValue = generateTestValue('SHARED'); // Generate unique value
 
       // Create first product with SKU
       const firstResponse = await app.request('/api/v1/products', {

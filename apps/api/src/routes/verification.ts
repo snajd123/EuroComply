@@ -14,6 +14,9 @@ import {
   VerifySignatureBodySchema,
   validateBody,
 } from '../lib/schemas.js';
+import { loggers } from '../lib/logger.js';
+
+const log = loggers.verification;
 
 const verification = new Hono();
 
@@ -32,41 +35,33 @@ verification.use('/*', bodyLimit({
   },
 }));
 
-// Initialize services (lazy initialization to allow for proper configuration)
-let verificationService: VerificationService | null = null;
-let statusListService: StatusList2021Service | null = null;
+// ============================================
+// Service Initialization (fail-fast at startup)
+// ============================================
 
-function getStatusListService(): StatusList2021Service {
-  if (!statusListService) {
-    statusListService = new StatusList2021Service(prisma);
-  }
-  return statusListService;
+// Initialize services at module load time for fail-fast behavior
+// This ensures configuration problems are discovered at startup, not on first request
+
+const statusListService = new StatusList2021Service(prisma);
+
+// Use configurable TSA provider (default: FREETSA)
+const tsaProvider = process.env['TSA_PROVIDER'] || 'FREETSA';
+if (tsaProvider === 'FREETSA' && process.env['NODE_ENV'] === 'production') {
+  log.warn(
+    'Using FREETSA in production. Consider using a qualified TSA for legally binding timestamps. ' +
+    'Set TSA_PROVIDER environment variable to configure.'
+  );
 }
 
-function getVerificationService(): VerificationService {
-  if (!verificationService) {
-    const waltIdClient = createWaltIdClient();
-    const statusList = getStatusListService();
+const timestampService = TimestampService.forProvider(tsaProvider as 'FREETSA');
+const waltIdClient = createWaltIdClient();
+const verificationService = new VerificationService(
+  waltIdClient,
+  statusListService,
+  timestampService
+);
 
-    // Use configurable TSA provider (default: FREETSA)
-    const tsaProvider = process.env['TSA_PROVIDER'] || 'FREETSA';
-    if (tsaProvider === 'FREETSA' && process.env['NODE_ENV'] === 'production') {
-      console.warn(
-        '[Timestamp] WARNING: Using FREETSA in production. ' +
-        'Consider using a qualified TSA for legally binding timestamps. ' +
-        'Set TSA_PROVIDER environment variable to configure.'
-      );
-    }
-
-    const timestampService = TimestampService.forProvider(tsaProvider as 'FREETSA');
-    verificationService = new VerificationService(
-      waltIdClient,
-      statusList,
-      timestampService
-    );
-  }
-  return verificationService;
-}
+log.info({ tsaProvider }, 'Verification services initialized');
 
 /**
  * POST /api/v1/verify
@@ -100,16 +95,15 @@ verification.post('/', async (c) => {
 
     const { artifact, checkRevocation, revocationTime } = validation.data;
 
-    const service = getVerificationService();
     // Schema validation ensures structure matches SealedArtifact
-    const result = await service.verifySealedArtifact(artifact as SealedArtifact, {
+    const result = await verificationService.verifySealedArtifact(artifact as SealedArtifact, {
       checkRevocation,
       revocationTime: revocationTime ? new Date(revocationTime) : undefined,
     });
 
     return c.json(ok(result));
   } catch (error) {
-    console.error('Verification error:', error);
+    log.error({ error }, 'Verification error');
     return c.json(
       err('VERIFICATION_ERROR', 'Verification failed'),
       500
@@ -145,13 +139,12 @@ verification.post('/signature', async (c) => {
       return c.json(err('VALIDATION_ERROR', validation.error), 400);
     }
 
-    const service = getVerificationService();
     // Schema validation ensures structure matches SealedArtifact
-    const result = await service.verifySignaturesOnly(validation.data.artifact as SealedArtifact);
+    const result = await verificationService.verifySignaturesOnly(validation.data.artifact as SealedArtifact);
 
     return c.json(ok(result));
   } catch (error) {
-    console.error('Signature verification error:', error);
+    log.error({ error }, 'Signature verification error');
     return c.json(
       err('VERIFICATION_ERROR', 'Verification failed'),
       500
@@ -184,8 +177,7 @@ verification.get('/status/:orgId', async (c) => {
       return c.json(err('NOT_FOUND', 'Organization DID not found'), 404);
     }
 
-    const service = getStatusListService();
-    const credential = await service.generateStatusListCredential(
+    const credential = await statusListService.generateStatusListCredential(
       orgId,
       orgDid.did
     );
@@ -197,7 +189,7 @@ verification.get('/status/:orgId', async (c) => {
       'Cache-Control': 'public, max-age=60, stale-while-revalidate=300',
     });
   } catch (error) {
-    console.error('Status list error:', error);
+    log.error({ error, orgId }, 'Status list error');
     return c.json(err('NOT_FOUND', 'Status list not found'), 404);
   }
 });

@@ -7,6 +7,9 @@
 
 import { prisma } from '@eurocomply/db';
 import { Webhook } from 'svix';
+import { loggers } from '../lib/logger.js';
+
+const log = loggers.webhook;
 
 // Clerk webhook event types
 interface ClerkUserData {
@@ -59,7 +62,7 @@ export async function handleUserCreated(userData: ClerkUserData): Promise<void> 
   const primaryEmail = userData.email_addresses[0]?.email_address;
 
   if (!primaryEmail) {
-    console.warn(`[Clerk Webhook] user.created: No email found for user ${userData.id}`);
+    log.warn({ userId: userData.id }, 'user.created: No email found');
     return;
   }
 
@@ -73,7 +76,7 @@ export async function handleUserCreated(userData: ClerkUserData): Promise<void> 
   });
 
   if (existingUser) {
-    console.log(`[Clerk Webhook] user.created: User ${userData.id} already exists, skipping`);
+    log.debug({ userId: userData.id }, 'user.created: User already exists, skipping');
     return;
   }
 
@@ -84,7 +87,7 @@ export async function handleUserCreated(userData: ClerkUserData): Promise<void> 
 
   if (existingByEmail) {
     // Update the existing user with the new Clerk ID
-    console.log(`[Clerk Webhook] user.created: User with email ${primaryEmail} exists, updating clerkId`);
+    log.info({ email: primaryEmail }, 'user.created: User with email exists, updating clerkId');
     await prisma.user.update({
       where: { email: primaryEmail },
       data: {
@@ -106,7 +109,7 @@ export async function handleUserCreated(userData: ClerkUserData): Promise<void> 
     },
   });
 
-  console.log(`[Clerk Webhook] user.created: Created user ${userData.id} (${primaryEmail})`);
+  log.info({ userId: userData.id, email: primaryEmail }, 'user.created: Created user');
 }
 
 /**
@@ -116,7 +119,7 @@ export async function handleUserUpdated(userData: ClerkUserData): Promise<void> 
   const primaryEmail = userData.email_addresses[0]?.email_address;
 
   if (!primaryEmail) {
-    console.warn(`[Clerk Webhook] user.updated: No email found for user ${userData.id}`);
+    log.warn({ userId: userData.id }, 'user.updated: No email found');
     return;
   }
 
@@ -131,7 +134,7 @@ export async function handleUserUpdated(userData: ClerkUserData): Promise<void> 
 
   if (!existingUser) {
     // User doesn't exist yet, create them
-    console.log(`[Clerk Webhook] user.updated: User ${userData.id} not found, creating`);
+    log.info({ userId: userData.id }, 'user.updated: User not found, creating');
     await handleUserCreated(userData);
     return;
   }
@@ -145,7 +148,7 @@ export async function handleUserUpdated(userData: ClerkUserData): Promise<void> 
     },
   });
 
-  console.log(`[Clerk Webhook] user.updated: Updated user ${userData.id}`);
+  log.info({ userId: userData.id }, 'user.updated: Updated user');
 }
 
 /**
@@ -160,7 +163,7 @@ export async function handleUserDeleted(userData: ClerkUserData): Promise<void> 
   });
 
   if (!existingUser) {
-    console.log(`[Clerk Webhook] user.deleted: User ${userData.id} not found, nothing to delete`);
+    log.debug({ userId: userData.id }, 'user.deleted: User not found, nothing to delete');
     return;
   }
 
@@ -168,7 +171,7 @@ export async function handleUserDeleted(userData: ClerkUserData): Promise<void> 
   // - Soft delete (add deletedAt timestamp)
   // - Anonymize personal data (GDPR compliance)
   // - Remove from organizations
-  console.log(`[Clerk Webhook] user.deleted: User ${userData.id} deleted in Clerk (no action taken in DB)`);
+  log.info({ userId: userData.id }, 'user.deleted: User deleted in Clerk (no action taken in DB)');
 
   // Future: Implement soft delete
   // await prisma.user.update({
@@ -181,7 +184,7 @@ export async function handleUserDeleted(userData: ClerkUserData): Promise<void> 
  * Process a verified Clerk webhook event
  */
 export async function processWebhookEvent(event: ClerkWebhookEvent): Promise<void> {
-  console.log(`[Clerk Webhook] Processing event: ${event.type}`);
+  log.info({ eventType: event.type }, 'Processing webhook event');
 
   switch (event.type) {
     case 'user.created':
@@ -197,6 +200,6 @@ export async function processWebhookEvent(event: ClerkWebhookEvent): Promise<voi
       break;
 
     default:
-      console.log(`[Clerk Webhook] Unhandled event type: ${event.type}`);
+      log.debug({ eventType: event.type }, 'Unhandled event type');
   }
 }

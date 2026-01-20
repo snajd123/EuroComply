@@ -10,6 +10,9 @@ import {
   verifyWebhookSignature,
   processWebhookEvent,
 } from '../services/clerk-webhook.service.js';
+import { loggers } from '../lib/logger.js';
+
+const log = loggers.webhook;
 
 export const webhooks = new Hono();
 
@@ -25,7 +28,7 @@ webhooks.post('/clerk', async (c) => {
   const webhookSecret = process.env['CLERK_WEBHOOK_SECRET'];
 
   if (!webhookSecret) {
-    console.error('[Webhook] CLERK_WEBHOOK_SECRET not configured');
+    log.error('CLERK_WEBHOOK_SECRET not configured');
     return c.json(
       { success: false, error: 'Webhook not configured' },
       500
@@ -41,7 +44,7 @@ webhooks.post('/clerk', async (c) => {
   const svixSignature = c.req.header('svix-signature');
 
   if (!svixId || !svixTimestamp || !svixSignature) {
-    console.warn('[Webhook] Missing svix headers');
+    log.warn('Missing svix headers');
     return c.json(
       { success: false, error: 'Missing webhook headers' },
       400
@@ -66,7 +69,7 @@ webhooks.post('/clerk', async (c) => {
     return c.json({ success: true, received: true });
   } catch (error) {
     if (error instanceof Error) {
-      console.error('[Webhook] Verification failed:', error.message);
+      log.error({ error: error.message }, 'Verification failed');
 
       // Don't expose internal error details
       if (error.message.includes('signature')) {
@@ -77,7 +80,7 @@ webhooks.post('/clerk', async (c) => {
       }
     }
 
-    console.error('[Webhook] Processing failed:', error);
+    log.error({ error }, 'Processing failed');
     return c.json(
       { success: false, error: 'Webhook processing failed' },
       500

@@ -8,6 +8,7 @@ import type { Context, Next, MiddlewareHandler } from 'hono';
 import { RateLimitError } from '../lib/errors.js';
 import { checkRateLimit } from '../lib/redis.js';
 import { getClientIp } from '../lib/trusted-proxy.js';
+import { logger } from '../lib/logger.js';
 
 interface RateLimitOptions {
   /** Maximum requests per window */
@@ -101,8 +102,8 @@ export function rateLimiter(options: RateLimitOptions): MiddlewareHandler {
     // Security warning: In multi-instance deployments, in-memory rate limiting
     // can be bypassed by distributing requests across instances
     if (!hasWarnedAboutFallback && process.env['NODE_ENV'] === 'production') {
-      console.warn(
-        '[RateLimit] WARNING: Redis unavailable, using in-memory fallback. ' +
+      logger.warn(
+        'Redis unavailable, using in-memory fallback. ' +
         'Rate limiting is per-instance only and can be bypassed in multi-instance deployments.'
       );
       hasWarnedAboutFallback = true;

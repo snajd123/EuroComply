@@ -2,25 +2,61 @@ import { ErrorHandler } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { AppError } from '../lib/errors.js';
 import { err } from '@eurocomply/shared';
+import { logger } from '../lib/logger.js';
+
+// ============================================
+// Type Guards for Error Handling
+// ============================================
+
+interface PrismaKnownError {
+  code: string;
+  meta?: { target?: string[] };
+}
+
+interface ZodValidationError {
+  errors: Array<{ path: (string | number)[]; message: string }>;
+}
+
+/**
+ * Type guard for Prisma known request errors.
+ */
+function isPrismaKnownError(error: unknown): error is PrismaKnownError {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    typeof (error as PrismaKnownError).code === 'string' &&
+    error.constructor?.name === 'PrismaClientKnownRequestError'
+  );
+}
+
+/**
+ * Type guard for Zod validation errors.
+ */
+function isZodError(error: unknown): error is ZodValidationError {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'name' in error &&
+    (error as Error).name === 'ZodError' &&
+    'errors' in error &&
+    Array.isArray((error as ZodValidationError).errors)
+  );
+}
 
 /**
  * Global error handler middleware.
  * Converts all errors to consistent API response format.
  */
 export const errorHandler: ErrorHandler = (error, c) => {
-  // Sanitize log output - only include stack traces in development
-  const logData: Record<string, unknown> = {
+  // Log error with context
+  logger.error({
     method: c.req.method,
     path: c.req.path,
     error: error.message,
-  };
-
-  // Only include stack trace in development to prevent information leakage
-  if (process.env['NODE_ENV'] === 'development') {
-    logData['stack'] = error.stack;
-  }
-
-  console.error('Request error:', logData);
+    // Only include stack trace in development to prevent information leakage
+    ...(process.env['NODE_ENV'] === 'development' && { stack: error.stack }),
+  }, 'Request error');
 
   // Handle our custom errors
   if (error instanceof AppError) {
@@ -39,19 +75,17 @@ export const errorHandler: ErrorHandler = (error, c) => {
   }
 
   // Handle Prisma errors
-  if (error.constructor.name === 'PrismaClientKnownRequestError') {
-    const prismaError = error as unknown as { code: string; meta?: { target?: string[] } };
-
-    if (prismaError.code === 'P2002') {
+  if (isPrismaKnownError(error)) {
+    if (error.code === 'P2002') {
       // Unique constraint violation
-      const fields = prismaError.meta?.target?.join(', ') || 'field';
+      const fields = error.meta?.target?.join(', ') || 'field';
       return c.json(
         err('DUPLICATE_ENTRY', `A record with this ${fields} already exists`),
         409
       );
     }
 
-    if (prismaError.code === 'P2025') {
+    if (error.code === 'P2025') {
       // Record not found
       return c.json(
         err('NOT_FOUND', 'Record not found'),
@@ -61,11 +95,10 @@ export const errorHandler: ErrorHandler = (error, c) => {
   }
 
   // Handle validation errors (e.g., from Zod)
-  if (error.name === 'ZodError') {
-    const zodError = error as unknown as { errors: Array<{ path: string[]; message: string }> };
+  if (isZodError(error)) {
     return c.json(
       err('VALIDATION_ERROR', 'Invalid request data', {
-        errors: zodError.errors.map((e) => ({
+        errors: error.errors.map((e) => ({
           field: e.path.join('.'),
           message: e.message,
         })),

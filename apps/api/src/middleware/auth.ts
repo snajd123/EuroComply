@@ -5,6 +5,9 @@ import { verifyToken } from '@clerk/backend';
 import { prisma, getTenantConnectionManager } from '@eurocomply/db';
 import type { AppVariables, UserOnlyVariables } from '../types/context.js';
 import { isValidOrgId } from '../lib/validators.js';
+import { loggers } from '../lib/logger.js';
+
+const log = loggers.auth;
 
 const CLERK_SECRET_KEY = process.env['CLERK_SECRET_KEY'];
 const ENABLE_TEST_AUTH_BYPASS = process.env['ENABLE_TEST_AUTH_BYPASS'] === 'true';
@@ -127,10 +130,7 @@ async function performOrgAuth(
     ]);
   } catch (err) {
     // Log but don't fail auth - lastLoginAt is non-critical
-    console.error(
-      'Failed to update lastLoginAt:',
-      err instanceof Error ? err.message : err
-    );
+    log.warn({ error: err instanceof Error ? err.message : err }, 'Failed to update lastLoginAt');
   }
 }
 
@@ -179,7 +179,7 @@ export const authMiddleware = createMiddleware<{ Variables: AppVariables }>(
       if (error instanceof HTTPException) {
         throw error;
       }
-      console.error('Auth error:', error);
+      log.error({ error }, 'Authentication failed');
       throw new HTTPException(401, { message: 'Authentication failed' });
     }
   }
@@ -232,7 +232,7 @@ export const userAuthMiddleware = createMiddleware<{ Variables: UserOnlyVariable
       await next();
     } catch (error) {
       if (error instanceof HTTPException) throw error;
-      console.error('Auth error:', error);
+      log.error({ error }, 'Invalid or expired token');
       throw new HTTPException(401, { message: 'Invalid or expired token' });
     }
   }
@@ -264,9 +264,7 @@ export const optionalAuthMiddleware = createMiddleware<{ Variables: AppVariables
       await performOrgAuth(c, token, orgId);
     } catch (error) {
       // Log auth failures for debugging (not security-sensitive since this is optional auth)
-      if (process.env['NODE_ENV'] !== 'production') {
-        console.debug('[optionalAuth] Auth failed:', error instanceof Error ? error.message : 'Unknown error');
-      }
+      log.debug({ error: error instanceof Error ? error.message : 'Unknown error' }, 'Optional auth failed');
       // Continue without user context
     }
 

@@ -5,6 +5,9 @@
  * Falls back to null in development if Redis is not available.
  */
 import { createClient, type RedisClientType } from 'redis';
+import { loggers } from './logger.js';
+
+const log = loggers.redis;
 
 let redisClient: RedisClientType | null = null;
 let connectionPromise: Promise<RedisClientType | null> | null = null;
@@ -33,7 +36,7 @@ export async function getRedisClient(): Promise<RedisClientType | null> {
   if (!redisHost) {
     // Redis not configured - fall back to in-memory
     if (process.env['NODE_ENV'] !== 'test') {
-      console.warn('[Redis] REDIS_HOST not configured, using in-memory fallback');
+      log.warn('REDIS_HOST not configured, using in-memory fallback');
     }
     return null;
   }
@@ -52,7 +55,7 @@ export async function getRedisClient(): Promise<RedisClientType | null> {
           connectTimeout: 5000,
           reconnectStrategy: (retries: number) => {
             if (retries > 3) {
-              console.error('[Redis] Max reconnection attempts reached');
+              log.error('Max reconnection attempts reached');
               return false;
             }
             return Math.min(retries * 100, 3000);
@@ -61,17 +64,17 @@ export async function getRedisClient(): Promise<RedisClientType | null> {
       });
 
       redisClient.on('error', (err: Error) => {
-        console.error('[Redis] Client error:', err.message);
+        log.error({ error: err.message }, 'Client error');
       });
 
       redisClient.on('connect', () => {
-        console.log('[Redis] Connected successfully');
+        log.info('Connected successfully');
       });
 
       await redisClient.connect();
       return redisClient;
     } catch (error) {
-      console.error('[Redis] Connection failed:', error instanceof Error ? error.message : error);
+      log.error({ error: error instanceof Error ? error.message : error }, 'Connection failed');
       redisClient = null;
       return null;
     } finally {
@@ -145,7 +148,7 @@ export async function checkRateLimit(
 
     return { count, remaining, resetTime, exceeded };
   } catch (error) {
-    console.error('[Redis] Rate limit check failed:', error instanceof Error ? error.message : error);
+    log.error({ error: error instanceof Error ? error.message : error }, 'Rate limit check failed');
     return null; // Fall back to in-memory
   }
 }

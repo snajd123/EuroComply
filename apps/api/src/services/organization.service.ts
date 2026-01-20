@@ -3,6 +3,9 @@ import { createWaltIdClient } from '@eurocomply/walt-id';
 import { ConflictError, NotFoundError } from '../lib/errors.js';
 import { DidService } from './did.service.js';
 import { StatusList2021Service } from './status-list.service.js';
+import { loggers } from '../lib/logger.js';
+
+const log = loggers.organization;
 
 /** Default storage limit for new organizations: 500GB */
 const DEFAULT_STORAGE_LIMIT_BYTES = BigInt(500 * 1024 * 1024 * 1024);
@@ -152,7 +155,7 @@ export async function createOrganization(
     await didService.createUserDid(result.user.id, result.organization.id);
   } catch (error) {
     // Log error but don't fail org creation - DIDs can be created later
-    console.error('Failed to create DIDs during org creation:', error);
+    log.error({ error, orgId: result.organization.id }, 'Failed to create DIDs during org creation');
   }
 
   return {
@@ -195,7 +198,7 @@ export async function getOrganization(id: string): Promise<OrganizationWithOwner
     // DATA INTEGRITY ERROR: An organization without an owner indicates
     // a broken organizationUser link. This should never happen in normal
     // operation and requires investigation.
-    console.error(`CRITICAL: Organization ${id} has no owner - data integrity violation`);
+    log.error({ orgId: id }, 'CRITICAL: Organization has no owner - data integrity violation');
     throw new NotFoundError('Organization owner');
   }
 
