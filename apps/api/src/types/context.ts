@@ -1,5 +1,7 @@
 import type { Context } from 'hono';
 import type { TenantPrismaClient } from '@eurocomply/db';
+import type { EntityManager } from '@mikro-orm/postgresql';
+import type { Organization } from '@eurocomply/db';
 
 export interface AuthUser {
   id: string;         // Our internal user ID
@@ -28,6 +30,8 @@ export interface AppVariables {
   tenant: TenantInfo;
   permissions: UserPermissions;
   db: TenantPrismaClient;
+  em?: EntityManager;           // Set by MikroORM tenant middleware
+  organization?: Organization;   // Set by MikroORM tenant middleware
 }
 
 /**

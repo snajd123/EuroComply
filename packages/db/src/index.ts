@@ -8,6 +8,12 @@ export * from './events.js';
 export * from './validation.js';
 export * from './iam-auth.js';
 
+// MikroORM entities - exported under MikroOrm namespace to avoid Prisma conflicts
+export * as MikroOrm from './entities/index.js';
+
+// Re-export Organization specifically for tenant middleware (distinct from Prisma's Organization type)
+export { Organization } from './entities/Organization.js';
+
 // =============================================================================
 // Debug Logging
 // =============================================================================
