@@ -205,25 +205,36 @@ resource "aws_instance" "bastion" {
   # Install PostgreSQL client and configure SSM agent for Sovereign Cloud
   user_data = base64encode(<<-EOF
     #!/bin/bash
-    set -e
+    set -ex
+
+    # Wait for cloud-init to complete
+    cloud-init status --wait || true
 
     # Install PostgreSQL client
     dnf install -y postgresql15
 
+    # Configure AWS region for the instance
+    mkdir -p /root/.aws
+    cat > /root/.aws/config << 'AWSCONFIG'
+    [default]
+    region = eusc-de-east-1
+    AWSCONFIG
+
     # Configure SSM agent for AWS European Sovereign Cloud endpoints
+    # The amazon-ssm-agent reads these environment variables and config
     mkdir -p /etc/amazon/ssm
     cat > /etc/amazon/ssm/amazon-ssm-agent.json << 'SSMCONFIG'
     {
-      "Profile": {
+      "Agent": {
         "Region": "eusc-de-east-1"
-      },
-      "Mds": {
-        "Endpoint": "https://ssmmessages.eusc-de-east-1.amazonaws.eu"
       },
       "Ssm": {
         "Endpoint": "https://ssm.eusc-de-east-1.amazonaws.eu"
       },
-      "Ec2": {
+      "Ssmmessages": {
+        "Endpoint": "https://ssmmessages.eusc-de-east-1.amazonaws.eu"
+      },
+      "Ec2messages": {
         "Endpoint": "https://ec2messages.eusc-de-east-1.amazonaws.eu"
       },
       "Kms": {
@@ -236,8 +247,21 @@ resource "aws_instance" "bastion" {
     }
     SSMCONFIG
 
-    # Restart SSM agent to pick up new config
+    # Also set environment variables for SSM agent service
+    mkdir -p /etc/systemd/system/amazon-ssm-agent.service.d
+    cat > /etc/systemd/system/amazon-ssm-agent.service.d/override.conf << 'ENVOVERRIDE'
+    [Service]
+    Environment="AWS_DEFAULT_REGION=eusc-de-east-1"
+    Environment="AWS_REGION=eusc-de-east-1"
+    ENVOVERRIDE
+
+    # Reload systemd and restart SSM agent
+    systemctl daemon-reload
     systemctl restart amazon-ssm-agent
+
+    # Log SSM agent status for debugging
+    systemctl status amazon-ssm-agent --no-pager || true
+    journalctl -u amazon-ssm-agent --no-pager -n 50 || true
   EOF
   )
 
