@@ -81,6 +81,13 @@ jobs:
       - name: Run unit tests
         run: pnpm test:unit
 
+      - name: Test Summary
+        if: always()
+        run: |
+          echo "## Unit Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Unit tests completed" >> $GITHUB_STEP_SUMMARY
+
   # ============================================
   # INTEGRATION TESTS (requires database)
   # ============================================
@@ -145,8 +152,51 @@ jobs:
       - name: Push database schema
         run: pnpm db:push
 
-      - name: Run integration tests
-        run: pnpm test:integration
+      - name: Run integration tests with coverage
+        id: tests
+        run: pnpm --filter @eurocomply/api test:coverage -- --reporter=verbose
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: apps/api/coverage/
+          retention-days: 14
+
+      - name: Test Summary
+        if: always()
+        run: |
+          echo "## 🧪 Integration Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ steps.tests.outcome }}" == "success" ]; then
+            echo "✅ **All tests passed**" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Some tests failed** - check logs for details" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ -f apps/api/coverage/coverage-summary.json ]; then
+            echo "### 📊 Coverage Summary" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Category | Coverage |" >> $GITHUB_STEP_SUMMARY
+            echo "|----------|----------|" >> $GITHUB_STEP_SUMMARY
+
+            LINES=$(cat apps/api/coverage/coverage-summary.json | jq -r '.total.lines.pct')
+            STATEMENTS=$(cat apps/api/coverage/coverage-summary.json | jq -r '.total.statements.pct')
+            FUNCTIONS=$(cat apps/api/coverage/coverage-summary.json | jq -r '.total.functions.pct')
+            BRANCHES=$(cat apps/api/coverage/coverage-summary.json | jq -r '.total.branches.pct')
+
+            echo "| Lines | ${LINES}% |" >> $GITHUB_STEP_SUMMARY
+            echo "| Statements | ${STATEMENTS}% |" >> $GITHUB_STEP_SUMMARY
+            echo "| Functions | ${FUNCTIONS}% |" >> $GITHUB_STEP_SUMMARY
+            echo "| Branches | ${BRANCHES}% |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "📁 Full HTML coverage report available in **Artifacts → coverage-report**" >> $GITHUB_STEP_SUMMARY
 
   # ============================================
   # BUILD VERIFICATION

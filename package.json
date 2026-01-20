@@ -9,6 +9,7 @@
     "test": "pnpm -r test:run",
     "test:unit": "pnpm -r test:unit",
     "test:integration": "pnpm --filter @eurocomply/api test:integration",
+    "test:coverage": "pnpm -r test:coverage",
     "test:watch": "pnpm -r --parallel test",
     "lint": "eslint 'apps/*/src/**/*.ts' 'packages/*/src/**/*.ts'",
     "typecheck": "pnpm -r typecheck",
