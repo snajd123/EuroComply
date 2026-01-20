@@ -245,6 +245,9 @@ resource "aws_instance" "bastion" {
     Name = "${local.name_prefix}-bastion"
   }
 
+  # Force replacement when user_data changes (e.g., SSM agent config)
+  user_data_replace_on_change = true
+
   lifecycle {
     ignore_changes = [ami]
   }
