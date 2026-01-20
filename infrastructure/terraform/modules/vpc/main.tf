@@ -428,6 +428,60 @@ resource "aws_vpc_endpoint" "ecr_dkr" {
 }
 
 # =============================================================================
+# SSM Endpoints (for Session Manager / bastion access)
+# =============================================================================
+variable "enable_ssm_endpoints" {
+  description = "Create SSM VPC endpoints for Session Manager"
+  type        = bool
+  default     = false
+}
+
+resource "aws_vpc_endpoint" "ssm" {
+  count = var.enable_vpc_endpoints && var.enable_ssm_endpoints ? 1 : 0
+
+  vpc_id              = aws_vpc.main.id
+  service_name        = "com.amazonaws.eusc-de-east-1.ssm"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = aws_subnet.private[*].id
+  security_group_ids  = [aws_security_group.vpc_endpoints[0].id]
+  private_dns_enabled = true
+
+  tags = {
+    Name = "${local.name_prefix}-ssm-endpoint"
+  }
+}
+
+resource "aws_vpc_endpoint" "ssmmessages" {
+  count = var.enable_vpc_endpoints && var.enable_ssm_endpoints ? 1 : 0
+
+  vpc_id              = aws_vpc.main.id
+  service_name        = "com.amazonaws.eusc-de-east-1.ssmmessages"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = aws_subnet.private[*].id
+  security_group_ids  = [aws_security_group.vpc_endpoints[0].id]
+  private_dns_enabled = true
+
+  tags = {
+    Name = "${local.name_prefix}-ssmmessages-endpoint"
+  }
+}
+
+resource "aws_vpc_endpoint" "ec2messages" {
+  count = var.enable_vpc_endpoints && var.enable_ssm_endpoints ? 1 : 0
+
+  vpc_id              = aws_vpc.main.id
+  service_name        = "com.amazonaws.eusc-de-east-1.ec2messages"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = aws_subnet.private[*].id
+  security_group_ids  = [aws_security_group.vpc_endpoints[0].id]
+  private_dns_enabled = true
+
+  tags = {
+    Name = "${local.name_prefix}-ec2messages-endpoint"
+  }
+}
+
+# =============================================================================
 # Outputs
 # =============================================================================
 output "vpc_id" {
