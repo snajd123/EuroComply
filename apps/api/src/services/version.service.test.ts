@@ -3,62 +3,66 @@ import { VersionService } from './version.service.js';
 import { ValidationError, ConflictError } from '../lib/errors.js';
 import type { UserForensicContext, OrgForensicContext, SealedArtifact } from '@eurocomply/shared';
 
-// Mock Prisma client type
-interface MockPrismaClient {
-  productVersion: {
-    create: Mock;
-    findFirst: Mock;
-    findMany: Mock;
-    update: Mock;
-  };
-  product: {
-    findUnique: Mock;
-  };
-  $transaction: Mock;
+// Mock EntityManager type
+interface MockEntityManager {
+  findOne: Mock;
+  find: Mock;
+  create: Mock;
+  flush: Mock;
+  getReference: Mock;
+  transactional: Mock;
 }
 
-const mockPrisma: MockPrismaClient = {
-  productVersion: {
-    create: vi.fn(),
-    findFirst: vi.fn(),
-    findMany: vi.fn(),
-    update: vi.fn(),
-  },
-  product: {
-    findUnique: vi.fn(),
-  },
-  $transaction: vi.fn((fn: (client: MockPrismaClient) => Promise<unknown>) => fn(mockPrisma)),
-};
+// Create mock EntityManager
+const createMockEm = (): MockEntityManager => ({
+  findOne: vi.fn(),
+  find: vi.fn(),
+  create: vi.fn(),
+  flush: vi.fn(),
+  getReference: vi.fn((entity, id) => ({ id })),
+  transactional: vi.fn((fn: (em: MockEntityManager) => Promise<unknown>) => fn(mockEm)),
+});
+
+let mockEm: MockEntityManager;
 
 describe('VersionService', () => {
   let service: VersionService;
-  const orgId = 'org_test123';
   const productId = 'prod_123';
   const userId = 'user_123';
 
   beforeEach(() => {
     vi.clearAllMocks();
-    service = new VersionService(mockPrisma as unknown as ConstructorParameters<typeof VersionService>[0]);
+    mockEm = createMockEm();
+    // Re-bind transactional to use the new mockEm
+    mockEm.transactional = vi.fn((fn: (em: MockEntityManager) => Promise<unknown>) => fn(mockEm));
+    service = new VersionService(mockEm as unknown as ConstructorParameters<typeof VersionService>[0]);
   });
 
   describe('createVersion', () => {
     it('should create first version as v1', async () => {
-      mockPrisma.product.findUnique.mockResolvedValue({
+      const mockProduct = {
         id: productId,
-        organizationId: orgId,
-      });
-      // First call: check for in-progress versions (none)
-      // Second call: get latest version number (none)
-      mockPrisma.productVersion.findFirst.mockResolvedValue(null);
-      mockPrisma.productVersion.create.mockResolvedValue({
+        name: 'Test Product',
+      };
+
+      const mockVersion = {
         id: 'ver_123',
-        productId,
+        product: { id: productId },
         workspace: 'DESIGN',
         versionNumber: 1,
         status: 'DRAFT',
-      });
+      };
 
-      const result = await service.createVersion(orgId, {
+      // First call: find product
+      mockEm.findOne.mockResolvedValueOnce(mockProduct);
+      // Second call: check for in-progress versions (none)
+      mockEm.findOne.mockResolvedValueOnce(null);
+      // Third call: get latest version number (none)
+      mockEm.findOne.mockResolvedValueOnce(null);
+      mockEm.create.mockReturnValue(mockVersion);
+      mockEm.flush.mockResolvedValue(undefined);
+
+      const result = await service.createVersion({
         productId,
         workspace: 'DESIGN',
         createdBy: userId,
@@ -66,25 +70,39 @@ describe('VersionService', () => {
 
       expect(result.versionNumber).toBe(1);
       expect(result.status).toBe('DRAFT');
+      expect(mockEm.create).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          versionNumber: 1,
+          status: 'DRAFT',
+        })
+      );
     });
 
     it('should increment version number when previous is RELEASED', async () => {
-      mockPrisma.product.findUnique.mockResolvedValue({
+      const mockProduct = {
         id: productId,
-        organizationId: orgId,
-      });
-      // First call: check for in-progress versions (none)
-      // Second call: get latest version number (v3 RELEASED)
-      mockPrisma.productVersion.findFirst
-        .mockResolvedValueOnce(null) // No in-progress version
-        .mockResolvedValueOnce({ versionNumber: 3, status: 'RELEASED' }); // Latest version
-      mockPrisma.productVersion.create.mockResolvedValue({
+        name: 'Test Product',
+      };
+
+      const mockVersion = {
         id: 'ver_124',
+        product: { id: productId },
+        workspace: 'DESIGN',
         versionNumber: 4,
         status: 'DRAFT',
-      });
+      };
 
-      const result = await service.createVersion(orgId, {
+      // First call: find product
+      mockEm.findOne.mockResolvedValueOnce(mockProduct);
+      // Second call: check for in-progress versions (none)
+      mockEm.findOne.mockResolvedValueOnce(null);
+      // Third call: get latest version number (v3 RELEASED)
+      mockEm.findOne.mockResolvedValueOnce({ versionNumber: 3, status: 'RELEASED' });
+      mockEm.create.mockReturnValue(mockVersion);
+      mockEm.flush.mockResolvedValue(undefined);
+
+      const result = await service.createVersion({
         productId,
         workspace: 'DESIGN',
         createdBy: userId,
@@ -94,19 +112,22 @@ describe('VersionService', () => {
     });
 
     it('should reject if DRAFT version already exists in workspace', async () => {
-      mockPrisma.product.findUnique.mockResolvedValue({
+      const mockProduct = {
         id: productId,
-        organizationId: orgId,
-      });
-      // In-progress version exists
-      mockPrisma.productVersion.findFirst.mockResolvedValueOnce({
+        name: 'Test Product',
+      };
+
+      // First call: find product
+      mockEm.findOne.mockResolvedValueOnce(mockProduct);
+      // Second call: check for in-progress versions (found one)
+      mockEm.findOne.mockResolvedValueOnce({
         id: 'ver_existing',
         versionNumber: 2,
         status: 'DRAFT',
       });
 
       await expect(
-        service.createVersion(orgId, {
+        service.createVersion({
           productId,
           workspace: 'DESIGN',
           createdBy: userId,
@@ -115,18 +136,22 @@ describe('VersionService', () => {
     });
 
     it('should reject if IN_REVIEW version exists in workspace', async () => {
-      mockPrisma.product.findUnique.mockResolvedValue({
+      const mockProduct = {
         id: productId,
-        organizationId: orgId,
-      });
-      mockPrisma.productVersion.findFirst.mockResolvedValueOnce({
+        name: 'Test Product',
+      };
+
+      // First call: find product
+      mockEm.findOne.mockResolvedValueOnce(mockProduct);
+      // Second call: check for in-progress versions (found one)
+      mockEm.findOne.mockResolvedValueOnce({
         id: 'ver_existing',
         versionNumber: 1,
         status: 'IN_REVIEW',
       });
 
       await expect(
-        service.createVersion(orgId, {
+        service.createVersion({
           productId,
           workspace: 'DESIGN',
           createdBy: userId,
@@ -137,29 +162,30 @@ describe('VersionService', () => {
 
   describe('submitForReview', () => {
     it('should transition DRAFT to PENDING_REVIEW', async () => {
-      mockPrisma.productVersion.findFirst.mockResolvedValue({
+      const mockVersion = {
         id: 'ver_123',
         status: 'DRAFT',
-        product: { organizationId: orgId },
-      });
-      mockPrisma.productVersion.update.mockResolvedValue({
-        id: 'ver_123',
-        status: 'PENDING_REVIEW',
-      });
+        product: { id: productId },
+      };
 
-      const result = await service.submitForReview(orgId, 'ver_123');
+      mockEm.findOne.mockResolvedValue(mockVersion);
+      mockEm.flush.mockResolvedValue(undefined);
+
+      const result = await service.submitForReview('ver_123');
 
       expect(result.status).toBe('PENDING_REVIEW');
     });
 
     it('should reject transition from RELEASED', async () => {
-      mockPrisma.productVersion.findFirst.mockResolvedValue({
+      const mockVersion = {
         id: 'ver_123',
         status: 'RELEASED',
-        product: { organizationId: orgId },
-      });
+        product: { id: productId },
+      };
 
-      await expect(service.submitForReview(orgId, 'ver_123')).rejects.toThrow(
+      mockEm.findOne.mockResolvedValue(mockVersion);
+
+      await expect(service.submitForReview('ver_123')).rejects.toThrow(
         ValidationError
       );
     });
@@ -167,44 +193,38 @@ describe('VersionService', () => {
 
   describe('releaseVersion', () => {
     it('should transition IN_REVIEW to RELEASED', async () => {
-      mockPrisma.productVersion.findFirst.mockResolvedValue({
+      const mockVersion = {
         id: 'ver_123',
         status: 'IN_REVIEW',
-        product: { organizationId: orgId },
-      });
-      mockPrisma.productVersion.update.mockResolvedValue({
-        id: 'ver_123',
-        status: 'RELEASED',
-        publishedAt: new Date(),
-        publishedBy: userId,
-      });
+        product: { id: productId },
+      };
 
-      const result = await service.releaseVersion(orgId, 'ver_123', userId);
+      mockEm.findOne.mockResolvedValue(mockVersion);
+      mockEm.flush.mockResolvedValue(undefined);
+
+      const result = await service.releaseVersion('ver_123', userId);
 
       expect(result.status).toBe('RELEASED');
-      expect(result.publishedBy).toBe(userId);
+      expect(result.publishedAt).toBeDefined();
     });
 
     it('should release without signing when no signing context provided (backward compatibility)', async () => {
-      mockPrisma.productVersion.findFirst.mockResolvedValue({
+      const mockVersion = {
         id: 'ver_123',
         status: 'IN_REVIEW',
-        product: { organizationId: orgId },
-      });
-      mockPrisma.productVersion.update.mockResolvedValue({
-        id: 'ver_123',
-        status: 'RELEASED',
-        publishedAt: new Date(),
-        publishedBy: userId,
-        signatureDid: null,
-        signatureJws: null,
-      });
+        product: { id: productId },
+        signatureDid: undefined,
+        signatureJws: undefined,
+      };
 
-      const result = await service.releaseVersion(orgId, 'ver_123', userId);
+      mockEm.findOne.mockResolvedValue(mockVersion);
+      mockEm.flush.mockResolvedValue(undefined);
+
+      const result = await service.releaseVersion('ver_123', userId);
 
       expect(result.status).toBe('RELEASED');
-      expect(result.signatureDid).toBeNull();
-      expect(result.signatureJws).toBeNull();
+      expect(result.signatureDid).toBeUndefined();
+      expect(result.signatureJws).toBeUndefined();
     });
   });
 
@@ -222,7 +242,7 @@ describe('VersionService', () => {
 
     const testOrgForensicContext: OrgForensicContext = {
       organizationName: 'Acme Corporation',
-      organizationId: orgId,
+      organizationId: 'org_test123',
       vatNumber: 'DE123456789',
       certifications: ['ISO9001'],
       signedAt: '2026-01-15T10:00:00.000Z',
@@ -236,30 +256,18 @@ describe('VersionService', () => {
     };
 
     it('should create SealedArtifact when signing context is provided', async () => {
-      const versionData = {
+      const mockVersion = {
         id: 'ver_123',
-        productId: productId,
+        product: { id: productId },
         workspace: 'DESIGN',
         versionNumber: 1,
         status: 'IN_REVIEW',
-        product: { organizationId: orgId },
       };
 
-      mockPrisma.productVersion.findFirst.mockResolvedValue(versionData);
-      mockPrisma.productVersion.update.mockImplementation(async ({ data }) => ({
-        id: 'ver_123',
-        productId: productId,
-        workspace: 'DESIGN',
-        versionNumber: 1,
-        status: 'RELEASED',
-        publishedAt: data.publishedAt,
-        publishedBy: data.publishedBy,
-        signatureDid: data.signatureDid,
-        signatureJws: data.signatureJws,
-      }));
+      mockEm.findOne.mockResolvedValue(mockVersion);
+      mockEm.flush.mockResolvedValue(undefined);
 
       const result = await service.releaseVersion(
-        orgId,
         'ver_123',
         userId,
         signingContext
@@ -277,28 +285,18 @@ describe('VersionService', () => {
     });
 
     it('should include correct payload data in SealedArtifact', async () => {
-      const publishedAt = new Date('2026-01-15T10:00:00.000Z');
-      const versionData = {
+      const mockVersion = {
         id: 'ver_123',
-        productId: productId,
+        product: { id: productId },
         workspace: 'DESIGN',
         versionNumber: 1,
         status: 'IN_REVIEW',
-        product: { organizationId: orgId },
       };
 
-      mockPrisma.productVersion.findFirst.mockResolvedValue(versionData);
-      mockPrisma.productVersion.update.mockImplementation(async ({ data }) => ({
-        ...versionData,
-        status: 'RELEASED',
-        publishedAt,
-        publishedBy: data.publishedBy,
-        signatureDid: data.signatureDid,
-        signatureJws: data.signatureJws,
-      }));
+      mockEm.findOne.mockResolvedValue(mockVersion);
+      mockEm.flush.mockResolvedValue(undefined);
 
       const result = await service.releaseVersion(
-        orgId,
         'ver_123',
         userId,
         signingContext
@@ -318,27 +316,18 @@ describe('VersionService', () => {
     });
 
     it('should store user and corporate proofs in SealedArtifact', async () => {
-      const versionData = {
+      const mockVersion = {
         id: 'ver_123',
-        productId: productId,
+        product: { id: productId },
         workspace: 'DESIGN',
         versionNumber: 1,
         status: 'IN_REVIEW',
-        product: { organizationId: orgId },
       };
 
-      mockPrisma.productVersion.findFirst.mockResolvedValue(versionData);
-      mockPrisma.productVersion.update.mockImplementation(async ({ data }) => ({
-        ...versionData,
-        status: 'RELEASED',
-        publishedAt: new Date(),
-        publishedBy: data.publishedBy,
-        signatureDid: data.signatureDid,
-        signatureJws: data.signatureJws,
-      }));
+      mockEm.findOne.mockResolvedValue(mockVersion);
+      mockEm.flush.mockResolvedValue(undefined);
 
       const result = await service.releaseVersion(
-        orgId,
         'ver_123',
         userId,
         signingContext
@@ -358,16 +347,15 @@ describe('VersionService', () => {
     });
 
     it('should throw ValidationError for invalid user DID in signing context', async () => {
-      const versionData = {
+      const mockVersion = {
         id: 'ver_123',
-        productId: productId,
+        product: { id: productId },
         workspace: 'DESIGN',
         versionNumber: 1,
         status: 'IN_REVIEW',
-        product: { organizationId: orgId },
       };
 
-      mockPrisma.productVersion.findFirst.mockResolvedValue(versionData);
+      mockEm.findOne.mockResolvedValue(mockVersion);
 
       const invalidSigningContext = {
         ...signingContext,
@@ -375,21 +363,20 @@ describe('VersionService', () => {
       };
 
       await expect(
-        service.releaseVersion(orgId, 'ver_123', userId, invalidSigningContext)
+        service.releaseVersion('ver_123', userId, invalidSigningContext)
       ).rejects.toThrow(ValidationError);
     });
 
     it('should throw ValidationError for invalid org DID in signing context', async () => {
-      const versionData = {
+      const mockVersion = {
         id: 'ver_123',
-        productId: productId,
+        product: { id: productId },
         workspace: 'DESIGN',
         versionNumber: 1,
         status: 'IN_REVIEW',
-        product: { organizationId: orgId },
       };
 
-      mockPrisma.productVersion.findFirst.mockResolvedValue(versionData);
+      mockEm.findOne.mockResolvedValue(mockVersion);
 
       const invalidSigningContext = {
         ...signingContext,
@@ -397,7 +384,7 @@ describe('VersionService', () => {
       };
 
       await expect(
-        service.releaseVersion(orgId, 'ver_123', userId, invalidSigningContext)
+        service.releaseVersion('ver_123', userId, invalidSigningContext)
       ).rejects.toThrow(ValidationError);
     });
   });
