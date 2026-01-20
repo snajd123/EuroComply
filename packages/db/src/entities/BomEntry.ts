@@ -1,9 +1,10 @@
-import { Entity, PrimaryKey, Property, ManyToOne, Unique, Index } from '@mikro-orm/core';
+import { Entity, PrimaryKey, Property, ManyToOne, Unique, Index, Check } from '@mikro-orm/core';
 import { Product } from './Product.js';
 import { ProductVersion } from './ProductVersion.js';
 
 @Entity({ tableName: 'bom_entries' })
 @Unique({ properties: ['parentProduct', 'childProduct', 'version'] })
+@Check({ expression: 'parent_product_id != child_product_id' })
 export class BomEntry {
   @PrimaryKey({ type: 'varchar', length: 30 })
   id!: string;
