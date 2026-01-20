@@ -153,19 +153,57 @@ get_db_credentials() {
 }
 
 # Start SSM port forwarding
+# Note: AWS European Sovereign Cloud doesn't support AWS-StartPortForwardingSessionToRemoteHost
+# So we use a two-step approach: socat on bastion + basic port forwarding
 start_port_forward() {
     log_info "Starting SSM port forwarding session..."
     log_info "  Local port: $LOCAL_PORT -> RDS: $RDS_ENDPOINT:5432"
 
     # Extract just the hostname from the endpoint
     RDS_HOST=$(echo "$RDS_ENDPOINT" | cut -d: -f1)
+    BASTION_RELAY_PORT=15432
 
+    # Step 1: Start socat relay on the bastion (forwards localhost:15432 to RDS:5432)
+    log_info "Setting up relay on bastion..."
+    RELAY_CMD_ID=$(aws ssm send-command \
+        --instance-ids "$BASTION_ID" \
+        --region "$REGION" \
+        --endpoint-url "https://ssm.${REGION}.amazonaws.eu" \
+        --document-name "AWS-RunShellScript" \
+        --parameters "commands=[\"pkill -f 'socat.*$BASTION_RELAY_PORT' || true\",\"nohup socat TCP-LISTEN:$BASTION_RELAY_PORT,fork,reuseaddr TCP:$RDS_HOST:5432 > /dev/null 2>&1 &\",\"sleep 1 && pgrep -f 'socat.*$BASTION_RELAY_PORT' && echo RELAY_STARTED || echo RELAY_FAILED\"]" \
+        --query 'Command.CommandId' \
+        --output text 2>/dev/null)
+
+    if [ -z "$RELAY_CMD_ID" ]; then
+        log_error "Failed to start relay command on bastion"
+        exit 1
+    fi
+
+    # Wait for relay to start
+    sleep 3
+    RELAY_STATUS=$(aws ssm get-command-invocation \
+        --command-id "$RELAY_CMD_ID" \
+        --instance-id "$BASTION_ID" \
+        --region "$REGION" \
+        --endpoint-url "https://ssm.${REGION}.amazonaws.eu" \
+        --query 'StandardOutputContent' \
+        --output text 2>/dev/null)
+
+    if [[ "$RELAY_STATUS" != *"RELAY_STARTED"* ]]; then
+        log_error "Failed to start socat relay on bastion"
+        log_info "Output: $RELAY_STATUS"
+        exit 1
+    fi
+    log_success "Relay started on bastion"
+
+    # Step 2: Start basic SSM port forwarding to bastion's relay port
+    log_info "Starting SSM tunnel to bastion..."
     aws ssm start-session \
         --target "$BASTION_ID" \
         --region "$REGION" \
         --endpoint-url "https://ssm.${REGION}.amazonaws.eu" \
-        --document-name AWS-StartPortForwardingSessionToRemoteHost \
-        --parameters "{\"host\":[\"$RDS_HOST\"],\"portNumber\":[\"5432\"],\"localPortNumber\":[\"$LOCAL_PORT\"]}" \
+        --document-name AWS-StartPortForwardingSession \
+        --parameters "{\"portNumber\":[\"$BASTION_RELAY_PORT\"],\"localPortNumber\":[\"$LOCAL_PORT\"]}" \
         > /dev/null 2>&1 &
 
     SSM_PID=$!

@@ -210,8 +210,8 @@ resource "aws_instance" "bastion" {
     # Wait for cloud-init to complete
     cloud-init status --wait || true
 
-    # Install PostgreSQL client
-    dnf install -y postgresql15
+    # Install PostgreSQL client and socat for port forwarding
+    dnf install -y postgresql15 socat
 
     # Configure AWS region for the instance
     mkdir -p /root/.aws
