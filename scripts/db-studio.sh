@@ -163,14 +163,15 @@ start_port_forward() {
     RDS_HOST=$(echo "$RDS_ENDPOINT" | cut -d: -f1)
     BASTION_RELAY_PORT=15432
 
-    # Step 1: Start socat relay on the bastion (forwards localhost:15432 to RDS:5432)
+    # Step 1: Start ncat relay on the bastion (forwards localhost:15432 to RDS:5432)
+    # Using ncat from nmap-ncat package (socat not available in AL2023 base repos)
     log_info "Setting up relay on bastion..."
     RELAY_CMD_ID=$(aws ssm send-command \
         --instance-ids "$BASTION_ID" \
         --region "$REGION" \
         --endpoint-url "https://ssm.${REGION}.amazonaws.eu" \
         --document-name "AWS-RunShellScript" \
-        --parameters "commands=[\"pkill -f 'socat.*$BASTION_RELAY_PORT' || true\",\"nohup socat TCP-LISTEN:$BASTION_RELAY_PORT,fork,reuseaddr TCP:$RDS_HOST:5432 > /dev/null 2>&1 &\",\"sleep 1 && pgrep -f 'socat.*$BASTION_RELAY_PORT' && echo RELAY_STARTED || echo RELAY_FAILED\"]" \
+        --parameters "commands=[\"which ncat || echo NCAT_NOT_INSTALLED\",\"pkill -f 'ncat.*$BASTION_RELAY_PORT' 2>/dev/null || true\",\"ncat -l $BASTION_RELAY_PORT --keep-open --sh-exec 'ncat $RDS_HOST 5432' &\",\"sleep 2\",\"pgrep -f 'ncat.*$BASTION_RELAY_PORT' && echo RELAY_STARTED || echo RELAY_FAILED\"]" \
         --query 'Command.CommandId' \
         --output text 2>/dev/null)
 
@@ -190,7 +191,7 @@ start_port_forward() {
         --output text 2>/dev/null)
 
     if [[ "$RELAY_STATUS" != *"RELAY_STARTED"* ]]; then
-        log_error "Failed to start socat relay on bastion"
+        log_error "Failed to start ncat relay on bastion"
         log_info "Output: $RELAY_STATUS"
         exit 1
     fi
