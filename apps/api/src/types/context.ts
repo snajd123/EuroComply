@@ -29,9 +29,10 @@ export interface AppVariables {
   user: AuthUser;
   tenant: TenantInfo;
   permissions: UserPermissions;
-  db: TenantPrismaClient;
-  em?: EntityManager;           // Set by MikroORM tenant middleware
-  organization?: Organization;   // Set by MikroORM tenant middleware
+  db?: TenantPrismaClient;         // Deprecated: use em instead
+  em?: EntityManager;              // Set by MikroORM auth middleware
+  organization?: Organization;     // Set by MikroORM auth middleware
+  organizationId?: string;         // Set by MikroORM auth middleware (for tenant middleware)
 }
 
 /**
