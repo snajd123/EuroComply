@@ -75,6 +75,16 @@ output "ecs_security_group_id" {
 }
 
 output "bastion_instance_id" {
-  description = "Bastion instance ID for SSM connections"
+  description = "Bastion instance ID"
   value       = module.bastion.instance_id
+}
+
+output "bastion_public_ip" {
+  description = "Bastion public IP address for SSH access"
+  value       = module.bastion.public_ip
+}
+
+output "bastion_ssh_key_secret_arn" {
+  description = "ARN of Secrets Manager secret containing bastion SSH private key"
+  value       = module.bastion.ssh_key_secret_arn
 }

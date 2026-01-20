@@ -179,7 +179,7 @@ module "rds" {
 }
 
 # =============================================================================
-# Bastion Host (for secure database access via SSM)
+# Bastion Host (for secure database access via SSH tunnel)
 # =============================================================================
 module "bastion" {
   source = "../../modules/bastion"
@@ -187,8 +187,9 @@ module "bastion" {
   project               = local.project
   environment           = local.environment
   vpc_id                = module.vpc.vpc_id
-  subnet_id             = module.vpc.private_subnet_ids[0]
+  subnet_id             = module.vpc.public_subnet_ids[0]  # Public subnet for SSH access
   rds_security_group_id = module.security_groups.rds_security_group_id
+  # ssh_allowed_cidrs   = ["YOUR_IP/32"]  # Restrict in production
 }
 
 # =============================================================================

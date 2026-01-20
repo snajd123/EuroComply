@@ -2,13 +2,14 @@
 # =============================================================================
 # Prisma Studio for Staging Database
 # =============================================================================
-# Securely connects to the staging RDS database through AWS SSM
+# Securely connects to the staging RDS database through SSH tunnel
 # and launches Prisma Studio for visual database exploration.
 #
 # Prerequisites:
-# - AWS CLI v2 with Session Manager plugin installed
+# - AWS CLI v2 installed
 # - AWS credentials configured with access to staging
 # - jq installed for JSON parsing
+# - SSH client
 #
 # Usage:
 #   ./scripts/db-studio.sh [environment]
@@ -26,6 +27,7 @@ PROJECT="eurocomply"
 REGION="eusc-de-east-1"
 LOCAL_PORT=15432
 STUDIO_PORT=5555
+SSH_KEY_FILE="/tmp/bastion-key-$$"
 
 # Colors for output
 RED='\033[0;31m'
@@ -52,11 +54,15 @@ log_error() {
 
 cleanup() {
     log_info "Cleaning up..."
-    if [ -n "$SSM_PID" ] && kill -0 "$SSM_PID" 2>/dev/null; then
-        kill "$SSM_PID" 2>/dev/null || true
+    if [ -n "$SSH_PID" ] && kill -0 "$SSH_PID" 2>/dev/null; then
+        kill "$SSH_PID" 2>/dev/null || true
     fi
     if [ -n "$STUDIO_PID" ] && kill -0 "$STUDIO_PID" 2>/dev/null; then
         kill "$STUDIO_PID" 2>/dev/null || true
+    fi
+    # Securely remove SSH key
+    if [ -f "$SSH_KEY_FILE" ]; then
+        rm -f "$SSH_KEY_FILE"
     fi
     log_info "Cleanup complete"
 }
@@ -72,9 +78,8 @@ check_prerequisites() {
         exit 1
     fi
 
-    if ! command -v session-manager-plugin &> /dev/null; then
-        log_error "AWS Session Manager plugin not found."
-        echo "Install it from: https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html"
+    if ! command -v ssh &> /dev/null; then
+        log_error "SSH client not found."
         exit 1
     fi
 
@@ -100,18 +105,15 @@ get_terraform_outputs() {
     cd "$TERRAFORM_DIR"
 
     # Get outputs
-    BASTION_ID=$(terraform output -raw bastion_instance_id 2>/dev/null || echo "")
+    BASTION_IP=$(terraform output -raw bastion_public_ip 2>/dev/null || echo "")
     RDS_ENDPOINT=$(terraform output -raw rds_endpoint 2>/dev/null || echo "")
+    SSH_KEY_SECRET_ARN=$(terraform output -raw bastion_ssh_key_secret_arn 2>/dev/null || echo "")
     DB_SECRET_ARN=$(terraform output -raw db_credentials_secret_arn 2>/dev/null || echo "")
 
     cd - > /dev/null
 
-    if [ -z "$BASTION_ID" ]; then
-        log_error "Bastion instance ID not found. Have you deployed the bastion module?"
-        echo ""
-        echo "Run the following to deploy:"
-        echo "  cd infrastructure/terraform/environments/${ENVIRONMENT}"
-        echo "  terraform apply"
+    if [ -z "$BASTION_IP" ]; then
+        log_error "Bastion public IP not found. Have you deployed the bastion module?"
         exit 1
     fi
 
@@ -120,9 +122,37 @@ get_terraform_outputs() {
         exit 1
     fi
 
+    if [ -z "$SSH_KEY_SECRET_ARN" ]; then
+        log_error "SSH key secret ARN not found in Terraform outputs"
+        exit 1
+    fi
+
     log_success "Got infrastructure details"
-    log_info "  Bastion: $BASTION_ID"
+    log_info "  Bastion IP: $BASTION_IP"
     log_info "  RDS: $RDS_ENDPOINT"
+}
+
+# Get SSH key from Secrets Manager
+get_ssh_key() {
+    log_info "Fetching SSH key from Secrets Manager..."
+
+    SSH_KEY=$(aws secretsmanager get-secret-value \
+        --secret-id "$SSH_KEY_SECRET_ARN" \
+        --region "$REGION" \
+        --endpoint-url "https://secretsmanager.${REGION}.amazonaws.eu" \
+        --query 'SecretString' \
+        --output text 2>/dev/null || echo "")
+
+    if [ -z "$SSH_KEY" ]; then
+        log_error "Could not fetch SSH key from Secrets Manager"
+        exit 1
+    fi
+
+    # Write key to temp file with secure permissions
+    echo "$SSH_KEY" > "$SSH_KEY_FILE"
+    chmod 600 "$SSH_KEY_FILE"
+
+    log_success "Got SSH key"
 }
 
 # Get database credentials from Secrets Manager
@@ -152,74 +182,36 @@ get_db_credentials() {
     log_success "Got database credentials"
 }
 
-# Start SSM port forwarding
-# Note: AWS European Sovereign Cloud doesn't support AWS-StartPortForwardingSessionToRemoteHost
-# So we use a two-step approach: socat on bastion + basic port forwarding
-start_port_forward() {
-    log_info "Starting SSM port forwarding session..."
+# Start SSH tunnel
+start_ssh_tunnel() {
+    log_info "Starting SSH tunnel..."
     log_info "  Local port: $LOCAL_PORT -> RDS: $RDS_ENDPOINT:5432"
 
     # Extract just the hostname from the endpoint
     RDS_HOST=$(echo "$RDS_ENDPOINT" | cut -d: -f1)
-    BASTION_RELAY_PORT=15432
 
-    # Step 1: Start ncat relay on the bastion (forwards localhost:15432 to RDS:5432)
-    # Using ncat from nmap-ncat package (socat not available in AL2023 base repos)
-    log_info "Setting up relay on bastion..."
-    RELAY_CMD_ID=$(aws ssm send-command \
-        --instance-ids "$BASTION_ID" \
-        --region "$REGION" \
-        --endpoint-url "https://ssm.${REGION}.amazonaws.eu" \
-        --document-name "AWS-RunShellScript" \
-        --parameters "commands=[\"which ncat || echo NCAT_NOT_INSTALLED\",\"pkill -f 'ncat.*$BASTION_RELAY_PORT' 2>/dev/null || true\",\"ncat -l $BASTION_RELAY_PORT --keep-open --sh-exec 'ncat $RDS_HOST 5432' &\",\"sleep 2\",\"pgrep -f 'ncat.*$BASTION_RELAY_PORT' && echo RELAY_STARTED || echo RELAY_FAILED\"]" \
-        --query 'Command.CommandId' \
-        --output text 2>/dev/null)
+    # Start SSH tunnel in background
+    ssh -i "$SSH_KEY_FILE" \
+        -o StrictHostKeyChecking=no \
+        -o UserKnownHostsFile=/dev/null \
+        -o LogLevel=ERROR \
+        -N \
+        -L "$LOCAL_PORT:$RDS_HOST:5432" \
+        "ec2-user@$BASTION_IP" &
 
-    if [ -z "$RELAY_CMD_ID" ]; then
-        log_error "Failed to start relay command on bastion"
-        exit 1
-    fi
+    SSH_PID=$!
 
-    # Wait for relay to start
-    sleep 3
-    RELAY_STATUS=$(aws ssm get-command-invocation \
-        --command-id "$RELAY_CMD_ID" \
-        --instance-id "$BASTION_ID" \
-        --region "$REGION" \
-        --endpoint-url "https://ssm.${REGION}.amazonaws.eu" \
-        --query 'StandardOutputContent' \
-        --output text 2>/dev/null)
-
-    if [[ "$RELAY_STATUS" != *"RELAY_STARTED"* ]]; then
-        log_error "Failed to start ncat relay on bastion"
-        log_info "Output: $RELAY_STATUS"
-        exit 1
-    fi
-    log_success "Relay started on bastion"
-
-    # Step 2: Start basic SSM port forwarding to bastion's relay port
-    log_info "Starting SSM tunnel to bastion..."
-    aws ssm start-session \
-        --target "$BASTION_ID" \
-        --region "$REGION" \
-        --endpoint-url "https://ssm.${REGION}.amazonaws.eu" \
-        --document-name AWS-StartPortForwardingSession \
-        --parameters "{\"portNumber\":[\"$BASTION_RELAY_PORT\"],\"localPortNumber\":[\"$LOCAL_PORT\"]}" \
-        > /dev/null 2>&1 &
-
-    SSM_PID=$!
-
-    # Wait for port to be ready
+    # Wait for tunnel to establish
     log_info "Waiting for tunnel to establish..."
     for i in {1..30}; do
         if nc -z localhost $LOCAL_PORT 2>/dev/null; then
-            log_success "Port forwarding established"
+            log_success "SSH tunnel established"
             return 0
         fi
         sleep 1
     done
 
-    log_error "Timeout waiting for port forwarding"
+    log_error "Timeout waiting for SSH tunnel"
     exit 1
 }
 
@@ -257,8 +249,9 @@ main() {
 
     check_prerequisites
     get_terraform_outputs
+    get_ssh_key
     get_db_credentials
-    start_port_forward
+    start_ssh_tunnel
     start_prisma_studio
 }
 

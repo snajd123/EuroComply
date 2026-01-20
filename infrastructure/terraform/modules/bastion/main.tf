@@ -1,6 +1,6 @@
 # Bastion Host Module for EuroComply
-# Minimal EC2 instance with SSM for secure database access
-# No SSH keys - access via AWS Session Manager only
+# EC2 instance in public subnet with SSH access for database connectivity
+# Uses SSH tunneling for Prisma Studio / database tools
 
 terraform {
   required_version = ">= 1.0"
@@ -9,6 +9,10 @@ terraform {
     aws = {
       source  = "hashicorp/aws"
       version = "~> 6.0"
+    }
+    tls = {
+      source  = "hashicorp/tls"
+      version = "~> 4.0"
     }
   }
 }
@@ -29,7 +33,7 @@ variable "vpc_id" {
 }
 
 variable "subnet_id" {
-  description = "Private subnet ID for bastion (uses SSM, no public IP needed)"
+  description = "Public subnet ID for bastion"
   type        = string
 }
 
@@ -38,91 +42,44 @@ variable "rds_security_group_id" {
   type        = string
 }
 
+variable "ssh_allowed_cidrs" {
+  description = "CIDR blocks allowed to SSH to bastion. Restrict to your IP for security."
+  type        = list(string)
+  default     = ["0.0.0.0/0"]  # Override in production with specific IPs
+}
+
 locals {
   name_prefix = "${var.project}-${var.environment}"
 }
 
-# IAM Role for SSM access
-resource "aws_iam_role" "bastion" {
-  name = "${local.name_prefix}-bastion-role"
+# Generate SSH key pair
+resource "tls_private_key" "bastion" {
+  algorithm = "RSA"
+  rsa_bits  = 4096
+}
 
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "sts:AssumeRole"
-        Effect = "Allow"
-        Principal = {
-          Service = "ec2.amazonaws.com"
-        }
-      }
-    ]
-  })
+resource "aws_key_pair" "bastion" {
+  key_name   = "${local.name_prefix}-bastion-key"
+  public_key = tls_private_key.bastion.public_key_openssh
 
   tags = {
-    Name = "${local.name_prefix}-bastion-role"
+    Name = "${local.name_prefix}-bastion-key"
   }
 }
 
-# Inline policy for SSM access (Sovereign Cloud compatible)
-# Equivalent to AmazonSSMManagedInstanceCore but with correct partition
-resource "aws_iam_role_policy" "bastion_ssm" {
-  name = "${local.name_prefix}-bastion-ssm-policy"
-  role = aws_iam_role.bastion.id
+# Store private key in Secrets Manager
+resource "aws_secretsmanager_secret" "bastion_ssh_key" {
+  name        = "${var.project}/${var.environment}/bastion-ssh-key"
+  description = "SSH private key for bastion host"
 
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "ssm:DescribeAssociation",
-          "ssm:GetDeployablePatchSnapshotForInstance",
-          "ssm:GetDocument",
-          "ssm:DescribeDocument",
-          "ssm:GetManifest",
-          "ssm:GetParameter",
-          "ssm:GetParameters",
-          "ssm:ListAssociations",
-          "ssm:ListInstanceAssociations",
-          "ssm:PutInventory",
-          "ssm:PutComplianceItems",
-          "ssm:PutConfigurePackageResult",
-          "ssm:UpdateAssociationStatus",
-          "ssm:UpdateInstanceAssociationStatus",
-          "ssm:UpdateInstanceInformation"
-        ]
-        Resource = "*"
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "ssmmessages:CreateControlChannel",
-          "ssmmessages:CreateDataChannel",
-          "ssmmessages:OpenControlChannel",
-          "ssmmessages:OpenDataChannel"
-        ]
-        Resource = "*"
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "ec2messages:AcknowledgeMessage",
-          "ec2messages:DeleteMessage",
-          "ec2messages:FailMessage",
-          "ec2messages:GetEndpoint",
-          "ec2messages:GetMessages",
-          "ec2messages:SendReply"
-        ]
-        Resource = "*"
-      }
-    ]
-  })
+  tags = {
+    Name = "${local.name_prefix}-bastion-ssh-key"
+  }
 }
 
-resource "aws_iam_instance_profile" "bastion" {
-  name = "${local.name_prefix}-bastion-profile"
-  role = aws_iam_role.bastion.name
+resource "aws_secretsmanager_secret_version" "bastion_ssh_key" {
+  secret_id     = aws_secretsmanager_secret.bastion_ssh_key.id
+  secret_string = tls_private_key.bastion.private_key_pem
 }
 
 # Security group for bastion
@@ -131,22 +88,40 @@ resource "aws_security_group" "bastion" {
   description = "Security group for bastion host"
   vpc_id      = var.vpc_id
 
+  # Inbound SSH
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = var.ssh_allowed_cidrs
+    description = "SSH access"
+  }
+
   # Outbound to RDS
   egress {
-    from_port   = 5432
-    to_port     = 5432
-    protocol    = "tcp"
-    description = "PostgreSQL to RDS"
+    from_port       = 5432
+    to_port         = 5432
+    protocol        = "tcp"
+    description     = "PostgreSQL to RDS"
     security_groups = [var.rds_security_group_id]
   }
 
-  # Outbound HTTPS for SSM
+  # Outbound HTTPS (for package updates)
   egress {
     from_port   = 443
     to_port     = 443
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
-    description = "HTTPS for SSM endpoints"
+    description = "HTTPS for package updates"
+  }
+
+  # Outbound HTTP (for package updates)
+  egress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "HTTP for package updates"
   }
 
   tags = {
@@ -155,7 +130,6 @@ resource "aws_security_group" "bastion" {
 }
 
 # Allow bastion to connect to RDS
-# Using aws_vpc_security_group_ingress_rule (newer resource) for better state management
 resource "aws_vpc_security_group_ingress_rule" "rds_from_bastion" {
   security_group_id            = var.rds_security_group_id
   referenced_security_group_id = aws_security_group.bastion.id
@@ -181,90 +155,35 @@ data "aws_ami" "amazon_linux" {
   }
 }
 
-# Bastion EC2 instance (minimal size, no public IP)
+# Bastion EC2 instance
 resource "aws_instance" "bastion" {
   ami                    = data.aws_ami.amazon_linux.id
   instance_type          = "t3.nano"
   subnet_id              = var.subnet_id
-  iam_instance_profile   = aws_iam_instance_profile.bastion.name
+  key_name               = aws_key_pair.bastion.key_name
   vpc_security_group_ids = [aws_security_group.bastion.id]
 
-  # No public IP - access via SSM only
-  associate_public_ip_address = false
+  # Public IP for SSH access
+  associate_public_ip_address = true
 
-  # Enable detailed monitoring for troubleshooting
-  monitoring = false
-
-  # Root volume (AL2023 requires at least 30GB)
+  # Root volume
   root_block_device {
     volume_size = 30
     volume_type = "gp3"
     encrypted   = true
   }
 
-  # Install PostgreSQL client and configure SSM agent for Sovereign Cloud
+  # Install PostgreSQL client
   user_data = base64encode(<<-EOF
     #!/bin/bash
     exec > /var/log/user-data.log 2>&1
     set -ex
 
-    # Install PostgreSQL client and ncat for port forwarding
-    # ncat is provided by nmap package in AL2023
-    dnf install -y postgresql15 nmap
+    # Install PostgreSQL client
+    dnf install -y postgresql15
 
     # Verify installation
-    which psql || echo "WARN: psql not found"
-    which ncat || echo "WARN: ncat not found"
-
-    # Configure AWS region for the instance
-    mkdir -p /root/.aws
-    cat > /root/.aws/config << 'AWSCONFIG'
-    [default]
-    region = eusc-de-east-1
-    AWSCONFIG
-
-    # Configure SSM agent for AWS European Sovereign Cloud endpoints
-    # The amazon-ssm-agent reads these environment variables and config
-    mkdir -p /etc/amazon/ssm
-    cat > /etc/amazon/ssm/amazon-ssm-agent.json << 'SSMCONFIG'
-    {
-      "Agent": {
-        "Region": "eusc-de-east-1"
-      },
-      "Ssm": {
-        "Endpoint": "https://ssm.eusc-de-east-1.amazonaws.eu"
-      },
-      "Ssmmessages": {
-        "Endpoint": "https://ssmmessages.eusc-de-east-1.amazonaws.eu"
-      },
-      "Ec2messages": {
-        "Endpoint": "https://ec2messages.eusc-de-east-1.amazonaws.eu"
-      },
-      "Kms": {
-        "Endpoint": "https://kms.eusc-de-east-1.amazonaws.eu"
-      },
-      "S3": {
-        "Endpoint": "https://s3.eusc-de-east-1.amazonaws.eu",
-        "Region": "eusc-de-east-1"
-      }
-    }
-    SSMCONFIG
-
-    # Also set environment variables for SSM agent service
-    mkdir -p /etc/systemd/system/amazon-ssm-agent.service.d
-    cat > /etc/systemd/system/amazon-ssm-agent.service.d/override.conf << 'ENVOVERRIDE'
-    [Service]
-    Environment="AWS_DEFAULT_REGION=eusc-de-east-1"
-    Environment="AWS_REGION=eusc-de-east-1"
-    ENVOVERRIDE
-
-    # Reload systemd and restart SSM agent
-    systemctl daemon-reload
-    systemctl restart amazon-ssm-agent
-
-    # Log SSM agent status for debugging
-    systemctl status amazon-ssm-agent --no-pager || true
-    journalctl -u amazon-ssm-agent --no-pager -n 50 || true
+    which psql && echo "PostgreSQL client installed successfully"
   EOF
   )
 
@@ -272,7 +191,6 @@ resource "aws_instance" "bastion" {
     Name = "${local.name_prefix}-bastion"
   }
 
-  # Force replacement when user_data changes (e.g., SSM agent config)
   user_data_replace_on_change = true
 
   lifecycle {
@@ -281,11 +199,26 @@ resource "aws_instance" "bastion" {
 }
 
 output "instance_id" {
-  description = "Bastion instance ID for SSM connections"
+  description = "Bastion instance ID"
   value       = aws_instance.bastion.id
+}
+
+output "public_ip" {
+  description = "Bastion public IP address"
+  value       = aws_instance.bastion.public_ip
 }
 
 output "security_group_id" {
   description = "Bastion security group ID"
   value       = aws_security_group.bastion.id
+}
+
+output "ssh_key_secret_arn" {
+  description = "ARN of the Secrets Manager secret containing the SSH private key"
+  value       = aws_secretsmanager_secret.bastion_ssh_key.arn
+}
+
+output "ssh_key_name" {
+  description = "Name of the SSH key pair"
+  value       = aws_key_pair.bastion.key_name
 }
