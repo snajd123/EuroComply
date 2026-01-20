@@ -14,6 +14,16 @@ export * as MikroOrm from './entities/index.js';
 // Re-export Organization specifically for tenant middleware (distinct from Prisma's Organization type)
 export { Organization } from './entities/Organization.js';
 
+// MikroORM tenant context utilities (aliased to avoid conflict with Prisma versions)
+export {
+  createTenantSchema as createTenantSchemaMikroOrm,
+  dropTenantSchema as dropTenantSchemaMikroOrm,
+  createTenantEm,
+  withTenantContext,
+  validateSchemaName as validateSchemaNameMikroOrm,
+  formatSchemaName,
+} from './tenant-context.js';
+
 // =============================================================================
 // Debug Logging
 // =============================================================================
