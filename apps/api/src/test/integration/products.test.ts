@@ -16,7 +16,6 @@ import {
 } from './setup.js';
 import { products } from '../../routes/products.js';
 import { versions } from '../../routes/versions.js';
-import { ok } from '@eurocomply/shared';
 import type { AppVariables } from '../../types/context.js';
 import { VersionService } from '../../services/version.service.js';
 
@@ -797,8 +796,6 @@ describe('Product Routes Integration Tests', () => {
 
   describe('FORENSIC GUARD B: Variant Inheritance (BOM Cloning)', () => {
     it('should auto-clone parent RELEASED BOM when creating variant', async () => {
-      const ctx = getTestContext();
-
       // 1. Create parent product
       const parentResponse = await app.request('/api/v1/products', {
         method: 'POST',
