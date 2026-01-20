@@ -14,6 +14,11 @@ export * as MikroOrm from './entities/index.js';
 // Re-export Organization specifically for tenant middleware (distinct from Prisma's Organization type)
 export { Organization } from './entities/Organization.js';
 
+// Re-export enums that are used directly (not via MikroOrm namespace)
+export { DppSnapshotStatus } from './entities/DppSnapshot.js';
+export { VersionStatus, Workspace } from './entities/ProductVersion.js';
+export { ProductType, ProductStatus } from './entities/Product.js';
+
 // MikroORM tenant context utilities (aliased to avoid conflict with Prisma versions)
 export {
   createTenantSchema as createTenantSchemaMikroOrm,
