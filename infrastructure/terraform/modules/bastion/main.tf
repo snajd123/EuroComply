@@ -205,13 +205,16 @@ resource "aws_instance" "bastion" {
   # Install PostgreSQL client and configure SSM agent for Sovereign Cloud
   user_data = base64encode(<<-EOF
     #!/bin/bash
+    exec > /var/log/user-data.log 2>&1
     set -ex
 
-    # Wait for cloud-init to complete
-    cloud-init status --wait || true
+    # Install PostgreSQL client and ncat for port forwarding
+    # ncat is provided by nmap package in AL2023
+    dnf install -y postgresql15 nmap
 
-    # Install PostgreSQL client and nmap-ncat for port forwarding
-    dnf install -y postgresql15 nmap-ncat
+    # Verify installation
+    which psql || echo "WARN: psql not found"
+    which ncat || echo "WARN: ncat not found"
 
     # Configure AWS region for the instance
     mkdir -p /root/.aws
