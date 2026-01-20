@@ -8,6 +8,7 @@ import {
   Collection,
   Index,
 } from '@mikro-orm/core';
+import type { ProductIdentifier } from './ProductIdentifier.js';
 
 export enum ProductType {
   FINISHED_GOOD = 'FINISHED_GOOD',
@@ -48,7 +49,7 @@ export class Product {
   status: ProductStatus = ProductStatus.ACTIVE;
 
   @OneToMany('ProductIdentifier', 'product')
-  identifiers = new Collection<any>(this);
+  identifiers = new Collection<ProductIdentifier>(this);
 
   @OneToMany('ProductVersion', 'product')
   versions = new Collection<any>(this);
