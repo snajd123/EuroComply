@@ -342,6 +342,47 @@ const ENCRYPTED_FIELDS = [
 
 ---
 
+## 7b. Database Access Control (Three-User Architecture)
+
+EuroComply uses a three-user model for database access, implementing principle of least privilege:
+
+### User Separation
+
+| User | Authentication | Privileges | Used By |
+|------|----------------|------------|---------|
+| `eurocomply` | Password | Admin (rds_superuser) | Lambda during infrastructure deployment |
+| `eurocomply_app` | IAM Token (15-min) | DML only (SELECT, INSERT, UPDATE, DELETE) | ECS Fargate at runtime |
+| `eurocomply_migrate` | Password | Schema owner (full DDL + DML) | CI/CD for Prisma migrations |
+
+### Security Benefits
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                  BLAST RADIUS CONTAINMENT                        │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  If ECS task is compromised:                                    │
+│  ✗ Cannot DROP or ALTER tables                                  │
+│  ✗ Cannot CREATE new tables                                     │
+│  ✗ Cannot GRANT permissions                                     │
+│  ✗ Cannot access other schemas                                  │
+│  ✓ Can only read/write existing data                           │
+│                                                                  │
+│  IAM Token Benefits:                                            │
+│  • Tokens expire in 15 minutes                                  │
+│  • No static credentials in environment                         │
+│  • Auto-refresh handled by application                          │
+│  • CloudTrail logs all token generation                        │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### PostgreSQL 15+ Compatibility
+
+The `eurocomply_migrate` user owns the `public` schema, which permanently fixes the PostgreSQL 15+ permission change where `CREATE` on public schema was revoked by default. Default privileges are set so tables created by `eurocomply_migrate` are automatically accessible to `eurocomply_app`.
+
+---
+
 ## 8. Audit Logging
 
 ### What's Logged

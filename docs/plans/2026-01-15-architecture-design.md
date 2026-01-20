@@ -639,6 +639,18 @@ CREATE TABLE credential_status (
 | **Cloudflare R2** | Static files, zero egress | DPP files, images, templates |
 | **Redis** | Caching, sessions | Tenant routing, API rate limits |
 
+### PostgreSQL Database Access (Three-User Model)
+
+EuroComply uses a three-user architecture for PostgreSQL access:
+
+| User | Auth Method | Privileges | Purpose |
+|------|-------------|------------|---------|
+| `eurocomply` | Password | Admin | Infrastructure deployment (Lambda only) |
+| `eurocomply_app` | IAM Token | DML (read/write) | Application runtime (ECS) |
+| `eurocomply_migrate` | Password | DDL + DML (schema owner) | Prisma migrations (CI/CD) |
+
+**Security:** Application runtime uses IAM tokens (15-min expiry) with no static passwords. Blast radius is limited to data operations only.
+
 ### PostgreSQL Schema (Per-Tenant)
 
 > **Complete Schema:** See [Taxonomy Engine Design](./2026-01-15-taxonomy-engine-design.md) for full schema including categories, attributes, materials, and BOM.

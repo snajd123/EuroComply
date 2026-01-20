@@ -84,7 +84,8 @@
 │                                                                              │
 │  Secrets Manager                                                            │
 │  ├── /eurocomply/{env}/app-secrets (Clerk)                                 │
-│  ├── /eurocomply/{env}/database (RDS credentials)                          │
+│  ├── /eurocomply/{env}/database (RDS master user - Lambda only)            │
+│  ├── /eurocomply/{env}/database-migrate (Migration user - CI/CD only)      │
 │  └── /eurocomply/{env}/redis (AUTH token)                                  │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -128,6 +129,65 @@
 ```
 
 **Why Cloudflare for DPPs:** ESPR requires free public access. AWS egress at scale = €38k/mo. Cloudflare R2 = €0 egress.
+
+---
+
+## 3b. Database User Architecture (Three-User Model)
+
+EuroComply uses a three-user architecture for maximum database security:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                     THREE-USER DATABASE ARCHITECTURE                        │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  1. eurocomply (Master User)                                                │
+│     ├── Auth: Password (from Secrets Manager)                               │
+│     ├── Used by: Lambda only (during Terraform apply)                       │
+│     ├── Privileges: rds_superuser (automatic), NO rds_iam                   │
+│     └── Purpose: Database administration and user management                │
+│                                                                              │
+│  2. eurocomply_app (Application User)                                       │
+│     ├── Auth: IAM Token (15-minute expiry, auto-generated)                  │
+│     ├── Used by: ECS Fargate tasks at runtime                               │
+│     ├── Privileges: SELECT, INSERT, UPDATE, DELETE only (DML)               │
+│     └── Purpose: Application runtime with least privilege                   │
+│                                                                              │
+│  3. eurocomply_migrate (Migration User)                                     │
+│     ├── Auth: Password (from Secrets Manager)                               │
+│     ├── Used by: CI/CD pipelines for Prisma migrations                      │
+│     ├── Privileges: Schema owner, full DDL + DML                            │
+│     └── Purpose: Database schema migrations                                 │
+│                                                                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                         SECURITY BENEFITS                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  If ECS task is compromised:                                                │
+│  ✗ Cannot DROP or ALTER tables                                              │
+│  ✗ Cannot CREATE new tables                                                 │
+│  ✗ Cannot GRANT permissions                                                 │
+│  ✓ Can only read/write existing data (blast radius contained)              │
+│                                                                              │
+│  IAM Token Benefits:                                                        │
+│  • No static passwords in ECS environment                                   │
+│  • Tokens expire in 15 minutes (auto-refresh)                               │
+│  • CloudTrail logs all token generation                                     │
+│                                                                              │
+│  PostgreSQL 15+ Fix:                                                        │
+│  • eurocomply_migrate owns public schema                                    │
+│  • Default privileges grant access to eurocomply_app                        │
+│  • No permission errors on Prisma migrations                                │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Setup:** The Lambda function `rds-iam-setup` runs during `terraform apply` to:
+1. Create `eurocomply_app` with `rds_iam` role (IAM token auth)
+2. Create `eurocomply_migrate` with password auth
+3. Transfer `public` schema ownership to `eurocomply_migrate`
+4. Grant DML-only permissions to `eurocomply_app`
+5. Store migration credentials in Secrets Manager
 
 ---
 
