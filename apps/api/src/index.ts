@@ -81,21 +81,23 @@ app.notFound((c) => {
 const port = parseInt(process.env['PORT'] || '3000', 10);
 
 async function startServer() {
+  // Start HTTP server immediately so health checks pass during startup
+  serve({
+    fetch: app.fetch,
+    port,
+  });
+
+  logger.info({ port }, 'Server listening - initializing database...');
+
   // Initialize database (handles IAM auth if enabled)
+  // This happens after server starts so basic health checks pass
   await initializeDatabase();
 
   logger.info({
     environment: process.env['NODE_ENV'] || 'development',
     port,
     healthEndpoint: `http://localhost:${port}/health`,
-  }, 'EuroComply API starting');
-
-  serve({
-    fetch: app.fetch,
-    port,
-  });
-
-  logger.info({ port }, 'Server started');
+  }, 'EuroComply API ready');
 }
 
 startServer().catch((error) => {
