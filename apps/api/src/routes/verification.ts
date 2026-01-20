@@ -54,7 +54,7 @@ if (tsaProvider === 'FREETSA' && process.env['NODE_ENV'] === 'production') {
 }
 
 const timestampService = TimestampService.forProvider(tsaProvider as 'FREETSA');
-const waltIdClient = createWaltIdClient();
+const waltIdClient = createWaltIdClient(process.env);
 const verificationService = new VerificationService(
   waltIdClient,
   statusListService,

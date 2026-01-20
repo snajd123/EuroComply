@@ -256,6 +256,8 @@ module "ecs" {
     { name = "WALTID_SIGNATORY_URL", value = local.waltid_signatory_url },
     { name = "WALTID_CUSTODIAN_URL", value = local.waltid_custodian_url },
     { name = "WALTID_AUDITOR_URL", value = local.waltid_auditor_url },
+    # Allow HTTP for internal VPC service-to-service communication
+    { name = "WALTID_ALLOW_INSECURE", value = "true" },
   ]
 
   # Note: DB_PASSWORD removed - eurocomply_app uses IAM token authentication
