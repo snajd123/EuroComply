@@ -2,10 +2,17 @@ import { Entity, PrimaryKey, Property, ManyToOne, Unique, Index, Enum } from '@m
 import { Product } from './Product.js';
 import type { User } from './User.js';
 
+/**
+ * Version workflow statuses matching @eurocomply/shared.
+ * DRAFT → PENDING_REVIEW → IN_REVIEW → RELEASED (immutable)
+ *                                    → REJECTED
+ */
 export enum VersionStatus {
   DRAFT = 'DRAFT',
-  PUBLISHED = 'PUBLISHED',
-  ARCHIVED = 'ARCHIVED',
+  PENDING_REVIEW = 'PENDING_REVIEW',
+  IN_REVIEW = 'IN_REVIEW',
+  RELEASED = 'RELEASED',
+  REJECTED = 'REJECTED',
 }
 
 export enum Workspace {
