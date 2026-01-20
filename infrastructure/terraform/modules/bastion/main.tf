@@ -155,14 +155,14 @@ resource "aws_security_group" "bastion" {
 }
 
 # Allow bastion to connect to RDS
-resource "aws_security_group_rule" "rds_from_bastion" {
-  type                     = "ingress"
-  from_port                = 5432
-  to_port                  = 5432
-  protocol                 = "tcp"
-  security_group_id        = var.rds_security_group_id
-  source_security_group_id = aws_security_group.bastion.id
-  description              = "PostgreSQL from bastion"
+# Using aws_vpc_security_group_ingress_rule (newer resource) for better state management
+resource "aws_vpc_security_group_ingress_rule" "rds_from_bastion" {
+  security_group_id            = var.rds_security_group_id
+  referenced_security_group_id = aws_security_group.bastion.id
+  from_port                    = 5432
+  to_port                      = 5432
+  ip_protocol                  = "tcp"
+  description                  = "PostgreSQL from bastion"
 }
 
 # Get latest Amazon Linux 2023 AMI
