@@ -151,6 +151,56 @@ jobs:
             --endpoint-url https://ecs.${{ env.AWS_REGION }}.amazonaws.eu
           echo "Service is stable!"
 
+      - name: Debug task failures
+        if: failure()
+        run: |
+          echo "=== Deployment failed - checking task status ==="
+
+          # Get recent stopped tasks
+          echo "--- Recent stopped tasks ---"
+          TASKS=$(aws ecs list-tasks \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service-name ${{ env.ECS_SERVICE }} \
+            --desired-status STOPPED \
+            --endpoint-url https://ecs.${{ env.AWS_REGION }}.amazonaws.eu \
+            --query 'taskArns[0:3]' \
+            --output text 2>/dev/null || echo "")
+
+          if [ -n "$TASKS" ] && [ "$TASKS" != "None" ]; then
+            aws ecs describe-tasks \
+              --cluster ${{ env.ECS_CLUSTER }} \
+              --tasks $TASKS \
+              --endpoint-url https://ecs.${{ env.AWS_REGION }}.amazonaws.eu \
+              --query 'tasks[*].{taskArn:taskArn,stoppedReason:stoppedReason,stopCode:stopCode,containers:containers[*].{name:name,exitCode:exitCode,reason:reason}}' \
+              --output json
+          else
+            echo "No stopped tasks found"
+          fi
+
+          # Get CloudWatch logs (last 20 lines)
+          echo "--- Recent container logs ---"
+          LOG_GROUP="/ecs/eurocomply-staging"
+          LOG_STREAM=$(aws logs describe-log-streams \
+            --log-group-name "$LOG_GROUP" \
+            --order-by LastEventTime \
+            --descending \
+            --limit 1 \
+            --endpoint-url https://logs.${{ env.AWS_REGION }}.amazonaws.eu \
+            --query 'logStreams[0].logStreamName' \
+            --output text 2>/dev/null || echo "")
+
+          if [ -n "$LOG_STREAM" ] && [ "$LOG_STREAM" != "None" ]; then
+            aws logs get-log-events \
+              --log-group-name "$LOG_GROUP" \
+              --log-stream-name "$LOG_STREAM" \
+              --limit 30 \
+              --endpoint-url https://logs.${{ env.AWS_REGION }}.amazonaws.eu \
+              --query 'events[*].message' \
+              --output text 2>/dev/null || echo "Could not retrieve logs"
+          else
+            echo "No log streams found"
+          fi
+
       - name: Get ALB DNS name
         id: alb
         run: |
