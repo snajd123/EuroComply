@@ -147,6 +147,14 @@ export class Category extends BaseEntity {
   @Property({ type: 'jsonb', nullable: true })
   regulationRefs?: string[]; // ["ESPR", "WEEE", "RoHS"]
 
+  // ─────────────────────────────────────────────────────────────
+  // DEFAULT COMPLIANCE PROFILE (Approval Gate Workflow)
+  // Products in this category use this profile if no explicit override
+  // See: docs/plans/13-regulatory-advisor.md for profile resolution hierarchy
+  // ─────────────────────────────────────────────────────────────
+  @Property({ name: 'default_profile_id', nullable: true })
+  defaultProfileId?: string; // Reference to ReadinessProfile.id
+
   @Property({ default: true })
   isActive!: boolean;
 
@@ -1664,7 +1672,20 @@ Attribute templates link to rule templates that define compliance requirements:
                            severity: BLOCKER         PDF highlight link
 ```
 
-### 10.2 PreFlight Validation in Design
+### 10.2 Real-Time Advisory Mode
+
+During editing, the PreFlight service runs in **advisory mode** - providing real-time, non-blocking feedback as designers work. This transforms the experience from "Bouncer" (blocked at gate) to "Advisor" (guided as you work).
+
+**Advisory Characteristics:**
+- **Debounced evaluation:** Runs after 500ms of inactivity, not on every keystroke
+- **Non-blocking:** Warnings appear inline but don't prevent saving
+- **Color-coded fields:** Input fields bordered based on severity
+
+| Severity | Indicator | Field Border | Behavior |
+|----------|-----------|--------------|----------|
+| BLOCKER | 🔴 Red | Red border | Cannot submit without acknowledging |
+| WARNING | 🟠 Amber | Amber border | Can submit, captured in audit trail |
+| INFO | 🔵 Blue | Blue border | Informational only, no action required |
 
 When designers save or validate a product version, the PreFlight service evaluates all applicable rules:
 
@@ -1792,13 +1813,128 @@ Profile assignment and rule governance are managed exclusively in the **Complian
 - Change rule enforcement modes (ENFORCING/SILENT/DISABLED)
 - Adopt templates from marketplace
 
-### 10.6 API Extensions
+### 10.6 Submission Workflow (Approval Gate)
+
+When a designer clicks "Submit for Compliance Review", the system triggers the **Approval Gate** - a decision point that determines whether the version can be auto-released or requires Compliance Manager authorization.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         SUBMIT FOR COMPLIANCE REVIEW                         │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Product: Summer T-Shirt                                                     │
+│  Version: 2.1 (DRAFT)                                                        │
+│                                                                              │
+│  PreFlight Status: ⚠️ PASS_WITH_DEVIATIONS                                  │
+│  ─────────────────────────────────────────────────────────────               │
+│  • 45 rules evaluated                                                        │
+│  • 43 passed ✓                                                               │
+│  • 2 blockers acknowledged ⚠️                                                │
+│                                                                              │
+│  ┌────────────────────────────────────────────────────────────────────┐    │
+│  │ Acknowledged Deviations                                              │    │
+│  ├────────────────────────────────────────────────────────────────────┤    │
+│  │ 🔴 Recycled content: 18% (min 25%)                                  │    │
+│  │    Reason: SMALL_VOLUME_EXEMPTION                                   │    │
+│  │    "Limited edition run of 500 units for brand anniversary"         │    │
+│  │                                                                      │    │
+│  │ 🔴 Missing REACH declaration                                        │    │
+│  │    Reason: PENDING_SUPPLIER_DATA                                    │    │
+│  │    "Waiting on supplier lab results, ETA: 2026-01-25"               │    │
+│  └────────────────────────────────────────────────────────────────────┘    │
+│                                                                              │
+│  [ Cancel ]                                          [ Submit for Review ]   │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Submission Outcomes:**
+
+| PreFlight Result | complianceStatus | Version Status | Next Step |
+|------------------|------------------|----------------|-----------|
+| **PASS** | `AUTO_PASSED` | `RELEASED` | Ready for production |
+| **PASS_WITH_DEVIATIONS** | `PENDING_REVIEW` | `DRAFT` | Queued for Compliance Manager |
+| **BLOCKED** | N/A (error) | `DRAFT` | Must acknowledge blockers first |
+
+**State Machine:**
+
+```
+         NOT_STARTED
+              │
+              │ Designer submits
+              │ PreFlight evaluates
+              ▼
+    ┌─────────┴─────────┐
+    │                   │
+    ▼                   ▼
+AUTO_PASSED      PENDING_REVIEW
+(RELEASED)            │
+                      │ Compliance Manager
+                      │ authorizes
+                      ▼
+                 AUTHORIZED
+                 (RELEASED)
+```
+
+### 10.7 Legal Context API
+
+Provides legal context for individual attributes, enabling the UI to show linked rules and regulation references inline.
+
+```typescript
+interface AttributeLegalContext {
+  attributeCode: string;
+  attributeLabel: string;
+  linkedRules: {
+    ruleId: string;
+    ruleName: string;
+    severity: 'BLOCKER' | 'WARNING' | 'INFO';
+    effectiveMode: 'ENFORCING' | 'SILENT' | 'DISABLED';
+    legalAnchor?: {
+      reference: string;      // "ESPR Art. 5(2)"
+      documentTitle: string;  // "ESPR - Ecodesign for Sustainable Products"
+      viewerUrl: string;      // "/regulations/xyz?page=12&anchor=abc"
+    };
+    validationLogic?: {
+      operator: string;       // ">=", "<=", "contains", "matches"
+      threshold?: number;     // e.g., 25 for "≥25%"
+      pattern?: string;       // e.g., regex for format validation
+    };
+  }[];
+}
+```
+
+**UI Usage:**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  Recycled Content Percentage                                   🔴 BLOCKER   │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│                                                                              │
+│  ┌───────────────────────────────────────────────────────────────────────┐ │
+│  │ 18                                                             %      │ │
+│  └───────────────────────────────────────────────────────────────────────┘ │
+│                                                                              │
+│  ⚠️ Below minimum: requires ≥25% per ESPR Art. 5(2)                        │
+│     📖 View regulation text                                                 │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 10.8 API Extensions
 
 ```
 # PreFlight validation for design versions
-POST   /api/v1/design/versions/:id/preflight           # Run PreFlight check
+POST   /api/v1/design/versions/:id/preflight           # Run PreFlight check (blocking)
+POST   /api/v1/design/versions/:id/preflight/advisory  # Real-time advisory (non-blocking, debounced)
 GET    /api/v1/design/versions/:id/preflight/status    # Get cached status
 GET    /api/v1/design/versions/:id/preflight/findings  # List all findings
+
+# Submission workflow (Approval Gate)
+POST   /api/v1/design/versions/:id/submit              # Trigger approval gate
+GET    /api/v1/design/versions/:id/submission-status   # Get current compliance status
+
+# Legal context for attributes
+GET    /api/v1/design/attributes/:code/legal-context   # Get rules linked to attribute
 
 # Readiness profiles (READ-ONLY from Design Workspace)
 GET    /api/v1/design/versions/:id/readiness-profile   # Get assigned profile (read-only)
@@ -1833,6 +1969,7 @@ GET    /api/v1/regulations/documents/:id/viewer-url    # Get signed viewer URL
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.4 | 2026-01-21 | Added Approval Gate workflow: real-time advisory mode (Section 10.2), submission workflow (Section 10.6), legal context API (Section 10.7); Category.defaultProfileId field |
 | 2.3 | 2026-01-21 | Made compliance view read-only; removed profile selector; profile assignment moved to Compliance Workspace |
 | 2.2 | 2026-01-21 | Added feature toggle conditional behavior note to Regulatory Advisor section |
 | 2.1 | 2026-01-21 | Added Regulatory Advisor integration (Section 10); AttributeTemplate.rules relationship; PreFlight validation; soft gates |

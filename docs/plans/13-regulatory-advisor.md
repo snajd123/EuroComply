@@ -853,7 +853,100 @@ export class TemplateAdoption extends BaseEntity {
 
 ## 6. PreFlight Audit Service (Soft Gate Logic)
 
-### 5.1 Audit Result Interface
+### 6.0 Evaluation Timing
+
+The PreFlight service operates in two distinct modes:
+
+| Mode | When | Behavior | Outcome |
+|------|------|----------|---------|
+| **Advisory** | During design editing | Non-blocking, debounced (500ms), real-time feedback | UI shows warnings inline, doesn't prevent saving |
+| **Blocking** | On version submit | Full evaluation with approval gate | Determines PASS, PASS_WITH_DEVIATIONS, or BLOCKED |
+
+**Advisory Mode (Design Workspace):**
+- Called via `POST /api/v1/design/versions/:id/preflight/advisory`
+- Runs after 500ms of inactivity (debounced)
+- Returns findings for UI color-coding
+- Never prevents saving or editing
+
+**Blocking Mode (Approval Gate):**
+- Called via `POST /api/v1/design/versions/:id/submit`
+- Full evaluation with frozen AuditResultSnapshot
+- Determines `complianceStatus` outcome:
+  - `PASS` → `AUTO_PASSED` → Version auto-released
+  - `PASS_WITH_DEVIATIONS` → `PENDING_REVIEW` → Queued for Compliance Manager
+  - `BLOCKED` → Error returned → Designer must acknowledge blockers first
+
+### 6.1 Profile Resolution Hierarchy
+
+When evaluating a ProductVersion, the PreFlight service resolves the ReadinessProfile using this hierarchy:
+
+```
+Resolved Profile =
+  1. Product.readinessProfileId (if explicitly assigned)
+  2. ELSE Product.category.defaultProfileId
+  3. ELSE null → triggers SYSTEM_PROFILE_REQUIRED blocker
+```
+
+**Resolution Logic:**
+
+```typescript
+async resolveProfile(product: Product): Promise<ReadinessProfile | null> {
+  // 1. Check for explicit product-level assignment
+  if (product.readinessProfileId) {
+    return this.em.findOne(ReadinessProfile, product.readinessProfileId);
+  }
+
+  // 2. Check for category default
+  if (product.category?.defaultProfileId) {
+    return this.em.findOne(ReadinessProfile, product.category.defaultProfileId);
+  }
+
+  // 3. No profile - will trigger SYSTEM_PROFILE_REQUIRED
+  return null;
+}
+```
+
+### 6.2 System Rule: SYSTEM_PROFILE_REQUIRED
+
+When no profile is found via the resolution hierarchy, PreFlight generates a **system-level blocker** that must be acknowledged before submission.
+
+```typescript
+// System rule (scope: SYSTEM, not editable by tenants)
+const SYSTEM_PROFILE_REQUIRED: SystemRule = {
+  code: 'SYSTEM_PROFILE_REQUIRED',
+  name: 'Compliance Profile Required',
+  severity: 'BLOCKER',
+  type: 'PROCESS',
+  ruleCategory: 'COMPLIANCE',
+  message: 'No compliance profile assigned to this product or category.',
+  description: 'A Readiness Profile must be assigned to evaluate compliance. ' +
+               'Contact your Compliance Manager to assign a profile, or acknowledge ' +
+               'this requirement with a valid reason code.',
+};
+```
+
+**Reason Codes for Missing Profile:**
+
+| Code | Label | Use Case |
+|------|-------|----------|
+| `INTERNAL_R&D_ONLY` | Internal R&D Only | Product is for internal R&D, not market release |
+| `EXEMPT_PRODUCT_TYPE` | Exempt Product Type | Product type exempt from compliance requirements |
+| `PENDING_LEGAL_MAPPING` | Pending Legal Mapping | Compliance team still mapping regulations |
+| `MANUAL_OVERRIDE` | Manual Override | Explicit business decision to skip compliance |
+
+**Forensic Audit Trail:**
+
+When a designer acknowledges this blocker and submits:
+- `complianceStatus = PENDING_REVIEW`
+- Compliance Manager reviews: "No profile assigned - Reason: INTERNAL_R&D_ONLY"
+- If authorized, DPP shows: `PASS_WITH_DEVIATIONS - No profile: INTERNAL_R&D_ONLY`
+
+This ensures:
+- No product reaches market without documented compliance status
+- Uses existing RuleDeviation workflow (no special cases)
+- Full audit trail for regulators and internal auditors
+
+### 6.3 Audit Result Interface
 
 ```typescript
 // src/modules/compliance/interfaces/audit-result.interface.ts
@@ -928,6 +1021,133 @@ export class PreFlightAuditService {
     private readonly ruleResolver: RuleResolverService,
   ) {}
 
+  /**
+   * Evaluate a ProductVersion (design-time, before DPP minting).
+   * Used by the Approval Gate workflow.
+   *
+   * @returns AuditResult with one of:
+   *   - PASS: All rules passed, version can auto-release
+   *   - PASS_WITH_DEVIATIONS: Blockers acknowledged, needs Compliance Manager
+   *   - BLOCKED: Unacknowledged blockers, cannot submit
+   */
+  async evaluateVersion(versionId: string): Promise<AuditResult & { resultStatus: 'PASS' | 'PASS_WITH_DEVIATIONS' | 'BLOCKED' }> {
+    const version = await this.em.findOneOrFail(ProductVersion, versionId, {
+      populate: ['product', 'product.category'],
+    });
+
+    const product = version.product;
+
+    // Resolve profile using hierarchy
+    const profile = await this.resolveProfile(product);
+
+    // If no profile, generate SYSTEM_PROFILE_REQUIRED finding
+    if (!profile) {
+      return this.generateMissingProfileResult(version);
+    }
+
+    // Get active rules (respecting activeFrom/activeUntil and overrides)
+    const rules = await this.ruleResolver.getEffectiveRules(profile, new Date());
+
+    // Evaluate each rule against the version's design data
+    const findings = await Promise.all(
+      rules.map(rule => this.evaluateRuleForVersion(version, rule))
+    );
+
+    // Determine result status
+    const unacknowledgedBlockers = findings.filter(
+      f => f.rule.severity === RuleSeverity.BLOCKER &&
+           f.effectiveMode === 'ENFORCING' &&
+           f.status === 'FAILED' &&
+           !f.existingDeviation
+    );
+
+    const acknowledgedBlockers = findings.filter(
+      f => f.rule.severity === RuleSeverity.BLOCKER &&
+           f.effectiveMode === 'ENFORCING' &&
+           f.status === 'FAILED' &&
+           f.existingDeviation
+    );
+
+    let resultStatus: 'PASS' | 'PASS_WITH_DEVIATIONS' | 'BLOCKED';
+    if (unacknowledgedBlockers.length > 0) {
+      resultStatus = 'BLOCKED';
+    } else if (acknowledgedBlockers.length > 0) {
+      resultStatus = 'PASS_WITH_DEVIATIONS';
+    } else {
+      resultStatus = 'PASS';
+    }
+
+    return {
+      dppId: versionId, // Using versionId as identifier for design-time
+      profileUsed: {
+        id: profile.id,
+        auditLabel: profile.getAuditLabel(),
+      },
+      evaluatedAt: new Date(),
+      summary: this.calculateSummary(findings),
+      findings,
+      canProceed: resultStatus !== 'BLOCKED',
+      resultStatus,
+    };
+  }
+
+  private async resolveProfile(product: Product): Promise<ReadinessProfile | null> {
+    // 1. Check for explicit product-level assignment
+    if (product.readinessProfileId) {
+      return this.em.findOne(ReadinessProfile, product.readinessProfileId);
+    }
+
+    // 2. Check for category default
+    if (product.category?.defaultProfileId) {
+      return this.em.findOne(ReadinessProfile, product.category.defaultProfileId);
+    }
+
+    // 3. No profile - will trigger SYSTEM_PROFILE_REQUIRED
+    return null;
+  }
+
+  private generateMissingProfileResult(version: ProductVersion): AuditResult & { resultStatus: 'BLOCKED' } {
+    const systemFinding: AuditFinding = {
+      rule: {
+        id: 'SYSTEM_PROFILE_REQUIRED',
+        name: 'Compliance Profile Required',
+        type: RuleType.PROCESS,
+        severity: RuleSeverity.BLOCKER,
+      },
+      ruleCategory: RuleCategory.COMPLIANCE,
+      status: 'FAILED',
+      effectiveMode: 'ENFORCING',
+    };
+
+    return {
+      dppId: version.id,
+      profileUsed: {
+        id: 'NONE',
+        auditLabel: 'No Profile Assigned',
+      },
+      evaluatedAt: new Date(),
+      summary: {
+        total: 1,
+        passed: 0,
+        deviations: 0,
+        notApplicable: 0,
+        byCategory: {
+          DESIGN: { total: 0, passed: 0, blockers: 0, warnings: 0 },
+          OPERATIONS: { total: 0, passed: 0, blockers: 0, warnings: 0 },
+          MARKETING: { total: 0, passed: 0, blockers: 0, warnings: 0 },
+          COMPLIANCE: { total: 1, passed: 0, blockers: 1, warnings: 0 },
+        },
+      },
+      findings: [systemFinding],
+      canProceed: false,
+      resultStatus: 'BLOCKED',
+    };
+  }
+
+  /**
+   * Evaluate a DPP (runtime, after minting).
+   * Original method for DPP-level evaluation.
+   */
   async evaluate(dppId: string, profileId?: string): Promise<AuditResult> {
     const dpp = await this.em.findOneOrFail(DPPSnapshot, dppId, {
       populate: ['serial', 'serial.batch', 'serial.batch.designVersion', 'serial.batch.designVersion.product'],
@@ -1630,6 +1850,7 @@ GET    /api/v1/marketplace/adoptions                 # List org adoptions
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.3 | 2026-01-21 | Added Approval Gate workflow: evaluation timing (Section 6.0), profile resolution hierarchy (Section 6.1), SYSTEM_PROFILE_REQUIRED blocker (Section 6.2), evaluateVersion() method for design-time evaluation |
 | 1.2 | 2026-01-21 | Added per-rule granularity (Section 3): RuleOverrideMode, resolution hierarchy, Compliance MANAGER governance, future Request+Approval workflow |
 | 1.1 | 2026-01-21 | Added Feature Toggles (Section 3): hidden/silent/enforcing modes, opt-in gentle defaults |
 | 1.0 | 2026-01-21 | Initial design: Regulatory Advisor model with template hierarchy, soft gates, PDF anchoring, marketplace |

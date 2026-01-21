@@ -2522,6 +2522,253 @@ interface BulkUpdateRuleOverrideResponse {
 }
 ```
 
+### 14.7 Pending Reviews Queue (Approval Gate)
+
+When a ProductVersion is submitted with `complianceStatus = PENDING_REVIEW`, it appears in the Compliance Manager's pending reviews queue.
+
+**UI: Pending Reviews Tab**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  COMPLIANCE WORKSPACE                                                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  [Dashboard] [Profiles] [Templates] [Pending Reviews (3)]                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  PENDING COMPLIANCE REVIEWS                                                  │
+│  ════════════════════════════                                                │
+│                                                                              │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │ Product              │ Version │ Deviations │ Submitted    │ Action   │ │
+│  ├────────────────────────────────────────────────────────────────────────┤ │
+│  │ Summer T-Shirt       │ v2.1    │ 2 blockers │ 10 min ago   │ [Review] │ │
+│  │ Winter Jacket Pro    │ v1.3    │ 1 blocker  │ 2 hours ago  │ [Review] │ │
+│  │ Recycled Canvas Bag  │ v3.0    │ 3 blockers │ 1 day ago    │ [Review] │ │
+│  └────────────────────────────────────────────────────────────────────────┘ │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**UI: Review Detail View**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  COMPLIANCE REVIEW: Summer T-Shirt v2.1                                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Submitted by: john.designer@acme.com                                        │
+│  Submitted at: 2026-01-21 14:30 UTC                                          │
+│  Profile: ESPR Apparel Pack v2.3                                             │
+│                                                                              │
+│  DEVIATIONS REQUIRING AUTHORIZATION                                          │
+│  ══════════════════════════════════                                          │
+│                                                                              │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │ 🔴 BLOCKER: Recycled content below ESPR minimum                        │ │
+│  │    Current: 18%  Required: ≥25%                                        │ │
+│  │    📖 View: ESPR Article 5(2)                                          │ │
+│  │                                                                         │ │
+│  │    Designer's Justification:                                           │ │
+│  │    Reason Code: SMALL_VOLUME_EXEMPTION                                 │ │
+│  │    Narrative: "Limited edition run of 500 units for brand anniversary. │ │
+│  │                Supplier cannot source recycled cotton in required      │ │
+│  │                quantities for this small batch."                       │ │
+│  │                                                                         │ │
+│  │    ⚠️ AI Flag: Exemption may not apply under ESPR Art. 7(3)           │ │
+│  └────────────────────────────────────────────────────────────────────────┘ │
+│                                                                              │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │ 🔴 BLOCKER: Missing REACH declaration                                  │ │
+│  │    📖 View: REACH Annex XVII                                           │ │
+│  │                                                                         │ │
+│  │    Designer's Justification:                                           │ │
+│  │    Reason Code: PENDING_SUPPLIER_DATA                                  │ │
+│  │    Narrative: "Waiting on supplier lab results. ETA: 2026-01-25"       │ │
+│  └────────────────────────────────────────────────────────────────────────┘ │
+│                                                                              │
+│  AUTHORIZATION DECISION                                                      │
+│  ══════════════════════                                                      │
+│                                                                              │
+│  [ ] I have reviewed all deviations and accept responsibility for this      │
+│      release decision.                                                       │
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │ Optional notes for audit trail:                                      │    │
+│  │ ________________________________________________________________    │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                                                              │
+│  [Cancel]              [Reject with Feedback]           [Authorize Release] │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Authorization Outcomes:**
+
+| Action | complianceStatus | Version Status | Deviations | Event |
+|--------|------------------|----------------|------------|-------|
+| **Authorize** | `AUTHORIZED` | `RELEASED` | `authorizedAt` + `authorizingUser` set | `VERSION_AUTHORIZED` |
+| **Reject** | `NOT_STARTED` | `DRAFT` | Unchanged | `VERSION_REJECTED` |
+
+**API Endpoints:**
+
+```
+# Pending Reviews (MANAGER only)
+GET    /api/v1/compliance/reviews/pending              # List pending reviews
+GET    /api/v1/compliance/reviews/:versionId           # Get review details
+POST   /api/v1/compliance/reviews/:versionId/authorize # Authorize release
+POST   /api/v1/compliance/reviews/:versionId/reject    # Reject with feedback
+```
+
+**API Types:**
+
+```typescript
+// GET /api/v1/compliance/reviews/pending
+interface PendingReviewsResponse {
+  reviews: {
+    versionId: string;
+    productId: string;
+    productName: string;
+    versionNumber: number;
+    deviationCount: number;
+    submittedAt: string;
+    submittedBy: {
+      id: string;
+      name: string;
+      email: string;
+    };
+  }[];
+  total: number;
+}
+
+// GET /api/v1/compliance/reviews/:versionId
+interface ReviewDetailResponse {
+  versionId: string;
+  product: {
+    id: string;
+    name: string;
+    sku: string;
+  };
+  versionNumber: number;
+  submittedAt: string;
+  submittedBy: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  auditResult: {
+    id: string;
+    profileAuditLabel: string;
+    evaluatedAt: string;
+    summary: {
+      total: number;
+      passed: number;
+      deviations: number;
+      blockerCount: number;
+      warningCount: number;
+    };
+  };
+  deviations: {
+    id: string;
+    ruleId: string;
+    ruleName: string;
+    severity: 'BLOCKER' | 'WARNING';
+    reasonCode: {
+      code: string;
+      label: string;
+    };
+    narrative: string;
+    acknowledgedBy: string;
+    acknowledgedAt: string;
+    legalAnchor?: {
+      reference: string;
+      viewerUrl: string;
+    };
+    aiSanityCheck?: {
+      flagged: boolean;
+      warning?: string;
+    };
+  }[];
+}
+
+// POST /api/v1/compliance/reviews/:versionId/authorize
+interface AuthorizeReviewRequest {
+  notes?: string;  // Optional audit trail notes
+}
+
+interface AuthorizeReviewResponse {
+  versionId: string;
+  complianceStatus: 'AUTHORIZED';
+  versionStatus: 'RELEASED';
+  authorizedBy: string;
+  authorizedAt: string;
+}
+
+// POST /api/v1/compliance/reviews/:versionId/reject
+interface RejectReviewRequest {
+  reason: string;  // Required feedback for designer
+}
+
+interface RejectReviewResponse {
+  versionId: string;
+  complianceStatus: 'NOT_STARTED';
+  versionStatus: 'DRAFT';
+  rejectedBy: string;
+  rejectedAt: string;
+  reason: string;
+}
+```
+
+### 14.8 Category Default Profile Assignment
+
+Compliance Managers can assign a default ReadinessProfile to categories. Products in that category automatically use this profile unless explicitly overridden at the product level.
+
+**Profile Resolution Hierarchy:**
+
+```
+Resolved Profile =
+  1. Product.readinessProfileId (if explicitly assigned)
+  2. ELSE Product.category.defaultProfileId
+  3. ELSE null → triggers SYSTEM_PROFILE_REQUIRED blocker
+```
+
+**API Endpoints:**
+
+```
+# Category Default Profile (MANAGER only)
+PUT    /api/v1/compliance/categories/:id/default-profile
+       # Body: { defaultProfileId: string | null }
+GET    /api/v1/compliance/categories/:id/default-profile
+```
+
+**API Types:**
+
+```typescript
+// PUT /api/v1/compliance/categories/:id/default-profile
+interface SetCategoryDefaultProfileRequest {
+  defaultProfileId: string | null;  // null to unset
+}
+
+interface SetCategoryDefaultProfileResponse {
+  categoryId: string;
+  categoryName: string;
+  defaultProfileId: string | null;
+  previousProfileId: string | null;
+  setBy: string;
+  setAt: string;
+}
+```
+
+### 14.9 Updated Authority Model
+
+| Action | Required Authority |
+|--------|-------------------|
+| View pending reviews queue | Compliance MANAGER only |
+| Authorize version release | Compliance MANAGER only |
+| Reject version review | Compliance MANAGER only |
+| Assign category default profile | Compliance MANAGER only |
+| View compliance dashboard | Compliance VIEWER+ |
+| Manage readiness profiles | Compliance MANAGER only |
+
 ---
 
 ## 15. Related Documents
@@ -2543,6 +2790,7 @@ interface BulkUpdateRuleOverrideResponse {
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.4 | 2026-01-21 | Added Approval Gate workflow: Pending Reviews Queue (Section 14.7), Category Default Profile Assignment (Section 14.8), authorize/reject APIs, updated authority model |
 | 2.3 | 2026-01-21 | Added feature toggle conditional behavior note to Regulatory Advisor section |
 | 2.2 | 2026-01-21 | Added Regulatory Advisor integration: compliance profile in DPP snapshot, forensic seal with tiered audit view, soft gate workflow, PreFlight evaluation in snapshot pipeline |
 | 2.1 | 2026-01-21 | Added RFC 8785 canonicalization, facility publicAlias for trade secrets, Merkle visualization, set-based SQL for recall propagation |

@@ -782,6 +782,18 @@ export enum VersionStatus {
   RELEASED = 'RELEASED',
 }
 
+// ─────────────────────────────────────────────────────────────
+// COMPLIANCE STATUS (Approval Gate Workflow)
+// Tracks compliance review state for design versions
+// See: docs/plans/13-regulatory-advisor.md
+// ─────────────────────────────────────────────────────────────
+export enum ComplianceStatus {
+  NOT_STARTED = 'NOT_STARTED',     // Default for new draft versions
+  AUTO_PASSED = 'AUTO_PASSED',     // PreFlight returns PASS, auto-released
+  PENDING_REVIEW = 'PENDING_REVIEW', // PreFlight returns PASS_WITH_DEVIATIONS, awaits Compliance Manager
+  AUTHORIZED = 'AUTHORIZED',       // Compliance Manager approved, version released
+}
+
 @Entity({ tableName: 'product_versions' })
 export class ProductVersion {
   @PrimaryKey()
@@ -826,6 +838,24 @@ export class ProductVersion {
   // Relations
   @OneToMany(() => BomEntry, be => be.version)
   bomEntries = new Collection<BomEntry>(this);
+
+  // ─────────────────────────────────────────────────────────────
+  // COMPLIANCE STATUS (Approval Gate Workflow)
+  // Tracks compliance review state for design versions
+  // See: docs/plans/13-regulatory-advisor.md
+  // ─────────────────────────────────────────────────────────────
+  @Enum(() => ComplianceStatus)
+  @Property({ name: 'compliance_status', default: ComplianceStatus.NOT_STARTED })
+  complianceStatus: ComplianceStatus = ComplianceStatus.NOT_STARTED;
+
+  @Property({ name: 'last_audit_result_id', nullable: true })
+  lastAuditResultId?: string;
+
+  @Property({ name: 'submitted_at', nullable: true })
+  submittedAt?: Date;
+
+  @ManyToOne(() => User, { nullable: true, name: 'submitted_by' })
+  submittedBy?: User;
 
   @Property({ name: 'created_at' })
   createdAt: Date = new Date();
@@ -1456,23 +1486,40 @@ When capturing `ComplianceProfileSnapshot`, the mode is recorded for each rule:
 
 Captures acknowledged gaps when users proceed despite soft gate warnings.
 
+**Dual-Link Model:**
+- **Design-time:** `productVersionId` is set, `dppSnapshotId` is null
+- **DPP mint:** System clones design deviations → new records with `dppSnapshotId` set
+- **Forensic audit:** DPP shows all deviations with full traceability back to design
+
 ```typescript
 // packages/db/src/entities/RuleDeviation.ts
 import { Entity, PrimaryKey, Property, ManyToOne, Index } from '@mikro-orm/core';
 import { DppSnapshot } from './DppSnapshot.js';
+import { ProductVersion } from './ProductVersion.js';
 import { RuleTemplate } from './RuleTemplate.js';
 import { ReasonCode } from './ReasonCode.js';
 import { User } from './User.js';
 
 @Entity({ tableName: 'rule_deviations' })
 @Index({ properties: ['dpp'] })
+@Index({ properties: ['productVersion'] })
 @Index({ properties: ['rule'] })
 export class RuleDeviation {
   @PrimaryKey()
   id!: string;
 
-  @ManyToOne(() => DppSnapshot, { name: 'dpp_id' })
-  dpp!: DppSnapshot;
+  // ─────────────────────────────────────────────────────────────
+  // DUAL-LINK MODEL: Design-time vs Runtime deviations
+  // Either productVersion OR dpp must be set (not both, not neither)
+  // ─────────────────────────────────────────────────────────────
+
+  // Design-time deviations (created during design, before DPP minting)
+  @ManyToOne(() => ProductVersion, { nullable: true, name: 'product_version_id' })
+  productVersion?: ProductVersion;
+
+  // Runtime deviations (cloned from design-time at DPP mint, or created at runtime)
+  @ManyToOne(() => DppSnapshot, { nullable: true, name: 'dpp_id' })
+  dpp?: DppSnapshot;
 
   @ManyToOne(() => RuleTemplate, { name: 'rule_id' })
   rule!: RuleTemplate;
@@ -1491,6 +1538,16 @@ export class RuleDeviation {
 
   @Property({ name: 'acknowledged_at' })
   acknowledgedAt!: Date;
+
+  // ─────────────────────────────────────────────────────────────
+  // AUTHORIZATION (Compliance Manager approval for PENDING_REVIEW)
+  // Set when Compliance Manager authorizes a version with deviations
+  // ─────────────────────────────────────────────────────────────
+  @ManyToOne(() => User, { nullable: true, name: 'authorizing_user_id' })
+  authorizingUser?: User;
+
+  @Property({ name: 'authorized_at', nullable: true })
+  authorizedAt?: Date;
 
   // AI sanity check
   @Property({ type: 'jsonb', nullable: true })
@@ -1514,6 +1571,79 @@ export class RuleDeviation {
   createdAt: Date = new Date();
 }
 ```
+
+### AuditResultSnapshot
+
+Stores frozen PreFlight results at submission time. Critical for forensic audit - proves what rules were active when the design was approved.
+
+```typescript
+// packages/db/src/entities/AuditResultSnapshot.ts
+import { Entity, PrimaryKey, Property, ManyToOne, Index } from '@mikro-orm/core';
+import { ProductVersion } from './ProductVersion.js';
+
+@Entity({ tableName: 'audit_result_snapshots' })
+@Index({ properties: ['productVersion'] })
+@Index({ properties: ['resultStatus'] })
+export class AuditResultSnapshot {
+  @PrimaryKey()
+  id!: string;
+
+  @ManyToOne(() => ProductVersion, { name: 'product_version_id' })
+  productVersion!: ProductVersion;
+
+  @Property({ name: 'evaluated_at' })
+  evaluatedAt!: Date;
+
+  @Property({ name: 'profile_id' })
+  profileId!: string;
+
+  @Property({ name: 'profile_audit_label', length: 500 })
+  profileAuditLabel!: string; // "ESPR Apparel v2025.1"
+
+  @Property({ type: 'jsonb' })
+  summary!: {
+    total: number;
+    passed: number;
+    deviations: number;
+    blockerCount: number;
+    warningCount: number;
+  };
+
+  // CRITICAL: Frozen findings with rule versions and legal anchors
+  @Property({ type: 'jsonb' })
+  findings!: Array<{
+    ruleId: string;
+    ruleName: string;
+    ruleVersion: number;           // Frozen rule version at evaluation time
+    ruleCategory: string;
+    severity: string;
+    status: string;
+    effectiveMode: string;
+    hasDeviation: boolean;
+    deviationId?: string;
+    // Frozen legal anchor (proves regulatory basis)
+    legalAnchorSnapshot?: {
+      anchorId: string;
+      reference: string;           // "ESPR Art. 5(2)"
+      documentId: string;
+      documentTitle: string;
+      documentVersion: string;     // "ESPR 2025.1"
+      textSnippet: string;         // Highlighted text at evaluation time
+    };
+  }>;
+
+  @Property({ name: 'can_proceed' })
+  canProceed!: boolean;
+
+  @Property({ name: 'result_status', length: 30 })
+  resultStatus!: 'PASS' | 'PASS_WITH_DEVIATIONS' | 'BLOCKED';
+
+  @Property({ name: 'created_at' })
+  createdAt: Date = new Date();
+}
+```
+
+**Forensic Value:** An auditor can verify: "On Jan 21st 2026, this design was evaluated against ESPR v2025.1 rules, and the system found these specific issues which were authorized by Compliance Manager X."
 
 ### TemplateAdoption
 
@@ -1681,12 +1811,18 @@ CREATE TABLE product_versions (
     signature_did VARCHAR(255),
     signature_jws TEXT,
     data JSONB,
+    -- Compliance status fields (Approval Gate Workflow)
+    compliance_status VARCHAR(20) DEFAULT 'NOT_STARTED',
+    last_audit_result_id VARCHAR(30),
+    submitted_at TIMESTAMPTZ,
+    submitted_by VARCHAR(30) REFERENCES users(id),
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(product_id, workspace, version_number)
 );
 
 CREATE INDEX idx_product_versions_status ON product_versions(status);
+CREATE INDEX idx_product_versions_compliance ON product_versions(compliance_status);
 
 -- Bill of materials
 -- DECIMAL(12, 4) supports up to 99,999,999.9999
@@ -1870,23 +2006,53 @@ CREATE TABLE readiness_profile_rules (
 CREATE INDEX idx_readiness_profile_rules_profile ON readiness_profile_rules(profile_id);
 CREATE INDEX idx_readiness_profile_rules_override ON readiness_profile_rules(override_mode) WHERE override_mode IS NOT NULL;
 
--- Rule deviations (acknowledged gaps per DPP)
+-- Rule deviations (acknowledged gaps per DPP or ProductVersion)
+-- Either product_version_id OR dpp_id must be set (design-time vs runtime)
 CREATE TABLE rule_deviations (
     id VARCHAR(30) PRIMARY KEY,
-    dpp_id VARCHAR(30) NOT NULL REFERENCES dpp_snapshots(id) ON DELETE CASCADE,
+    -- Design-time deviations (created during design, before DPP minting)
+    product_version_id VARCHAR(30) REFERENCES product_versions(id),
+    -- Runtime deviations (cloned from design-time at DPP mint)
+    dpp_id VARCHAR(30) REFERENCES dpp_snapshots(id) ON DELETE CASCADE,
     rule_id VARCHAR(30) NOT NULL REFERENCES rule_templates(id),
     rule_version INT NOT NULL,
     reason_code_id VARCHAR(30) NOT NULL REFERENCES reason_codes(id),
     narrative TEXT,
     acknowledged_by VARCHAR(30) NOT NULL REFERENCES users(id),
     acknowledged_at TIMESTAMPTZ NOT NULL,
+    -- Authorization fields (Compliance Manager approval)
+    authorizing_user_id VARCHAR(30) REFERENCES users(id),
+    authorized_at TIMESTAMPTZ,
     ai_sanity_check JSONB,
     legal_anchor_snapshot JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    -- Ensure either product_version_id OR dpp_id is set
+    CHECK (
+        (product_version_id IS NOT NULL AND dpp_id IS NULL) OR
+        (product_version_id IS NULL AND dpp_id IS NOT NULL)
+    )
+);
+
+CREATE INDEX idx_rule_deviations_dpp ON rule_deviations(dpp_id) WHERE dpp_id IS NOT NULL;
+CREATE INDEX idx_rule_deviations_version ON rule_deviations(product_version_id) WHERE product_version_id IS NOT NULL;
+CREATE INDEX idx_rule_deviations_rule ON rule_deviations(rule_id);
+
+-- Audit result snapshots (frozen PreFlight results for forensic audit)
+CREATE TABLE audit_result_snapshots (
+    id VARCHAR(30) PRIMARY KEY,
+    product_version_id VARCHAR(30) NOT NULL REFERENCES product_versions(id),
+    evaluated_at TIMESTAMPTZ NOT NULL,
+    profile_id VARCHAR(30) NOT NULL,
+    profile_audit_label VARCHAR(500) NOT NULL,
+    summary JSONB NOT NULL,
+    findings JSONB NOT NULL,  -- Includes rule_version, legal_anchor_snapshot
+    can_proceed BOOLEAN NOT NULL,
+    result_status VARCHAR(30) NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_rule_deviations_dpp ON rule_deviations(dpp_id);
-CREATE INDEX idx_rule_deviations_rule ON rule_deviations(rule_id);
+CREATE INDEX idx_audit_result_snapshots_version ON audit_result_snapshots(product_version_id);
+CREATE INDEX idx_audit_result_snapshots_status ON audit_result_snapshots(result_status);
 
 -- Template adoptions (marketplace)
 CREATE TABLE template_adoptions (
@@ -2026,6 +2192,7 @@ const id = createId();
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.3 | 2026-01-21 | Added Approval Gate Workflow: ComplianceStatus enum, ProductVersion compliance fields, RuleDeviation dual-link model (design-time + authorization), AuditResultSnapshot entity for frozen PreFlight results |
 | 3.2 | 2026-01-21 | Added per-rule overrideMode to ReadinessProfileRule (ENFORCING/SILENT/DISABLED); audit trail fields; Compliance MANAGER governance note |
 | 3.1 | 2026-01-21 | Added Regulatory Advisor feature toggles to Organization: regulatoryAdvisorEnabled, enforcementMode, captureComplianceInSilentMode |
 | 3.0 | 2026-01-21 | Added Regulatory Advisor entities: RegulationDocument, RegulationAnchor, RuleTemplate, ReasonCode, ReadinessProfile (relational), RuleDeviation, MarketplaceListing, TemplateAdoption; Updated DppSnapshot with compliance profile; Public schema expansion |
