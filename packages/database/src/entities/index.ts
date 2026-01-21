@@ -10,3 +10,5 @@ export {
 } from './AttributeTemplate.js';
 export { Product, ProductStatus } from './Product.js';
 export { ProductVersion, VersionStatus } from './ProductVersion.js';
+export { OutboxEvent, OutboxStatus } from './OutboxEvent.js';
+export { AuditLog, AuditAction } from './AuditLog.js';

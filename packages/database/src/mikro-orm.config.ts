@@ -6,6 +6,8 @@ import {
   AttributeTemplate,
   Product,
   ProductVersion,
+  OutboxEvent,
+  AuditLog,
 } from './entities/index.js';
 
 export default defineConfig({
@@ -16,6 +18,8 @@ export default defineConfig({
     AttributeTemplate,
     Product,
     ProductVersion,
+    OutboxEvent,
+    AuditLog,
   ],
   dbName: process.env['DATABASE_NAME'] ?? 'eurocomply',
   host: process.env['DATABASE_HOST'] ?? 'localhost',
