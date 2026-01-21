@@ -1432,6 +1432,7 @@ GET    /api/v1/operations/serials/by-dpp/:uri          # Lookup by DPP URI
 | [Design Workspace](./05-design-workspace.md) | BOM facility links |
 | [Compliance Workspace](./08-compliance-workspace.md) | DPP lifecycle triggers |
 | [Verifiable Credentials](./09-verifiable-credentials.md) | Event signing |
+| [Regulatory Advisor](./13-regulatory-advisor.md) | Batch compliance checks |
 
 ---
 

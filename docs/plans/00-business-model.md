@@ -385,6 +385,7 @@ ESPR Article 31 mandates free DPP access for economic operators.
 | [Data Model](./02-data-model.md) | Database schema |
 | [Security](./03-security.md) | Auth, RBAC, encryption |
 | [Billing](./12-billing.md) | Stripe integration |
+| [Regulatory Advisor](./13-regulatory-advisor.md) | Template marketplace revenue |
 
 ---
 

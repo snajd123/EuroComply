@@ -159,8 +159,9 @@ export class Category extends BaseEntity {
 
 ```typescript
 // src/modules/taxonomy/entities/attribute-template.entity.ts
-import { Entity, Property, ManyToOne, Enum, Index, Unique } from '@mikro-orm/core';
+import { Entity, Property, ManyToOne, OneToMany, Collection, Enum, Index, Unique } from '@mikro-orm/core';
 import { BaseEntity } from '../../shared/entities/base.entity';
+import { RuleTemplate } from '../../compliance/entities/rule-template.entity';
 
 export enum AttributeType {
   TEXT = 'TEXT',
@@ -257,6 +258,15 @@ export class AttributeTemplate extends BaseEntity {
 
   @Property({ length: 10, default: 'BLOCKER' })
   validationSeverity!: string;
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // REGULATORY ADVISOR INTEGRATION
+  // Links this attribute to compliance rules from the Regulatory Advisor system
+  // See: docs/plans/13-regulatory-advisor.md
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  @OneToMany(() => RuleTemplate, rule => rule.attributeTemplate)
+  rules = new Collection<RuleTemplate>(this);
 }
 ```
 
@@ -1612,7 +1622,167 @@ PUT    /api/v1/design/materials/:id          # Update material
 
 ---
 
-## 10. Related Documents
+## 10. Regulatory Advisor Integration
+
+The Design Workspace integrates with the Regulatory Advisor system to provide real-time compliance guidance during product design. This transforms the workspace from a pure data-entry tool into an intelligent design assistant.
+
+> **Full Design:** See [Regulatory Advisor](./13-regulatory-advisor.md) for complete system specification.
+
+### 10.1 Rule Template Linkage
+
+Attribute templates link to rule templates that define compliance requirements:
+
+```typescript
+// AttributeTemplate.rules relationship (defined in Section 4.3)
+// Each attribute can have multiple rules checking its value
+
+// Example: A "recycled_content_percentage" attribute might have rules:
+// - ESPR minimum 25% recycled content (Blocker)
+// - Industry best practice 50% (Warning)
+// - Premium certification 80% (Info)
+```
+
+**Rule Resolution Flow:**
+
+```
+┌─────────────────────┐     ┌──────────────────┐     ┌─────────────────┐
+│  AttributeTemplate  │────▶│   RuleTemplate   │────▶│ RegulationAnchor│
+│  (what to collect)  │     │  (how to check)  │     │ (legal source)  │
+└─────────────────────┘     └──────────────────┘     └─────────────────┘
+         │                          │                        │
+         │                          │                        │
+         ▼                          ▼                        ▼
+   "Recycled %"              "Min 25%"                "ESPR Art. 5(2)"
+                           severity: BLOCKER         PDF highlight link
+```
+
+### 10.2 PreFlight Validation in Design
+
+When designers save or validate a product version, the PreFlight service evaluates all applicable rules:
+
+```typescript
+interface DesignValidationResult {
+  versionId: string;
+  overallStatus: 'PASS' | 'PASS_WITH_WARNINGS' | 'BLOCKED';
+
+  // Grouped by category for design workspace display
+  categoryResults: {
+    categoryId: string;
+    categoryName: string;
+    findings: PreFlightFinding[];
+  }[];
+
+  // Summary counts
+  blockerCount: number;
+  warningCount: number;
+  infoCount: number;
+}
+```
+
+**UI Integration Points:**
+
+1. **Attribute Editor Panel** - Shows rule indicators next to each field
+2. **Category Header** - Displays aggregate compliance status
+3. **Validation Sidebar** - Lists all findings with deep-links to regulations
+4. **Version Release Gate** - Soft gate requiring acknowledgment of blockers
+
+### 10.3 Soft Gate Workflow
+
+When a designer attempts to release a version with compliance issues:
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│                     RELEASE GATE - 3 Blockers Found               │
+├────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  ⛔ BLOCKER: Recycled content below ESPR minimum                   │
+│     Current: 18%  Required: ≥25%                                   │
+│     📖 View: ESPR Article 5(2)                                     │
+│     ┌─────────────────────────────────────────────────────────┐    │
+│     │ Reason: [Select or explain why proceeding...]           │    │
+│     └─────────────────────────────────────────────────────────┘    │
+│                                                                     │
+│  ⛔ BLOCKER: Missing hazardous substance declaration               │
+│     📖 View: REACH Annex XVII                                      │
+│     ┌─────────────────────────────────────────────────────────┐    │
+│     │ Reason: [Select or explain why proceeding...]           │    │
+│     └─────────────────────────────────────────────────────────┘    │
+│                                                                     │
+│  ⚠️ WARNING: Carbon footprint exceeds industry benchmark           │
+│     Current: 12.5 kg CO₂e  Benchmark: 10.0 kg CO₂e                 │
+│     📖 View: PEF Category Rules                                    │
+│                                                                     │
+├────────────────────────────────────────────────────────────────────┤
+│  [ ] I acknowledge these issues and accept responsibility          │
+│                                                                     │
+│  [Cancel]                              [Proceed with Documentation]│
+└────────────────────────────────────────────────────────────────────┘
+```
+
+### 10.4 Regulation Viewer Integration
+
+Clicking "📖 View" opens the regulation viewer with the relevant text highlighted:
+
+```typescript
+// Launch regulation viewer from design workspace
+function openRegulationContext(anchorId: string): void {
+  const viewer = new RegulationViewer({
+    anchorId,
+    mode: 'sidebar',  // Opens as side panel, not full screen
+    highlightStyle: 'yellow-background',
+    onClose: () => { /* Return focus to attribute editor */ }
+  });
+
+  viewer.open();
+  viewer.scrollIntoView();  // Smooth scroll to anchored text
+}
+```
+
+### 10.5 Readiness Profile Selection
+
+Organizations can apply different readiness profiles to their products:
+
+```typescript
+// Design workspace readiness profile selector
+interface ReadinessProfileOption {
+  id: string;
+  name: string;           // "EU Market Entry"
+  description: string;    // "Full ESPR + REACH compliance"
+  ruleCount: number;      // 47 rules
+  lastUpdated: Date;
+  isDefault: boolean;
+}
+
+// When profile changes, re-run PreFlight validation
+async function onReadinessProfileChange(
+  versionId: string,
+  profileId: string
+): Promise<DesignValidationResult> {
+  return preFlightService.evaluate(versionId, profileId);
+}
+```
+
+### 10.6 API Extensions
+
+```
+# PreFlight validation for design versions
+POST   /api/v1/design/versions/:id/preflight           # Run PreFlight check
+GET    /api/v1/design/versions/:id/preflight/status    # Get cached status
+GET    /api/v1/design/versions/:id/preflight/findings  # List all findings
+
+# Readiness profiles
+GET    /api/v1/design/readiness-profiles               # List available profiles
+GET    /api/v1/design/versions/:id/readiness-profile   # Get assigned profile
+PUT    /api/v1/design/versions/:id/readiness-profile   # Assign profile
+
+# Regulation viewer
+GET    /api/v1/regulations/anchors/:id/context         # Get anchor with PDF URL
+GET    /api/v1/regulations/documents/:id/viewer-url    # Get signed viewer URL
+```
+
+---
+
+## 11. Related Documents
 
 | Document | Relationship |
 |----------|--------------|
@@ -1622,6 +1792,7 @@ PUT    /api/v1/design/materials/:id          # Update material
 | [Marketing Workspace](./07-marketing-workspace.md) | Content enrichment |
 | [Compliance Workspace](./08-compliance-workspace.md) | DPP issuance |
 | [Verifiable Credentials](./09-verifiable-credentials.md) | Signing |
+| [Regulatory Advisor](./13-regulatory-advisor.md) | Rule templates, PreFlight validation |
 
 ---
 
@@ -1629,4 +1800,5 @@ PUT    /api/v1/design/materials/:id          # Update material
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.1 | 2026-01-21 | Added Regulatory Advisor integration (Section 10); AttributeTemplate.rules relationship; PreFlight validation; soft gates |
 | 2.0 | 2026-01-21 | Consolidated from design-workspace-design, taxonomy-engine-design; MikroORM entities; optimized N+1 queries; recursive BOM traversal |

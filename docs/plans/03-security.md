@@ -652,6 +652,7 @@ export function securityHeaders() {
 | [Data Model](./02-data-model.md) | Entity definitions |
 | [Verifiable Credentials](./09-verifiable-credentials.md) | Key management details |
 | [Infrastructure](./11-infrastructure.md) | Network security |
+| [Regulatory Advisor](./13-regulatory-advisor.md) | Forensic seal access control |
 
 ---
 

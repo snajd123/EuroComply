@@ -629,7 +629,156 @@ PAID (Proof Service):
 
 ---
 
-## 9. Invoice Structure
+## 9. Marketplace Revenue (Regulatory Advisor)
+
+The Template Marketplace allows compliance consultants to publish rule templates that other organizations can adopt. Revenue is shared between publishers and the platform.
+
+> **Full Design:** See [Regulatory Advisor](./13-regulatory-advisor.md) for complete marketplace specification.
+
+### Revenue Model
+
+| Revenue Stream | Split | Description |
+|----------------|-------|-------------|
+| **Template Adoption Fee** | 70% Publisher / 30% Platform | One-time or recurring fee for template adoption |
+| **Premium Rule Packs** | 70% Publisher / 30% Platform | Bundled templates for specific regulations |
+| **AI Regulation Ingestion** | Platform Revenue | Fee for automated PDF anchor extraction |
+| **Consulting Referrals** | 80% Consultant / 20% Platform | Referral fees for implementation services |
+
+### Template Pricing
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      TEMPLATE MARKETPLACE PRICING                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  SYSTEM TEMPLATES (EuroComply-Managed)                                      │
+│  ─────────────────────────────────────                                       │
+│  • Included free with all plans                                             │
+│  • Core EU regulations (ESPR, REACH, etc.)                                  │
+│  • Auto-updated when regulations change                                     │
+│                                                                              │
+│  MARKETPLACE TEMPLATES (Publisher Pricing)                                  │
+│  ─────────────────────────────────────────                                   │
+│  • Free tier: Publishers can offer free templates for exposure              │
+│  • One-time: EUR 99 - EUR 499 per template adoption                        │
+│  • Subscription: EUR 19 - EUR 99/month for ongoing updates                 │
+│  • Enterprise: Custom pricing for multi-tenant deployments                  │
+│                                                                              │
+│  PREMIUM RULE PACKS (Curated Bundles)                                       │
+│  ─────────────────────────────────────                                       │
+│  • "EU Market Entry": EUR 299 (includes ESPR + REACH + CBAM + EUDR)        │
+│  • "Textile Compliance": EUR 199 (industry-specific rules)                 │
+│  • "Full Sustainability": EUR 499 (environmental + social + governance)    │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Publisher Payout Flow
+
+```typescript
+interface MarketplaceTransaction {
+  id: string;
+  templateId: string;
+  adopter: Organization;
+  publisher: Organization;
+
+  grossAmount: number;      // EUR 299.00
+  platformFee: number;      // EUR 89.70 (30%)
+  publisherPayout: number;  // EUR 209.30 (70%)
+
+  stripeTransferId: string; // Stripe Connect transfer
+  payoutStatus: 'PENDING' | 'COMPLETED' | 'FAILED';
+}
+
+// Monthly payout aggregation
+interface PublisherPayout {
+  publisherId: string;
+  periodStart: Date;
+  periodEnd: Date;
+  adoptionCount: number;
+  grossRevenue: number;
+  platformFees: number;
+  netPayout: number;
+  stripePayoutId: string;
+}
+```
+
+### Publisher Verification
+
+| Level | Requirements | Benefits |
+|-------|--------------|----------|
+| **Standard** | Email verified, template review | Basic publishing |
+| **Verified** | Identity verification, LinkedIn profile | "Verified" badge, featured placement |
+| **Expert** | Credentials verified (e.g., ISO auditor certification) | "Expert" badge, premium pricing tier |
+| **Partner** | Formal partnership agreement | Co-marketing, priority support |
+
+### MikroORM Entities
+
+```typescript
+@Entity({ tableName: 'marketplace_transactions' })
+export class MarketplaceTransaction extends BaseEntity {
+  @ManyToOne(() => MarketplaceListing)
+  listing!: MarketplaceListing;
+
+  @ManyToOne(() => Organization)
+  adopter!: Organization;
+
+  @Property({ type: 'decimal', precision: 10, scale: 2 })
+  grossAmountCents!: number;
+
+  @Property({ type: 'decimal', precision: 10, scale: 2 })
+  platformFeeCents!: number;
+
+  @Property({ type: 'decimal', precision: 10, scale: 2 })
+  publisherPayoutCents!: number;
+
+  @Property({ length: 100, nullable: true })
+  stripePaymentIntentId?: string;
+
+  @Property({ length: 100, nullable: true })
+  stripeTransferId?: string;
+
+  @Enum(() => PayoutStatus)
+  payoutStatus!: PayoutStatus;
+
+  @Property()
+  createdAt: Date = new Date();
+
+  @Property({ nullable: true })
+  paidOutAt?: Date;
+}
+
+export enum PayoutStatus {
+  PENDING = 'PENDING',
+  PROCESSING = 'PROCESSING',
+  COMPLETED = 'COMPLETED',
+  FAILED = 'FAILED',
+}
+```
+
+### Invoice Line Items
+
+Marketplace transactions appear as separate line items on both sides:
+
+**Adopter Invoice:**
+```
+MARKETPLACE TEMPLATES
+ - ESPR Compliance Pack (one-time)            1    EUR 299.00    EUR 299.00
+ - Textile Industry Rules (monthly)           1     EUR 49.00     EUR 49.00
+Marketplace Subtotal                                             EUR 348.00
+```
+
+**Publisher Statement:**
+```
+MARKETPLACE PAYOUTS
+ - ESPR Compliance Pack × 12 adoptions       12    EUR 209.30  EUR 2,511.60
+ - Textile Industry Rules × 45 subscribers   45     EUR 34.30  EUR 1,543.50
+Gross Payout                                                   EUR 4,055.10
+```
+
+---
+
+## 10. Invoice Structure
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -675,7 +824,7 @@ PAID (Proof Service):
 
 ---
 
-## 10. Billing Service Implementation
+## 11. Billing Service Implementation
 
 ### DPP Billing Service
 
@@ -1099,7 +1248,7 @@ export class StripeWebhookService {
 
 ---
 
-## 11. Billing Access Control
+## 12. Billing Access Control
 
 ### Who Can Manage Billing
 
@@ -1114,7 +1263,7 @@ export class StripeWebhookService {
 
 ---
 
-## 12. Stripe Products Configuration
+## 13. Stripe Products Configuration
 
 ### Product Structure
 
@@ -1158,7 +1307,7 @@ async function createSubscription(
 
 ---
 
-## 13. Related Documents
+## 14. Related Documents
 
 | Document | Purpose |
 |----------|---------|
@@ -1166,6 +1315,7 @@ async function createSubscription(
 | [Operations Workspace](./06-operations-workspace.md) | Shipping & logistics |
 | [Compliance Workspace](./08-compliance-workspace.md) | DPP lifecycle, recall |
 | [Security](./03-security.md) | Organization admin definition |
+| [Regulatory Advisor](./13-regulatory-advisor.md) | Template marketplace, adoption fees |
 
 ---
 
@@ -1173,4 +1323,5 @@ async function createSubscription(
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.1 | 2026-01-21 | Added Marketplace Revenue (Section 9); template pricing, publisher payouts, verification levels |
 | 2.0 | 2026-01-21 | Consolidated from billing design, converted to MikroORM |

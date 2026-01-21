@@ -35,6 +35,18 @@ EuroComply is a unified Product Lifecycle & Compliance Platform combining PLM, E
 |  |  Workspace  |  |  Workspace  |  |  Workspace  |  |  Workspace  |      |
 |  +------+------+  +------+------+  +------+------+  +------+------+      |
 |         |                |                |                |              |
+|  ═══════╪════════════════╪════════════════╪════════════════╪════════════ |
+|  ║      |                |                |                |            ║ |
+|  ║  +---+----------------+----------------+----------------+---+        ║ |
+|  ║  |              REGULATORY ADVISOR LAYER                   |        ║ |
+|  ║  |   ┌──────────────┐ ┌──────────────┐ ┌──────────────┐   |        ║ |
+|  ║  |   │Rule Templates│ │Readiness     │ │PreFlight     │   |        ║ |
+|  ║  |   │& Regulations │ │Profiles      │ │Soft Gates    │   |        ║ |
+|  ║  |   └──────────────┘ └──────────────┘ └──────────────┘   |        ║ |
+|  ║  +---+----------------+----------------+----------------+---+        ║ |
+|  ║      |                |                |                |            ║ |
+|  ═══════╪════════════════╪════════════════╪════════════════╪════════════ |
+|         |                |                |                |              |
 |         +----------------+----------------+----------------+              |
 |                                  |                                        |
 |                                  v                                        |
@@ -62,6 +74,20 @@ EuroComply is a unified Product Lifecycle & Compliance Platform combining PLM, E
 | **Operations** | Item tracking, batches, EPCIS events, inventory | Batch records, items |
 | **Marketing** | Product content, images, variants, syndication | Marketing versions |
 | **Compliance** | DPP issuance, attestations, verifiable credentials | DPPs, attestations |
+
+### Regulatory Advisor (Cross-Cutting Layer)
+
+The **Regulatory Advisor** is a cross-cutting layer that provides compliance guidance across all workspaces:
+
+| Component | Purpose | Integration Points |
+|-----------|---------|-------------------|
+| **Rule Templates** | Define compliance requirements linked to regulations | Design attributes, Operations events |
+| **Readiness Profiles** | Bundle rules for market entry requirements | Product versions, Batch releases |
+| **PreFlight Service** | Real-time compliance evaluation | Design save, Batch release, DPP provisioning |
+| **Soft Gates** | Advisory blockers with acknowledgment workflow | Version release, DPP snapshot |
+| **Forensic Seal** | Tiered audit view of compliance decisions | Public DPP (Level 3) |
+
+> **Full Design:** See [Regulatory Advisor](./13-regulatory-advisor.md) for complete specification.
 
 ### The Hub (Product as Shared Entity)
 
@@ -561,7 +587,111 @@ export class OutboxEvent {
 
 ---
 
-## 8. Verifiable Credentials
+## 8. Regulation Layer (Regulatory Advisor)
+
+The Regulation Layer provides compliance guidance across all workspaces, transforming EuroComply from a pure data management platform into an intelligent compliance advisor.
+
+> **Full Design:** See [Regulatory Advisor](./13-regulatory-advisor.md) for complete specification.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         REGULATION LAYER ARCHITECTURE                        │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  PUBLIC SCHEMA (Platform-Managed)                                           │
+│  ═══════════════════════════════                                             │
+│  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐          │
+│  │ Regulation       │  │ Regulation       │  │ Marketplace      │          │
+│  │ Documents        │──│ Anchors          │  │ Listings         │          │
+│  │ (PDFs, versions) │  │ (highlighted     │  │ (published       │          │
+│  │                  │  │  text coords)    │  │  templates)      │          │
+│  └──────────────────┘  └──────────────────┘  └──────────────────┘          │
+│           │                     │                     │                     │
+│           └─────────────────────┴─────────────────────┘                     │
+│                                 │                                           │
+│                    (ID references to public schema)                         │
+│                                 │                                           │
+│  TENANT SCHEMA (Organization-Specific)                                      │
+│  ═════════════════════════════════════                                       │
+│  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐          │
+│  │ Rule Templates   │  │ Readiness        │  │ Reason Codes     │          │
+│  │ (compliance      │──│ Profiles         │──│ (deviation       │          │
+│  │  rules)          │  │ (rule bundles)   │  │  explanations)   │          │
+│  └──────────────────┘  └──────────────────┘  └──────────────────┘          │
+│           │                     │                     │                     │
+│           ▼                     ▼                     ▼                     │
+│  ┌──────────────────────────────────────────────────────────────────────┐  │
+│  │                      PREFLIGHT SERVICE                                │  │
+│  │  • Evaluates products/batches against readiness profiles             │  │
+│  │  • Returns findings with severity (BLOCKER/WARNING/INFO)             │  │
+│  │  • Links findings to regulation anchors (PDF highlights)             │  │
+│  └──────────────────────────────────────────────────────────────────────┘  │
+│           │                                                                  │
+│           ▼                                                                  │
+│  ┌──────────────────────────────────────────────────────────────────────┐  │
+│  │                        SOFT GATE WORKFLOW                             │  │
+│  │  • PASS → Continue normally                                          │  │
+│  │  • WARNINGS → Continue with warnings in audit trail                  │  │
+│  │  • BLOCKERS → Require acknowledgment before proceeding               │  │
+│  │              (reason code + narrative explanation)                   │  │
+│  └──────────────────────────────────────────────────────────────────────┘  │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Integration Points
+
+| Workspace | Integration | Trigger |
+|-----------|-------------|---------|
+| **Design** | Attribute validation against rules | Design version save |
+| **Design** | Soft gate on version release | Release action |
+| **Operations** | Batch compliance check | Batch creation |
+| **Compliance** | PreFlight before DPP provisioning | BATCH_RELEASED event |
+| **Compliance** | Forensic seal in Level 3 view | Auditor access |
+
+### Template Ownership Model
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          TEMPLATE HIERARCHY                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  TIER 1: SYSTEM RULES (EuroComply-managed)                                  │
+│  ─────────────────────────────────────────                                   │
+│  • Published by EuroComply compliance team                                  │
+│  • Stored in public schema                                                  │
+│  • Linked to official regulation documents                                  │
+│  • Auto-update when regulations change                                      │
+│                                                                              │
+│  TIER 2: MARKETPLACE TEMPLATES                                              │
+│  ────────────────────────────────                                            │
+│  • Published by verified compliance consultants                             │
+│  • Stored in publisher's tenant schema                                      │
+│  • Available for adoption by other organizations                            │
+│  • Revenue share: 70% publisher / 30% platform                              │
+│                                                                              │
+│  TIER 3: ORGANIZATION RULES (Private Brand)                                 │
+│  ──────────────────────────────────────────                                  │
+│  • Custom rules for organization-specific requirements                      │
+│  • Can extend or override marketplace templates                             │
+│  • Not visible to other organizations                                       │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Event Types
+
+**Regulatory Advisor Events:**
+- `RuleTemplateCreated`, `RuleTemplateUpdated`, `RuleTemplateDeprecated`
+- `ReadinessProfileCreated`, `ReadinessProfileUpdated`
+- `PreFlightEvaluated`, `DeviationAcknowledged`, `SoftGateCleared`
+- `TemplateAdopted`, `TemplatePublishedToMarketplace`
+
+---
+
+## 9. Verifiable Credentials
 
 ### Signing Flow
 
@@ -651,7 +781,7 @@ export class StatusListEntry {
 
 ---
 
-## 9. Data Storage
+## 10. Data Storage
 
 ### Polyglot Persistence
 
@@ -707,7 +837,7 @@ GSIs:
 
 ---
 
-## 10. DPP Generation
+## 11. DPP Generation
 
 ### Deduplicated Storage
 
@@ -761,7 +891,7 @@ Performance: 1M DPPs in ~2 minutes (20 workers)
 
 ---
 
-## 11. Infrastructure
+## 12. Infrastructure
 
 ### AWS + Cloudflare Hybrid
 
@@ -812,7 +942,7 @@ EXTERNAL SERVICES
 
 ---
 
-## 12. Security
+## 13. Security
 
 ### Defense in Depth
 
@@ -849,7 +979,7 @@ AWS KMS Master Key (per-cell)
 
 ---
 
-## 13. Future Scale Considerations
+## 14. Future Scale Considerations
 
 ### PgBouncer Connection Limits
 
@@ -882,6 +1012,7 @@ AWS KMS Master Key (per-cell)
 | [Data Model](./02-data-model.md) | MikroORM entities |
 | [Security](./03-security.md) | Auth, RBAC, encryption |
 | [Infrastructure](./11-infrastructure.md) | AWS, Cloudflare setup |
+| [Regulatory Advisor](./13-regulatory-advisor.md) | Rule templates, compliance layer |
 
 ---
 
@@ -889,4 +1020,5 @@ AWS KMS Master Key (per-cell)
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.1 | 2026-01-21 | Added Regulation Layer (Section 8); Regulatory Advisor cross-cutting layer; template ownership model; soft gate workflow |
 | 2.0 | 2026-01-21 | Rewritten for MikroORM, JWT-based tenant context, parallel migrations |

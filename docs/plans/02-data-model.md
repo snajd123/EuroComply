@@ -13,8 +13,12 @@ EuroComply uses MikroORM with PostgreSQL for relational data. This document defi
 
 ```
 eurocomply database
-├── public                      -- Shared tables
-│   └── organizations           -- Tenant registry only
+├── public                      -- Shared tables (platform-managed)
+│   ├── organizations           -- Tenant registry
+│   ├── regulation_documents    -- Official regulation PDFs
+│   ├── regulation_anchors      -- Highlighted text coordinates
+│   ├── marketplace_listings    -- Published templates
+│   └── ingestion_jobs          -- PDF processing jobs
 │
 └── tenant_{slug}               -- Per-tenant data
     ├── users
@@ -29,15 +33,26 @@ eurocomply database
     ├── audit_log
     ├── status_lists
     ├── status_list_entries
-    └── readiness_profiles
+    ├── rule_templates          -- Compliance rules (org-specific)
+    ├── reason_codes            -- Deviation justifications
+    ├── readiness_profiles      -- Rule collections
+    ├── readiness_profile_rules -- Profile-rule join with overrides
+    ├── rule_deviations         -- Acknowledged gaps per DPP
+    └── template_adoptions      -- Marketplace adoptions
 ```
 
 ### Entity Location
 
 | Entity | Schema | Reason |
 |--------|--------|--------|
-| Organization | `public` (hardcoded) | Tenant registry, routing |
-| All others | `tenant_{slug}` (dynamic) | Tenant isolation |
+| Organization | `public` | Tenant registry, routing |
+| RegulationDocument | `public` | Shared across all tenants |
+| RegulationAnchor | `public` | Shared legal references |
+| MarketplaceListing | `public` | Discoverable by all tenants |
+| RuleTemplate (SYSTEM) | `public` | Platform-managed rules |
+| ReasonCode (SYSTEM) | `public` | Platform-managed codes |
+| RuleTemplate (ORG) | `tenant_{slug}` | Tenant-specific rules |
+| All others | `tenant_{slug}` | Tenant isolation |
 
 ---
 
@@ -115,6 +130,257 @@ CREATE TABLE public.organizations (
 
 CREATE INDEX idx_organizations_cell ON public.organizations(cell_id);
 CREATE INDEX idx_organizations_tier ON public.organizations(subscription_tier);
+```
+
+### RegulationDocument
+
+Official regulation PDFs stored in R2, shared across all tenants.
+
+```typescript
+// packages/db/src/entities/RegulationDocument.ts
+import { Entity, PrimaryKey, Property, OneToMany, Collection, Index } from '@mikro-orm/core';
+
+@Entity({ tableName: 'regulation_documents', schema: 'public' })
+@Index({ properties: ['version'] })
+export class RegulationDocument {
+  @PrimaryKey()
+  id!: string;
+
+  @Property()
+  title!: string; // "ESPR - Ecodesign for Sustainable Products Regulation"
+
+  @Property()
+  version!: string; // "EU 2024/1781"
+
+  @Property({ name: 'r2_path' })
+  r2Path!: string; // Path to immutable PDF in R2
+
+  @Property({ name: 'content_hash', length: 64 })
+  contentHash!: string; // SHA-256 hash for version pinning
+
+  @Property({ name: 'effective_date' })
+  effectiveDate!: Date;
+
+  @Property({ name: 'sunset_date', nullable: true })
+  sunsetDate?: Date;
+
+  @Property({ name: 'total_pages' })
+  totalPages!: number;
+
+  @Property({ type: 'jsonb', nullable: true })
+  metadata?: {
+    jurisdiction: string;
+    regulationType: string;
+    officialJournalRef?: string;
+  };
+
+  @Property({ name: 'is_active', default: true })
+  isActive!: boolean;
+
+  @OneToMany(() => RegulationAnchor, anchor => anchor.document)
+  anchors = new Collection<RegulationAnchor>(this);
+
+  @Property({ name: 'created_at' })
+  createdAt: Date = new Date();
+
+  @Property({ name: 'updated_at', onUpdate: () => new Date() })
+  updatedAt: Date = new Date();
+}
+```
+
+### RegulationAnchor
+
+Links specific text passages to coordinates in regulation PDFs.
+
+```typescript
+// packages/db/src/entities/RegulationAnchor.ts
+import { Entity, PrimaryKey, Property, ManyToOne, Enum, Index, Unique } from '@mikro-orm/core';
+import { RegulationDocument } from './RegulationDocument.js';
+
+export enum AnchorStatus {
+  DRAFT = 'DRAFT',
+  VERIFIED = 'VERIFIED',
+  TENANT = 'TENANT',
+}
+
+@Entity({ tableName: 'regulation_anchors', schema: 'public' })
+@Unique({ properties: ['document', 'legalReference'] }) // Prevent duplicate anchors per document
+@Index({ properties: ['document', 'legalReference'] })
+export class RegulationAnchor {
+  @PrimaryKey()
+  id!: string;
+
+  @ManyToOne(() => RegulationDocument, { name: 'document_id' })
+  document!: RegulationDocument;
+
+  @Property({ name: 'legal_reference', length: 100 })
+  legalReference!: string; // "Article 7, Paragraph 2(a)"
+
+  @Property({ name: 'text_snippet', type: 'text' })
+  textSnippet!: string;
+
+  @Property({ type: 'jsonb' })
+  coordinates!: {
+    page: number;
+    x: number;      // Percentage (0-100)
+    y: number;      // Percentage (0-100)
+    width: number;
+    height: number;
+  };
+
+  @Enum(() => AnchorStatus)
+  status!: AnchorStatus;
+
+  @Property({ name: 'verified_by', nullable: true })
+  verifiedBy?: string;
+
+  @Property({ name: 'verified_at', nullable: true })
+  verifiedAt?: Date;
+
+  @Property({ name: 'created_at' })
+  createdAt: Date = new Date();
+}
+```
+
+### MarketplaceListing
+
+Published templates available for adoption by tenants.
+
+```typescript
+// packages/db/src/entities/MarketplaceListing.ts
+import { Entity, PrimaryKey, Property, ManyToOne, Enum, Index } from '@mikro-orm/core';
+import { Organization } from './Organization.js';
+
+export enum ListingType {
+  READINESS_PROFILE = 'READINESS_PROFILE',
+  RULE_TEMPLATE = 'RULE_TEMPLATE',
+  REASON_CODE_SET = 'REASON_CODE_SET',
+}
+
+export enum ListingStatus {
+  DRAFT = 'DRAFT',
+  PENDING_REVIEW = 'PENDING_REVIEW',
+  PUBLISHED = 'PUBLISHED',
+  DEPRECATED = 'DEPRECATED',
+}
+
+@Entity({ tableName: 'marketplace_listings', schema: 'public' })
+@Index({ properties: ['status', 'type'] })
+export class MarketplaceListing {
+  @PrimaryKey()
+  id!: string;
+
+  @ManyToOne(() => Organization, { name: 'publisher_id' })
+  publisher!: Organization;
+
+  @Enum(() => ListingType)
+  type!: ListingType;
+
+  @Property()
+  title!: string;
+
+  @Property({ type: 'text' })
+  description!: string;
+
+  @Property({ type: 'jsonb' })
+  metadata!: {
+    industry: string[];
+    regulations: string[];
+    version: string;
+  };
+
+  @Property({ name: 'linked_entity_type', length: 50 })
+  linkedEntityType!: string;
+
+  @Property({ name: 'linked_entity_id', length: 30 })
+  linkedEntityId!: string;
+
+  @Enum(() => ListingStatus)
+  status!: ListingStatus;
+
+  @Property({ nullable: true })
+  price?: number; // EUR cents, NULL = free
+
+  @Property({ name: 'adoption_count', default: 0 })
+  adoptionCount!: number;
+
+  @Property({ name: 'published_at', nullable: true })
+  publishedAt?: Date;
+
+  @Property({ name: 'created_at' })
+  createdAt: Date = new Date();
+
+  @Property({ name: 'updated_at', onUpdate: () => new Date() })
+  updatedAt: Date = new Date();
+}
+```
+
+**Public Schema DDL:**
+
+```sql
+-- Regulation documents (official PDFs)
+CREATE TABLE public.regulation_documents (
+    id VARCHAR(30) PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    version VARCHAR(50) NOT NULL,
+    r2_path VARCHAR(500) NOT NULL,
+    content_hash VARCHAR(64) NOT NULL,
+    effective_date DATE NOT NULL,
+    sunset_date DATE,
+    total_pages INT NOT NULL,
+    metadata JSONB,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_regulation_documents_version ON public.regulation_documents(version);
+CREATE INDEX idx_regulation_documents_active ON public.regulation_documents(is_active);
+
+-- Regulation anchors (highlighted text coordinates)
+CREATE TABLE public.regulation_anchors (
+    id VARCHAR(30) PRIMARY KEY,
+    document_id VARCHAR(30) NOT NULL REFERENCES public.regulation_documents(id),
+    legal_reference VARCHAR(100) NOT NULL,
+    text_snippet TEXT NOT NULL,
+    coordinates JSONB NOT NULL,
+    status VARCHAR(20) NOT NULL,
+    verified_by VARCHAR(30),
+    verified_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(document_id, legal_reference) -- Prevent duplicate anchors from AI ingestion
+);
+
+CREATE INDEX idx_regulation_anchors_document ON public.regulation_anchors(document_id);
+CREATE INDEX idx_regulation_anchors_status ON public.regulation_anchors(status);
+
+-- Marketplace listings
+CREATE TABLE public.marketplace_listings (
+    id VARCHAR(30) PRIMARY KEY,
+    publisher_id VARCHAR(30) NOT NULL REFERENCES public.organizations(id),
+    type VARCHAR(30) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    description TEXT NOT NULL,
+    metadata JSONB NOT NULL,
+    linked_entity_type VARCHAR(50) NOT NULL,
+    linked_entity_id VARCHAR(30) NOT NULL,
+    status VARCHAR(20) NOT NULL,
+    price INT,
+    adoption_count INT DEFAULT 0,
+    published_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_marketplace_listings_status ON public.marketplace_listings(status, type);
+CREATE INDEX idx_marketplace_listings_publisher ON public.marketplace_listings(publisher_id);
+
+-- Adoption count update function (called from application layer)
+-- Note: Cross-schema triggers are complex; use application-level atomic updates:
+-- BEGIN;
+--   INSERT INTO tenant_{slug}.template_adoptions (...);
+--   UPDATE public.marketplace_listings SET adoption_count = adoption_count + 1 WHERE id = $listing_id;
+-- COMMIT;
 ```
 
 ---
@@ -574,9 +840,11 @@ export class BomEntry {
 
 ```typescript
 // packages/db/src/entities/DppSnapshot.ts
-import { Entity, PrimaryKey, Property, ManyToOne, Enum, Unique } from '@mikro-orm/core';
+import { Entity, PrimaryKey, Property, ManyToOne, OneToMany, Collection, Enum, Unique } from '@mikro-orm/core';
 import { Product } from './Product.js';
 import { ProductVersion } from './ProductVersion.js';
+import { ReadinessProfile } from './ReadinessProfile.js';
+import { RuleDeviation } from './RuleDeviation.js';
 
 export enum DppStatus {
   COMMISSIONED = 'COMMISSIONED',   // Serial assigned, not yet provisioned
@@ -618,9 +886,32 @@ export class DppSnapshot {
   @Property({ name: 'qr_code_url', nullable: true })
   qrCodeUrl?: string;
 
+  // --- Compliance Profile (frozen at mint time) ---
+  @ManyToOne(() => ReadinessProfile, { nullable: true, name: 'profile_id' })
+  profile?: ReadinessProfile;
+
+  @Property({ name: 'profile_version', nullable: true })
+  profileVersion?: number; // Frozen version number
+
+  @Property({ name: 'profile_audit_label', nullable: true })
+  profileAuditLabel?: string; // "Acme Corp v2.0 (Based on ESPR v2025.1)"
+
+  // Acknowledged deviations at mint time
+  @OneToMany(() => RuleDeviation, d => d.dpp)
+  deviations = new Collection<RuleDeviation>(this);
+
   // Snapshot of data at issuance time
   @Property({ type: 'jsonb', nullable: true })
   snapshot?: Record<string, unknown>;
+
+  // Frozen compliance summary for Forensic Seal
+  @Property({ type: 'jsonb', nullable: true })
+  complianceSummary?: {
+    totalRules: number;
+    passed: number;
+    deviations: number;
+    evaluatedAt: Date;
+  };
 
   @Property({ name: 'created_at' })
   createdAt: Date = new Date();
@@ -779,34 +1070,389 @@ export class StatusListEntry {
 }
 ```
 
-### ReadinessProfile
+### RuleTemplate
+
+Compliance rules with legal anchoring and temporal activation. See [Regulatory Advisor](./13-regulatory-advisor.md) for full design.
 
 ```typescript
-// packages/db/src/entities/ReadinessProfile.ts
-import { Entity, PrimaryKey, Property } from '@mikro-orm/core';
+// packages/db/src/entities/RuleTemplate.ts
+import { Entity, PrimaryKey, Property, ManyToOne, Enum, Index, Unique } from '@mikro-orm/core';
+import { Organization } from './Organization.js';
 
-@Entity({ tableName: 'readiness_profiles' })
-export class ReadinessProfile {
+export enum RuleSeverity {
+  BLOCKER = 'BLOCKER',
+  WARNING = 'WARNING',
+  INFO = 'INFO',
+}
+
+export enum RuleScope {
+  SYSTEM = 'SYSTEM',
+  MARKETPLACE = 'MARKETPLACE',
+  ORGANIZATION = 'ORGANIZATION',
+}
+
+export enum RuleType {
+  ATTRIBUTE = 'ATTRIBUTE',
+  PROCESS = 'PROCESS',
+}
+
+export enum RuleCategory {
+  DESIGN = 'DESIGN',
+  OPERATIONS = 'OPERATIONS',
+  MARKETING = 'MARKETING',
+  COMPLIANCE = 'COMPLIANCE',
+}
+
+@Entity({ tableName: 'rule_templates' })
+@Unique({ properties: ['organization', 'code'] })
+@Index({ properties: ['scope', 'ruleCategory'] })
+@Index({ properties: ['activeFrom', 'activeUntil'] })
+export class RuleTemplate {
   @PrimaryKey()
   id!: string;
+
+  // Ownership: NULL = System Rule (public schema), SET = Org Rule (tenant schema)
+  @ManyToOne(() => Organization, { nullable: true, name: 'organization_id' })
+  organization?: Organization;
+
+  @Property({ length: 100 })
+  code!: string;
 
   @Property()
   name!: string;
 
-  @Property()
-  regulation!: string;  // 'ESPR', 'BATTERY_REG', etc.
+  @Property({ type: 'text', nullable: true })
+  description?: string;
 
-  @Property({ name: 'product_category', nullable: true })
-  productCategory?: string;
+  @Enum(() => RuleScope)
+  scope!: RuleScope;
 
-  @Property({ type: 'jsonb' })
-  requirements!: Record<string, unknown>;
+  @Enum(() => RuleType)
+  type!: RuleType;
+
+  @Enum(() => RuleCategory)
+  @Property({ name: 'rule_category' })
+  ruleCategory!: RuleCategory;
+
+  @Enum(() => RuleSeverity)
+  severity!: RuleSeverity;
+
+  // Reference to public.regulation_anchors (cross-schema)
+  @Property({ name: 'legal_anchor_id', nullable: true })
+  legalAnchorId?: string;
+
+  // For ATTRIBUTE rules: reference to attribute_template
+  @Property({ name: 'attribute_template_id', nullable: true })
+  attributeTemplateId?: string;
+
+  // For PROCESS rules: reference to category
+  @Property({ name: 'category_id', nullable: true })
+  categoryId?: string;
+
+  // Inheritance
+  @Property({ name: 'inherited_from_id', nullable: true })
+  inheritedFromId?: string;
+
+  @Property({ name: 'inherited_from_version', nullable: true })
+  inheritedFromVersion?: number;
+
+  // Temporal activation
+  @Property({ name: 'active_from' })
+  activeFrom!: Date;
+
+  @Property({ name: 'active_until', nullable: true })
+  activeUntil?: Date;
+
+  @Property({ type: 'jsonb', nullable: true })
+  validationLogic?: Record<string, unknown>;
+
+  @Property({ version: true })
+  version!: number;
 
   @Property({ name: 'created_at' })
   createdAt: Date = new Date();
 
   @Property({ name: 'updated_at', onUpdate: () => new Date() })
   updatedAt: Date = new Date();
+}
+```
+
+### ReasonCode
+
+Predefined justifications for rule deviations, scoped by category and regulation.
+
+```typescript
+// packages/db/src/entities/ReasonCode.ts
+import { Entity, PrimaryKey, Property, ManyToOne, Enum, Index, Unique } from '@mikro-orm/core';
+import { Organization } from './Organization.js';
+
+export enum ReasonCodeScope {
+  SYSTEM = 'SYSTEM',
+  MARKETPLACE = 'MARKETPLACE',
+  ORGANIZATION = 'ORGANIZATION',
+}
+
+@Entity({ tableName: 'reason_codes' })
+@Unique({ properties: ['organization', 'code'] })
+@Index({ properties: ['scope', 'categoryId'] })
+export class ReasonCode {
+  @PrimaryKey()
+  id!: string;
+
+  // Ownership: NULL = System Code, SET = Org Code
+  @ManyToOne(() => Organization, { nullable: true, name: 'organization_id' })
+  organization?: Organization;
+
+  @Property({ length: 50 })
+  code!: string;
+
+  @Property({ length: 100 })
+  label!: string;
+
+  @Property({ type: 'text' })
+  description!: string;
+
+  @Enum(() => ReasonCodeScope)
+  scope!: ReasonCodeScope;
+
+  // Scoping
+  @Property({ name: 'category_id', nullable: true })
+  categoryId?: string; // NULL = all categories
+
+  @Property({ name: 'regulation_id', nullable: true })
+  regulationId?: string; // Reference to public.regulation_documents
+
+  @Property({ name: 'requires_narrative', default: false })
+  requiresNarrative!: boolean;
+
+  @Property({ name: 'is_active', default: true })
+  isActive!: boolean;
+
+  @Property({ name: 'created_at' })
+  createdAt: Date = new Date();
+
+  @Property({ name: 'updated_at', onUpdate: () => new Date() })
+  updatedAt: Date = new Date();
+}
+```
+
+### ReadinessProfile
+
+Collections of rules for specific compliance targets. Replaces static JSON requirements with relational rule references.
+
+```typescript
+// packages/db/src/entities/ReadinessProfile.ts
+import { Entity, PrimaryKey, Property, ManyToOne, OneToMany, Collection, Enum, Index, Unique } from '@mikro-orm/core';
+import { Organization } from './Organization.js';
+import { ReadinessProfileRule } from './ReadinessProfileRule.js';
+
+export enum ProfileScope {
+  SYSTEM = 'SYSTEM',
+  MARKETPLACE = 'MARKETPLACE',
+  ORGANIZATION = 'ORGANIZATION',
+}
+
+@Entity({ tableName: 'readiness_profiles' })
+@Unique({ properties: ['organization', 'name'] })
+@Index({ properties: ['scope', 'categoryId'] })
+export class ReadinessProfile {
+  @PrimaryKey()
+  id!: string;
+
+  // Ownership: NULL = System Profile, SET = Org Profile
+  @ManyToOne(() => Organization, { nullable: true, name: 'organization_id' })
+  organization?: Organization;
+
+  @Property()
+  name!: string;
+
+  @Property({ name: 'version_label', length: 50 })
+  versionLabel!: string; // "Standard v2025.1" - human-readable for Forensic Seal
+
+  @Property({ type: 'text', nullable: true })
+  description?: string;
+
+  @Enum(() => ProfileScope)
+  scope!: ProfileScope;
+
+  @Property({ name: 'category_id' })
+  categoryId!: string;
+
+  // Reference to public.regulation_documents
+  @Property({ name: 'primary_regulation_id', nullable: true })
+  primaryRegulationId?: string;
+
+  // Inheritance (for Live Link model)
+  @Property({ name: 'inherited_from_id', nullable: true })
+  inheritedFromId?: string;
+
+  @Property({ name: 'inherited_from_version', nullable: true })
+  inheritedFromVersion?: number;
+
+  @OneToMany(() => ReadinessProfileRule, rule => rule.profile)
+  rules = new Collection<ReadinessProfileRule>(this);
+
+  @Property({ version: true })
+  version!: number;
+
+  @Property({ name: 'created_at' })
+  createdAt: Date = new Date();
+
+  @Property({ name: 'updated_at', onUpdate: () => new Date() })
+  updatedAt: Date = new Date();
+
+  /**
+   * Generate human-readable label for Forensic Seal display.
+   */
+  getAuditLabel(inheritedFromName?: string, inheritedFromVersion?: string): string {
+    if (inheritedFromName) {
+      return `${this.name} ${this.versionLabel} (Based on ${inheritedFromName} ${inheritedFromVersion})`;
+    }
+    return `${this.name} ${this.versionLabel}`;
+  }
+}
+```
+
+### ReadinessProfileRule
+
+Join table linking profiles to rules with override capability.
+
+```typescript
+// packages/db/src/entities/ReadinessProfileRule.ts
+import { Entity, PrimaryKey, Property, ManyToOne, Enum, Index, Unique } from '@mikro-orm/core';
+import { ReadinessProfile } from './ReadinessProfile.js';
+import { RuleTemplate, RuleSeverity } from './RuleTemplate.js';
+
+@Entity({ tableName: 'readiness_profile_rules' })
+@Unique({ properties: ['profile', 'rule'] })
+@Index({ properties: ['profile'] })
+export class ReadinessProfileRule {
+  @PrimaryKey()
+  id!: string;
+
+  @ManyToOne(() => ReadinessProfile, { name: 'profile_id' })
+  profile!: ReadinessProfile;
+
+  @ManyToOne(() => RuleTemplate, { name: 'rule_id' })
+  rule!: RuleTemplate;
+
+  // Override layer (for Live Link model)
+  @Enum({ items: () => RuleSeverity, nullable: true })
+  @Property({ name: 'severity_override', nullable: true })
+  severityOverride?: RuleSeverity;
+
+  @Property({ name: 'active_from_override', nullable: true })
+  activeFromOverride?: Date;
+
+  @Property({ name: 'is_excluded', default: false })
+  isExcluded!: boolean;
+
+  @Property({ name: 'created_at' })
+  createdAt: Date = new Date();
+}
+```
+
+### RuleDeviation
+
+Captures acknowledged gaps when users proceed despite soft gate warnings.
+
+```typescript
+// packages/db/src/entities/RuleDeviation.ts
+import { Entity, PrimaryKey, Property, ManyToOne, Index } from '@mikro-orm/core';
+import { DppSnapshot } from './DppSnapshot.js';
+import { RuleTemplate } from './RuleTemplate.js';
+import { ReasonCode } from './ReasonCode.js';
+import { User } from './User.js';
+
+@Entity({ tableName: 'rule_deviations' })
+@Index({ properties: ['dpp'] })
+@Index({ properties: ['rule'] })
+export class RuleDeviation {
+  @PrimaryKey()
+  id!: string;
+
+  @ManyToOne(() => DppSnapshot, { name: 'dpp_id' })
+  dpp!: DppSnapshot;
+
+  @ManyToOne(() => RuleTemplate, { name: 'rule_id' })
+  rule!: RuleTemplate;
+
+  @Property({ name: 'rule_version' })
+  ruleVersion!: number; // Frozen at time of deviation
+
+  @ManyToOne(() => ReasonCode, { name: 'reason_code_id' })
+  reasonCode!: ReasonCode;
+
+  @Property({ type: 'text', nullable: true })
+  narrative?: string;
+
+  @ManyToOne(() => User, { name: 'acknowledged_by' })
+  acknowledgedBy!: User;
+
+  @Property({ name: 'acknowledged_at' })
+  acknowledgedAt!: Date;
+
+  // AI sanity check
+  @Property({ type: 'jsonb', nullable: true })
+  aiSanityCheck?: {
+    flagged: boolean;
+    warning?: string;
+    reviewedByLegal?: boolean;
+    reviewedAt?: Date;
+  };
+
+  // Legal anchor snapshot (frozen at time of deviation)
+  @Property({ type: 'jsonb', nullable: true })
+  legalAnchorSnapshot?: {
+    reference: string;
+    documentTitle: string;
+    documentVersion: string;
+    textSnippet: string;
+  };
+
+  @Property({ name: 'created_at' })
+  createdAt: Date = new Date();
+}
+```
+
+### TemplateAdoption
+
+Records when tenants adopt marketplace templates.
+
+```typescript
+// packages/db/src/entities/TemplateAdoption.ts
+import { Entity, PrimaryKey, Property, Enum, Index, Unique } from '@mikro-orm/core';
+
+export enum AdoptionMode {
+  LIVE_LINK = 'LIVE_LINK',
+  FORKED = 'FORKED',
+}
+
+@Entity({ tableName: 'template_adoptions' })
+@Unique({ properties: ['listingId'] }) // One adoption per listing per tenant
+@Index({ properties: ['adoptedAt'] })
+export class TemplateAdoption {
+  @PrimaryKey()
+  id!: string;
+
+  // Reference to public.marketplace_listings
+  @Property({ name: 'listing_id' })
+  listingId!: string;
+
+  @Property({ name: 'adopted_at' })
+  adoptedAt!: Date;
+
+  @Property({ name: 'adopted_version', length: 50 })
+  adoptedVersion!: string;
+
+  @Property({ name: 'forked_to_profile_id', nullable: true })
+  forkedToProfileId?: string;
+
+  @Enum(() => AdoptionMode)
+  mode!: AdoptionMode;
+
+  @Property({ name: 'created_at' })
+  createdAt: Date = new Date();
 }
 ```
 
@@ -958,7 +1604,7 @@ CREATE TABLE bom_entries (
     CHECK(parent_product_id != child_product_id)
 );
 
--- DPP snapshots
+-- DPP snapshots (with compliance profile reference)
 CREATE TABLE dpp_snapshots (
     id VARCHAR(30) PRIMARY KEY,
     product_id VARCHAR(30) NOT NULL REFERENCES products(id),
@@ -970,12 +1616,19 @@ CREATE TABLE dpp_snapshots (
     status VARCHAR(20) DEFAULT 'COMMISSIONED',
     r2_path VARCHAR(500) NOT NULL,
     qr_code_url VARCHAR(500),
+    -- Compliance profile (frozen at mint time)
+    profile_id VARCHAR(30) REFERENCES readiness_profiles(id),
+    profile_version INT,
+    profile_audit_label VARCHAR(500), -- "Acme Corp v2.0 (Based on ESPR v2025.1)"
+    -- Data snapshots
     snapshot JSONB,
+    compliance_summary JSONB, -- { totalRules, passed, deviations, evaluatedAt }
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX idx_dpp_snapshots_status ON dpp_snapshots(status);
 CREATE INDEX idx_dpp_snapshots_product ON dpp_snapshots(product_id);
+CREATE INDEX idx_dpp_snapshots_profile ON dpp_snapshots(profile_id);
 
 -- Operations events (forensic ledger)
 CREATE TABLE operations_events (
@@ -1030,16 +1683,118 @@ CREATE TABLE status_list_entries (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Readiness profiles
+-- Rule templates (compliance rules with legal anchoring)
+CREATE TABLE rule_templates (
+    id VARCHAR(30) PRIMARY KEY,
+    organization_id VARCHAR(30), -- NULL = System rule
+    code VARCHAR(100) NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    scope VARCHAR(20) NOT NULL, -- SYSTEM, MARKETPLACE, ORGANIZATION
+    type VARCHAR(20) NOT NULL, -- ATTRIBUTE, PROCESS
+    rule_category VARCHAR(20) NOT NULL, -- DESIGN, OPERATIONS, MARKETING, COMPLIANCE
+    severity VARCHAR(20) NOT NULL, -- BLOCKER, WARNING, INFO
+    legal_anchor_id VARCHAR(30), -- Reference to public.regulation_anchors
+    attribute_template_id VARCHAR(30),
+    category_id VARCHAR(30),
+    inherited_from_id VARCHAR(30),
+    inherited_from_version INT,
+    active_from DATE NOT NULL,
+    active_until DATE,
+    validation_logic JSONB,
+    version INT DEFAULT 1,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(organization_id, code)
+);
+
+CREATE INDEX idx_rule_templates_scope ON rule_templates(scope, rule_category);
+CREATE INDEX idx_rule_templates_active ON rule_templates(active_from, active_until);
+
+-- Reason codes (deviation justifications)
+CREATE TABLE reason_codes (
+    id VARCHAR(30) PRIMARY KEY,
+    organization_id VARCHAR(30), -- NULL = System code
+    code VARCHAR(50) NOT NULL,
+    label VARCHAR(100) NOT NULL,
+    description TEXT NOT NULL,
+    scope VARCHAR(20) NOT NULL,
+    category_id VARCHAR(30),
+    regulation_id VARCHAR(30), -- Reference to public.regulation_documents
+    requires_narrative BOOLEAN DEFAULT false,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(organization_id, code)
+);
+
+CREATE INDEX idx_reason_codes_scope ON reason_codes(scope, category_id);
+
+-- Readiness profiles (rule collections)
 CREATE TABLE readiness_profiles (
     id VARCHAR(30) PRIMARY KEY,
+    organization_id VARCHAR(30), -- NULL = System profile
     name VARCHAR(255) NOT NULL,
-    regulation VARCHAR(50) NOT NULL,
-    product_category VARCHAR(100),
-    requirements JSONB NOT NULL,
+    version_label VARCHAR(50) NOT NULL,
+    description TEXT,
+    scope VARCHAR(20) NOT NULL,
+    category_id VARCHAR(30) NOT NULL,
+    primary_regulation_id VARCHAR(30), -- Reference to public.regulation_documents
+    inherited_from_id VARCHAR(30),
+    inherited_from_version INT,
+    version INT DEFAULT 1,
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(organization_id, name)
 );
+
+CREATE INDEX idx_readiness_profiles_scope ON readiness_profiles(scope, category_id);
+
+-- Readiness profile rules (join table with overrides)
+CREATE TABLE readiness_profile_rules (
+    id VARCHAR(30) PRIMARY KEY,
+    profile_id VARCHAR(30) NOT NULL REFERENCES readiness_profiles(id) ON DELETE CASCADE,
+    rule_id VARCHAR(30) NOT NULL REFERENCES rule_templates(id),
+    severity_override VARCHAR(20),
+    active_from_override DATE,
+    is_excluded BOOLEAN DEFAULT false,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(profile_id, rule_id)
+);
+
+CREATE INDEX idx_readiness_profile_rules_profile ON readiness_profile_rules(profile_id);
+
+-- Rule deviations (acknowledged gaps per DPP)
+CREATE TABLE rule_deviations (
+    id VARCHAR(30) PRIMARY KEY,
+    dpp_id VARCHAR(30) NOT NULL REFERENCES dpp_snapshots(id) ON DELETE CASCADE,
+    rule_id VARCHAR(30) NOT NULL REFERENCES rule_templates(id),
+    rule_version INT NOT NULL,
+    reason_code_id VARCHAR(30) NOT NULL REFERENCES reason_codes(id),
+    narrative TEXT,
+    acknowledged_by VARCHAR(30) NOT NULL REFERENCES users(id),
+    acknowledged_at TIMESTAMPTZ NOT NULL,
+    ai_sanity_check JSONB,
+    legal_anchor_snapshot JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_rule_deviations_dpp ON rule_deviations(dpp_id);
+CREATE INDEX idx_rule_deviations_rule ON rule_deviations(rule_id);
+
+-- Template adoptions (marketplace)
+CREATE TABLE template_adoptions (
+    id VARCHAR(30) PRIMARY KEY,
+    listing_id VARCHAR(30) NOT NULL, -- Reference to public.marketplace_listings
+    adopted_at TIMESTAMPTZ NOT NULL,
+    adopted_version VARCHAR(50) NOT NULL,
+    forked_to_profile_id VARCHAR(30),
+    mode VARCHAR(20) NOT NULL, -- LIVE_LINK, FORKED
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(listing_id)
+);
+
+CREATE INDEX idx_template_adoptions_adopted ON template_adoptions(adopted_at);
 
 -- Audit log
 CREATE TABLE audit_log (
@@ -1064,41 +1819,67 @@ CREATE INDEX idx_audit_log_created ON audit_log(created_at);
 ## 5. Entity Relationships
 
 ```
-Organization (public)
-    |
-    +-- (routing only, no FK)
-    |
-    v
-User (tenant)
-    |
-    +-- OrganizationUser (membership + authorities)
-    |
-    +-- ProductVersion.createdBy
-    +-- ProductVersion.reviewer
-    +-- ProductVersion.publishedBy
-    +-- Product.designCheckedOutBy
-    +-- Product.marketingCheckedOutBy
-    +-- AuditLog.user
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          PUBLIC SCHEMA                                       │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Organization ─────────────────────┬──────────────────────────────────────  │
+│       |                            |                                         │
+│       +── MarketplaceListing[]     +── (routing to tenant schemas)          │
+│                                                                              │
+│  RegulationDocument                                                          │
+│       |                                                                      │
+│       +── RegulationAnchor[]                                                │
+│              |                                                               │
+│              +── (referenced by RuleTemplate.legalAnchorId)                 │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
 
-Product (tenant)
-    |
-    +-- ProductIdentifier[] (GTIN, SKU, etc.)
-    |
-    +-- ProductVersion[] (per-workspace versions)
-    |       |
-    |       +-- BomEntry[] (materials/components)
-    |       +-- DppSnapshot.designVersion
-    |       +-- DppSnapshot.marketingVersion
-    |
-    +-- Product[] (variants via parent_id)
-    |
-    +-- BomEntry[] (as parent or child)
-    |
-    +-- DppSnapshot[]
-
-StatusList (tenant)
-    |
-    +-- StatusListEntry[] (credential revocations)
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          TENANT SCHEMA                                       │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  User                                                                        │
+│       |                                                                      │
+│       +── OrganizationUser (membership + authorities)                       │
+│       +── ProductVersion.createdBy / reviewer / publishedBy                 │
+│       +── RuleDeviation.acknowledgedBy                                      │
+│       +── AuditLog.user                                                     │
+│                                                                              │
+│  Product                                                                     │
+│       |                                                                      │
+│       +── ProductIdentifier[] (GTIN, SKU, etc.)                             │
+│       +── ProductVersion[] (per-workspace versions)                         │
+│       |       +── BomEntry[]                                                │
+│       |       +── DppSnapshot.designVersion / marketingVersion              │
+│       +── Product[] (variants via parent_id)                                │
+│       +── DppSnapshot[]                                                     │
+│                                                                              │
+│  RuleTemplate ◄─────── ReadinessProfileRule ───────► ReadinessProfile       │
+│       |                     (overrides)                    |                 │
+│       +── legalAnchorId → public.regulation_anchors        +── DppSnapshot  │
+│       +── attributeTemplateId → attribute_template                          │
+│       +── inheritedFromId (Live Link)                                       │
+│                                                                              │
+│  ReasonCode                                                                  │
+│       |                                                                      │
+│       +── RuleDeviation.reasonCode                                          │
+│                                                                              │
+│  DppSnapshot                                                                 │
+│       |                                                                      │
+│       +── RuleDeviation[] (acknowledged gaps)                               │
+│       +── profile → ReadinessProfile (frozen at mint)                       │
+│       +── complianceSummary (frozen audit result)                           │
+│                                                                              │
+│  TemplateAdoption                                                           │
+│       |                                                                      │
+│       +── listingId → public.marketplace_listings                           │
+│       +── forkedToProfileId → ReadinessProfile                              │
+│                                                                              │
+│  StatusList                                                                  │
+│       +── StatusListEntry[] (credential revocations)                        │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -1131,6 +1912,7 @@ const id = createId();
 | [Security](./03-security.md) | Data encryption, access control |
 | [Design Workspace](./05-design-workspace.md) | Product, BOM entities in context |
 | [Compliance Workspace](./08-compliance-workspace.md) | DPP, StatusList entities in context |
+| [Regulatory Advisor](./13-regulatory-advisor.md) | Template engine, soft gates, forensic seal |
 
 ---
 
@@ -1138,4 +1920,5 @@ const id = createId();
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.0 | 2026-01-21 | Added Regulatory Advisor entities: RegulationDocument, RegulationAnchor, RuleTemplate, ReasonCode, ReadinessProfile (relational), RuleDeviation, MarketplaceListing, TemplateAdoption; Updated DppSnapshot with compliance profile; Public schema expansion |
 | 2.0 | 2026-01-21 | Complete MikroORM entities, PENDING_DELETION status, DECIMAL(12,4) for BOM, multi-tenant user sync |

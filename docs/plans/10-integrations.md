@@ -1971,6 +1971,7 @@ Retailers need free access to display DPPs on their product pages.
 | [Compliance Workspace](./08-compliance-workspace.md) | DPP issuance |
 | [Verifiable Credentials](./09-verifiable-credentials.md) | VC structure, signing |
 | [Billing](./12-billing.md) | API usage metering |
+| [Regulatory Advisor](./13-regulatory-advisor.md) | PDF.js viewer, AI regulation ingestion |
 
 ---
 

@@ -273,6 +273,16 @@ export class DPPSnapshot extends BaseEntity {
   decommissionedAt?: Date;
 
   // ─────────────────────────────────────────────────────────────
+  // COMPLIANCE PROFILE (Regulatory Advisor Integration)
+  // See: docs/plans/13-regulatory-advisor.md
+  // ─────────────────────────────────────────────────────────────
+  @ManyToOne(() => ReadinessProfile, { nullable: true })
+  readinessProfile?: ReadinessProfile;
+
+  @Property({ type: 'jsonb', nullable: true })
+  complianceSnapshot?: ComplianceProfileSnapshot;
+
+  // ─────────────────────────────────────────────────────────────
   // RECALL HANDLING
   // ─────────────────────────────────────────────────────────────
   @ManyToOne(() => Recall, { nullable: true })
@@ -375,6 +385,57 @@ interface RecallOverlayData {
   consumerAction: string;
   recalledAt: string;
   issuedBy: string;
+}
+
+// ─────────────────────────────────────────────────────────────
+// COMPLIANCE PROFILE SNAPSHOT (Regulatory Advisor)
+// Frozen at DPP provisioning for forensic audit trail
+// ─────────────────────────────────────────────────────────────
+
+interface ComplianceProfileSnapshot {
+  profileId: string;
+  profileName: string;           // "EU Market Entry - ESPR"
+  profileVersion: string;        // "v2.3"
+  evaluatedAt: string;           // ISO timestamp
+
+  // Overall compliance status
+  overallStatus: 'PASS' | 'PASS_WITH_WARNINGS' | 'PASS_WITH_DEVIATIONS';
+
+  // Summary counts
+  ruleCount: number;
+  passCount: number;
+  warningCount: number;
+  blockerCount: number;          // Should be 0 if PASS_WITH_DEVIATIONS
+
+  // All deviations must be documented to reach PROVISIONED
+  deviations: DeviationSnapshot[];
+
+  // Full rule evaluation results for forensic audit
+  ruleEvaluations: RuleEvaluationSnapshot[];
+}
+
+interface DeviationSnapshot {
+  ruleId: string;
+  ruleName: string;
+  severity: 'BLOCKER' | 'WARNING';
+  reasonCodeId: string;
+  reasonLabel: string;
+  narrative: string;
+  acknowledgedBy: string;        // User ID
+  acknowledgedAt: string;        // ISO timestamp
+  regulationReference?: string;  // "ESPR Art. 5(2)"
+}
+
+interface RuleEvaluationSnapshot {
+  ruleId: string;
+  ruleName: string;
+  ruleCategory: string;
+  severity: 'BLOCKER' | 'WARNING' | 'INFO';
+  status: 'PASS' | 'FAIL' | 'SKIPPED';
+  actualValue?: string;
+  expectedValue?: string;
+  regulationAnchorId?: string;
+  legalReference?: string;
 }
 ```
 
@@ -1579,6 +1640,140 @@ async function verifyMerkleProof(
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
+### Level 3 Forensic Seal - Compliance Audit View
+
+> **Reference:** See [Regulatory Advisor](./13-regulatory-advisor.md) for complete compliance profile design.
+
+For authenticated auditors, Level 3 includes a tiered compliance audit view that presents compliance information in progressive detail:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    FORENSIC SEAL - COMPLIANCE AUDIT VIEW                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  TIER 1: EXCEPTION SUMMARY (Default View)                                   │
+│  ═══════════════════════════════════════                                     │
+│                                                                              │
+│  Readiness Profile: EU Market Entry - ESPR v2.3                             │
+│  Evaluated: 2026-01-15T14:32:00Z                                            │
+│  Status: PASS_WITH_DEVIATIONS (47 rules, 2 deviations)                      │
+│                                                                              │
+│  ┌────────────────────────────────────────────────────────────────────┐     │
+│  │  ⚠️  DOCUMENTED DEVIATIONS                                          │     │
+│  ├────────────────────────────────────────────────────────────────────┤     │
+│  │                                                                     │     │
+│  │  1. Recycled Content Below Threshold                               │     │
+│  │     Rule: MIN_RECYCLED_CONTENT | Severity: BLOCKER                 │     │
+│  │     Expected: ≥25% | Actual: 18%                                   │     │
+│  │     Regulation: ESPR Article 5(2) [📖 View]                        │     │
+│  │     Reason: PENDING_SUPPLIER_TRANSITION                            │     │
+│  │     "Supplier upgrading to recycled feedstock in Q2 2026.          │     │
+│  │      Current batch uses legacy material from existing inventory."  │     │
+│  │     Acknowledged: Jane Smith (jane@brand.com) @ 2026-01-15         │     │
+│  │                                                                     │     │
+│  │  2. Carbon Footprint Exceeds Benchmark                             │     │
+│  │     Rule: CARBON_BENCHMARK | Severity: WARNING                     │     │
+│  │     Expected: ≤10.0 kg CO₂e | Actual: 12.5 kg CO₂e                │     │
+│  │     Regulation: PEF Category Rules [📖 View]                       │     │
+│  │     Reason: OTHER                                                  │     │
+│  │     "Industry benchmark based on 2024 data; our facility uses      │     │
+│  │      renewable energy but grid carbon factor still high."          │     │
+│  │     Acknowledged: Jane Smith (jane@brand.com) @ 2026-01-15         │     │
+│  │                                                                     │     │
+│  └────────────────────────────────────────────────────────────────────┘     │
+│                                                                              │
+│  [ Expand to Rule Matrix ] [ View Full Timeline ]                           │
+│                                                                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  TIER 2: RULE MATRIX (Expanded View)                                        │
+│  ═══════════════════════════════════                                         │
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │ Category           │ Rule                  │ Status │ Value        │    │
+│  ├─────────────────────────────────────────────────────────────────────┤    │
+│  │ Material Compliance                                                 │    │
+│  │                    │ MIN_RECYCLED_CONTENT  │ ⚠️ DEV │ 18% (≥25%)   │    │
+│  │                    │ HAZARDOUS_SUBSTANCES  │ ✓ PASS │ None detected│    │
+│  │                    │ REACH_SVHC            │ ✓ PASS │ Compliant    │    │
+│  ├─────────────────────────────────────────────────────────────────────┤    │
+│  │ Environmental                                                       │    │
+│  │                    │ CARBON_BENCHMARK      │ ⚠️ DEV │ 12.5 (≤10)   │    │
+│  │                    │ WATER_USAGE           │ ✓ PASS │ 45L (≤100L)  │    │
+│  │                    │ ENERGY_EFFICIENCY     │ ✓ PASS │ A+ rated     │    │
+│  ├─────────────────────────────────────────────────────────────────────┤    │
+│  │ Traceability                                                        │    │
+│  │                    │ ORIGIN_DOCUMENTED     │ ✓ PASS │ 100%         │    │
+│  │                    │ SUPPLIER_VERIFIED     │ ✓ PASS │ All verified │    │
+│  │                    │ CHAIN_OF_CUSTODY      │ ✓ PASS │ Complete     │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                                                              │
+│  Filter: [ All ] [ Deviations Only ] [ By Category ▼ ]                      │
+│                                                                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  TIER 3: AUDIT TIMELINE (Full History)                                      │
+│  ═════════════════════════════════════                                       │
+│                                                                              │
+│  2026-01-15 14:32:00  DPP PROVISIONED                                       │
+│                       Profile: EU Market Entry - ESPR v2.3                   │
+│                       Status: PASS_WITH_DEVIATIONS                          │
+│                       Hash: 0x7f3a...                                       │
+│                                                                              │
+│  2026-01-15 14:30:45  DEVIATION ACKNOWLEDGED                                │
+│                       Rule: CARBON_BENCHMARK                                │
+│                       User: jane@brand.com                                  │
+│                       Reason: OTHER (custom explanation)                    │
+│                                                                              │
+│  2026-01-15 14:28:12  DEVIATION ACKNOWLEDGED                                │
+│                       Rule: MIN_RECYCLED_CONTENT                            │
+│                       User: jane@brand.com                                  │
+│                       Reason: PENDING_SUPPLIER_TRANSITION                   │
+│                                                                              │
+│  2026-01-15 14:25:00  PREFLIGHT EVALUATION                                  │
+│                       Result: 2 Blockers, 0 Warnings                        │
+│                       Action Required: Acknowledge deviations               │
+│                                                                              │
+│  2026-01-14 09:00:00  VERSION RELEASED                                      │
+│                       Design Version: v3.2.1                                │
+│                       Released By: john@brand.com                           │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**API for Forensic Seal:**
+
+```typescript
+// GET /api/v1/dpp/:id/forensic-seal (requires auditor authentication)
+interface ForensicSealResponse {
+  dppId: string;
+  complianceProfile: ComplianceProfileSnapshot;
+
+  // Tiered views
+  exceptionSummary: {
+    profileName: string;
+    profileVersion: string;
+    evaluatedAt: string;
+    overallStatus: string;
+    deviations: DeviationSnapshot[];
+  };
+
+  ruleMatrix: {
+    categories: {
+      name: string;
+      rules: RuleEvaluationSnapshot[];
+    }[];
+  };
+
+  auditTimeline: {
+    timestamp: string;
+    eventType: string;
+    details: Record<string, unknown>;
+    actor?: string;
+  }[];
+}
+```
+
 ### Status-Based Rendering
 
 | DPP Status | Page Content |
@@ -2023,7 +2218,165 @@ POST   /api/v1/compliance/verify/batch            # Batch proof receipts
 
 ---
 
-## 14. Related Documents
+## 14. Regulatory Advisor Integration
+
+The Compliance Workspace integrates with the Regulatory Advisor system to ensure DPPs are only provisioned after compliance evaluation and any deviations are properly documented.
+
+> **Full Design:** See [Regulatory Advisor](./13-regulatory-advisor.md) for complete system specification.
+
+### 14.1 PreFlight Gate in Snapshot Pipeline
+
+Before a DPP can transition from COMMISSIONED to PROVISIONED, the PreFlight service must evaluate the product against the organization's readiness profile:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    DPP SNAPSHOT PIPELINE WITH SOFT GATE                      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  BATCH_RELEASED event                                                       │
+│         │                                                                    │
+│         ▼                                                                    │
+│  ┌─────────────────┐                                                        │
+│  │  Gather Data    │  Design + Marketing + Operations                       │
+│  │  from 3         │                                                        │
+│  │  Workspaces     │                                                        │
+│  └────────┬────────┘                                                        │
+│           │                                                                  │
+│           ▼                                                                  │
+│  ┌─────────────────┐     ┌───────────────────────────────────────────────┐ │
+│  │  PreFlight      │────▶│  SOFT GATE EVALUATION                         │ │
+│  │  Evaluation     │     │                                                │ │
+│  └────────┬────────┘     │  ✓ PASS → Continue to snapshot                │ │
+│           │              │  ⚠️ WARNINGS → Continue with warnings frozen   │ │
+│           │              │  ⛔ BLOCKERS → Require acknowledgment          │ │
+│           │              │                                                │ │
+│           │              │  User can:                                     │ │
+│           │              │  1. Fix issues and re-evaluate                 │ │
+│           │              │  2. Acknowledge with reason + narrative        │ │
+│           │              │  3. Request exemption (escalation path)        │ │
+│           │              └───────────────────────────────────────────────┘ │
+│           │                                                                  │
+│           ▼                                                                  │
+│  ┌─────────────────┐                                                        │
+│  │  Create         │  Freeze compliance profile in snapshot                 │
+│  │  Compliance     │  (immutable audit trail)                               │
+│  │  Snapshot       │                                                        │
+│  └────────┬────────┘                                                        │
+│           │                                                                  │
+│           ▼                                                                  │
+│  ┌─────────────────┐                                                        │
+│  │  Sign &         │  Brand's DID signs full bundle                        │
+│  │  Timestamp      │  (design + marketing + operations + compliance)       │
+│  └────────┬────────┘                                                        │
+│           │                                                                  │
+│           ▼                                                                  │
+│      DPP PROVISIONED                                                        │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 14.2 Soft Gate Implementation
+
+```typescript
+interface SoftGateResult {
+  canProceed: boolean;
+  requiresAcknowledgment: boolean;
+
+  blockers: PreFlightFinding[];
+  warnings: PreFlightFinding[];
+  infos: PreFlightFinding[];
+
+  // If blockers exist, user must provide these before proceeding
+  pendingAcknowledgments: {
+    findingId: string;
+    ruleId: string;
+    severity: 'BLOCKER' | 'WARNING';
+  }[];
+}
+
+async function evaluateSoftGate(
+  productVersionId: string,
+  readinessProfileId: string
+): Promise<SoftGateResult> {
+  const findings = await preFlightService.evaluate(productVersionId, readinessProfileId);
+
+  const blockers = findings.filter(f => f.severity === 'BLOCKER' && f.status === 'FAIL');
+  const warnings = findings.filter(f => f.severity === 'WARNING' && f.status === 'FAIL');
+
+  return {
+    canProceed: blockers.length === 0,
+    requiresAcknowledgment: blockers.length > 0,
+    blockers,
+    warnings,
+    infos: findings.filter(f => f.severity === 'INFO'),
+    pendingAcknowledgments: blockers.map(b => ({
+      findingId: b.id,
+      ruleId: b.ruleId,
+      severity: 'BLOCKER',
+    })),
+  };
+}
+```
+
+### 14.3 Acknowledgment Flow for Blockers
+
+```typescript
+interface DeviationAcknowledgment {
+  findingId: string;
+  reasonCodeId: string;       // From predefined reason codes
+  narrative: string;          // Required free-text explanation
+  acknowledgedBy: string;     // User ID
+}
+
+async function acknowledgeDeviation(
+  batchId: string,
+  acknowledgment: DeviationAcknowledgment
+): Promise<void> {
+  // 1. Validate reason code exists and is appropriate
+  const reasonCode = await reasonCodeRepo.findOneOrFail(acknowledgment.reasonCodeId);
+
+  // 2. Create deviation record
+  const deviation = new RuleDeviation({
+    batch: batchId,
+    rule: acknowledgment.ruleId,
+    reasonCode: reasonCode,
+    narrative: acknowledgment.narrative,
+    acknowledgedBy: acknowledgment.acknowledgedBy,
+    acknowledgedAt: new Date(),
+  });
+
+  await em.persistAndFlush(deviation);
+
+  // 3. Check if all blockers acknowledged
+  const gateResult = await evaluateSoftGate(batchId, profileId);
+  if (gateResult.pendingAcknowledgments.length === 0) {
+    // All blockers acknowledged - can proceed to snapshot
+    await eventBus.emit('SOFT_GATE_CLEARED', { batchId });
+  }
+}
+```
+
+### 14.4 API Extensions for Soft Gate
+
+```
+# PreFlight evaluation for batch
+POST   /api/v1/compliance/batches/:id/preflight         # Evaluate batch
+GET    /api/v1/compliance/batches/:id/preflight/status  # Get gate status
+
+# Deviation acknowledgment
+POST   /api/v1/compliance/batches/:id/deviations        # Acknowledge blocker
+GET    /api/v1/compliance/batches/:id/deviations        # List deviations
+
+# Proceed with deviations
+POST   /api/v1/compliance/batches/:id/proceed           # Clear gate and proceed
+
+# Forensic seal for auditors
+GET    /api/v1/compliance/dpps/:id/forensic-seal        # Full audit view (auth required)
+```
+
+---
+
+## 15. Related Documents
 
 | Document | Purpose |
 |----------|---------|
@@ -2034,6 +2387,7 @@ POST   /api/v1/compliance/verify/batch            # Batch proof receipts
 | [Marketing Workspace](./07-marketing-workspace.md) | Source of content, assets |
 | [Verifiable Credentials](./09-verifiable-credentials.md) | VC issuance, DID management |
 | [Billing](./12-billing.md) | DPP pricing, recall fees |
+| [Regulatory Advisor](./13-regulatory-advisor.md) | Rule templates, soft gates, forensic seal |
 
 ---
 
@@ -2041,5 +2395,6 @@ POST   /api/v1/compliance/verify/batch            # Batch proof receipts
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 2.0 | 2026-01-21 | Consolidated from Prisma design, converted to MikroORM entities |
+| 2.2 | 2026-01-21 | Added Regulatory Advisor integration: compliance profile in DPP snapshot, forensic seal with tiered audit view, soft gate workflow, PreFlight evaluation in snapshot pipeline |
 | 2.1 | 2026-01-21 | Added RFC 8785 canonicalization, facility publicAlias for trade secrets, Merkle visualization, set-based SQL for recall propagation |
+| 2.0 | 2026-01-21 | Consolidated from Prisma design, converted to MikroORM entities |
