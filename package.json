@@ -1,20 +1,15 @@
 {
   "name": "eurocomply",
-  "version": "0.1.0",
   "private": true,
-  "description": "EuroComply DPP Compliance Platform",
+  "packageManager": "pnpm@9.15.0",
   "scripts": {
-    "dev": "echo 'No apps to run yet'",
-    "build": "echo 'No packages to build yet'",
-    "test": "echo 'No tests yet'",
-    "lint": "echo 'No code to lint yet'",
-    "typecheck": "echo 'No code to typecheck yet'",
-    "docker:up": "docker-compose up -d",
-    "docker:down": "docker-compose down",
-    "clean": "rm -rf node_modules"
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "dev": "turbo run dev"
   },
-  "packageManager": "pnpm@10.28.0",
   "devDependencies": {
-    "typescript": "^5.3.0"
+    "turbo": "^2.3.0",
+    "typescript": "^5.7.0"
   }
 }
