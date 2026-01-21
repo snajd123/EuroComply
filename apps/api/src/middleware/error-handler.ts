@@ -1,5 +1,6 @@
 import { ErrorHandler } from 'hono';
 import { HTTPException } from 'hono/http-exception';
+import { UniqueConstraintViolationException, ConstraintViolationException } from '@mikro-orm/postgresql';
 import { AppError } from '../lib/errors.js';
 import { err } from '@eurocomply/shared';
 import { logger } from '../lib/logger.js';
@@ -8,26 +9,8 @@ import { logger } from '../lib/logger.js';
 // Type Guards for Error Handling
 // ============================================
 
-interface PrismaKnownError {
-  code: string;
-  meta?: { target?: string[] };
-}
-
 interface ZodValidationError {
   errors: Array<{ path: (string | number)[]; message: string }>;
-}
-
-/**
- * Type guard for Prisma known request errors.
- */
-function isPrismaKnownError(error: unknown): error is PrismaKnownError {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    typeof (error as PrismaKnownError).code === 'string' &&
-    error.constructor?.name === 'PrismaClientKnownRequestError'
-  );
 }
 
 /**
@@ -74,24 +57,19 @@ export const errorHandler: ErrorHandler = (error, c) => {
     );
   }
 
-  // Handle Prisma errors
-  if (isPrismaKnownError(error)) {
-    if (error.code === 'P2002') {
-      // Unique constraint violation
-      const fields = error.meta?.target?.join(', ') || 'field';
-      return c.json(
-        err('DUPLICATE_ENTRY', `A record with this ${fields} already exists`),
-        409
-      );
-    }
+  // Handle MikroORM errors
+  if (error instanceof UniqueConstraintViolationException) {
+    return c.json(
+      err('DUPLICATE_ENTRY', 'A record with this value already exists'),
+      409
+    );
+  }
 
-    if (error.code === 'P2025') {
-      // Record not found
-      return c.json(
-        err('NOT_FOUND', 'Record not found'),
-        404
-      );
-    }
+  if (error instanceof ConstraintViolationException) {
+    return c.json(
+      err('CONSTRAINT_VIOLATION', 'Database constraint violated'),
+      400
+    );
   }
 
   // Handle validation errors (e.g., from Zod)
