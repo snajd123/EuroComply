@@ -101,6 +101,20 @@ export class Organization {
   @Property({ nullable: true })
   did?: string;
 
+  // ─────────────────────────────────────────────────────────────
+  // REGULATORY ADVISOR SETTINGS
+  // See: docs/plans/13-regulatory-advisor.md Section 3
+  // ─────────────────────────────────────────────────────────────
+
+  @Property({ name: 'regulatory_advisor_enabled', default: true })
+  regulatoryAdvisorEnabled!: boolean;
+
+  @Property({ name: 'enforcement_mode', default: 'SILENT' })
+  enforcementMode!: 'ENFORCING' | 'SILENT';
+
+  @Property({ name: 'capture_compliance_in_silent_mode', default: true })
+  captureComplianceInSilentMode!: boolean;
+
   @Property({ name: 'created_at' })
   createdAt: Date = new Date();
 
@@ -124,6 +138,10 @@ CREATE TABLE public.organizations (
     user_limit INT DEFAULT 20,
     storage_limit_bytes BIGINT DEFAULT 536870912000,
     did VARCHAR(255),
+    -- Regulatory Advisor settings (Opt-In Gentle defaults)
+    regulatory_advisor_enabled BOOLEAN DEFAULT true,
+    enforcement_mode VARCHAR(20) DEFAULT 'SILENT',  -- ENFORCING | SILENT
+    capture_compliance_in_silent_mode BOOLEAN DEFAULT true,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -1315,13 +1333,22 @@ export class ReadinessProfile {
 
 ### ReadinessProfileRule
 
-Join table linking profiles to rules with override capability.
+Join table linking profiles to rules with **per-rule override capability**.
+
+> **Governance:** Only **Compliance Workspace MANAGER** can edit `overrideMode` and `severityOverride`.
+> Other workspace users can view rules but cannot change enforcement logic.
 
 ```typescript
 // packages/db/src/entities/ReadinessProfileRule.ts
 import { Entity, PrimaryKey, Property, ManyToOne, Enum, Index, Unique } from '@mikro-orm/core';
 import { ReadinessProfile } from './ReadinessProfile.js';
 import { RuleTemplate, RuleSeverity } from './RuleTemplate.js';
+
+export enum RuleOverrideMode {
+  ENFORCING = 'ENFORCING',   // Full soft gate - blockers must be acknowledged
+  SILENT = 'SILENT',         // Rule evaluates but findings are advisory only
+  DISABLED = 'DISABLED',     // Rule skipped entirely - no evaluation
+}
 
 @Entity({ tableName: 'readiness_profile_rules' })
 @Unique({ properties: ['profile', 'rule'] })
@@ -1336,7 +1363,15 @@ export class ReadinessProfileRule {
   @ManyToOne(() => RuleTemplate, { name: 'rule_id' })
   rule!: RuleTemplate;
 
-  // Override layer (for Live Link model)
+  // ─────────────────────────────────────────────────────────────
+  // PER-RULE OVERRIDE (null = inherit from Organization settings)
+  // Resolution: overrideMode → Organization.enforcementMode → skip
+  // ─────────────────────────────────────────────────────────────
+
+  @Enum({ items: () => RuleOverrideMode, nullable: true })
+  @Property({ name: 'override_mode', nullable: true })
+  overrideMode?: RuleOverrideMode;
+
   @Enum({ items: () => RuleSeverity, nullable: true })
   @Property({ name: 'severity_override', nullable: true })
   severityOverride?: RuleSeverity;
@@ -1344,13 +1379,39 @@ export class ReadinessProfileRule {
   @Property({ name: 'active_from_override', nullable: true })
   activeFromOverride?: Date;
 
-  @Property({ name: 'is_excluded', default: false })
-  isExcluded!: boolean;
+  // Audit trail for override changes
+  @ManyToOne(() => User, { nullable: true, name: 'override_set_by' })
+  overrideSetBy?: User;
+
+  @Property({ name: 'override_set_at', nullable: true })
+  overrideSetAt?: Date;
+
+  @Property({ name: 'override_reason', nullable: true, type: 'text' })
+  overrideReason?: string;
 
   @Property({ name: 'created_at' })
   createdAt: Date = new Date();
 }
 ```
+
+**Resolution Hierarchy:**
+
+```
+Effective Rule Mode =
+  1. ReadinessProfileRule.overrideMode (if set)
+  2. ELSE Organization.enforcementMode (if regulatoryAdvisorEnabled = true)
+  3. ELSE skip entirely (if regulatoryAdvisorEnabled = false)
+```
+
+**Forensic Seal Integration:**
+
+When capturing `ComplianceProfileSnapshot`, the mode is recorded for each rule:
+
+| Mode | Evaluation | Findings | canProceed Impact | Forensic Display |
+|------|------------|----------|-------------------|------------------|
+| `ENFORCING` | Full evaluation | BLOCKER/WARNING/INFO | Blockers must be deviated | "PASS" or "DEVIATED" |
+| `SILENT` | Full evaluation | All shown as INFO | Never blocks | "ADVISORY" |
+| `DISABLED` | Skipped | None generated | Never blocks | "DISABLED BY POLICY" |
 
 ### RuleDeviation
 
@@ -1755,14 +1816,20 @@ CREATE TABLE readiness_profile_rules (
     id VARCHAR(30) PRIMARY KEY,
     profile_id VARCHAR(30) NOT NULL REFERENCES readiness_profiles(id) ON DELETE CASCADE,
     rule_id VARCHAR(30) NOT NULL REFERENCES rule_templates(id),
+    -- Per-rule override (NULL = inherit from Organization.enforcementMode)
+    override_mode VARCHAR(20),  -- ENFORCING | SILENT | DISABLED
     severity_override VARCHAR(20),
     active_from_override DATE,
-    is_excluded BOOLEAN DEFAULT false,
+    -- Audit trail for override changes (Compliance MANAGER only)
+    override_set_by VARCHAR(30) REFERENCES users(id),
+    override_set_at TIMESTAMPTZ,
+    override_reason TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(profile_id, rule_id)
 );
 
 CREATE INDEX idx_readiness_profile_rules_profile ON readiness_profile_rules(profile_id);
+CREATE INDEX idx_readiness_profile_rules_override ON readiness_profile_rules(override_mode) WHERE override_mode IS NOT NULL;
 
 -- Rule deviations (acknowledged gaps per DPP)
 CREATE TABLE rule_deviations (
@@ -1920,5 +1987,7 @@ const id = createId();
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.2 | 2026-01-21 | Added per-rule overrideMode to ReadinessProfileRule (ENFORCING/SILENT/DISABLED); audit trail fields; Compliance MANAGER governance note |
+| 3.1 | 2026-01-21 | Added Regulatory Advisor feature toggles to Organization: regulatoryAdvisorEnabled, enforcementMode, captureComplianceInSilentMode |
 | 3.0 | 2026-01-21 | Added Regulatory Advisor entities: RegulationDocument, RegulationAnchor, RuleTemplate, ReasonCode, ReadinessProfile (relational), RuleDeviation, MarketplaceListing, TemplateAdoption; Updated DppSnapshot with compliance profile; Public schema expansion |
 | 2.0 | 2026-01-21 | Complete MikroORM entities, PENDING_DELETION status, DECIMAL(12,4) for BOM, multi-tenant user sync |

@@ -74,7 +74,208 @@ The Regulatory Advisor transforms EuroComply from a "Compliance Gatekeeper" (enf
 
 ---
 
-## 3. Live Link Versioning Model
+## 3. Feature Toggles (Organization Settings)
+
+The Regulatory Advisor is **fully optional** per organization. This ensures flexibility for customers who may not need compliance tracking or prefer a gradual adoption.
+
+### Configuration Model
+
+```typescript
+// Added to Organization entity
+interface OrganizationComplianceSettings {
+  // Master toggle - hides entire Regulatory Advisor UI when false
+  regulatoryAdvisorEnabled: boolean;
+
+  // When enabled, controls enforcement behavior
+  // ENFORCING = soft gates require acknowledgment
+  // SILENT = rules evaluate but no gates, purely informational
+  enforcementMode: 'ENFORCING' | 'SILENT';
+
+  // When in SILENT mode, still capture compliance data in DPP snapshots?
+  captureComplianceInSilentMode: boolean;
+}
+```
+
+### Default Values (Opt-In Gentle)
+
+| Setting | Default | Rationale |
+|---------|---------|-----------|
+| `regulatoryAdvisorEnabled` | `true` | Feature visible by default - users discover value naturally |
+| `enforcementMode` | `SILENT` | Non-blocking on day one - no friction for new users |
+| `captureComplianceInSilentMode` | `true` | Data captured for future use if they switch to enforcing |
+
+### Behavior Matrix
+
+| `enabled` | `enforcementMode` | `captureInSilent` | Result |
+|-----------|-------------------|-------------------|--------|
+| `false` | — | — | Advisor completely hidden. No PreFlight runs. No compliance UI in any workspace. DPP snapshots have no `complianceSnapshot`. |
+| `true` | `SILENT` | `false` | Advisor visible. PreFlight evaluates. Findings shown as info only. No acknowledgment required. No compliance data in DPP. |
+| `true` | `SILENT` | `true` | Advisor visible. PreFlight evaluates. Findings shown as info only. No acknowledgment required. Compliance data captured in DPP for auditors. |
+| `true` | `ENFORCING` | — | Full experience. Soft gates require acknowledgment before proceeding. All compliance data captured. |
+
+### UI Behavior by Mode
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    FEATURE TOGGLE IMPACT ON UI                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  HIDDEN (regulatoryAdvisorEnabled = false)                                  │
+│  ═════════════════════════════════════════                                   │
+│  • No "Compliance" tab in Design Workspace                                  │
+│  • No "Readiness Profile" selector on products                              │
+│  • No PreFlight validation on version release                               │
+│  • No soft gates on batch release                                           │
+│  • DPP Forensic Seal shows only supply chain, no compliance section         │
+│  • Marketplace templates hidden                                             │
+│                                                                              │
+│  SILENT (enabled + enforcementMode = SILENT)                                │
+│  ═══════════════════════════════════════════                                 │
+│  • "Compliance" tab visible with informational findings                     │
+│  • PreFlight runs but shows results as "Advisory" (blue info icons)         │
+│  • No blocking dialogs - user can proceed without acknowledgment            │
+│  • Dashboard shows compliance status as FYI only                            │
+│  • If captureComplianceInSilentMode = true:                                 │
+│    └── DPP Forensic Seal includes compliance section (status: ADVISORY)    │
+│                                                                              │
+│  ENFORCING (enabled + enforcementMode = ENFORCING)                          │
+│  ═════════════════════════════════════════════════                           │
+│  • Full soft gate experience with acknowledgment workflow                   │
+│  • Blockers require reason code + narrative before proceeding               │
+│  • Dashboard shows compliance status prominently                            │
+│  • DPP Forensic Seal includes full compliance audit trail                   │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Settings Access
+
+Only **Organization Admins** can change these settings. The toggle is found at:
+
+```
+Settings → Organization → Compliance → Regulatory Advisor
+```
+
+### Per-Rule Granularity
+
+Beyond organization-wide settings, each rule within a Readiness Profile can be individually configured. This allows fine-grained control for complex compliance scenarios.
+
+**Override Model:**
+
+```typescript
+// On ReadinessProfileRule (junction table)
+export enum RuleOverrideMode {
+  ENFORCING = 'ENFORCING',   // Full soft gate
+  SILENT = 'SILENT',         // Advisory only
+  DISABLED = 'DISABLED',     // Skip entirely
+}
+
+interface ReadinessProfileRule {
+  profile: ReadinessProfile;
+  rule: RuleTemplate;
+  overrideMode?: RuleOverrideMode;  // null = inherit from Organization
+  severityOverride?: RuleSeverity;
+  // Audit trail
+  overrideSetBy?: User;
+  overrideSetAt?: Date;
+  overrideReason?: string;
+}
+```
+
+**Resolution Hierarchy:**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    RULE MODE RESOLUTION                                      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  1. ReadinessProfileRule.overrideMode (if set)                              │
+│     └── ENFORCING, SILENT, or DISABLED                                      │
+│                                                                              │
+│  2. ELSE Organization.enforcementMode                                        │
+│     └── Applies to all rules without explicit override                       │
+│                                                                              │
+│  3. ELSE skip (if regulatoryAdvisorEnabled = false)                         │
+│     └── Entire Advisor is hidden                                            │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**UI Example (Readiness Profile Editor):**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  READINESS PROFILE: EU Market Entry - Apparel                               │
+│  Organization Default: SILENT                                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Rule                          │ Severity │ Mode                            │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│  MIN_RECYCLED_CONTENT          │ BLOCKER  │ ○ Inherit  ● Silent  ○ Disabled │
+│  HAZARDOUS_SUBSTANCES          │ BLOCKER  │ ○ Inherit  ○ Silent  ○ Disabled │
+│                                │          │ ● Enforcing ← upgraded          │
+│  CARBON_BENCHMARK              │ WARNING  │ ○ Inherit  ○ Silent  ● Disabled │
+│  RECYCLABILITY_SCORE           │ INFO     │ ● Inherit  ○ Silent  ○ Disabled │
+│                                                                              │
+│  [ Bulk: Silence all ESPR rules ] [ Bulk: Enable all for regulation X ]    │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Governance: Compliance Manager Authority
+
+> **Control Center:** The **Compliance Workspace** is the sole control center for all rule governance. This includes adopting marketplace templates, managing readiness profiles, assigning profiles to products, and configuring per-rule override modes.
+>
+> Design and Operations workspaces have **read-only** compliance views - they can see compliance status and acknowledge deviations (if rule is ENFORCING), but cannot change profiles or rule configurations.
+
+> **Critical:** Per-rule overrides are a **Compliance-only** function.
+
+| Role | Can View Rules | Can Edit overrideMode | Can Bypass via Deviation |
+|------|----------------|----------------------|--------------------------|
+| **Compliance MANAGER** | ✓ | ✓ | ✓ |
+| **Compliance EDITOR** | ✓ | ✗ | ✓ |
+| **Design/Ops MANAGER** | ✓ | ✗ | ✓ (if rule is ENFORCING) |
+| **Design/Ops EDITOR** | ✓ | ✗ | ✓ (if rule is ENFORCING) |
+
+**Rationale:**
+
+1. **Legal Liability Boundary**: Rule overrides are compliance decisions with legal implications
+2. **Forensic Seal Integrity**: Auditors need to know WHO changed rule enforcement
+3. **Policy vs. Data Separation**: Workspace users enter data; Compliance defines policy
+4. **Soft Gate Bypass**: Even with strict governance, the Reason Code system allows operational flexibility
+
+### Future Enhancement: Request + Approval Workflow
+
+For larger enterprises, a formal request process can be added:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  REQUEST RULE OVERRIDE                                                       │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Rule: CARBON_BENCHMARK                                                     │
+│  Current Mode: ENFORCING                                                    │
+│  Requested Mode: SILENT                                                     │
+│                                                                              │
+│  Reason for Request:                                                        │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │ We are still setting up carbon tracking infrastructure. Request     │   │
+│  │ silent mode until Q3 2026 when our LCA system goes live.            │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                              │
+│  Requested By: john.doe@acme.com (Design Manager)                          │
+│  Requested At: 2026-01-21 14:30                                            │
+│                                                                              │
+│  [ APPROVE ]  [ REJECT ]  [ REQUEST MORE INFO ]                            │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+This is a natural evolution but **not required for MVP**.
+
+---
+
+## 4. Live Link Versioning Model
 
 ### Inheritance Behavior
 
@@ -122,7 +323,7 @@ When regulations change, the system uses **Live Link with Override Layers**:
 
 ---
 
-## 4. Data Model
+## 5. Data Model
 
 ### 4.1 Schema Placement
 
@@ -650,7 +851,7 @@ export class TemplateAdoption extends BaseEntity {
 
 ---
 
-## 5. PreFlight Audit Service (Soft Gate Logic)
+## 6. PreFlight Audit Service (Soft Gate Logic)
 
 ### 5.1 Audit Result Interface
 
@@ -695,7 +896,7 @@ export interface AuditFinding {
     documentTitle: string;
     viewerUrl: string;
   };
-  status: 'PASSED' | 'FAILED' | 'NOT_APPLICABLE';
+  status: 'PASSED' | 'FAILED' | 'NOT_APPLICABLE' | 'DISABLED';
   evidence?: {
     attributeValue?: unknown;
     documentIds?: string[];
@@ -708,6 +909,10 @@ export interface AuditFinding {
     acknowledgedBy: string;
     acknowledgedAt: Date;
   };
+
+  // Per-rule enforcement mode at evaluation time
+  // Resolved from: ReadinessProfileRule.overrideMode → Organization.enforcementMode
+  effectiveMode: 'ENFORCING' | 'SILENT' | 'DISABLED';
 }
 ```
 
@@ -741,9 +946,10 @@ export class PreFlightAuditService {
       rules.map(rule => this.evaluateRule(dpp, rule))
     );
 
-    // Check if all BLOCKERs are either PASSED or have acknowledged deviations
+    // Check if all ENFORCING BLOCKERs are either PASSED or have acknowledged deviations
+    // SILENT and DISABLED rules never block
     const canProceed = findings
-      .filter(f => f.rule.severity === RuleSeverity.BLOCKER)
+      .filter(f => f.rule.severity === RuleSeverity.BLOCKER && f.effectiveMode === 'ENFORCING')
       .every(f => f.status === 'PASSED' || f.existingDeviation);
 
     return {
@@ -763,6 +969,27 @@ export class PreFlightAuditService {
     dpp: DPPSnapshot,
     rule: EffectiveRule
   ): Promise<AuditFinding> {
+    // Resolve effective mode: rule override → org default
+    const effectiveMode = rule.overrideMode ?? dpp.organization.enforcementMode;
+
+    // DISABLED rules are skipped entirely
+    if (effectiveMode === 'DISABLED') {
+      return {
+        rule: {
+          id: rule.template.id,
+          name: rule.template.name,
+          type: rule.template.type,
+          severity: rule.effectiveSeverity,
+        },
+        ruleCategory: rule.template.ruleCategory,
+        legalAnchor: rule.template.legalAnchor
+          ? this.formatLegalAnchor(rule.template.legalAnchor)
+          : undefined,
+        status: 'DISABLED',
+        effectiveMode,
+      };
+    }
+
     // Check for existing acknowledged deviation
     const deviation = await this.em.findOne(RuleDeviation, {
       dpp,
@@ -787,6 +1014,7 @@ export class PreFlightAuditService {
         ? this.formatLegalAnchor(rule.template.legalAnchor)
         : undefined,
       status,
+      effectiveMode,
       existingDeviation: deviation ? {
         id: deviation.id,
         reasonCode: deviation.reasonCode.code,
@@ -883,7 +1111,7 @@ export class PreFlightAuditService {
 
 ---
 
-## 6. Forensic Seal View (Auditor Interface)
+## 7. Forensic Seal View (Auditor Interface)
 
 ### 6.1 Tiered Information Hierarchy
 
@@ -1035,7 +1263,7 @@ audit-package-SKU12345-2026-01-21/
 
 ---
 
-## 7. Regulation Viewer (PDF Highlighting)
+## 8. Regulation Viewer (PDF Highlighting)
 
 ### 7.1 Viewer State Interface
 
@@ -1161,7 +1389,7 @@ function Highlight({ anchor, viewport }: HighlightProps) {
 
 ---
 
-## 8. Regulation Ingestion Pipeline (AI-Assisted)
+## 9. Regulation Ingestion Pipeline (AI-Assisted)
 
 ### 8.1 Ingestion Flow
 
@@ -1245,7 +1473,7 @@ export class IngestionJob extends BaseEntity {
 
 ---
 
-## 9. Marketplace Service
+## 10. Marketplace Service
 
 ### 9.1 Publishing Flow
 
@@ -1322,7 +1550,7 @@ export class MarketplaceService {
 
 ---
 
-## 10. API Endpoints
+## 11. API Endpoints
 
 ### Regulations
 
@@ -1386,7 +1614,7 @@ GET    /api/v1/marketplace/adoptions                 # List org adoptions
 
 ---
 
-## 11. Related Documents
+## 12. Related Documents
 
 | Document | Integration Point |
 |----------|-------------------|
@@ -1402,4 +1630,6 @@ GET    /api/v1/marketplace/adoptions                 # List org adoptions
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.2 | 2026-01-21 | Added per-rule granularity (Section 3): RuleOverrideMode, resolution hierarchy, Compliance MANAGER governance, future Request+Approval workflow |
+| 1.1 | 2026-01-21 | Added Feature Toggles (Section 3): hidden/silent/enforcing modes, opt-in gentle defaults |
 | 1.0 | 2026-01-21 | Initial design: Regulatory Advisor model with template hierarchy, soft gates, PDF anchoring, marketplace |

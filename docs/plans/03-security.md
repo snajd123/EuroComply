@@ -143,6 +143,25 @@ LEVEL 2: WORKSPACE AUTHORITIES
 | API keys | Yes | No | No | No | No |
 | Export keys | Yes | No | No | No | No |
 
+**Regulatory Advisor Permissions:**
+
+| Action | Org Admin | Compliance MANAGER | Compliance EDITOR | Other Workspace |
+|--------|:---------:|:------------------:|:-----------------:|:---------------:|
+| View rules & findings | Yes | Yes | Yes | Yes (view only) |
+| Adopt templates from Marketplace | Yes | Yes | No | No |
+| Edit Readiness Profiles | Yes | Yes | No | No |
+| Configure rule overrides | Yes | Yes | No | No |
+| Assign profiles to products | Yes | Yes | No | No |
+| Acknowledge deviation (bypass soft gate) | Yes | Yes | Yes | Yes (own workspace) |
+| Manage Reason Codes | Yes | Yes | No | No |
+| Publish to Marketplace | Yes | Yes | No | No |
+
+> **Governance Note:** The **Compliance Workspace** is the sole control center for rule governance.
+> Rule override configuration (`ReadinessProfileRule.overrideMode`) is restricted to **Compliance MANAGER**
+> to maintain Forensic Seal integrity. Design and Operations workspaces have read-only compliance views -
+> they can see status and acknowledge deviations but cannot change profiles or rule configurations.
+> See [Regulatory Advisor](./13-regulatory-advisor.md) Section 3 for full governance model.
+
 *Org Admin permissions depend on their workspace authorities
 
 ### Authorization Middleware
@@ -660,4 +679,5 @@ export function securityHeaders() {
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.1 | 2026-01-21 | Added Regulatory Advisor permissions table; Compliance MANAGER authority for rule overrides |
 | 2.0 | 2026-01-21 | Rewritten for MikroORM, JWT-based tenant context, updated auth flow |

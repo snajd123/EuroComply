@@ -1628,6 +1628,11 @@ The Design Workspace integrates with the Regulatory Advisor system to provide re
 
 > **Full Design:** See [Regulatory Advisor](./13-regulatory-advisor.md) for complete system specification.
 
+> **Feature Toggles:** This integration respects the organization's Regulatory Advisor settings:
+> - If `regulatoryAdvisorEnabled = false`: All features in this section are hidden
+> - If `enforcementMode = 'SILENT'`: PreFlight runs but shows advisory info only (no gates)
+> - If `enforcementMode = 'ENFORCING'`: Full soft gate experience with acknowledgment workflow
+
 ### 10.1 Rule Template Linkage
 
 Attribute templates link to rule templates that define compliance requirements:
@@ -1738,29 +1743,51 @@ function openRegulationContext(anchorId: string): void {
 }
 ```
 
-### 10.5 Readiness Profile Selection
+### 10.5 Compliance Status (Read-Only)
 
-Organizations can apply different readiness profiles to their products:
+The Design Workspace displays compliance status but **does not control rule configuration**.
+Profile assignment and rule governance are managed exclusively in the **Compliance Workspace**.
 
-```typescript
-// Design workspace readiness profile selector
-interface ReadinessProfileOption {
-  id: string;
-  name: string;           // "EU Market Entry"
-  description: string;    // "Full ESPR + REACH compliance"
-  ruleCount: number;      // 47 rules
-  lastUpdated: Date;
-  isDefault: boolean;
-}
+> **Governance:** Only Compliance MANAGER can assign profiles and configure rules.
+> Designers see the results but cannot change which rules apply.
+> See [Compliance Workspace](./08-compliance-workspace.md) for profile management.
 
-// When profile changes, re-run PreFlight validation
-async function onReadinessProfileChange(
-  versionId: string,
-  profileId: string
-): Promise<DesignValidationResult> {
-  return preFlightService.evaluate(versionId, profileId);
-}
+**What Designers See:**
+
 ```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  Product: Summer T-Shirt v2.1                                               │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│                                                                              │
+│  Assigned Profile: "ESPR Apparel Pack" (managed by Compliance)              │
+│  Profile Version: v2.3                                                      │
+│  Last Evaluated: 2026-01-21 14:30                                           │
+│                                                                              │
+│  Status: ⚠️ PASS_WITH_WARNINGS (45 rules, 2 findings)                       │
+│                                                                              │
+│  ┌────────────────────────────────────────────────────────────────────┐    │
+│  │ Finding                        │ Severity │ Status                 │    │
+│  ├────────────────────────────────────────────────────────────────────┤    │
+│  │ Recycled content: 18%          │ BLOCKER  │ ⚠️ Deviated            │    │
+│  │ Carbon footprint: 12.5 kg      │ WARNING  │ ℹ️ Advisory (Silent)   │    │
+│  └────────────────────────────────────────────────────────────────────┘    │
+│                                                                              │
+│  [View All Findings]  [View Regulation]                                     │
+│                                                                              │
+│  ⓘ To change the assigned profile, contact your Compliance Manager          │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**What Designers CAN Do:**
+- View compliance status and findings
+- Click through to regulation viewer (PDF highlights)
+- Acknowledge deviations with reason codes (if rule is ENFORCING)
+
+**What Designers CANNOT Do:**
+- Change which profile is assigned to a product
+- Change rule enforcement modes (ENFORCING/SILENT/DISABLED)
+- Adopt templates from marketplace
 
 ### 10.6 API Extensions
 
@@ -1770,10 +1797,13 @@ POST   /api/v1/design/versions/:id/preflight           # Run PreFlight check
 GET    /api/v1/design/versions/:id/preflight/status    # Get cached status
 GET    /api/v1/design/versions/:id/preflight/findings  # List all findings
 
-# Readiness profiles
-GET    /api/v1/design/readiness-profiles               # List available profiles
-GET    /api/v1/design/versions/:id/readiness-profile   # Get assigned profile
-PUT    /api/v1/design/versions/:id/readiness-profile   # Assign profile
+# Readiness profiles (READ-ONLY from Design Workspace)
+GET    /api/v1/design/versions/:id/readiness-profile   # Get assigned profile (read-only)
+
+# Profile assignment is done via Compliance Workspace:
+# PUT /api/v1/compliance/products/:id/readiness-profile
+# PUT /api/v1/compliance/categories/:id/default-profile
+# See: 08-compliance-workspace.md
 
 # Regulation viewer
 GET    /api/v1/regulations/anchors/:id/context         # Get anchor with PDF URL
@@ -1800,5 +1830,7 @@ GET    /api/v1/regulations/documents/:id/viewer-url    # Get signed viewer URL
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.3 | 2026-01-21 | Made compliance view read-only; removed profile selector; profile assignment moved to Compliance Workspace |
+| 2.2 | 2026-01-21 | Added feature toggle conditional behavior note to Regulatory Advisor section |
 | 2.1 | 2026-01-21 | Added Regulatory Advisor integration (Section 10); AttributeTemplate.rules relationship; PreFlight validation; soft gates |
 | 2.0 | 2026-01-21 | Consolidated from design-workspace-design, taxonomy-engine-design; MikroORM entities; optimized N+1 queries; recursive BOM traversal |

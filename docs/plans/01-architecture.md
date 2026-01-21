@@ -77,7 +77,7 @@ EuroComply is a unified Product Lifecycle & Compliance Platform combining PLM, E
 
 ### Regulatory Advisor (Cross-Cutting Layer)
 
-The **Regulatory Advisor** is a cross-cutting layer that provides compliance guidance across all workspaces:
+The **Regulatory Advisor** is an **optional** cross-cutting layer that provides compliance guidance across all workspaces. Organizations can enable, disable, or run in silent mode based on their needs.
 
 | Component | Purpose | Integration Points |
 |-----------|---------|-------------------|
@@ -86,6 +86,14 @@ The **Regulatory Advisor** is a cross-cutting layer that provides compliance gui
 | **PreFlight Service** | Real-time compliance evaluation | Design save, Batch release, DPP provisioning |
 | **Soft Gates** | Advisory blockers with acknowledgment workflow | Version release, DPP snapshot |
 | **Forensic Seal** | Tiered audit view of compliance decisions | Public DPP (Level 3) |
+
+**Feature Toggles (per Organization):**
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `regulatoryAdvisorEnabled` | `true` | Master toggle - hides entire feature when false |
+| `enforcementMode` | `SILENT` | `ENFORCING` = soft gates; `SILENT` = advisory only |
+| `captureComplianceInSilentMode` | `true` | Capture compliance data in DPPs even in silent mode |
 
 > **Full Design:** See [Regulatory Advisor](./13-regulatory-advisor.md) for complete specification.
 
@@ -591,6 +599,8 @@ export class OutboxEvent {
 
 The Regulation Layer provides compliance guidance across all workspaces, transforming EuroComply from a pure data management platform into an intelligent compliance advisor.
 
+> **Governance:** The **Compliance Workspace** is the sole control center for rule governance. Compliance MANAGER adopts templates from marketplace, manages readiness profiles, assigns profiles to products, and configures per-rule override modes. Design and Operations workspaces have read-only compliance views.
+
 > **Full Design:** See [Regulatory Advisor](./13-regulatory-advisor.md) for complete specification.
 
 ### Architecture
@@ -686,6 +696,7 @@ The Regulation Layer provides compliance guidance across all workspaces, transfo
 **Regulatory Advisor Events:**
 - `RuleTemplateCreated`, `RuleTemplateUpdated`, `RuleTemplateDeprecated`
 - `ReadinessProfileCreated`, `ReadinessProfileUpdated`
+- `RuleOverrideModeChanged` (profileId, ruleId, previousMode, newMode, reason, changedBy)
 - `PreFlightEvaluated`, `DeviationAcknowledged`, `SoftGateCleared`
 - `TemplateAdopted`, `TemplatePublishedToMarketplace`
 
@@ -1020,5 +1031,6 @@ AWS KMS Master Key (per-cell)
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.2 | 2026-01-21 | Added feature toggles to Regulatory Advisor section; noted optional nature with enable/silent/enforcing modes |
 | 2.1 | 2026-01-21 | Added Regulation Layer (Section 8); Regulatory Advisor cross-cutting layer; template ownership model; soft gate workflow |
 | 2.0 | 2026-01-21 | Rewritten for MikroORM, JWT-based tenant context, parallel migrations |

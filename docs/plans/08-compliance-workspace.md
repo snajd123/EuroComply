@@ -79,10 +79,12 @@ The Compliance Workspace is the **convergence point** where Design, Marketing, a
 
 | Authority | Compliance Workspace Capabilities |
 |-----------|----------------------------------|
-| **MANAGER** | Configure snapshot rules, manage revocations, access all DPPs |
+| **MANAGER** | Configure snapshot rules, manage revocations, access all DPPs, **adopt templates from marketplace**, **manage readiness profiles**, **assign profiles to products**, **configure per-rule override modes** |
 | **EDITOR** | View all DPPs, trigger manual re-snapshots (rare), manage recalls |
 | **CONTRIBUTOR** | View DPPs for their products, download verification reports |
-| **VIEWER** | Read-only access to DPP registry |
+| **VIEWER** | Read-only access to DPP registry, **view compliance dashboard** |
+
+> **Governance Note:** The Compliance Workspace is the **sole control center** for regulatory rule governance. Design and Operations workspaces have read-only compliance views - they can see compliance status and acknowledge deviations, but cannot change profiles or rule configurations.
 
 **Note:** Most Compliance Workspace operations are automated. Human intervention is rare and typically limited to recall management.
 
@@ -431,11 +433,15 @@ interface RuleEvaluationSnapshot {
   ruleName: string;
   ruleCategory: string;
   severity: 'BLOCKER' | 'WARNING' | 'INFO';
-  status: 'PASS' | 'FAIL' | 'SKIPPED';
+  status: 'PASS' | 'FAIL' | 'SKIPPED' | 'DISABLED';
   actualValue?: string;
   expectedValue?: string;
   regulationAnchorId?: string;
   legalReference?: string;
+
+  // Per-rule enforcement mode at evaluation time
+  // Resolved from: ReadinessProfileRule.overrideMode → Organization.enforcementMode
+  effectiveMode: 'ENFORCING' | 'SILENT' | 'DISABLED';
 }
 ```
 
@@ -1644,6 +1650,11 @@ async function verifyMerkleProof(
 
 > **Reference:** See [Regulatory Advisor](./13-regulatory-advisor.md) for complete compliance profile design.
 
+> **Per-Rule Mode Display:** Each rule in the matrix shows its `effectiveMode` at evaluation time:
+> - `ENFORCING` → Shows PASS/FAIL status normally
+> - `SILENT` → Shows "ADVISORY" badge - rule was evaluated but didn't block
+> - `DISABLED` → Shows "DISABLED BY POLICY" - rule was skipped entirely
+
 For authenticated auditors, Level 3 includes a tiered compliance audit view that presents compliance information in progressive detail:
 
 ```
@@ -1761,7 +1772,10 @@ interface ForensicSealResponse {
   ruleMatrix: {
     categories: {
       name: string;
-      rules: RuleEvaluationSnapshot[];
+      rules: (RuleEvaluationSnapshot & {
+        // Display hints for UI rendering
+        displayBadge?: 'ADVISORY' | 'DISABLED BY POLICY';
+      })[];
     }[];
   };
 
@@ -2224,6 +2238,11 @@ The Compliance Workspace integrates with the Regulatory Advisor system to ensure
 
 > **Full Design:** See [Regulatory Advisor](./13-regulatory-advisor.md) for complete system specification.
 
+> **Feature Toggles:** This integration respects the organization's Regulatory Advisor settings:
+> - If `regulatoryAdvisorEnabled = false`: PreFlight skipped, no compliance data in DPP, Forensic Seal omits compliance section
+> - If `enforcementMode = 'SILENT'`: PreFlight runs but no soft gates; compliance captured only if `captureComplianceInSilentMode = true`
+> - If `enforcementMode = 'ENFORCING'`: Full soft gate workflow; blockers must be acknowledged before DPP provisioning
+
 ### 14.1 PreFlight Gate in Snapshot Pipeline
 
 Before a DPP can transition from COMMISSIONED to PROVISIONED, the PreFlight service must evaluate the product against the organization's readiness profile:
@@ -2300,8 +2319,17 @@ async function evaluateSoftGate(
 ): Promise<SoftGateResult> {
   const findings = await preFlightService.evaluate(productVersionId, readinessProfileId);
 
-  const blockers = findings.filter(f => f.severity === 'BLOCKER' && f.status === 'FAIL');
-  const warnings = findings.filter(f => f.severity === 'WARNING' && f.status === 'FAIL');
+  // Only ENFORCING rules can block; SILENT/DISABLED rules don't create soft gates
+  const blockers = findings.filter(f =>
+    f.severity === 'BLOCKER' &&
+    f.status === 'FAIL' &&
+    f.effectiveMode === 'ENFORCING'
+  );
+  const warnings = findings.filter(f =>
+    f.severity === 'WARNING' &&
+    f.status === 'FAIL' &&
+    f.effectiveMode === 'ENFORCING'
+  );
 
   return {
     canProceed: blockers.length === 0,
@@ -2374,6 +2402,76 @@ POST   /api/v1/compliance/batches/:id/proceed           # Clear gate and proceed
 GET    /api/v1/compliance/dpps/:id/forensic-seal        # Full audit view (auth required)
 ```
 
+### 14.5 API Extensions for Compliance Governance
+
+```
+# Marketplace & Template Adoption (MANAGER only)
+GET    /api/v1/compliance/marketplace/templates         # Browse available templates
+POST   /api/v1/compliance/templates/:id/adopt           # Adopt template into org
+GET    /api/v1/compliance/templates                     # List adopted templates
+
+# Readiness Profile Management (MANAGER only)
+GET    /api/v1/compliance/profiles                      # List org's readiness profiles
+POST   /api/v1/compliance/profiles                      # Create profile
+PUT    /api/v1/compliance/profiles/:id                  # Update profile
+DELETE /api/v1/compliance/profiles/:id                  # Delete profile
+
+# Profile Rule Override (MANAGER only)
+PUT    /api/v1/compliance/profiles/:profileId/rules/:ruleId
+       # Body: { overrideMode: 'ENFORCING'|'SILENT'|'DISABLED', reason: string }
+PUT    /api/v1/compliance/profiles/:profileId/rules/bulk
+       # Body: { updates: [{ ruleId, overrideMode }], reason: string }
+
+# Profile Assignment to Products (MANAGER only)
+PUT    /api/v1/compliance/products/:productId/profile
+       # Body: { readinessProfileId: string }
+GET    /api/v1/compliance/products/:productId/profile   # Get assigned profile
+
+# Compliance Dashboard
+GET    /api/v1/compliance/dashboard                     # Org-wide compliance summary
+GET    /api/v1/compliance/dashboard/products            # Products by compliance status
+```
+
+### 14.6 API Types for Rule Override
+
+```typescript
+// PUT /api/v1/compliance/profiles/:profileId/rules/:ruleId
+interface UpdateRuleOverrideRequest {
+  overrideMode: 'ENFORCING' | 'SILENT' | 'DISABLED';
+  reason: string;  // Required audit trail
+}
+
+interface UpdateRuleOverrideResponse {
+  profileId: string;
+  ruleId: string;
+  previousMode: 'ENFORCING' | 'SILENT' | 'DISABLED' | null;
+  newMode: 'ENFORCING' | 'SILENT' | 'DISABLED';
+  setBy: string;
+  setAt: string;  // ISO timestamp
+}
+
+// PUT /api/v1/compliance/profiles/:profileId/rules/bulk
+interface BulkUpdateRuleOverrideRequest {
+  updates: {
+    ruleId: string;
+    overrideMode: 'ENFORCING' | 'SILENT' | 'DISABLED';
+  }[];
+  reason: string;  // Single reason for all changes
+}
+
+interface BulkUpdateRuleOverrideResponse {
+  profileId: string;
+  updated: number;
+  changes: {
+    ruleId: string;
+    previousMode: 'ENFORCING' | 'SILENT' | 'DISABLED' | null;
+    newMode: 'ENFORCING' | 'SILENT' | 'DISABLED';
+  }[];
+  setBy: string;
+  setAt: string;
+}
+```
+
 ---
 
 ## 15. Related Documents
@@ -2395,6 +2493,7 @@ GET    /api/v1/compliance/dpps/:id/forensic-seal        # Full audit view (auth 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.3 | 2026-01-21 | Added feature toggle conditional behavior note to Regulatory Advisor section |
 | 2.2 | 2026-01-21 | Added Regulatory Advisor integration: compliance profile in DPP snapshot, forensic seal with tiered audit view, soft gate workflow, PreFlight evaluation in snapshot pipeline |
 | 2.1 | 2026-01-21 | Added RFC 8785 canonicalization, facility publicAlias for trade secrets, Merkle visualization, set-based SQL for recall propagation |
 | 2.0 | 2026-01-21 | Consolidated from Prisma design, converted to MikroORM entities |

@@ -42,6 +42,8 @@ The Operations Workspace is the **chain of custody engine** - it answers "who ma
 | **CONTRIBUTOR** | Create suppliers, upload certs (needs verification) |
 | **VIEWER** | Read-only access, browse facility database |
 
+> **Compliance View (Read-Only):** Operations users can view compliance status for batches and acknowledge deviations (if rule is ENFORCING), but cannot change readiness profiles or rule configurations. All rule governance is managed exclusively in the **Compliance Workspace** by Compliance MANAGER.
+
 ---
 
 ## 3. Module Architecture
