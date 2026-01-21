@@ -1,43 +1,20 @@
 {
   "name": "eurocomply",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
   "description": "EuroComply DPP Compliance Platform",
   "scripts": {
-    "dev": "pnpm -r --parallel dev",
-    "build": "pnpm -r build",
-    "test": "pnpm -r test:run",
-    "test:unit": "pnpm -r test:unit",
-    "test:integration": "pnpm --filter @eurocomply/api test:integration",
-    "test:coverage": "pnpm -r test:coverage",
-    "test:watch": "pnpm -r --parallel test",
-    "lint": "eslint 'apps/*/src/**/*.ts' 'packages/*/src/**/*.ts'",
-    "typecheck": "pnpm -r typecheck",
-    "db:generate": "pnpm --filter @eurocomply/db db:generate",
-    "db:migrate": "pnpm --filter @eurocomply/db db:migrate",
-    "db:push": "pnpm --filter @eurocomply/db db:push",
-    "db:studio": "pnpm --filter @eurocomply/db prisma studio",
-    "db:studio:staging": "./scripts/db-studio.sh staging",
+    "dev": "echo 'No apps to run yet'",
+    "build": "echo 'No packages to build yet'",
+    "test": "echo 'No tests yet'",
+    "lint": "echo 'No code to lint yet'",
+    "typecheck": "echo 'No code to typecheck yet'",
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down",
-    "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules apps/*/dist packages/*/dist"
+    "clean": "rm -rf node_modules"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "packageManager": "pnpm@10.28.0",
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild",
-      "workerd"
-    ]
-  },
   "devDependencies": {
-    "@eslint/js": "^9.39.2",
-    "@typescript-eslint/eslint-plugin": "^8.53.0",
-    "@typescript-eslint/parser": "^8.53.0",
-    "eslint": "^9.39.2",
-    "typescript": "^5.3.0",
-    "vitest": "^4.0.17"
+    "typescript": "^5.3.0"
   }
 }
