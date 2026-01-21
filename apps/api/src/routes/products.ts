@@ -1,7 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
-import { prisma } from '@eurocomply/db';
 import {
   ok,
   err,
@@ -17,11 +16,9 @@ import { authMiddleware } from '../middleware/auth.js';
 import { NotFoundError, ValidationError, ConflictError } from '../lib/errors.js';
 import { PAGINATION } from '../lib/config.js';
 import type { AppVariables } from '../types/context.js';
+import { getEntityManager } from '../lib/context.js';
 
 const products = new Hono<{ Variables: AppVariables }>();
-
-// VersionService still uses Prisma (will be migrated in a separate task)
-const versionService = new VersionService(prisma);
 
 // FORENSIC GUARD C: GTIN must be 8, 12, 13, or 14 digits with valid checksum
 const GTIN_REGEX = /^(\d{8}|\d{12}|\d{13}|\d{14})$/;
@@ -106,12 +103,18 @@ products.use('*', authMiddleware);
  * Helper to get ProductService scoped to the tenant's EntityManager.
  * The EntityManager is already scoped to the tenant schema by the auth middleware.
  */
-function getProductService(c: { get: (key: 'em') => import('@mikro-orm/postgresql').EntityManager | undefined }): ProductService {
-  const em = c.get('em');
-  if (!em) {
-    throw new Error('EntityManager not available. Make sure auth middleware sets em.');
-  }
+function getProductService(c: Parameters<typeof getEntityManager>[0]): ProductService {
+  const em = getEntityManager(c);
   return new ProductService(em);
+}
+
+/**
+ * Helper to get VersionService scoped to the tenant's EntityManager.
+ * The EntityManager is already scoped to the tenant schema by the auth middleware.
+ */
+function getVersionService(c: Parameters<typeof getEntityManager>[0]): VersionService {
+  const em = getEntityManager(c);
+  return new VersionService(em);
 }
 
 /**
@@ -222,13 +225,14 @@ products.post(
   '/:id/versions',
   zValidator('json', createVersionSchema),
   async (c) => {
-    const { organizationId } = c.get('tenant');
     const { id: userId } = c.get('user');
     const productId = c.req.param('id');
     const { workspace } = c.req.valid('json');
 
+    const versionService = getVersionService(c);
+
     try {
-      const version = await versionService.createVersion(organizationId, {
+      const version = await versionService.createVersion({
         productId,
         workspace,
         createdBy: userId,
@@ -251,9 +255,10 @@ products.post(
  * List versions for a product.
  */
 products.get('/:id/versions', async (c) => {
-  const { organizationId } = c.get('tenant');
   const productId = c.req.param('id');
   const workspaceParam = c.req.query('workspace');
+
+  const versionService = getVersionService(c);
 
   // Validate workspace parameter if provided
   let workspace: ProductWorkspace | undefined;
@@ -264,11 +269,7 @@ products.get('/:id/versions', async (c) => {
     }
   }
 
-  const versions = await versionService.listVersions(
-    organizationId,
-    productId,
-    workspace
-  );
+  const versions = await versionService.listVersions(productId, workspace);
 
   return c.json(ok({ items: versions }));
 });

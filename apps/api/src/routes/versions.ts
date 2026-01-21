@@ -1,6 +1,5 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
-import { prisma } from '@eurocomply/db';
 import {
   ok,
   err,
@@ -12,9 +11,18 @@ import { VersionService } from '../services/version.service.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { NotFoundError, ValidationError, ConflictError } from '../lib/errors.js';
 import type { AppVariables } from '../types/context.js';
+import { getEntityManager } from '../lib/context.js';
 
 const versions = new Hono<{ Variables: AppVariables }>();
-const versionService = new VersionService(prisma);
+
+/**
+ * Helper to get VersionService scoped to the tenant's EntityManager.
+ * The EntityManager is already scoped to the tenant schema by the auth middleware.
+ */
+function getVersionService(c: Parameters<typeof getEntityManager>[0]): VersionService {
+  const em = getEntityManager(c);
+  return new VersionService(em);
+}
 
 /**
  * Version State Machine:
@@ -105,10 +113,10 @@ versions.use('*', authMiddleware);
  * Requires: viewer authority for the version's workspace
  */
 versions.get('/:id', async (c) => {
-  const { organizationId } = c.get('tenant');
   const versionId = c.req.param('id');
 
-  const version = await versionService.getVersion(organizationId, versionId);
+  const versionService = getVersionService(c);
+  const version = await versionService.getVersion(versionId);
   if (!version) {
     return c.json(err('NOT_FOUND', 'Version not found'), 404);
   }
@@ -126,11 +134,12 @@ versions.get('/:id', async (c) => {
  * Requires: editor authority for the version's workspace
  */
 versions.post('/:id/submit', async (c) => {
-  const { organizationId } = c.get('tenant');
   const versionId = c.req.param('id');
 
+  const versionService = getVersionService(c);
+
   // Fetch version first to check workspace authority
-  const version = await versionService.getVersion(organizationId, versionId);
+  const version = await versionService.getVersion(versionId);
   if (!version) {
     return c.json(err('NOT_FOUND', 'Version not found'), 404);
   }
@@ -140,7 +149,7 @@ versions.post('/:id/submit', async (c) => {
   if (authError) return authError;
 
   try {
-    const updatedVersion = await versionService.submitForReview(organizationId, versionId);
+    const updatedVersion = await versionService.submitForReview(versionId);
     return c.json(ok(updatedVersion));
   } catch (error) {
     return handleVersionError(c, error);
@@ -153,11 +162,12 @@ versions.post('/:id/submit', async (c) => {
  * Requires: EDITOR authority for the version's workspace
  */
 versions.post('/:id/review', async (c) => {
-  const { organizationId } = c.get('tenant');
   const versionId = c.req.param('id');
 
+  const versionService = getVersionService(c);
+
   // Fetch version first to check workspace authority
-  const version = await versionService.getVersion(organizationId, versionId);
+  const version = await versionService.getVersion(versionId);
   if (!version) {
     return c.json(err('NOT_FOUND', 'Version not found'), 404);
   }
@@ -167,7 +177,7 @@ versions.post('/:id/review', async (c) => {
   if (authError) return authError;
 
   try {
-    const updatedVersion = await versionService.startReview(organizationId, versionId);
+    const updatedVersion = await versionService.startReview(versionId);
     return c.json(ok(updatedVersion));
   } catch (error) {
     return handleVersionError(c, error);
@@ -181,12 +191,13 @@ versions.post('/:id/review', async (c) => {
  * Requires: EDITOR authority for the version's workspace
  */
 versions.post('/:id/release', async (c) => {
-  const { organizationId } = c.get('tenant');
   const { id: userId } = c.get('user');
   const versionId = c.req.param('id');
 
+  const versionService = getVersionService(c);
+
   // Fetch version first to check workspace authority
-  const version = await versionService.getVersion(organizationId, versionId);
+  const version = await versionService.getVersion(versionId);
   if (!version) {
     return c.json(err('NOT_FOUND', 'Version not found'), 404);
   }
@@ -196,11 +207,7 @@ versions.post('/:id/release', async (c) => {
   if (authError) return authError;
 
   try {
-    const releasedVersion = await versionService.releaseVersion(
-      organizationId,
-      versionId,
-      userId
-    );
+    const releasedVersion = await versionService.releaseVersion(versionId, userId);
     return c.json(ok(releasedVersion));
   } catch (error) {
     return handleVersionError(c, error);
@@ -213,11 +220,12 @@ versions.post('/:id/release', async (c) => {
  * Requires: EDITOR authority for the version's workspace
  */
 versions.post('/:id/reject', async (c) => {
-  const { organizationId } = c.get('tenant');
   const versionId = c.req.param('id');
 
+  const versionService = getVersionService(c);
+
   // Fetch version first to check workspace authority
-  const version = await versionService.getVersion(organizationId, versionId);
+  const version = await versionService.getVersion(versionId);
   if (!version) {
     return c.json(err('NOT_FOUND', 'Version not found'), 404);
   }
@@ -227,7 +235,7 @@ versions.post('/:id/reject', async (c) => {
   if (authError) return authError;
 
   try {
-    const rejectedVersion = await versionService.rejectVersion(organizationId, versionId);
+    const rejectedVersion = await versionService.rejectVersion(versionId);
     return c.json(ok(rejectedVersion));
   } catch (error) {
     return handleVersionError(c, error);

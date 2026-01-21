@@ -1,5 +1,4 @@
 import { Hono } from 'hono';
-import { prisma } from '@eurocomply/db';
 import {
   ok,
   err,
@@ -16,9 +15,18 @@ import {
   validateBody,
 } from '../lib/schemas.js';
 import type { AppVariables } from '../types/context.js';
+import { getEntityManager } from '../lib/context.js';
 
 const operationsEvents = new Hono<{ Variables: AppVariables }>();
-const eventService = new OperationsEventService(prisma);
+
+/**
+ * Helper to get OperationsEventService scoped to the tenant's EntityManager.
+ * The EntityManager is already scoped to the tenant schema by the auth middleware.
+ */
+function getEventService(c: Parameters<typeof getEntityManager>[0]): OperationsEventService {
+  const em = getEntityManager(c);
+  return new OperationsEventService(em);
+}
 
 // Apply auth middleware
 operationsEvents.use('*', authMiddleware);
@@ -31,7 +39,6 @@ operationsEvents.use('*', authMiddleware);
  * NOTE: This route MUST be defined before /:id to avoid route matching conflicts.
  */
 operationsEvents.get('/integrity', async (c) => {
-  const { organizationId } = c.get('tenant');
   const permissions = c.get('permissions');
   const userAuth = validateAuthority(permissions.operationsAuthority);
 
@@ -42,7 +49,8 @@ operationsEvents.get('/integrity', async (c) => {
     );
   }
 
-  const result = await eventService.verifyChainIntegrity(organizationId);
+  const eventService = getEventService(c);
+  const result = await eventService.verifyChainIntegrity();
   return c.json(ok(result));
 });
 
@@ -73,6 +81,7 @@ operationsEvents.post('/', async (c) => {
       return c.json(err('VALIDATION_ERROR', validation.error), 400);
     }
 
+    const eventService = getEventService(c);
     const event = await eventService.recordEvent(organizationId, userId, validation.data);
     return c.json(ok(event), 201);
   } catch (error) {
@@ -89,7 +98,6 @@ operationsEvents.post('/', async (c) => {
  * Requires: VIEWER authority for Operations workspace
  */
 operationsEvents.get('/', async (c) => {
-  const { organizationId } = c.get('tenant');
   const permissions = c.get('permissions');
   const userAuth = validateAuthority(permissions.operationsAuthority);
 
@@ -117,7 +125,8 @@ operationsEvents.get('/', async (c) => {
 
   const { eventType, status, limit, offset } = queryResult.data;
 
-  const events = await eventService.listEvents(organizationId, {
+  const eventService = getEventService(c);
+  const events = await eventService.listEvents({
     eventType,
     status,
     limit,
@@ -133,7 +142,6 @@ operationsEvents.get('/', async (c) => {
  * Requires: VIEWER authority for Operations workspace
  */
 operationsEvents.get('/:id', async (c) => {
-  const { organizationId } = c.get('tenant');
   const permissions = c.get('permissions');
   const eventId = c.req.param('id');
   const userAuth = validateAuthority(permissions.operationsAuthority);
@@ -145,7 +153,8 @@ operationsEvents.get('/:id', async (c) => {
     );
   }
 
-  const event = await eventService.getEvent(organizationId, eventId);
+  const eventService = getEventService(c);
+  const event = await eventService.getEvent(eventId);
   if (!event) {
     return c.json(err('NOT_FOUND', 'Event not found'), 404);
   }
@@ -159,7 +168,6 @@ operationsEvents.get('/:id', async (c) => {
  * Requires: EDITOR authority for Operations workspace
  */
 operationsEvents.post('/:id/verify', async (c) => {
-  const { organizationId } = c.get('tenant');
   const { id: userId } = c.get('user');
   const permissions = c.get('permissions');
   const eventId = c.req.param('id');
@@ -173,7 +181,8 @@ operationsEvents.post('/:id/verify', async (c) => {
   }
 
   try {
-    const event = await eventService.verifyEvent(organizationId, eventId, userId);
+    const eventService = getEventService(c);
+    const event = await eventService.verifyEvent(eventId, userId);
     return c.json(ok(event));
   } catch (error) {
     if (error instanceof NotFoundError) {
