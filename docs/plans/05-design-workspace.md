@@ -239,7 +239,17 @@ export class AttributeTemplate extends BaseEntity {
   @Enum({ items: () => UnitSystem, nullable: true })
   unitSystem?: UnitSystem;
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // DEPRECATED: Use RuleTemplate.severity = BLOCKER instead
+  // This field is retained for backward compatibility only.
+  // UI should derive "required" status from linked RuleTemplates:
+  //   - BLOCKER severity = required field (red indicator)
+  //   - WARNING severity = recommended field (amber indicator)
+  //   - INFO severity = informational (blue indicator)
+  // See: docs/plans/13-regulatory-advisor.md
+  // ═══════════════════════════════════════════════════════════════════════════
   @Property({ default: false })
+  /** @deprecated Use RuleTemplate.severity instead */
   isRequired!: boolean;
 
   @Property({ default: true })
@@ -1969,6 +1979,7 @@ GET    /api/v1/regulations/documents/:id/viewer-url    # Get signed viewer URL
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.5 | 2026-01-21 | Deprecated AttributeTemplate.isRequired with migration note to RuleTemplate.severity |
 | 2.4 | 2026-01-21 | Added Approval Gate workflow: real-time advisory mode (Section 10.2), submission workflow (Section 10.6), legal context API (Section 10.7); Category.defaultProfileId field |
 | 2.3 | 2026-01-21 | Made compliance view read-only; removed profile selector; profile assignment moved to Compliance Workspace |
 | 2.2 | 2026-01-21 | Added feature toggle conditional behavior note to Regulatory Advisor section |

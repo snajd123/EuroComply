@@ -432,6 +432,22 @@ CREATE TABLE public.reason_codes (
 
 CREATE INDEX idx_public_reason_codes_active ON public.reason_codes(is_active);
 
+-- Ingestion jobs (AI-assisted regulation parsing)
+CREATE TABLE public.ingestion_jobs (
+    id VARCHAR(30) PRIMARY KEY,
+    document_id VARCHAR(30) NOT NULL REFERENCES public.regulation_documents(id),
+    status VARCHAR(20) NOT NULL,       -- PENDING, PROCESSING, REVIEW_READY, COMPLETED, FAILED
+    phase VARCHAR(20) NOT NULL,        -- OCR, EXTRACTION, MAPPING, COMPLETE
+    percent_complete INT DEFAULT 0,
+    results JSONB,                     -- { extractedArticles, suggestedAnchors, unmappedSections }
+    error TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_ingestion_jobs_document ON public.ingestion_jobs(document_id);
+CREATE INDEX idx_ingestion_jobs_status ON public.ingestion_jobs(status);
+
 -- Adoption count update function (called from application layer)
 -- Note: Cross-schema triggers are complex; use application-level atomic updates:
 -- BEGIN;
@@ -2192,6 +2208,7 @@ const id = createId();
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.4 | 2026-01-21 | Added public.ingestion_jobs DDL to Public Schema section |
 | 3.3 | 2026-01-21 | Added Approval Gate Workflow: ComplianceStatus enum, ProductVersion compliance fields, RuleDeviation dual-link model (design-time + authorization), AuditResultSnapshot entity for frozen PreFlight results |
 | 3.2 | 2026-01-21 | Added per-rule overrideMode to ReadinessProfileRule (ENFORCING/SILENT/DISABLED); audit trail fields; Compliance MANAGER governance note |
 | 3.1 | 2026-01-21 | Added Regulatory Advisor feature toggles to Organization: regulatoryAdvisorEnabled, enforcementMode, captureComplianceInSilentMode |
