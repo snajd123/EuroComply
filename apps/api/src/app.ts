@@ -3,6 +3,8 @@ import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { secureHeaders } from 'hono/secure-headers';
 import { organizationsRouter } from './routes/organizations.js';
+import { productsRouter } from './routes/products.js';
+import { tenantMiddleware } from './middleware/tenant.js';
 
 export type Env = {
   Variables: {
@@ -37,8 +39,15 @@ export function createApp(): Hono<Env> {
     return c.json({ message: 'EuroComply API v1' });
   });
 
-  // Mount routes
+  // Public routes (no tenant middleware)
   v1.route('/organizations', organizationsRouter);
+
+  // Tenant-scoped routes (require authentication)
+  const tenantRoutes = new Hono<Env>();
+  tenantRoutes.use('*', tenantMiddleware);
+  tenantRoutes.route('/products', productsRouter);
+
+  v1.route('/', tenantRoutes);
 
   app.route('/api/v1', v1);
 
