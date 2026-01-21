@@ -1,8 +1,26 @@
 import { Hono } from 'hono';
-import { prisma } from '@eurocomply/db';
+import { MikroORM } from '@mikro-orm/postgresql';
 import { healthRateLimiter } from '../middleware/rate-limit.js';
 
 const health = new Hono();
+
+// Module-level ORM instance for health checks
+let _orm: MikroORM | null = null;
+
+/**
+ * Set the MikroORM instance for health route database checks.
+ * Call this at app startup.
+ */
+export function setHealthRouteOrm(orm: MikroORM): void {
+  _orm = orm;
+}
+
+/**
+ * Reset health route ORM state (for testing only).
+ */
+export function resetHealthRouteOrm(): void {
+  _orm = null;
+}
 
 // Rate limit health endpoints to prevent monitoring abuse
 health.use('/*', healthRateLimiter);
@@ -21,15 +39,18 @@ health.get('/', (c) => {
 
 /**
  * Deep health check endpoint.
- * Verifies database connectivity.
+ * Verifies database connectivity using MikroORM.
  */
 health.get('/ready', async (c) => {
   const checks: Record<string, { status: string; latency?: number; error?: string }> = {};
 
-  // Check database
+  // Check database using MikroORM
   const dbStart = Date.now();
   try {
-    await prisma.$queryRaw`SELECT 1`;
+    if (!_orm) {
+      throw new Error('Database ORM not initialized');
+    }
+    await _orm.em.execute('SELECT 1');
     checks['database'] = { status: 'ok', latency: Date.now() - dbStart };
   } catch (error) {
     // Security: Only expose detailed error messages in development

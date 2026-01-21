@@ -8,7 +8,7 @@ export { ProductIdentifier, IdentifierType } from './ProductIdentifier.js';
 export { ProductVersion, VersionStatus, Workspace } from './ProductVersion.js';
 export { BomEntry } from './BomEntry.js';
 export { OutboxEvent, OutboxStatus } from './OutboxEvent.js';
-export { OperationsEvent } from './OperationsEvent.js';
+export { OperationsEvent, EventStatus } from './OperationsEvent.js';
 export { DppSnapshot, DppSnapshotStatus } from './DppSnapshot.js';
 export { ReadinessProfile } from './ReadinessProfile.js';
 export { AuditLog } from './AuditLog.js';

@@ -1,13 +1,27 @@
-import { Entity, PrimaryKey, Property, ManyToOne } from '@mikro-orm/core';
+import { Entity, PrimaryKey, Property, ManyToOne, Index } from '@mikro-orm/core';
 import { User } from './User.js';
 
+/**
+ * OrganizationUser - links users to organizations (membership).
+ *
+ * Lives in TENANT schema. Each tenant has their own membership records.
+ * References User (public.users) via userId.
+ */
 @Entity({ tableName: 'organization_users' })
+@Index({ properties: ['userId', 'organizationId'] })
 export class OrganizationUser {
   @PrimaryKey({ type: 'varchar', length: 30 })
   id!: string;
 
-  @ManyToOne(() => User, { fieldName: 'user_id' })
+  @Property({ type: 'varchar', length: 30, fieldName: 'user_id' })
+  userId!: string;
+
+  @ManyToOne(() => User, { fieldName: 'user_id', persist: false })
   user!: User;
+
+  @Property({ type: 'varchar', length: 30, fieldName: 'organization_id' })
+  @Index()
+  organizationId!: string;
 
   @Property({ type: 'varchar', length: 20, default: 'member' })
   role: string = 'member';

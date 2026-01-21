@@ -113,3 +113,16 @@ export function getTenantSchemaDDL(schemaName: string): string {
   // Replace all ${schemaName} placeholders
   return ddlTemplate.replace(/\$\{schemaName\}/g, schemaName);
 }
+
+/**
+ * Lists all tenant schemas in the database.
+ */
+export async function listTenantSchemas(orm: MikroORM): Promise<string[]> {
+  const result = await orm.em.execute<{ schema_name: string }[]>(`
+    SELECT schema_name
+    FROM information_schema.schemata
+    WHERE schema_name LIKE 'tenant_%'
+    ORDER BY schema_name
+  `);
+  return result.map((r) => r.schema_name);
+}

@@ -5,11 +5,19 @@
  * This is the industry standard approach for Clerk integration.
  */
 
-import { prisma } from '@eurocomply/db';
+import { EntityManager } from '@mikro-orm/postgresql';
+import { MikroOrm } from '@eurocomply/db';
 import { Webhook } from 'svix';
 import { loggers } from '../lib/logger.js';
 
+const { User } = MikroOrm;
 const log = loggers.webhook;
+
+function generateId(prefix: string): string {
+  const timestamp = Date.now().toString(36);
+  const random = Math.random().toString(36).substring(2, 8);
+  return `${prefix}_${timestamp}${random}`;
+}
 
 // Clerk webhook event types
 interface ClerkUserData {
@@ -58,7 +66,7 @@ export function verifyWebhookSignature(
 /**
  * Handle user.created event - create user in database
  */
-export async function handleUserCreated(userData: ClerkUserData): Promise<void> {
+export async function handleUserCreated(userData: ClerkUserData, em: EntityManager): Promise<void> {
   const primaryEmail = userData.email_addresses[0]?.email_address;
 
   if (!primaryEmail) {
@@ -71,9 +79,7 @@ export async function handleUserCreated(userData: ClerkUserData): Promise<void> 
     .join(' ') || null;
 
   // Check if user already exists (idempotency)
-  const existingUser = await prisma.user.findUnique({
-    where: { clerkId: userData.id },
-  });
+  const existingUser = await em.findOne(User, { clerkId: userData.id });
 
   if (existingUser) {
     log.debug({ userId: userData.id }, 'user.created: User already exists, skipping');
@@ -81,33 +87,28 @@ export async function handleUserCreated(userData: ClerkUserData): Promise<void> 
   }
 
   // Also check by email to prevent duplicates
-  const existingByEmail = await prisma.user.findUnique({
-    where: { email: primaryEmail },
-  });
+  const existingByEmail = await em.findOne(User, { email: primaryEmail });
 
   if (existingByEmail) {
     // Update the existing user with the new Clerk ID
     log.info({ email: primaryEmail }, 'user.created: User with email exists, updating clerkId');
-    await prisma.user.update({
-      where: { email: primaryEmail },
-      data: {
-        clerkId: userData.id,
-        name: name || existingByEmail.name,
-        avatarUrl: userData.image_url,
-      },
-    });
+    existingByEmail.clerkId = userData.id;
+    existingByEmail.name = name || existingByEmail.name;
+    existingByEmail.avatarUrl = userData.image_url ?? undefined;
+    await em.flush();
     return;
   }
 
   // Create new user
-  await prisma.user.create({
-    data: {
-      clerkId: userData.id,
-      email: primaryEmail,
-      name,
-      avatarUrl: userData.image_url,
-    },
+  const newUser = em.create(User, {
+    id: generateId('user'),
+    clerkId: userData.id,
+    email: primaryEmail,
+    name,
+    avatarUrl: userData.image_url,
   });
+  em.persist(newUser);
+  await em.flush();
 
   log.info({ userId: userData.id, email: primaryEmail }, 'user.created: Created user');
 }
@@ -115,7 +116,7 @@ export async function handleUserCreated(userData: ClerkUserData): Promise<void> 
 /**
  * Handle user.updated event - update user in database
  */
-export async function handleUserUpdated(userData: ClerkUserData): Promise<void> {
+export async function handleUserUpdated(userData: ClerkUserData, em: EntityManager): Promise<void> {
   const primaryEmail = userData.email_addresses[0]?.email_address;
 
   if (!primaryEmail) {
@@ -128,25 +129,19 @@ export async function handleUserUpdated(userData: ClerkUserData): Promise<void> 
     .join(' ') || null;
 
   // Find and update user
-  const existingUser = await prisma.user.findUnique({
-    where: { clerkId: userData.id },
-  });
+  const existingUser = await em.findOne(User, { clerkId: userData.id });
 
   if (!existingUser) {
     // User doesn't exist yet, create them
     log.info({ userId: userData.id }, 'user.updated: User not found, creating');
-    await handleUserCreated(userData);
+    await handleUserCreated(userData, em);
     return;
   }
 
-  await prisma.user.update({
-    where: { clerkId: userData.id },
-    data: {
-      email: primaryEmail,
-      name,
-      avatarUrl: userData.image_url,
-    },
-  });
+  existingUser.email = primaryEmail;
+  existingUser.name = name;
+  existingUser.avatarUrl = userData.image_url ?? undefined;
+  await em.flush();
 
   log.info({ userId: userData.id }, 'user.updated: Updated user');
 }
@@ -157,10 +152,8 @@ export async function handleUserUpdated(userData: ClerkUserData): Promise<void> 
  * Note: We don't hard delete users due to data integrity (foreign keys).
  * Instead, we could soft delete or anonymize. For now, we just log.
  */
-export async function handleUserDeleted(userData: ClerkUserData): Promise<void> {
-  const existingUser = await prisma.user.findUnique({
-    where: { clerkId: userData.id },
-  });
+export async function handleUserDeleted(userData: ClerkUserData, em: EntityManager): Promise<void> {
+  const existingUser = await em.findOne(User, { clerkId: userData.id });
 
   if (!existingUser) {
     log.debug({ userId: userData.id }, 'user.deleted: User not found, nothing to delete');
@@ -174,29 +167,27 @@ export async function handleUserDeleted(userData: ClerkUserData): Promise<void> 
   log.info({ userId: userData.id }, 'user.deleted: User deleted in Clerk (no action taken in DB)');
 
   // Future: Implement soft delete
-  // await prisma.user.update({
-  //   where: { clerkId: userData.id },
-  //   data: { deletedAt: new Date() },
-  // });
+  // existingUser.deletedAt = new Date();
+  // await em.flush();
 }
 
 /**
  * Process a verified Clerk webhook event
  */
-export async function processWebhookEvent(event: ClerkWebhookEvent): Promise<void> {
+export async function processWebhookEvent(event: ClerkWebhookEvent, em: EntityManager): Promise<void> {
   log.info({ eventType: event.type }, 'Processing webhook event');
 
   switch (event.type) {
     case 'user.created':
-      await handleUserCreated(event.data);
+      await handleUserCreated(event.data, em);
       break;
 
     case 'user.updated':
-      await handleUserUpdated(event.data);
+      await handleUserUpdated(event.data, em);
       break;
 
     case 'user.deleted':
-      await handleUserDeleted(event.data);
+      await handleUserDeleted(event.data, em);
       break;
 
     default:

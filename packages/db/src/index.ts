@@ -18,6 +18,7 @@ export { Organization } from './entities/Organization.js';
 export { DppSnapshotStatus } from './entities/DppSnapshot.js';
 export { VersionStatus, Workspace } from './entities/ProductVersion.js';
 export { ProductType, ProductStatus } from './entities/Product.js';
+export { OutboxStatus } from './entities/OutboxEvent.js';
 
 // MikroORM tenant context utilities (aliased to avoid conflict with Prisma versions)
 export {
@@ -27,6 +28,7 @@ export {
   withTenantContext,
   validateSchemaName as validateSchemaNameMikroOrm,
   formatSchemaName,
+  listTenantSchemas,
 } from './tenant-context.js';
 
 // =============================================================================

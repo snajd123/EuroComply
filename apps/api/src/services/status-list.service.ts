@@ -1,4 +1,5 @@
-import { PrismaClient } from '@eurocomply/db';
+import { EntityManager, IsolationLevel } from '@mikro-orm/postgresql';
+import { MikroOrm, Organization } from '@eurocomply/db';
 import type { CredentialStatus } from '@eurocomply/shared';
 import {
   createBitstring,
@@ -9,6 +10,16 @@ import {
   BITSTRING_SIZE,
 } from '@eurocomply/shared';
 import { NotFoundError, ValidationError } from '../lib/errors.js';
+import { randomUUID } from 'crypto';
+
+const { StatusListEntry, UserDidHistory, OrgDidHistory, OrganizationUser } = MikroOrm;
+
+/**
+ * Generates a unique ID with the given prefix.
+ */
+function generateId(prefix: string): string {
+  return `${prefix}_${randomUUID().replace(/-/g, '')}`;
+}
 
 /**
  * Revocation information for a status list entry.
@@ -27,6 +38,11 @@ export interface RevocationInfo {
  * - bit = 0 means valid (not revoked)
  * - bit = 1 means revoked
  *
+ * Architecture notes:
+ * - The EntityManager passed to the constructor is already scoped to the tenant schema
+ * - Organization and StatusListEntry declare `schema: 'public'` in their entity definitions
+ * - UserDidHistory and OrgDidHistory live in the tenant schema
+ *
  * Implementation:
  * - Uses Organization.statusListIndex counter for index allocation
  * - Queries UserDidHistory and OrgDidHistory for DID revocation status
@@ -38,11 +54,11 @@ export class StatusList2021Service {
   /**
    * Create a new StatusList2021Service.
    *
-   * @param prisma - PrismaClient instance for database operations
+   * @param em - EntityManager instance (tenant-scoped, public schema entities route correctly)
    * @param baseUrl - Base URL for status list credential URLs (default: https://api.eurocomply.eu)
    */
   constructor(
-    private prisma: PrismaClient,
+    private em: EntityManager,
     baseUrl: string = 'https://api.eurocomply.eu'
   ) {
     this.baseUrl = baseUrl;
@@ -59,27 +75,25 @@ export class StatusList2021Service {
    * @throws NotFoundError if organization doesn't exist
    */
   async allocateIndex(organizationId: string): Promise<number> {
-    return this.prisma.$transaction(async (tx) => {
-      // Get current index
-      const org = await tx.organization.findUnique({
-        where: { id: organizationId },
-        select: { statusListIndex: true },
-      });
+    return this.em.transactional(
+      async (em) => {
+        // Get organization (public schema)
+        const org = await em.findOne(Organization, { id: organizationId });
 
-      if (!org) {
-        throw new NotFoundError('Organization', organizationId);
-      }
+        if (!org) {
+          throw new NotFoundError('Organization', organizationId);
+        }
 
-      const allocatedIndex = org.statusListIndex;
+        const allocatedIndex = org.statusListIndex ?? 0;
 
-      // Increment counter atomically
-      await tx.organization.update({
-        where: { id: organizationId },
-        data: { statusListIndex: allocatedIndex + 1 },
-      });
+        // Increment counter atomically
+        org.statusListIndex = allocatedIndex + 1;
+        await em.flush();
 
-      return allocatedIndex;
-    });
+        return allocatedIndex;
+      },
+      { isolationLevel: IsolationLevel.SERIALIZABLE }
+    );
   }
 
   /**
@@ -102,29 +116,30 @@ export class StatusList2021Service {
   ): Promise<void> {
     this.validateIndex(index);
 
-    // Persist revocation to database (upsert to handle re-revocation)
-    await this.prisma.statusListEntry.upsert({
-      where: {
-        organizationId_statusIndex: {
-          organizationId,
-          statusIndex: index,
-        },
-      },
-      create: {
+    // Check if entry already exists (upsert behavior)
+    const existing = await this.em.findOne(StatusListEntry, {
+      organizationId,
+      statusIndex: index,
+    });
+
+    if (existing) {
+      existing.revokedAt = new Date();
+      existing.reason = reason;
+      existing.referenceType = reference?.type;
+      existing.referenceId = reference?.id;
+    } else {
+      this.em.create(StatusListEntry, {
+        id: generateId('sle'),
         organizationId,
         statusIndex: index,
         revokedAt: new Date(),
         reason,
         referenceType: reference?.type,
         referenceId: reference?.id,
-      },
-      update: {
-        revokedAt: new Date(),
-        reason,
-        referenceType: reference?.type,
-        referenceId: reference?.id,
-      },
-    });
+      });
+    }
+
+    await this.em.flush();
   }
 
   /**
@@ -140,50 +155,43 @@ export class StatusList2021Service {
   async isRevoked(organizationId: string, index: number): Promise<boolean> {
     this.validateIndex(index);
 
-    // Check StatusListEntry table first
-    const entry = await this.prisma.statusListEntry.findUnique({
-      where: {
-        organizationId_statusIndex: {
-          organizationId,
-          statusIndex: index,
-        },
-      },
-      select: { revokedAt: true },
+    // Check StatusListEntry table first (public schema)
+    const entry = await this.em.findOne(StatusListEntry, {
+      organizationId,
+      statusIndex: index,
     });
 
     if (entry?.revokedAt) {
       return true;
     }
 
-    // Check UserDidHistory for revoked user DIDs
-    const userDid = await this.prisma.userDidHistory.findFirst({
-      where: {
-        statusListIndex: index,
-        user: {
-          organizations: {
-            some: {
-              organizationId,
-            },
-          },
-        },
-      },
-      select: { revokedAt: true },
+    // Check UserDidHistory for revoked user DIDs (tenant schema)
+    // This requires a join through User -> OrganizationUser
+    // We simplify by checking if the user belongs to the organization
+    const userDid = await this.em.findOne(UserDidHistory, {
+      statusListIndex: index,
+      revokedAt: { $ne: null },
     });
 
-    if (userDid?.revokedAt) {
-      return true;
+    if (userDid) {
+      // Verify user belongs to this organization
+      const membership = await this.em.findOne(OrganizationUser, {
+        userId: userDid.userId,
+        organizationId,
+      });
+      if (membership) {
+        return true;
+      }
     }
 
-    // Check OrgDidHistory for revoked organization DIDs
-    const orgDid = await this.prisma.orgDidHistory.findFirst({
-      where: {
-        organizationId,
-        statusListIndex: index,
-      },
-      select: { revokedAt: true },
+    // Check OrgDidHistory for revoked organization DIDs (tenant schema)
+    const orgDid = await this.em.findOne(OrgDidHistory, {
+      organizationId,
+      statusListIndex: index,
+      revokedAt: { $ne: null },
     });
 
-    if (orgDid?.revokedAt) {
+    if (orgDid) {
       return true;
     }
 
@@ -229,15 +237,10 @@ export class StatusList2021Service {
   ): Promise<RevocationInfo | null> {
     this.validateIndex(index);
 
-    // Check StatusListEntry table
-    const entry = await this.prisma.statusListEntry.findUnique({
-      where: {
-        organizationId_statusIndex: {
-          organizationId,
-          statusIndex: index,
-        },
-      },
-      select: { revokedAt: true, reason: true },
+    // Check StatusListEntry table (public schema)
+    const entry = await this.em.findOne(StatusListEntry, {
+      organizationId,
+      statusIndex: index,
     });
 
     if (entry?.revokedAt) {
@@ -247,35 +250,31 @@ export class StatusList2021Service {
       };
     }
 
-    // Check UserDidHistory
-    const userDid = await this.prisma.userDidHistory.findFirst({
-      where: {
-        statusListIndex: index,
-        user: {
-          organizations: {
-            some: {
-              organizationId,
-            },
-          },
-        },
-      },
-      select: { revokedAt: true, revocationReason: true },
+    // Check UserDidHistory (tenant schema)
+    const userDid = await this.em.findOne(UserDidHistory, {
+      statusListIndex: index,
+      revokedAt: { $ne: null },
     });
 
     if (userDid?.revokedAt) {
-      return {
-        revokedAt: userDid.revokedAt,
-        reason: userDid.revocationReason ?? undefined,
-      };
+      // Verify user belongs to this organization
+      const membership = await this.em.findOne(OrganizationUser, {
+        userId: userDid.userId,
+        organizationId,
+      });
+      if (membership) {
+        return {
+          revokedAt: userDid.revokedAt,
+          reason: userDid.revocationReason ?? undefined,
+        };
+      }
     }
 
-    // Check OrgDidHistory
-    const orgDid = await this.prisma.orgDidHistory.findFirst({
-      where: {
-        organizationId,
-        statusListIndex: index,
-      },
-      select: { revokedAt: true, revocationReason: true },
+    // Check OrgDidHistory (tenant schema)
+    const orgDid = await this.em.findOne(OrgDidHistory, {
+      organizationId,
+      statusListIndex: index,
+      revokedAt: { $ne: null },
     });
 
     if (orgDid?.revokedAt) {
@@ -316,49 +315,44 @@ export class StatusList2021Service {
   async buildBitstring(organizationId: string): Promise<Uint8Array> {
     const bitstring = createBitstring();
 
-    // Set bits from StatusListEntry table
-    const revokedEntries = await this.prisma.statusListEntry.findMany({
-      where: { organizationId },
-      select: { statusIndex: true },
+    // Set bits from StatusListEntry table (public schema)
+    const revokedEntries = await this.em.find(StatusListEntry, {
+      organizationId,
     });
 
-    for (const { statusIndex } of revokedEntries) {
-      if (statusIndex < BITSTRING_SIZE) {
-        setBit(bitstring, statusIndex);
+    for (const entry of revokedEntries) {
+      if (entry.statusIndex < BITSTRING_SIZE) {
+        setBit(bitstring, entry.statusIndex);
       }
     }
 
-    // Set bits from UserDidHistory
-    const revokedUserDids = await this.prisma.userDidHistory.findMany({
-      where: {
-        revokedAt: { not: null },
-        user: {
-          organizations: {
-            some: { organizationId },
-          },
-        },
-      },
-      select: { statusListIndex: true },
-    });
+    // Get user IDs that belong to this organization
+    const memberships = await this.em.find(OrganizationUser, { organizationId });
+    const userIds = memberships.map((m) => m.userId);
 
-    for (const { statusListIndex } of revokedUserDids) {
-      if (statusListIndex !== null && statusListIndex < BITSTRING_SIZE) {
-        setBit(bitstring, statusListIndex);
+    // Set bits from UserDidHistory (tenant schema)
+    if (userIds.length > 0) {
+      const revokedUserDids = await this.em.find(UserDidHistory, {
+        userId: { $in: userIds },
+        revokedAt: { $ne: null },
+      });
+
+      for (const userDid of revokedUserDids) {
+        if (userDid.statusListIndex < BITSTRING_SIZE) {
+          setBit(bitstring, userDid.statusListIndex);
+        }
       }
     }
 
-    // Set bits from OrgDidHistory
-    const revokedOrgDids = await this.prisma.orgDidHistory.findMany({
-      where: {
-        organizationId,
-        revokedAt: { not: null },
-      },
-      select: { statusListIndex: true },
+    // Set bits from OrgDidHistory (tenant schema)
+    const revokedOrgDids = await this.em.find(OrgDidHistory, {
+      organizationId,
+      revokedAt: { $ne: null },
     });
 
-    for (const { statusListIndex } of revokedOrgDids) {
-      if (statusListIndex !== null && statusListIndex < BITSTRING_SIZE) {
-        setBit(bitstring, statusListIndex);
+    for (const orgDid of revokedOrgDids) {
+      if (orgDid.statusListIndex < BITSTRING_SIZE) {
+        setBit(bitstring, orgDid.statusListIndex);
       }
     }
 

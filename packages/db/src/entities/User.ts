@@ -1,7 +1,13 @@
 import { Entity, PrimaryKey, Property, Unique, OneToMany, Collection } from '@mikro-orm/core';
 import { OrganizationUser } from './OrganizationUser.js';
 
-@Entity({ tableName: 'users' })
+/**
+ * User entity - stores user profile data synced from Clerk.
+ *
+ * Lives in PUBLIC schema since users can belong to multiple organizations.
+ * The OrganizationUser junction table (tenant schema) links users to orgs.
+ */
+@Entity({ tableName: 'users', schema: 'public' })
 export class User {
   @PrimaryKey({ type: 'varchar', length: 30 })
   id!: string;

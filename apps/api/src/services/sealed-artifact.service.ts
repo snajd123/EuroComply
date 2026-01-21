@@ -1,4 +1,5 @@
-import { type PrismaClient } from '@eurocomply/db';
+import { EntityManager } from '@mikro-orm/postgresql';
+import { MikroOrm, Organization } from '@eurocomply/db';
 import { type WaltIdClient } from '@eurocomply/walt-id';
 import {
   type SealedArtifact,
@@ -8,6 +9,8 @@ import {
 import { TimestampService } from './timestamp.service.js';
 import { StatusList2021Service } from './status-list.service.js';
 import { NotFoundError } from '../lib/errors.js';
+
+const { UserDidHistory, OrgDidHistory } = MikroOrm;
 
 /**
  * Input for creating a sealed artifact.
@@ -35,6 +38,12 @@ export interface CreateSealedArtifactInput {
  * - Status List 2021 entry (for revocation)
  * - RFC3161 timestamp (optional, for legal proof of signing time)
  *
+ * Architecture notes:
+ * - The EntityManager passed to the constructor is already scoped to the tenant schema
+ * - UserDidHistory and OrgDidHistory live in the tenant schema
+ * - Organization entity (public schema) is accessed for org details
+ *   because Organization declares `schema: 'public'` in its entity definition
+ *
  * Flow:
  * 1. User signs payload → userProof
  * 2. Organization wraps → corporateProof
@@ -46,7 +55,7 @@ export class SealedArtifactService {
     private readonly waltIdClient: WaltIdClient,
     private readonly timestampService: TimestampService,
     private readonly statusListService: StatusList2021Service,
-    private readonly prisma: PrismaClient
+    private readonly em: EntityManager
   ) {}
 
   /**
@@ -68,31 +77,31 @@ export class SealedArtifactService {
       requireTimestamp = true,
     } = input;
 
-    // Get user's current DID
-    const userDid = await this.prisma.userDidHistory.findFirst({
-      where: { userId, validTo: null, revokedAt: null },
-      orderBy: { validFrom: 'desc' },
-    });
+    // Get user's current DID (active: validTo is null and not revoked)
+    const userDid = await this.em.findOne(
+      UserDidHistory,
+      { userId, validTo: null, revokedAt: null },
+      { orderBy: { validFrom: 'DESC' } }
+    );
 
     if (!userDid) {
       throw new NotFoundError('User DID', userId);
     }
 
-    // Get organization's current DID
-    const orgDid = await this.prisma.orgDidHistory.findFirst({
-      where: { organizationId, validTo: null, revokedAt: null },
-      orderBy: { validFrom: 'desc' },
-    });
+    // Get organization's current DID (active: validTo is null and not revoked)
+    const orgDid = await this.em.findOne(
+      OrgDidHistory,
+      { organizationId, validTo: null, revokedAt: null },
+      { orderBy: { validFrom: 'DESC' } }
+    );
 
     if (!orgDid) {
       throw new NotFoundError('Organization DID', organizationId);
     }
 
-    // Get organization details for forensic context
-    const org = await this.prisma.organization.findUnique({
-      where: { id: organizationId },
-      select: { id: true, name: true, did: true },
-    });
+    // Get organization details for forensic context (public schema)
+    // Organization entity declares schema: 'public', so MikroORM routes there
+    const org = await this.em.findOne(Organization, { id: organizationId });
 
     if (!org) {
       throw new NotFoundError('Organization', organizationId);

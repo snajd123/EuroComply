@@ -1,27 +1,35 @@
-import { Entity, PrimaryKey, Property, ManyToOne, Index } from '@mikro-orm/core';
-import { StatusList } from './StatusList.js';
+import { Entity, PrimaryKey, Property, Index, Unique } from '@mikro-orm/core';
 
-@Entity({ tableName: 'status_list_entries' })
+/**
+ * StatusListEntry tracks revocation status for credentials and DIDs.
+ *
+ * Lives in PUBLIC schema since it tracks status across organizations.
+ * Used by the StatusList2021Service for W3C Status List 2021 revocation.
+ */
+@Entity({ tableName: 'status_list_entries', schema: 'public' })
+@Unique({ properties: ['organizationId', 'statusIndex'] })
 export class StatusListEntry {
   @PrimaryKey({ type: 'varchar', length: 30 })
   id!: string;
 
-  @ManyToOne(() => StatusList, { fieldName: 'status_list_id' })
+  @Property({ type: 'varchar', length: 30, fieldName: 'organization_id' })
   @Index()
-  statusList!: StatusList;
+  organizationId!: string;
 
-  @Property({ type: 'varchar', length: 30, fieldName: 'credential_id' })
-  @Index()
-  credentialId!: string;
+  @Property({ type: 'int', fieldName: 'status_index' })
+  statusIndex!: number;
 
-  @Property({ type: 'int' })
-  index!: number;
+  @Property({ type: 'varchar', length: 50, fieldName: 'reference_type', nullable: true })
+  referenceType?: string;
 
-  @Property({ type: 'boolean', default: false })
-  revoked: boolean = false;
+  @Property({ type: 'varchar', length: 30, fieldName: 'reference_id', nullable: true })
+  referenceId?: string;
 
-  @Property({ type: 'timestamptz', fieldName: 'revoked_at', nullable: true })
-  revokedAt?: Date;
+  @Property({ type: 'timestamptz', fieldName: 'revoked_at' })
+  revokedAt!: Date;
+
+  @Property({ type: 'varchar', length: 500, nullable: true })
+  reason?: string;
 
   @Property({ type: 'timestamptz', fieldName: 'created_at' })
   createdAt: Date = new Date();

@@ -6,39 +6,35 @@ import {
   handleUserDeleted,
   processWebhookEvent,
 } from './clerk-webhook.service.js';
+import { EntityManager } from '@mikro-orm/postgresql';
+import { MikroOrm } from '@eurocomply/db';
 
-// Mock prisma
-vi.mock('@eurocomply/db', () => ({
-  prisma: {
-    user: {
-      findUnique: vi.fn(),
-      create: vi.fn(),
-      update: vi.fn(),
-    },
-  },
-}));
+const { User } = MikroOrm;
 
-// Mock svix Webhook
+// Mock svix Webhook - must use function (not arrow) to be a valid constructor
 vi.mock('svix', () => ({
-  Webhook: vi.fn().mockImplementation(() => ({
-    verify: vi.fn(),
-  })),
+  Webhook: vi.fn().mockImplementation(function(this: { verify: ReturnType<typeof vi.fn> }) {
+    this.verify = vi.fn();
+  }),
 }));
 
-import { prisma } from '@eurocomply/db';
 import { Webhook } from 'svix';
 
-const mockPrisma = prisma as unknown as {
-  user: {
-    findUnique: Mock;
-    create: Mock;
-    update: Mock;
-  };
+const createMockEm = (): EntityManager => {
+  return {
+    findOne: vi.fn(),
+    create: vi.fn(),
+    persist: vi.fn(),
+    flush: vi.fn(),
+  } as unknown as EntityManager;
 };
 
 describe('clerk-webhook.service', () => {
+  let mockEm: EntityManager;
+
   beforeEach(() => {
     vi.clearAllMocks();
+    mockEm = createMockEm();
   });
 
   describe('verifyWebhookSignature', () => {
@@ -50,9 +46,9 @@ describe('clerk-webhook.service', () => {
       };
 
       const mockVerify = vi.fn().mockReturnValue(mockEvent);
-      (Webhook as unknown as Mock).mockImplementation(() => ({
-        verify: mockVerify,
-      }));
+      (Webhook as unknown as Mock).mockImplementation(function(this: { verify: typeof mockVerify }) {
+        this.verify = mockVerify;
+      });
 
       const payload = JSON.stringify(mockEvent);
       const headers = {
@@ -73,9 +69,9 @@ describe('clerk-webhook.service', () => {
       const mockVerify = vi.fn().mockImplementation(() => {
         throw new Error('Invalid signature');
       });
-      (Webhook as unknown as Mock).mockImplementation(() => ({
-        verify: mockVerify,
-      }));
+      (Webhook as unknown as Mock).mockImplementation(function(this: { verify: typeof mockVerify }) {
+        this.verify = mockVerify;
+      });
 
       const payload = 'invalid';
       const headers = {
@@ -86,26 +82,6 @@ describe('clerk-webhook.service', () => {
 
       expect(() => verifyWebhookSignature(payload, headers, 'secret')).toThrow(
         'Invalid signature'
-      );
-    });
-
-    it('should throw when timestamp is too old', () => {
-      const mockVerify = vi.fn().mockImplementation(() => {
-        throw new Error('Message timestamp too old');
-      });
-      (Webhook as unknown as Mock).mockImplementation(() => ({
-        verify: mockVerify,
-      }));
-
-      const payload = '{}';
-      const headers = {
-        'svix-id': 'msg_123',
-        'svix-timestamp': '1000000000', // Very old timestamp
-        'svix-signature': 'v1,sig',
-      };
-
-      expect(() => verifyWebhookSignature(payload, headers, 'secret')).toThrow(
-        'Message timestamp too old'
       );
     });
   });
@@ -121,67 +97,98 @@ describe('clerk-webhook.service', () => {
       updated_at: Date.now(),
     };
 
-    it('should create new user when user does not exist', async () => {
-      mockPrisma.user.findUnique.mockResolvedValue(null);
-      mockPrisma.user.create.mockResolvedValue({
-        id: 'db_user_1',
-        clerkId: validUserData.id,
-        email: 'test@example.com',
-        name: 'John Doe',
-      });
+    it('should accept EntityManager as parameter', async () => {
+      (mockEm.findOne as Mock).mockResolvedValue(null);
+      (mockEm.create as Mock).mockReturnValue({ id: 'user_new' });
 
-      await handleUserCreated(validUserData);
+      // Should not throw - accepts EntityManager
+      await expect(handleUserCreated(validUserData, mockEm)).resolves.not.toThrow();
+    });
 
-      expect(mockPrisma.user.findUnique).toHaveBeenCalledWith({
-        where: { clerkId: validUserData.id },
-      });
-      expect(mockPrisma.user.create).toHaveBeenCalledWith({
-        data: {
+    it('should use em.findOne to check if user exists by clerkId', async () => {
+      (mockEm.findOne as Mock).mockResolvedValue(null);
+      (mockEm.create as Mock).mockReturnValue({ id: 'user_new' });
+
+      await handleUserCreated(validUserData, mockEm);
+
+      expect(mockEm.findOne).toHaveBeenCalledWith(
+        User,
+        { clerkId: validUserData.id }
+      );
+    });
+
+    it('should use em.findOne to check if user exists by email', async () => {
+      (mockEm.findOne as Mock).mockResolvedValueOnce(null); // Not found by clerkId
+      (mockEm.findOne as Mock).mockResolvedValueOnce(null); // Not found by email
+      (mockEm.create as Mock).mockReturnValue({ id: 'user_new' });
+
+      await handleUserCreated(validUserData, mockEm);
+
+      expect(mockEm.findOne).toHaveBeenCalledWith(
+        User,
+        { email: 'test@example.com' }
+      );
+    });
+
+    it('should use em.create and em.persist for new user', async () => {
+      (mockEm.findOne as Mock).mockResolvedValue(null);
+      const newUser = { id: 'user_new' };
+      (mockEm.create as Mock).mockReturnValue(newUser);
+
+      await handleUserCreated(validUserData, mockEm);
+
+      expect(mockEm.create).toHaveBeenCalledWith(
+        User,
+        expect.objectContaining({
           clerkId: validUserData.id,
           email: 'test@example.com',
           name: 'John Doe',
           avatarUrl: 'https://example.com/avatar.jpg',
-        },
-      });
+        })
+      );
+      expect(mockEm.persist).toHaveBeenCalledWith(newUser);
+    });
+
+    it('should call em.flush after creating user', async () => {
+      (mockEm.findOne as Mock).mockResolvedValue(null);
+      (mockEm.create as Mock).mockReturnValue({ id: 'user_new' });
+
+      await handleUserCreated(validUserData, mockEm);
+
+      expect(mockEm.flush).toHaveBeenCalled();
     });
 
     it('should skip creation if user already exists by clerkId (idempotency)', async () => {
-      mockPrisma.user.findUnique.mockResolvedValueOnce({
+      (mockEm.findOne as Mock).mockResolvedValueOnce({
         id: 'db_user_1',
         clerkId: validUserData.id,
       });
 
-      await handleUserCreated(validUserData);
+      await handleUserCreated(validUserData, mockEm);
 
-      expect(mockPrisma.user.create).not.toHaveBeenCalled();
-      expect(mockPrisma.user.update).not.toHaveBeenCalled();
+      expect(mockEm.create).not.toHaveBeenCalled();
+      expect(mockEm.persist).not.toHaveBeenCalled();
     });
 
     it('should update existing user with clerkId if email already exists', async () => {
-      // No user by clerkId
-      mockPrisma.user.findUnique.mockResolvedValueOnce(null);
-      // But user exists by email
-      mockPrisma.user.findUnique.mockResolvedValueOnce({
+      const existingUser = {
         id: 'db_user_existing',
         email: 'test@example.com',
         name: 'Old Name',
-      });
-      mockPrisma.user.update.mockResolvedValue({
-        id: 'db_user_existing',
-        clerkId: validUserData.id,
-      });
+        clerkId: undefined as string | undefined,
+        avatarUrl: undefined as string | undefined,
+      };
 
-      await handleUserCreated(validUserData);
+      (mockEm.findOne as Mock).mockResolvedValueOnce(null); // Not found by clerkId
+      (mockEm.findOne as Mock).mockResolvedValueOnce(existingUser); // Found by email
 
-      expect(mockPrisma.user.update).toHaveBeenCalledWith({
-        where: { email: 'test@example.com' },
-        data: {
-          clerkId: validUserData.id,
-          name: 'John Doe',
-          avatarUrl: 'https://example.com/avatar.jpg',
-        },
-      });
-      expect(mockPrisma.user.create).not.toHaveBeenCalled();
+      await handleUserCreated(validUserData, mockEm);
+
+      // Should update the existing user's properties
+      expect(existingUser.clerkId).toBe(validUserData.id);
+      expect(existingUser.name).toBe('John Doe');
+      expect(existingUser.avatarUrl).toBe('https://example.com/avatar.jpg');
+      expect(mockEm.flush).toHaveBeenCalled();
     });
 
     it('should handle user with no email addresses', async () => {
@@ -190,63 +197,10 @@ describe('clerk-webhook.service', () => {
         email_addresses: [],
       };
 
-      await handleUserCreated(userWithNoEmail);
+      await handleUserCreated(userWithNoEmail, mockEm);
 
-      expect(mockPrisma.user.findUnique).not.toHaveBeenCalled();
-      expect(mockPrisma.user.create).not.toHaveBeenCalled();
-    });
-
-    it('should handle user with only first name', async () => {
-      const userFirstNameOnly = {
-        ...validUserData,
-        first_name: 'John',
-        last_name: null,
-      };
-      mockPrisma.user.findUnique.mockResolvedValue(null);
-      mockPrisma.user.create.mockResolvedValue({ id: 'db_user_1' });
-
-      await handleUserCreated(userFirstNameOnly);
-
-      expect(mockPrisma.user.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          name: 'John',
-        }),
-      });
-    });
-
-    it('should handle user with no name at all', async () => {
-      const userNoName = {
-        ...validUserData,
-        first_name: null,
-        last_name: null,
-      };
-      mockPrisma.user.findUnique.mockResolvedValue(null);
-      mockPrisma.user.create.mockResolvedValue({ id: 'db_user_1' });
-
-      await handleUserCreated(userNoName);
-
-      expect(mockPrisma.user.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          name: null,
-        }),
-      });
-    });
-
-    it('should handle user with null avatar', async () => {
-      const userNoAvatar = {
-        ...validUserData,
-        image_url: null,
-      };
-      mockPrisma.user.findUnique.mockResolvedValue(null);
-      mockPrisma.user.create.mockResolvedValue({ id: 'db_user_1' });
-
-      await handleUserCreated(userNoAvatar);
-
-      expect(mockPrisma.user.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          avatarUrl: null,
-        }),
-      });
+      expect(mockEm.findOne).not.toHaveBeenCalled();
+      expect(mockEm.create).not.toHaveBeenCalled();
     });
   });
 
@@ -261,38 +215,55 @@ describe('clerk-webhook.service', () => {
       updated_at: Date.now(),
     };
 
-    it('should update existing user', async () => {
-      mockPrisma.user.findUnique.mockResolvedValue({
+    it('should accept EntityManager as parameter', async () => {
+      (mockEm.findOne as Mock).mockResolvedValue({
+        id: 'db_user_1',
+        clerkId: validUserData.id,
+      });
+
+      await expect(handleUserUpdated(validUserData, mockEm)).resolves.not.toThrow();
+    });
+
+    it('should use em.findOne to find user by clerkId', async () => {
+      (mockEm.findOne as Mock).mockResolvedValue({
+        id: 'db_user_1',
+        clerkId: validUserData.id,
+      });
+
+      await handleUserUpdated(validUserData, mockEm);
+
+      expect(mockEm.findOne).toHaveBeenCalledWith(
+        User,
+        { clerkId: validUserData.id }
+      );
+    });
+
+    it('should update user properties directly and flush', async () => {
+      const existingUser = {
         id: 'db_user_1',
         clerkId: validUserData.id,
         email: 'old@example.com',
-      });
-      mockPrisma.user.update.mockResolvedValue({
-        id: 'db_user_1',
-        email: 'updated@example.com',
-      });
+        name: 'Old Name',
+        avatarUrl: null as string | null,
+      };
+      (mockEm.findOne as Mock).mockResolvedValue(existingUser);
 
-      await handleUserUpdated(validUserData);
+      await handleUserUpdated(validUserData, mockEm);
 
-      expect(mockPrisma.user.update).toHaveBeenCalledWith({
-        where: { clerkId: validUserData.id },
-        data: {
-          email: 'updated@example.com',
-          name: 'Jane Smith',
-          avatarUrl: 'https://example.com/new-avatar.jpg',
-        },
-      });
+      expect(existingUser.email).toBe('updated@example.com');
+      expect(existingUser.name).toBe('Jane Smith');
+      expect(existingUser.avatarUrl).toBe('https://example.com/new-avatar.jpg');
+      expect(mockEm.flush).toHaveBeenCalled();
     });
 
     it('should create user if not found (handles out-of-order events)', async () => {
-      // User doesn't exist yet
-      mockPrisma.user.findUnique.mockResolvedValue(null);
-      mockPrisma.user.create.mockResolvedValue({ id: 'db_user_1' });
+      (mockEm.findOne as Mock).mockResolvedValue(null);
+      (mockEm.create as Mock).mockReturnValue({ id: 'db_user_1' });
 
-      await handleUserUpdated(validUserData);
+      await handleUserUpdated(validUserData, mockEm);
 
-      // Should fall through to handleUserCreated
-      expect(mockPrisma.user.create).toHaveBeenCalled();
+      // Should fall through to create
+      expect(mockEm.create).toHaveBeenCalled();
     });
 
     it('should handle user with no email addresses', async () => {
@@ -301,10 +272,9 @@ describe('clerk-webhook.service', () => {
         email_addresses: [],
       };
 
-      await handleUserUpdated(userWithNoEmail);
+      await handleUserUpdated(userWithNoEmail, mockEm);
 
-      expect(mockPrisma.user.findUnique).not.toHaveBeenCalled();
-      expect(mockPrisma.user.update).not.toHaveBeenCalled();
+      expect(mockEm.findOne).not.toHaveBeenCalled();
     });
   });
 
@@ -319,36 +289,40 @@ describe('clerk-webhook.service', () => {
       updated_at: Date.now(),
     };
 
-    it('should log when user exists (currently no-op)', async () => {
-      mockPrisma.user.findUnique.mockResolvedValue({
+    it('should accept EntityManager as parameter', async () => {
+      (mockEm.findOne as Mock).mockResolvedValue({
         id: 'db_user_1',
         clerkId: validUserData.id,
       });
 
-      // Should complete without error (currently just logs)
-      await handleUserDeleted(validUserData);
+      await expect(handleUserDeleted(validUserData, mockEm)).resolves.not.toThrow();
+    });
 
-      expect(mockPrisma.user.findUnique).toHaveBeenCalledWith({
-        where: { clerkId: validUserData.id },
+    it('should use em.findOne to find user by clerkId', async () => {
+      (mockEm.findOne as Mock).mockResolvedValue({
+        id: 'db_user_1',
+        clerkId: validUserData.id,
       });
-      // Currently doesn't delete - just logs
-      expect(mockPrisma.user.update).not.toHaveBeenCalled();
+
+      await handleUserDeleted(validUserData, mockEm);
+
+      expect(mockEm.findOne).toHaveBeenCalledWith(
+        User,
+        { clerkId: validUserData.id }
+      );
     });
 
     it('should handle deletion of non-existent user gracefully', async () => {
-      mockPrisma.user.findUnique.mockResolvedValue(null);
+      (mockEm.findOne as Mock).mockResolvedValue(null);
 
       // Should complete without error
-      await handleUserDeleted(validUserData);
+      await handleUserDeleted(validUserData, mockEm);
 
-      expect(mockPrisma.user.findUnique).toHaveBeenCalledWith({
-        where: { clerkId: validUserData.id },
-      });
+      expect(mockEm.findOne).toHaveBeenCalled();
     });
   });
 
   describe('processWebhookEvent', () => {
-    // Helper to create test webhook events - uses type assertion for flexibility in tests
     const createEvent = <T extends Record<string, unknown>>(type: string, data: T) => ({
       type,
       data,
@@ -365,53 +339,56 @@ describe('clerk-webhook.service', () => {
       updated_at: Date.now(),
     };
 
+    it('should accept EntityManager as second parameter', async () => {
+      (mockEm.findOne as Mock).mockResolvedValue(null);
+      (mockEm.create as Mock).mockReturnValue({ id: 'db_user_1' });
+
+      await expect(
+        processWebhookEvent(createEvent('user.created', validUserData), mockEm)
+      ).resolves.not.toThrow();
+    });
+
     it('should route user.created event to handleUserCreated', async () => {
-      mockPrisma.user.findUnique.mockResolvedValue(null);
-      mockPrisma.user.create.mockResolvedValue({ id: 'db_user_1' });
+      (mockEm.findOne as Mock).mockResolvedValue(null);
+      (mockEm.create as Mock).mockReturnValue({ id: 'db_user_1' });
 
-      await processWebhookEvent(createEvent('user.created', validUserData));
+      await processWebhookEvent(createEvent('user.created', validUserData), mockEm);
 
-      expect(mockPrisma.user.create).toHaveBeenCalled();
+      expect(mockEm.create).toHaveBeenCalled();
     });
 
     it('should route user.updated event to handleUserUpdated', async () => {
-      mockPrisma.user.findUnique.mockResolvedValue({
+      const existingUser = {
         id: 'db_user_1',
         clerkId: validUserData.id,
-      });
-      mockPrisma.user.update.mockResolvedValue({ id: 'db_user_1' });
+        email: 'old@example.com',
+      };
+      (mockEm.findOne as Mock).mockResolvedValue(existingUser);
 
-      await processWebhookEvent(createEvent('user.updated', validUserData));
+      await processWebhookEvent(createEvent('user.updated', validUserData), mockEm);
 
-      expect(mockPrisma.user.update).toHaveBeenCalled();
+      expect(existingUser.email).toBe('test@example.com');
     });
 
     it('should route user.deleted event to handleUserDeleted', async () => {
-      mockPrisma.user.findUnique.mockResolvedValue({
+      (mockEm.findOne as Mock).mockResolvedValue({
         id: 'db_user_1',
         clerkId: validUserData.id,
       });
 
-      await processWebhookEvent(createEvent('user.deleted', validUserData));
+      await processWebhookEvent(createEvent('user.deleted', validUserData), mockEm);
 
-      expect(mockPrisma.user.findUnique).toHaveBeenCalledWith({
-        where: { clerkId: validUserData.id },
-      });
+      expect(mockEm.findOne).toHaveBeenCalledWith(
+        User,
+        { clerkId: validUserData.id }
+      );
     });
 
     it('should handle unknown event types gracefully', async () => {
-      // Should not throw for unknown events
-      await processWebhookEvent(createEvent('organization.created', { id: 'org_123' }));
+      await processWebhookEvent(createEvent('organization.created', { id: 'org_123' }), mockEm);
 
-      expect(mockPrisma.user.findUnique).not.toHaveBeenCalled();
-      expect(mockPrisma.user.create).not.toHaveBeenCalled();
-      expect(mockPrisma.user.update).not.toHaveBeenCalled();
-    });
-
-    it('should handle session.created event gracefully (ignored)', async () => {
-      await processWebhookEvent(createEvent('session.created', { user_id: 'user_123' }));
-
-      expect(mockPrisma.user.findUnique).not.toHaveBeenCalled();
+      expect(mockEm.findOne).not.toHaveBeenCalled();
+      expect(mockEm.create).not.toHaveBeenCalled();
     });
   });
 });

@@ -1,5 +1,11 @@
-import { Entity, PrimaryKey, Property } from '@mikro-orm/core';
+import { Entity, PrimaryKey, Property, Unique } from '@mikro-orm/core';
 
+/**
+ * ReadinessProfile - defines requirements for DPP readiness by category.
+ *
+ * Each profile specifies required fields per workspace (design, marketing, etc.)
+ * and required attestations for compliance.
+ */
 @Entity({ tableName: 'readiness_profiles' })
 export class ReadinessProfile {
   @PrimaryKey({ type: 'varchar', length: 30 })
@@ -8,14 +14,18 @@ export class ReadinessProfile {
   @Property({ type: 'varchar', length: 255 })
   name!: string;
 
-  @Property({ type: 'varchar', length: 50 })
-  regulation!: string;
+  @Property({ type: 'varchar', length: 100 })
+  @Unique()
+  category!: string;
 
-  @Property({ type: 'varchar', length: 100, fieldName: 'product_category', nullable: true })
-  productCategory?: string;
+  @Property({ type: 'text', nullable: true })
+  description?: string;
 
-  @Property({ type: 'jsonb' })
-  requirements!: Record<string, unknown>;
+  @Property({ type: 'jsonb', fieldName: 'required_fields' })
+  requiredFields!: Record<string, string[]>;
+
+  @Property({ type: 'jsonb', fieldName: 'required_attestations', nullable: true })
+  requiredAttestations?: string[];
 
   @Property({ type: 'timestamptz', fieldName: 'created_at' })
   createdAt: Date = new Date();
