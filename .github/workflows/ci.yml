@@ -35,7 +35,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Generate Prisma client
+      - name: Generate database types
         run: pnpm db:generate
 
       - name: Build packages
@@ -72,7 +72,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Generate Prisma client
+      - name: Generate database types
         run: pnpm db:generate
 
       - name: Build packages
@@ -143,13 +143,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Generate Prisma client
+      - name: Generate database types
         run: pnpm db:generate
 
       - name: Build packages
         run: pnpm build
 
-      - name: Push database schema
+      - name: Sync database schema
         run: pnpm db:push
 
       - name: Run integration tests with coverage
@@ -223,7 +223,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Generate Prisma client
+      - name: Generate database types
         run: pnpm db:generate
 
       - name: Build all packages

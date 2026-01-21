@@ -158,8 +158,8 @@ variable "migration_secrets" {
 
 variable "migration_secrets_arns" {
   description = "ARNs of secrets for migration task execution role"
-  type    = list(string)
-  default = []
+  type        = list(string)
+  default     = []
 }
 
 variable "migration_environment_variables" {
@@ -442,7 +442,7 @@ resource "aws_iam_role_policy" "execution_migration_secrets" {
   })
 }
 
-# Task definition for running Prisma migrations
+# Task definition for running MikroORM migrations
 # Uses eurocomply_migrate user (password auth, schema owner)
 resource "aws_ecs_task_definition" "migration" {
   count                    = var.enable_migration_task ? 1 : 0
@@ -461,7 +461,7 @@ resource "aws_ecs_task_definition" "migration" {
       essential = true
 
       # Override the default command to run migrations
-      # Uses shell to construct DATABASE_URL from components and run prisma migrate
+      # Uses shell to construct DATABASE_URL from components and run MikroORM migrate
       entryPoint = ["/bin/sh", "-c"]
       command = [
         <<-EOT
@@ -472,9 +472,9 @@ resource "aws_ecs_task_definition" "migration" {
           SSL_PARAM="?sslmode=require"
         fi
         export DATABASE_URL="postgresql://$DB_USER:$DB_PASSWORD@$DB_HOST:$DB_PORT/$DB_NAME$SSL_PARAM"
-        echo "Running Prisma migrations..."
+        echo "Running MikroORM migrations..."
         cd /app/packages/db
-        npx prisma migrate deploy
+        npx mikro-orm migration:up
         echo "Migrations completed successfully!"
         EOT
       ]

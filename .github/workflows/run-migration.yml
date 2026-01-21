@@ -1,5 +1,5 @@
 # Run Database Migration
-# Manually triggered workflow to run Prisma migrations on staging/production
+# Manually triggered workflow to run MikroORM migrations on staging/production
 # Usage: gh workflow run run-migration.yml -f environment=staging
 
 name: Run Migration
@@ -117,7 +117,7 @@ jobs:
             --overrides "{
               \"containerOverrides\": [{
                 \"name\": \"api\",
-                \"command\": [\"npx\", \"prisma\", \"migrate\", \"deploy\", \"--schema=packages/db/prisma/schema.prisma\"],
+                \"command\": [\"sh\", \"-c\", \"cd /app/packages/db && npx mikro-orm migration:up\"],
                 \"environment\": [{\"name\": \"DATABASE_URL\", \"value\": \"$DATABASE_URL\"}]
               }]
             }" \

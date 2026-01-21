@@ -174,7 +174,7 @@ jobs:
 
       - name: Run Database Migrations
         run: |
-          echo "Running Prisma database migrations..."
+          echo "Running MikroORM database migrations..."
 
           # Get migration task definition ARN
           MIGRATION_TASK_DEF=$(aws ecs describe-task-definition \
