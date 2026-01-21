@@ -319,8 +319,9 @@ interface LocaleContentSnapshot {
   productName: string;
   tagline?: string;
   description: string;
-  features: string[];
-  sustainabilityClaims: string[];
+  // Industry-agnostic: All marketing attributes from taxonomy
+  // Examples: features[], allergens[], nutritionalFacts{}, sustainabilityClaims[]
+  attributes: Record<string, unknown>;
 }
 
 /**
@@ -341,14 +342,15 @@ interface FacilitySnapshot {
 }
 
 interface OperationsSnapshotData {
+  // Core Pillars - universal across all industries
   serialNumber: string;
   epc: string;
-  batchNumber: string;
-  lotNumber: string;
-  productionDate: string;
   originFacility: FacilitySnapshot;
   notaryChainSummary: NotaryChainSummary;
   certifications: CertificationSnapshot[];
+  // Industry-agnostic: All operational metrics from taxonomy
+  // Examples: batchNumber, lotNumber, productionDate, expiryDate, harvestDate
+  metrics: Record<string, unknown>;
 }
 
 interface NotaryChainSummary {
@@ -1015,17 +1017,23 @@ export class SnapshotEngineService {
       localeMap.get(attr.locale)!.set(attr.template.code, attr.value);
     }
 
-    // Build locale snapshots
+    // Build locale snapshots - industry-agnostic attribute gathering
     const locales: LocaleContentSnapshot[] = [];
     for (const [locale, attrs] of localeMap) {
-      locales.push({
-        locale,
-        productName: (attrs.get('product_name') as string) || designVersion.product.name,
-        tagline: attrs.get('tagline') as string | undefined,
-        description: (attrs.get('description') as string) || '',
-        features: (attrs.get('features') as string[]) || [],
-        sustainabilityClaims: (attrs.get('sustainability_claims') as string[]) || [],
-      });
+      // Extract core required fields
+      const productName = (attrs.get('product_name') as string) || designVersion.product.name;
+      const tagline = attrs.get('tagline') as string | undefined;
+      const description = (attrs.get('description') as string) || '';
+
+      // All other attributes go into the dynamic map
+      const attributes: Record<string, unknown> = {};
+      for (const [key, value] of attrs) {
+        if (!['product_name', 'tagline', 'description'].includes(key)) {
+          attributes[key] = value;
+        }
+      }
+
+      locales.push({ locale, productName, tagline, description, attributes });
     }
 
     // Fetch hero image
@@ -1056,10 +1064,18 @@ export class SnapshotEngineService {
     const evidencePackage = await this.em.findOne(EvidencePackage, { batch: batch.id });
     const certifications = evidencePackage?.pillars?.supplyChainIntegrity?.certifications || [];
 
+    // Gather industry-agnostic operational metrics from batch
+    // Examples: batchNumber, lotNumber, productionDate, expiryDate, harvestDate
+    const metrics: Record<string, unknown> = {};
+    if (batch.batchNumber) metrics.batchNumber = batch.batchNumber;
+    if (batch.lot?.lotNumber) metrics.lotNumber = batch.lot.lotNumber;
+    if (batch.productionDate) metrics.productionDate = batch.productionDate.toISOString();
+    // Add any other batch-level operational attributes dynamically
+    if (batch.operationalAttributes) {
+      Object.assign(metrics, batch.operationalAttributes);
+    }
+
     return {
-      batchNumber: batch.batchNumber,
-      lotNumber: batch.lot?.lotNumber || '',
-      productionDate: batch.productionDate?.toISOString() || new Date().toISOString(),
       originFacility: {
         id: batch.facility.id,
         publicAlias: batch.facility.publicAlias || `Facility - ${batch.facility.countryCode}`,
@@ -1077,6 +1093,7 @@ export class SnapshotEngineService {
         allSignaturesValid: events.every(e => e.signatureValid),
       },
       certifications,
+      metrics,
     };
   }
 
