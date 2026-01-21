@@ -52,3 +52,6 @@ terraform.rc
 # Cloudflare Wrangler
 .wrangler/
 secrets.tfvars
+
+# Git worktrees
+.worktrees/

@@ -2,57 +2,39 @@ import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import { ProductService } from './product.service.js';
 import { CreateProductInput } from '@eurocomply/shared';
 
-// Mock Prisma client type
-interface MockPrismaClient {
-  product: {
-    create: Mock;
-    findUnique: Mock;
-    findMany: Mock;
-    update: Mock;
-  };
-  productIdentifier: {
-    createMany: Mock;
-  };
-  productVersion: {
-    create: Mock;
-    findFirst: Mock;
-    update: Mock;
-  };
-  bomEntry: {
-    createMany: Mock;
-  };
-  $transaction: Mock;
+// Mock EntityManager type
+interface MockEntityManager {
+  findOne: Mock;
+  find: Mock;
+  create: Mock;
+  flush: Mock;
+  getReference: Mock;
+  populate: Mock;
+  transactional: Mock;
 }
 
-// Mock Prisma client
-const mockPrisma: MockPrismaClient = {
-  product: {
-    create: vi.fn(),
-    findUnique: vi.fn(),
-    findMany: vi.fn(),
-    update: vi.fn(),
-  },
-  productIdentifier: {
-    createMany: vi.fn(),
-  },
-  productVersion: {
-    create: vi.fn(),
-    findFirst: vi.fn(),
-    update: vi.fn(),
-  },
-  bomEntry: {
-    createMany: vi.fn(),
-  },
-  $transaction: vi.fn((fn: (client: MockPrismaClient) => Promise<unknown>) => fn(mockPrisma)),
-};
+// Create mock EntityManager
+const createMockEm = (): MockEntityManager => ({
+  findOne: vi.fn(),
+  find: vi.fn(),
+  create: vi.fn(),
+  flush: vi.fn(),
+  getReference: vi.fn((entity, id) => ({ id })),
+  populate: vi.fn(),
+  transactional: vi.fn((fn: (em: MockEntityManager) => Promise<unknown>) => fn(mockEm)),
+});
+
+let mockEm: MockEntityManager;
 
 describe('ProductService', () => {
   let service: ProductService;
-  const orgId = 'org_test123';
 
   beforeEach(() => {
     vi.clearAllMocks();
-    service = new ProductService(mockPrisma as unknown as ConstructorParameters<typeof ProductService>[0]);
+    mockEm = createMockEm();
+    // Re-bind transactional to use the new mockEm
+    mockEm.transactional = vi.fn((fn: (em: MockEntityManager) => Promise<unknown>) => fn(mockEm));
+    service = new ProductService(mockEm as unknown as ConstructorParameters<typeof ProductService>[0]);
   });
 
   describe('createProduct', () => {
@@ -63,23 +45,39 @@ describe('ProductService', () => {
         identifiers: [{ type: 'INTERNAL', value: 'PROTO-001' }],
       };
 
-      mockPrisma.product.create.mockResolvedValue({
-        id: 'prod_123',
-        ...input,
-        organizationId: orgId,
-      });
+      const mockProduct = {
+        id: 'prd_123',
+        name: input.name,
+        productType: input.productType,
+        status: 'ACTIVE',
+      };
 
-      const result = await service.createProduct(orgId, input);
+      mockEm.create.mockReturnValue(mockProduct);
+      mockEm.flush.mockResolvedValue(undefined);
+      mockEm.populate.mockResolvedValue(mockProduct);
 
-      expect(mockPrisma.product.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
+      const result = await service.createProduct(input);
+
+      // Verify product was created
+      expect(mockEm.create).toHaveBeenCalledWith(
+        expect.anything(), // Product entity class
+        expect.objectContaining({
           name: 'Test Product',
           productType: 'FINISHED_GOOD',
-          organizationId: orgId,
-        }),
-        include: expect.any(Object),
-      });
-      expect(result.id).toBe('prod_123');
+        })
+      );
+
+      // Verify identifiers were created
+      expect(mockEm.create).toHaveBeenCalledWith(
+        expect.anything(), // ProductIdentifier entity class
+        expect.objectContaining({
+          type: 'INTERNAL',
+          value: 'PROTO-001',
+        })
+      );
+
+      expect(mockEm.flush).toHaveBeenCalled();
+      expect(result).toBeDefined();
     });
 
     it('should reject variant without parentId', async () => {
@@ -88,37 +86,64 @@ describe('ProductService', () => {
         productType: 'VARIANT',
       };
 
-      await expect(service.createProduct(orgId, input)).rejects.toThrow(
+      await expect(service.createProduct(input)).rejects.toThrow(
         'VARIANT products must have a parentId'
+      );
+    });
+
+    it('should reject non-variant with parentId', async () => {
+      const input: CreateProductInput = {
+        name: 'Non-variant with parent',
+        productType: 'FINISHED_GOOD',
+        parentId: 'prd_parent',
+      };
+
+      await expect(service.createProduct(input)).rejects.toThrow(
+        'Only VARIANT products can have a parentId'
+      );
+    });
+
+    it('should reject variant with non-existent parent', async () => {
+      const input: CreateProductInput = {
+        name: 'Variant with missing parent',
+        productType: 'VARIANT',
+        parentId: 'prd_nonexistent',
+      };
+
+      mockEm.findOne.mockResolvedValue(null);
+
+      await expect(service.createProduct(input)).rejects.toThrow(
+        "Parent product with ID 'prd_nonexistent' not found"
       );
     });
   });
 
   describe('getProduct', () => {
-    it('should return product by id within organization', async () => {
-      mockPrisma.product.findUnique.mockResolvedValue({
-        id: 'prod_123',
-        organizationId: orgId,
+    it('should return product by id', async () => {
+      const mockProduct = {
+        id: 'prd_123',
         name: 'Test',
-      });
+        status: 'ACTIVE',
+      };
 
-      const result = await service.getProduct(orgId, 'prod_123');
+      mockEm.findOne.mockResolvedValue(mockProduct);
+
+      const result = await service.getProduct('prd_123');
 
       expect(result).toBeDefined();
-      expect(mockPrisma.product.findUnique).toHaveBeenCalledWith({
-        where: { id: 'prod_123' },
-        include: expect.any(Object),
-      });
+      expect(mockEm.findOne).toHaveBeenCalledWith(
+        expect.anything(), // Product entity class
+        { id: 'prd_123' },
+        expect.objectContaining({
+          populate: expect.arrayContaining(['identifiers', 'versions', 'parent', 'variants']),
+        })
+      );
     });
 
-    it('should return null for product in different org', async () => {
-      mockPrisma.product.findUnique.mockResolvedValue({
-        id: 'prod_123',
-        organizationId: 'other_org',
-        name: 'Test',
-      });
+    it('should return null for non-existent product', async () => {
+      mockEm.findOne.mockResolvedValue(null);
 
-      const result = await service.getProduct(orgId, 'prod_123');
+      const result = await service.getProduct('prd_nonexistent');
 
       expect(result).toBeNull();
     });
@@ -126,35 +151,100 @@ describe('ProductService', () => {
 
   describe('listProducts', () => {
     it('should list products with pagination', async () => {
-      mockPrisma.product.findMany.mockResolvedValue([
-        { id: 'prod_1', name: 'Product 1' },
-        { id: 'prod_2', name: 'Product 2' },
-      ]);
+      const mockProducts = [
+        { id: 'prd_1', name: 'Product 1' },
+        { id: 'prd_2', name: 'Product 2' },
+      ];
 
-      const result = await service.listProducts(orgId, { limit: 10, offset: 0 });
+      mockEm.find.mockResolvedValue(mockProducts);
+
+      const result = await service.listProducts({ limit: 10, offset: 0 });
 
       expect(result).toHaveLength(2);
-      expect(mockPrisma.product.findMany).toHaveBeenCalledWith({
-        where: { organizationId: orgId, status: 'ACTIVE' },
-        include: expect.any(Object),
-        take: 10,
-        skip: 0,
-        orderBy: { createdAt: 'desc' },
-      });
+      expect(mockEm.find).toHaveBeenCalledWith(
+        expect.anything(), // Product entity class
+        { status: 'ACTIVE' },
+        expect.objectContaining({
+          limit: 10,
+          offset: 0,
+          orderBy: { createdAt: 'DESC' },
+        })
+      );
     });
 
     it('should filter by productType', async () => {
-      mockPrisma.product.findMany.mockResolvedValue([]);
+      mockEm.find.mockResolvedValue([]);
 
-      await service.listProducts(orgId, { productType: 'RAW_MATERIAL' });
+      await service.listProducts({ productType: 'RAW_MATERIAL' });
 
-      expect(mockPrisma.product.findMany).toHaveBeenCalledWith(
+      expect(mockEm.find).toHaveBeenCalledWith(
+        expect.anything(),
         expect.objectContaining({
-          where: expect.objectContaining({
-            productType: 'RAW_MATERIAL',
-          }),
-        })
+          productType: 'RAW_MATERIAL',
+        }),
+        expect.any(Object)
       );
+    });
+
+    it('should filter by parentId', async () => {
+      mockEm.find.mockResolvedValue([]);
+
+      await service.listProducts({ parentId: 'prd_parent' });
+
+      expect(mockEm.find).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          parent: 'prd_parent',
+        }),
+        expect.any(Object)
+      );
+    });
+  });
+
+  describe('updateProduct', () => {
+    it('should update a product', async () => {
+      const mockProduct = {
+        id: 'prd_123',
+        name: 'Old Name',
+        description: 'Old desc',
+        status: 'ACTIVE',
+      };
+
+      mockEm.findOne.mockResolvedValue(mockProduct);
+      mockEm.flush.mockResolvedValue(undefined);
+      mockEm.populate.mockResolvedValue(mockProduct);
+
+      const result = await service.updateProduct('prd_123', { name: 'New Name' });
+
+      expect(result).toBeDefined();
+      expect(mockEm.flush).toHaveBeenCalled();
+    });
+
+    it('should return null for non-existent product', async () => {
+      mockEm.findOne.mockResolvedValue(null);
+
+      const result = await service.updateProduct('prd_nonexistent', { name: 'New Name' });
+
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('archiveProduct', () => {
+    it('should archive a product', async () => {
+      const mockProduct = {
+        id: 'prd_123',
+        name: 'Test',
+        status: 'ACTIVE',
+      };
+
+      mockEm.findOne.mockResolvedValue(mockProduct);
+      mockEm.flush.mockResolvedValue(undefined);
+      mockEm.populate.mockResolvedValue({ ...mockProduct, status: 'ARCHIVED' });
+
+      const result = await service.archiveProduct('prd_123');
+
+      expect(result).toBeDefined();
+      expect(mockEm.flush).toHaveBeenCalled();
     });
   });
 });

@@ -1,5 +1,4 @@
 import { Hono } from 'hono';
-import { prisma } from '@eurocomply/db';
 import {
   ok,
   err,
@@ -23,11 +22,36 @@ import {
   validateBody,
 } from '../lib/schemas.js';
 import type { AppVariables } from '../types/context.js';
+import { getEntityManager } from '../lib/context.js';
 
 const compliance = new Hono<{ Variables: AppVariables }>();
-const profileService = new ReadinessProfileService(prisma);
-const snapshotService = new DPPSnapshotService(prisma);
-const readinessService = new DPPReadinessService(prisma);
+
+/**
+ * Helper to get ReadinessProfileService scoped to the tenant's EntityManager.
+ * The EntityManager is already scoped to the tenant schema by the auth middleware.
+ */
+function getProfileService(c: Parameters<typeof getEntityManager>[0]): ReadinessProfileService {
+  const em = getEntityManager(c);
+  return new ReadinessProfileService(em);
+}
+
+/**
+ * Helper to get DPPSnapshotService scoped to the tenant's EntityManager.
+ * The EntityManager is already scoped to the tenant schema by the auth middleware.
+ */
+function getSnapshotService(c: Parameters<typeof getEntityManager>[0]): DPPSnapshotService {
+  const em = getEntityManager(c);
+  return new DPPSnapshotService(em);
+}
+
+/**
+ * Helper to get DPPReadinessService scoped to the tenant's EntityManager.
+ * The EntityManager is already scoped to the tenant schema by the auth middleware.
+ */
+function getReadinessService(c: Parameters<typeof getEntityManager>[0]): DPPReadinessService {
+  const em = getEntityManager(c);
+  return new DPPReadinessService(em);
+}
 
 // Apply auth middleware
 compliance.use('*', authMiddleware);
@@ -49,6 +73,7 @@ compliance.get('/profiles', async (c) => {
     return c.json(err('FORBIDDEN', 'Requires VIEWER authority for Compliance'), 403);
   }
 
+  const profileService = getProfileService(c);
   const profiles = await profileService.list();
   return c.json(ok(profiles));
 });
@@ -67,6 +92,7 @@ compliance.get('/profiles/:id', async (c) => {
     return c.json(err('FORBIDDEN', 'Requires VIEWER authority for Compliance'), 403);
   }
 
+  const profileService = getProfileService(c);
   const profile = await profileService.getById(profileId);
   if (!profile) {
     return c.json(err('NOT_FOUND', 'Profile not found'), 404);
@@ -94,6 +120,7 @@ compliance.post('/profiles', async (c) => {
     if (!validation.success) {
       return c.json(err('VALIDATION_ERROR', validation.error), 400);
     }
+    const profileService = getProfileService(c);
     const profile = await profileService.create(validation.data);
     return c.json(ok(profile), 201);
   } catch (error) {
@@ -124,6 +151,7 @@ compliance.put('/profiles/:id', async (c) => {
     if (!validation.success) {
       return c.json(err('VALIDATION_ERROR', validation.error), 400);
     }
+    const profileService = getProfileService(c);
     const profile = await profileService.update(profileId, validation.data);
     return c.json(ok(profile));
   } catch (error) {
@@ -149,6 +177,7 @@ compliance.delete('/profiles/:id', async (c) => {
   }
 
   try {
+    const profileService = getProfileService(c);
     await profileService.delete(profileId);
     return c.json(ok({ deleted: true }));
   } catch (error) {
@@ -169,7 +198,6 @@ compliance.delete('/profiles/:id', async (c) => {
  * Requires: VIEWER authority for Compliance workspace
  */
 compliance.get('/readiness/:productId', async (c) => {
-  const { organizationId } = c.get('tenant');
   const permissions = c.get('permissions');
   const productId = c.req.param('productId');
   const profileId = c.req.query('profileId');
@@ -184,8 +212,8 @@ compliance.get('/readiness/:productId', async (c) => {
   }
 
   try {
+    const readinessService = getReadinessService(c);
     const result = await readinessService.checkProductReadiness(
-      organizationId,
       productId,
       profileId
     );
@@ -204,7 +232,6 @@ compliance.get('/readiness/:productId', async (c) => {
  * Requires: VIEWER authority for Compliance workspace
  */
 compliance.get('/readiness', async (c) => {
-  const { organizationId } = c.get('tenant');
   const permissions = c.get('permissions');
   const profileId = c.req.query('profileId');
   const userAuth = validateAuthority(permissions.complianceAuthority);
@@ -218,7 +245,8 @@ compliance.get('/readiness', async (c) => {
   }
 
   try {
-    const results = await readinessService.getReadyProducts(organizationId, profileId);
+    const readinessService = getReadinessService(c);
+    const results = await readinessService.getReadyProducts(profileId);
     return c.json(ok(results));
   } catch (error) {
     if (error instanceof NotFoundError) {
@@ -238,7 +266,6 @@ compliance.get('/readiness', async (c) => {
  * Requires: CONTRIBUTOR authority for Compliance workspace
  */
 compliance.post('/snapshots', async (c) => {
-  const { organizationId } = c.get('tenant');
   const permissions = c.get('permissions');
   const userAuth = validateAuthority(permissions.complianceAuthority);
 
@@ -252,7 +279,8 @@ compliance.post('/snapshots', async (c) => {
     if (!validation.success) {
       return c.json(err('VALIDATION_ERROR', validation.error), 400);
     }
-    const snapshot = await snapshotService.createSnapshot(organizationId, validation.data);
+    const snapshotService = getSnapshotService(c);
+    const snapshot = await snapshotService.createSnapshot(validation.data);
     return c.json(ok(snapshot), 201);
   } catch (error) {
     if (error instanceof NotFoundError) {
@@ -271,7 +299,6 @@ compliance.post('/snapshots', async (c) => {
  * Requires: VIEWER authority for Compliance workspace
  */
 compliance.get('/snapshots', async (c) => {
-  const { organizationId } = c.get('tenant');
   const permissions = c.get('permissions');
   const userAuth = validateAuthority(permissions.complianceAuthority);
 
@@ -296,7 +323,8 @@ compliance.get('/snapshots', async (c) => {
 
   const { productId, status, limit, offset } = queryResult.data;
 
-  const snapshots = await snapshotService.listSnapshots(organizationId, {
+  const snapshotService = getSnapshotService(c);
+  const snapshots = await snapshotService.listSnapshots({
     productId,
     status,
     limit,
@@ -312,7 +340,6 @@ compliance.get('/snapshots', async (c) => {
  * Requires: VIEWER authority for Compliance workspace
  */
 compliance.get('/snapshots/:id', async (c) => {
-  const { organizationId } = c.get('tenant');
   const permissions = c.get('permissions');
   const snapshotId = c.req.param('id');
   const userAuth = validateAuthority(permissions.complianceAuthority);
@@ -321,7 +348,8 @@ compliance.get('/snapshots/:id', async (c) => {
     return c.json(err('FORBIDDEN', 'Requires VIEWER authority for Compliance'), 403);
   }
 
-  const snapshot = await snapshotService.getSnapshot(organizationId, snapshotId);
+  const snapshotService = getSnapshotService(c);
+  const snapshot = await snapshotService.getSnapshot(snapshotId);
   if (!snapshot) {
     return c.json(err('NOT_FOUND', 'Snapshot not found'), 404);
   }
@@ -335,7 +363,6 @@ compliance.get('/snapshots/:id', async (c) => {
  * PENDING_REVIEW → VERIFIED
  */
 compliance.post('/snapshots/:id/verify', async (c) => {
-  const { organizationId } = c.get('tenant');
   const { id: userId } = c.get('user');
   const permissions = c.get('permissions');
   const snapshotId = c.req.param('id');
@@ -346,7 +373,8 @@ compliance.post('/snapshots/:id/verify', async (c) => {
   }
 
   try {
-    const snapshot = await snapshotService.verify(organizationId, snapshotId, userId);
+    const snapshotService = getSnapshotService(c);
+    const snapshot = await snapshotService.verify(snapshotId, userId);
     return c.json(ok(snapshot));
   } catch (error) {
     if (error instanceof NotFoundError) {
@@ -365,7 +393,6 @@ compliance.post('/snapshots/:id/verify', async (c) => {
  * VERIFIED → ATTESTED
  */
 compliance.post('/snapshots/:id/attest', async (c) => {
-  const { organizationId } = c.get('tenant');
   const { id: userId } = c.get('user');
   const permissions = c.get('permissions');
   const snapshotId = c.req.param('id');
@@ -381,7 +408,8 @@ compliance.post('/snapshots/:id/attest', async (c) => {
     if (!validation.success) {
       return c.json(err('VALIDATION_ERROR', validation.error), 400);
     }
-    const snapshot = await snapshotService.attest(organizationId, snapshotId, userId, validation.data);
+    const snapshotService = getSnapshotService(c);
+    const snapshot = await snapshotService.attest(snapshotId, userId, validation.data);
     return c.json(ok(snapshot));
   } catch (error) {
     if (error instanceof NotFoundError) {
@@ -400,7 +428,6 @@ compliance.post('/snapshots/:id/attest', async (c) => {
  * ATTESTED → SEALED
  */
 compliance.post('/snapshots/:id/seal', async (c) => {
-  const { organizationId } = c.get('tenant');
   const permissions = c.get('permissions');
   const snapshotId = c.req.param('id');
   const userAuth = validateAuthority(permissions.complianceAuthority);
@@ -416,7 +443,8 @@ compliance.post('/snapshots/:id/seal', async (c) => {
     if (!validation.success) {
       return c.json(err('VALIDATION_ERROR', validation.error), 400);
     }
-    const snapshot = await snapshotService.seal(organizationId, snapshotId, validation.data);
+    const snapshotService = getSnapshotService(c);
+    const snapshot = await snapshotService.seal(snapshotId, validation.data);
     return c.json(ok(snapshot));
   } catch (error) {
     if (error instanceof NotFoundError) {
@@ -435,7 +463,6 @@ compliance.post('/snapshots/:id/seal', async (c) => {
  * SEALED → ISSUED
  */
 compliance.post('/snapshots/:id/issue', async (c) => {
-  const { organizationId } = c.get('tenant');
   const permissions = c.get('permissions');
   const snapshotId = c.req.param('id');
   const userAuth = validateAuthority(permissions.complianceAuthority);
@@ -450,7 +477,8 @@ compliance.post('/snapshots/:id/issue', async (c) => {
     if (!validation.success) {
       return c.json(err('VALIDATION_ERROR', validation.error), 400);
     }
-    const snapshot = await snapshotService.issue(organizationId, snapshotId, validation.data);
+    const snapshotService = getSnapshotService(c);
+    const snapshot = await snapshotService.issue(snapshotId, validation.data);
     return c.json(ok(snapshot));
   } catch (error) {
     if (error instanceof NotFoundError) {
@@ -469,7 +497,6 @@ compliance.post('/snapshots/:id/issue', async (c) => {
  * ISSUED → REVOKED
  */
 compliance.post('/snapshots/:id/revoke', async (c) => {
-  const { organizationId } = c.get('tenant');
   const permissions = c.get('permissions');
   const snapshotId = c.req.param('id');
   const userAuth = validateAuthority(permissions.complianceAuthority);
@@ -479,7 +506,8 @@ compliance.post('/snapshots/:id/revoke', async (c) => {
   }
 
   try {
-    const snapshot = await snapshotService.revoke(organizationId, snapshotId);
+    const snapshotService = getSnapshotService(c);
+    const snapshot = await snapshotService.revoke(snapshotId);
     return c.json(ok(snapshot));
   } catch (error) {
     if (error instanceof NotFoundError) {

@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { SealedArtifactService } from './sealed-artifact.service.js';
 
+// Mock EntityManager
+interface MockEntityManager {
+  findOne: Mock;
+}
+
 interface MockDependencies {
   waltIdClient: {
     sign: Mock;
@@ -12,11 +17,7 @@ interface MockDependencies {
     allocateIndex: Mock;
     getCredentialStatus: Mock;
   };
-  prisma: {
-    organization: { findUnique: Mock };
-    userDidHistory: { findFirst: Mock };
-    orgDidHistory: { findFirst: Mock };
-  };
+  em: MockEntityManager;
 }
 
 const mockDeps: MockDependencies = {
@@ -30,10 +31,8 @@ const mockDeps: MockDependencies = {
     allocateIndex: vi.fn(),
     getCredentialStatus: vi.fn(),
   },
-  prisma: {
-    organization: { findUnique: vi.fn() },
-    userDidHistory: { findFirst: vi.fn() },
-    orgDidHistory: { findFirst: vi.fn() },
+  em: {
+    findOne: vi.fn(),
   },
 };
 
@@ -46,26 +45,52 @@ describe('SealedArtifactService', () => {
       mockDeps.waltIdClient as unknown as ConstructorParameters<typeof SealedArtifactService>[0],
       mockDeps.timestampService as unknown as ConstructorParameters<typeof SealedArtifactService>[1],
       mockDeps.statusListService as unknown as ConstructorParameters<typeof SealedArtifactService>[2],
-      mockDeps.prisma as unknown as ConstructorParameters<typeof SealedArtifactService>[3]
+      mockDeps.em as unknown as ConstructorParameters<typeof SealedArtifactService>[3]
     );
   });
+
+  /**
+   * Helper to setup mock responses for em.findOne based on entity type
+   */
+  function setupFindOneMock(responses: {
+    userDid?: { did: string; waltIdKeyId: string } | null;
+    orgDid?: { did: string; waltIdKeyId: string } | null;
+    organization?: { id: string; name: string; did: string } | null;
+  }) {
+    mockDeps.em.findOne.mockImplementation((Entity: unknown, filter: unknown) => {
+      const entityName = (Entity as { name?: string })?.name;
+      if (entityName === 'UserDidHistory') {
+        return Promise.resolve(responses.userDid);
+      }
+      if (entityName === 'OrgDidHistory') {
+        return Promise.resolve(responses.orgDid);
+      }
+      if (entityName === 'Organization') {
+        return Promise.resolve(responses.organization);
+      }
+      return Promise.resolve(null);
+    });
+  }
 
   describe('createSealedArtifact', () => {
     it('should create complete sealed artifact with all proofs', async () => {
       // Setup mocks
-      mockDeps.prisma.userDidHistory.findFirst.mockResolvedValue({
-        did: 'did:key:z6MkUser123',
-        waltIdKeyId: 'key_user_123',
+      setupFindOneMock({
+        userDid: {
+          did: 'did:key:z6MkUser123',
+          waltIdKeyId: 'key_user_123',
+        },
+        orgDid: {
+          did: 'did:key:z6MkOrg456',
+          waltIdKeyId: 'key_org_456',
+        },
+        organization: {
+          id: 'org_123',
+          name: 'Test Org',
+          did: 'did:key:z6MkOrg456',
+        },
       });
-      mockDeps.prisma.orgDidHistory.findFirst.mockResolvedValue({
-        did: 'did:key:z6MkOrg456',
-        waltIdKeyId: 'key_org_456',
-      });
-      mockDeps.prisma.organization.findUnique.mockResolvedValue({
-        id: 'org_123',
-        name: 'Test Org',
-        did: 'did:key:z6MkOrg456',
-      });
+
       mockDeps.waltIdClient.sign
         .mockResolvedValueOnce({
           jws: 'user-signature-jws',
@@ -117,22 +142,28 @@ describe('SealedArtifactService', () => {
       expect(result.corporateProof.signatureValue).toBe('org-signature-jws');
       expect(result.credentialStatus?.statusListIndex).toBe('42');
       expect(result.timestampProof?.type).toBe('RFC3161');
+
+      // Verify em.findOne was called correctly
+      expect(mockDeps.em.findOne).toHaveBeenCalledTimes(3);
     });
 
     it('should create artifact without timestamp if TSA fails and not required', async () => {
-      mockDeps.prisma.userDidHistory.findFirst.mockResolvedValue({
-        did: 'did:key:z6MkUser123',
-        waltIdKeyId: 'key_user_123',
+      setupFindOneMock({
+        userDid: {
+          did: 'did:key:z6MkUser123',
+          waltIdKeyId: 'key_user_123',
+        },
+        orgDid: {
+          did: 'did:key:z6MkOrg456',
+          waltIdKeyId: 'key_org_456',
+        },
+        organization: {
+          id: 'org_123',
+          name: 'Test Org',
+          did: 'did:key:z6MkOrg456',
+        },
       });
-      mockDeps.prisma.orgDidHistory.findFirst.mockResolvedValue({
-        did: 'did:key:z6MkOrg456',
-        waltIdKeyId: 'key_org_456',
-      });
-      mockDeps.prisma.organization.findUnique.mockResolvedValue({
-        id: 'org_123',
-        name: 'Test Org',
-        did: 'did:key:z6MkOrg456',
-      });
+
       mockDeps.waltIdClient.sign
         .mockResolvedValueOnce({
           jws: 'user-jws',
@@ -174,19 +205,22 @@ describe('SealedArtifactService', () => {
     });
 
     it('should throw if timestamp required but TSA fails', async () => {
-      mockDeps.prisma.userDidHistory.findFirst.mockResolvedValue({
-        did: 'did:key:z6MkUser123',
-        waltIdKeyId: 'key_user_123',
+      setupFindOneMock({
+        userDid: {
+          did: 'did:key:z6MkUser123',
+          waltIdKeyId: 'key_user_123',
+        },
+        orgDid: {
+          did: 'did:key:z6MkOrg456',
+          waltIdKeyId: 'key_org_456',
+        },
+        organization: {
+          id: 'org_123',
+          name: 'Test Org',
+          did: 'did:key:z6MkOrg456',
+        },
       });
-      mockDeps.prisma.orgDidHistory.findFirst.mockResolvedValue({
-        did: 'did:key:z6MkOrg456',
-        waltIdKeyId: 'key_org_456',
-      });
-      mockDeps.prisma.organization.findUnique.mockResolvedValue({
-        id: 'org_123',
-        name: 'Test Org',
-        did: 'did:key:z6MkOrg456',
-      });
+
       mockDeps.waltIdClient.sign
         .mockResolvedValueOnce({
           jws: 'user-jws',
@@ -226,7 +260,11 @@ describe('SealedArtifactService', () => {
     });
 
     it('should throw NotFoundError if user DID not found', async () => {
-      mockDeps.prisma.userDidHistory.findFirst.mockResolvedValue(null);
+      setupFindOneMock({
+        userDid: null,
+        orgDid: null,
+        organization: null,
+      });
 
       await expect(
         service.createSealedArtifact({
@@ -244,11 +282,14 @@ describe('SealedArtifactService', () => {
     });
 
     it('should throw NotFoundError if org DID not found', async () => {
-      mockDeps.prisma.userDidHistory.findFirst.mockResolvedValue({
-        did: 'did:key:z6MkUser123',
-        waltIdKeyId: 'key_user_123',
+      setupFindOneMock({
+        userDid: {
+          did: 'did:key:z6MkUser123',
+          waltIdKeyId: 'key_user_123',
+        },
+        orgDid: null,
+        organization: null,
       });
-      mockDeps.prisma.orgDidHistory.findFirst.mockResolvedValue(null);
 
       await expect(
         service.createSealedArtifact({
@@ -266,15 +307,17 @@ describe('SealedArtifactService', () => {
     });
 
     it('should throw NotFoundError if organization not found', async () => {
-      mockDeps.prisma.userDidHistory.findFirst.mockResolvedValue({
-        did: 'did:key:z6MkUser123',
-        waltIdKeyId: 'key_user_123',
+      setupFindOneMock({
+        userDid: {
+          did: 'did:key:z6MkUser123',
+          waltIdKeyId: 'key_user_123',
+        },
+        orgDid: {
+          did: 'did:key:z6MkOrg456',
+          waltIdKeyId: 'key_org_456',
+        },
+        organization: null,
       });
-      mockDeps.prisma.orgDidHistory.findFirst.mockResolvedValue({
-        did: 'did:key:z6MkOrg456',
-        waltIdKeyId: 'key_org_456',
-      });
-      mockDeps.prisma.organization.findUnique.mockResolvedValue(null);
 
       await expect(
         service.createSealedArtifact({

@@ -1,4 +1,5 @@
-import { PrismaClient, ProductVersion } from '@eurocomply/db';
+import { EntityManager } from '@mikro-orm/postgresql';
+import { MikroOrm } from '@eurocomply/db';
 import {
   ProductWorkspace,
   VersionStatus,
@@ -8,6 +9,9 @@ import {
 } from '@eurocomply/shared';
 import { NotFoundError, ValidationError, ConflictError } from '../lib/errors.js';
 import { SigningService } from './signing.service.js';
+import { randomUUID } from 'crypto';
+
+const { Product, ProductVersion, User } = MikroOrm;
 
 export interface CreateVersionInput {
   productId: string;
@@ -26,10 +30,28 @@ export interface ReleaseVersionSigningContext {
   orgForensicContext: OrgForensicContext;
 }
 
+/**
+ * Generates a unique ID with the given prefix.
+ */
+function generateId(prefix: string): string {
+  return `${prefix}_${randomUUID().replace(/-/g, '')}`;
+}
+
+/**
+ * VersionService manages product version lifecycle (DRAFT → PENDING_REVIEW → IN_REVIEW → RELEASED).
+ *
+ * Architecture notes:
+ * - The EntityManager passed to the constructor is already scoped to the tenant schema
+ * - No organizationId filtering needed - schema isolation handles tenant separation
+ * - FORENSIC GUARD A: Released versions are immutable
+ */
 export class VersionService {
   private signingService: SigningService;
 
-  constructor(private prisma: PrismaClient, signingService?: SigningService) {
+  constructor(
+    private em: EntityManager,
+    signingService?: SigningService
+  ) {
     // Use provided SigningService or create a new instance
     this.signingService = signingService ?? new SigningService();
   }
@@ -39,26 +61,19 @@ export class VersionService {
    * GUARD: Cannot create new version if there's already an in-progress version
    * (DRAFT, PENDING_REVIEW, or IN_REVIEW) in the same workspace.
    */
-  async createVersion(
-    organizationId: string,
-    input: CreateVersionInput
-  ): Promise<ProductVersion> {
-    // Verify product belongs to org
-    const product = await this.prisma.product.findUnique({
-      where: { id: input.productId },
-    });
+  async createVersion(input: CreateVersionInput): Promise<MikroOrm.ProductVersion> {
+    // Verify product exists
+    const product = await this.em.findOne(Product, { id: input.productId });
 
-    if (!product || product.organizationId !== organizationId) {
+    if (!product) {
       throw new NotFoundError('Product', input.productId);
     }
 
     // Check for existing in-progress version in this workspace
-    const inProgressVersion = await this.prisma.productVersion.findFirst({
-      where: {
-        productId: input.productId,
-        workspace: input.workspace,
-        status: { in: ['DRAFT', 'PENDING_REVIEW', 'IN_REVIEW'] },
-      },
+    const inProgressVersion = await this.em.findOne(ProductVersion, {
+      product: input.productId,
+      workspace: input.workspace as unknown as MikroOrm.Workspace,
+      status: { $in: ['DRAFT', 'PENDING_REVIEW', 'IN_REVIEW'] as unknown as MikroOrm.VersionStatus[] },
     });
 
     if (inProgressVersion) {
@@ -68,62 +83,59 @@ export class VersionService {
     }
 
     // Get the latest version number for this workspace
-    const latestVersion = await this.prisma.productVersion.findFirst({
-      where: {
-        productId: input.productId,
-        workspace: input.workspace,
+    const latestVersion = await this.em.findOne(
+      ProductVersion,
+      {
+        product: input.productId,
+        workspace: input.workspace as unknown as MikroOrm.Workspace,
       },
-      orderBy: { versionNumber: 'desc' },
-    });
+      { orderBy: { versionNumber: 'DESC' } }
+    );
 
     const nextVersionNumber = (latestVersion?.versionNumber ?? 0) + 1;
 
-    return this.prisma.productVersion.create({
-      data: {
-        productId: input.productId,
-        workspace: input.workspace,
-        versionNumber: nextVersionNumber,
-        status: 'DRAFT',
-        createdBy: input.createdBy,
-      },
+    const version = this.em.create(ProductVersion, {
+      id: generateId('ver'),
+      product: this.em.getReference(Product, input.productId),
+      workspace: input.workspace as unknown as MikroOrm.Workspace,
+      versionNumber: nextVersionNumber,
+      status: 'DRAFT' as unknown as MikroOrm.VersionStatus,
+      createdBy: this.em.getReference(User, input.createdBy),
+      createdAt: new Date(),
+      updatedAt: new Date(),
     });
+
+    await this.em.flush();
+    return version;
   }
 
   /**
-   * Get a version by ID, ensuring it belongs to the organization.
+   * Get a version by ID.
+   * Schema isolation ensures we only see versions in the current tenant.
    */
-  async getVersion(
-    organizationId: string,
-    versionId: string
-  ): Promise<ProductVersion | null> {
-    const version = await this.prisma.productVersion.findFirst({
-      where: { id: versionId },
-      include: { product: true },
-    });
-
-    if (!version || version.product.organizationId !== organizationId) {
-      return null;
-    }
-
-    return version;
+  async getVersion(versionId: string): Promise<MikroOrm.ProductVersion | null> {
+    return this.em.findOne(
+      ProductVersion,
+      { id: versionId },
+      { populate: ['product'] }
+    );
   }
 
   /**
    * List versions for a product.
    */
   async listVersions(
-    organizationId: string,
     productId: string,
     workspace?: ProductWorkspace
-  ): Promise<ProductVersion[]> {
-    return this.prisma.productVersion.findMany({
-      where: {
-        productId,
-        product: { organizationId },
-        ...(workspace && { workspace }),
+  ): Promise<MikroOrm.ProductVersion[]> {
+    return this.em.find(
+      ProductVersion,
+      {
+        product: productId,
+        ...(workspace && { workspace: workspace as unknown as MikroOrm.Workspace }),
       },
-      orderBy: { versionNumber: 'desc' },
-    });
+      { orderBy: { versionNumber: 'DESC' } }
+    );
   }
 
   /**
@@ -132,19 +144,19 @@ export class VersionService {
    * concurrent requests could both pass validation before either updates.
    */
   private async transitionStatus(
-    organizationId: string,
     versionId: string,
     targetStatus: VersionStatus,
     publishedBy?: string
-  ): Promise<ProductVersion> {
-    return this.prisma.$transaction(async (tx) => {
+  ): Promise<MikroOrm.ProductVersion> {
+    return this.em.transactional(async (em) => {
       // Fetch within transaction for consistency
-      const version = await tx.productVersion.findFirst({
-        where: { id: versionId },
-        include: { product: true },
-      });
+      const version = await em.findOne(
+        ProductVersion,
+        { id: versionId },
+        { populate: ['product'] }
+      );
 
-      if (!version || version.product.organizationId !== organizationId) {
+      if (!version) {
         throw new NotFoundError('Version', versionId);
       }
 
@@ -154,37 +166,32 @@ export class VersionService {
         );
       }
 
-      return tx.productVersion.update({
-        where: { id: versionId },
-        data: {
-          status: targetStatus,
-          ...(targetStatus === 'RELEASED' && {
-            publishedAt: new Date(),
-            publishedBy,
-          }),
-        },
-      });
+      version.status = targetStatus as unknown as MikroOrm.VersionStatus;
+
+      if (targetStatus === 'RELEASED') {
+        version.publishedAt = new Date();
+        if (publishedBy) {
+          version.publishedBy = em.getReference(User, publishedBy);
+        }
+      }
+
+      await em.flush();
+      return version;
     });
   }
 
   /**
    * Submit a version for review.
    */
-  async submitForReview(
-    organizationId: string,
-    versionId: string
-  ): Promise<ProductVersion> {
-    return this.transitionStatus(organizationId, versionId, 'PENDING_REVIEW');
+  async submitForReview(versionId: string): Promise<MikroOrm.ProductVersion> {
+    return this.transitionStatus(versionId, 'PENDING_REVIEW');
   }
 
   /**
    * Start reviewing a version.
    */
-  async startReview(
-    organizationId: string,
-    versionId: string
-  ): Promise<ProductVersion> {
-    return this.transitionStatus(organizationId, versionId, 'IN_REVIEW');
+  async startReview(versionId: string): Promise<MikroOrm.ProductVersion> {
+    return this.transitionStatus(versionId, 'IN_REVIEW');
   }
 
   /**
@@ -194,25 +201,24 @@ export class VersionService {
    * When signingContext is provided, creates a Corporate Envelope (SealedArtifact)
    * with dual signatures (user + organization) for forensic traceability.
    *
-   * @param organizationId - The organization owning the product
    * @param versionId - The version to release
    * @param publishedBy - The user releasing the version
    * @param signingContext - Optional signing context for Corporate Envelope creation
    */
   async releaseVersion(
-    organizationId: string,
     versionId: string,
     publishedBy: string,
     signingContext?: ReleaseVersionSigningContext
-  ): Promise<ProductVersion> {
-    return this.prisma.$transaction(async (tx) => {
+  ): Promise<MikroOrm.ProductVersion> {
+    return this.em.transactional(async (em) => {
       // Fetch within transaction for consistency
-      const version = await tx.productVersion.findFirst({
-        where: { id: versionId },
-        include: { product: true },
-      });
+      const version = await em.findOne(
+        ProductVersion,
+        { id: versionId },
+        { populate: ['product'] }
+      );
 
-      if (!version || version.product.organizationId !== organizationId) {
+      if (!version) {
         throw new NotFoundError('Version', versionId);
       }
 
@@ -225,14 +231,14 @@ export class VersionService {
       const publishedAt = new Date();
 
       // Prepare signature data if signing context is provided
-      let signatureDid: string | null = null;
-      let signatureJws: string | null = null;
+      let signatureDid: string | undefined;
+      let signatureJws: string | undefined;
 
       if (signingContext) {
         // Build payload from version data
         const payload: Record<string, unknown> = {
           id: version.id,
-          productId: version.productId,
+          productId: version.product.id,
           workspace: version.workspace,
           versionNumber: version.versionNumber,
           status: 'RELEASED',
@@ -257,44 +263,36 @@ export class VersionService {
         signatureJws = JSON.stringify(sealedArtifact);
       }
 
-      return tx.productVersion.update({
-        where: { id: versionId },
-        data: {
-          status: 'RELEASED',
-          publishedAt,
-          publishedBy,
-          signatureDid,
-          signatureJws,
-        },
-      });
+      version.status = 'RELEASED' as unknown as MikroOrm.VersionStatus;
+      version.publishedAt = publishedAt;
+      version.publishedBy = em.getReference(User, publishedBy);
+      version.signatureDid = signatureDid;
+      version.signatureJws = signatureJws;
+
+      await em.flush();
+      return version;
     });
   }
 
   /**
    * Reject a version.
    */
-  async rejectVersion(
-    organizationId: string,
-    versionId: string
-  ): Promise<ProductVersion> {
-    return this.transitionStatus(organizationId, versionId, 'REJECTED');
+  async rejectVersion(versionId: string): Promise<MikroOrm.ProductVersion> {
+    return this.transitionStatus(versionId, 'REJECTED');
   }
 
   /**
    * FORENSIC GUARD A: Check if a version is released (immutable).
    * Use this before any BOM mutation to enforce "Released data is Dead data."
    */
-  async assertVersionEditable(
-    organizationId: string,
-    versionId: string
-  ): Promise<void> {
-    const version = await this.getVersion(organizationId, versionId);
+  async assertVersionEditable(versionId: string): Promise<void> {
+    const version = await this.getVersion(versionId);
 
     if (!version) {
       throw new NotFoundError('Version', versionId);
     }
 
-    if (version.status === 'RELEASED') {
+    if (version.status === ('RELEASED' as unknown as MikroOrm.VersionStatus)) {
       throw new ValidationError('Cannot modify BOM: version is RELEASED (immutable)');
     }
   }

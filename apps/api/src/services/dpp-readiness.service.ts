@@ -1,5 +1,11 @@
-import { PrismaClient } from '@eurocomply/db';
+import { EntityManager } from '@mikro-orm/postgresql';
+import { MikroOrm, DppSnapshotStatus } from '@eurocomply/db';
 import { NotFoundError } from '../lib/errors.js';
+import { loggers } from '../lib/logger.js';
+
+const log = loggers.compliance;
+
+const { Product, ProductVersion, ReadinessProfile, DppSnapshot } = MikroOrm;
 
 export interface ReadinessCheckResult {
   productId: string;
@@ -13,33 +19,36 @@ export interface ReadinessCheckResult {
   marketingVersionId?: string;
 }
 
+/**
+ * DPPReadinessService checks if products meet the requirements for DPP issuance.
+ *
+ * Architecture notes:
+ * - The EntityManager passed to the constructor is already scoped to the tenant schema
+ * - No organizationId filtering needed - schema isolation handles tenant separation
+ */
 export class DPPReadinessService {
-  constructor(private prisma: PrismaClient) {}
+  constructor(private em: EntityManager) {}
 
   /**
    * Check if a product meets the requirements of a readiness profile.
    */
   async checkProductReadiness(
-    organizationId: string,
     productId: string,
     profileId: string
   ): Promise<ReadinessCheckResult> {
-    // Get product
-    const product = await this.prisma.product.findFirst({
-      where: { id: productId, organizationId },
-      include: {
-        identifiers: true,
-      },
-    });
+    // Get product with identifiers
+    const product = await this.em.findOne(
+      Product,
+      { id: productId },
+      { populate: ['identifiers'] }
+    );
 
     if (!product) {
       throw new NotFoundError('Product', productId);
     }
 
     // Get readiness profile
-    const profile = await this.prisma.readinessProfile.findUnique({
-      where: { id: profileId },
-    });
+    const profile = await this.em.findOne(ReadinessProfile, { id: profileId });
 
     if (!profile) {
       throw new NotFoundError('ReadinessProfile', profileId);
@@ -52,31 +61,34 @@ export class DPPReadinessService {
     let totalPresent = 0;
 
     // Check for released DESIGN version (mandatory)
-    const designVersion = await this.prisma.productVersion.findFirst({
-      where: {
-        productId,
-        workspace: 'DESIGN',
-        status: 'RELEASED',
+    const designVersion = await this.em.findOne(
+      ProductVersion,
+      {
+        product: productId,
+        workspace: 'DESIGN' as unknown as MikroOrm.Workspace,
+        status: 'RELEASED' as unknown as MikroOrm.VersionStatus,
       },
-      orderBy: { versionNumber: 'desc' },
-    });
+      { orderBy: { versionNumber: 'DESC' } }
+    );
 
     if (!designVersion) {
       missingRequirements.push('Released DESIGN version required');
     }
 
     // Check for released MARKETING version (optional but scored)
-    const marketingVersion = await this.prisma.productVersion.findFirst({
-      where: {
-        productId,
-        workspace: 'MARKETING',
-        status: 'RELEASED',
+    const marketingVersion = await this.em.findOne(
+      ProductVersion,
+      {
+        product: productId,
+        workspace: 'MARKETING' as unknown as MikroOrm.Workspace,
+        status: 'RELEASED' as unknown as MikroOrm.VersionStatus,
       },
-      orderBy: { versionNumber: 'desc' },
-    });
+      { orderBy: { versionNumber: 'DESC' } }
+    );
 
     // Check required fields from profile
-    const requiredFields = (profile.requiredFields as Record<string, string[]>) || {};
+    const requirements = profile.requirements as { requiredFields?: Record<string, string[]>; requiredAttestations?: string[] };
+    const requiredFields = requirements?.requiredFields || {};
 
     // Build product data object for checking
     const productData: Record<string, Record<string, unknown>> = {
@@ -84,7 +96,7 @@ export class DPPReadinessService {
         name: product.name,
         description: product.description,
         productType: product.productType,
-        identifiers: product.identifiers,
+        identifiers: product.identifiers.getItems(),
       },
       marketing: {},
     };
@@ -106,7 +118,7 @@ export class DPPReadinessService {
     }
 
     // Check required attestations
-    const requiredAttestations = (profile.requiredAttestations as string[]) || [];
+    const requiredAttestations = requirements?.requiredAttestations || [];
     // In production, this would check against actual attestation records
     const productAttestations: string[] = []; // Placeholder
 
@@ -148,41 +160,33 @@ export class DPPReadinessService {
    * Check readiness for all products of a given category.
    * Returns products that are ready for DPP issuance.
    */
-  async getReadyProducts(
-    organizationId: string,
-    profileId: string
-  ): Promise<ReadinessCheckResult[]> {
-    const profile = await this.prisma.readinessProfile.findUnique({
-      where: { id: profileId },
-    });
+  async getReadyProducts(profileId: string): Promise<ReadinessCheckResult[]> {
+    const profile = await this.em.findOne(ReadinessProfile, { id: profileId });
 
     if (!profile) {
       throw new NotFoundError('ReadinessProfile', profileId);
     }
 
-    // Get all active products
-    const products = await this.prisma.product.findMany({
-      where: {
-        organizationId,
-        status: 'ACTIVE',
-        productType: 'FINISHED_GOOD', // Only finished goods get DPPs
-      },
+    // Get all active products (only finished goods get DPPs)
+    const products = await this.em.find(Product, {
+      status: 'ACTIVE' as unknown as MikroOrm.ProductStatus,
+      productType: 'FINISHED_GOOD' as unknown as MikroOrm.ProductType,
     });
 
     const results: ReadinessCheckResult[] = [];
 
     for (const product of products) {
       try {
-        const result = await this.checkProductReadiness(
-          organizationId,
-          product.id,
-          profileId
-        );
+        const result = await this.checkProductReadiness(product.id, profileId);
         if (result.isReady) {
           results.push(result);
         }
-      } catch {
-        // Skip products that can't be checked
+      } catch (error) {
+        // Log warning but continue checking other products
+        log.warn(
+          { productId: product.id, profileId, error: error instanceof Error ? error.message : error },
+          'Failed to check product readiness'
+        );
         continue;
       }
     }
@@ -193,17 +197,17 @@ export class DPPReadinessService {
   /**
    * Check if a product already has a pending or issued DPP snapshot.
    */
-  async hasExistingSnapshot(
-    organizationId: string,
-    productId: string
-  ): Promise<boolean> {
-    const existing = await this.prisma.dPPSnapshot.findFirst({
-      where: {
-        organizationId,
-        productId,
-        status: {
-          in: ['PENDING_REVIEW', 'VERIFIED', 'ATTESTED', 'SEALED', 'ISSUED'],
-        },
+  async hasExistingSnapshot(productId: string): Promise<boolean> {
+    const existing = await this.em.findOne(DppSnapshot, {
+      product: productId,
+      status: {
+        $in: [
+          DppSnapshotStatus.PENDING_REVIEW,
+          DppSnapshotStatus.VERIFIED,
+          DppSnapshotStatus.ATTESTED,
+          DppSnapshotStatus.SEALED,
+          DppSnapshotStatus.ISSUED,
+        ],
       },
     });
 

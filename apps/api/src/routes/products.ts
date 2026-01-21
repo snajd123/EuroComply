@@ -1,7 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
-import { prisma } from '@eurocomply/db';
 import {
   ok,
   err,
@@ -17,10 +16,9 @@ import { authMiddleware } from '../middleware/auth.js';
 import { NotFoundError, ValidationError, ConflictError } from '../lib/errors.js';
 import { PAGINATION } from '../lib/config.js';
 import type { AppVariables } from '../types/context.js';
+import { getEntityManager } from '../lib/context.js';
 
 const products = new Hono<{ Variables: AppVariables }>();
-const productService = new ProductService(prisma);
-const versionService = new VersionService(prisma);
 
 // FORENSIC GUARD C: GTIN must be 8, 12, 13, or 14 digits with valid checksum
 const GTIN_REGEX = /^(\d{8}|\d{12}|\d{13}|\d{14})$/;
@@ -102,14 +100,32 @@ const createVersionSchema = z.object({
 products.use('*', authMiddleware);
 
 /**
+ * Helper to get ProductService scoped to the tenant's EntityManager.
+ * The EntityManager is already scoped to the tenant schema by the auth middleware.
+ */
+function getProductService(c: Parameters<typeof getEntityManager>[0]): ProductService {
+  const em = getEntityManager(c);
+  return new ProductService(em);
+}
+
+/**
+ * Helper to get VersionService scoped to the tenant's EntityManager.
+ * The EntityManager is already scoped to the tenant schema by the auth middleware.
+ */
+function getVersionService(c: Parameters<typeof getEntityManager>[0]): VersionService {
+  const em = getEntityManager(c);
+  return new VersionService(em);
+}
+
+/**
  * GET /api/v1/products
  * List products for the organization.
  */
 products.get('/', zValidator('query', listQuerySchema), async (c) => {
-  const { organizationId } = c.get('tenant');
   const query = c.req.valid('query');
+  const productService = getProductService(c);
 
-  const items = await productService.listProducts(organizationId, query);
+  const items = await productService.listProducts(query);
 
   return c.json(ok({ items, limit: query.limit, offset: query.offset }));
 });
@@ -119,9 +135,9 @@ products.get('/', zValidator('query', listQuerySchema), async (c) => {
  * Create a new product.
  */
 products.post('/', zValidator('json', createProductSchema), async (c) => {
-  const { organizationId } = c.get('tenant');
   const { id: userId } = c.get('user');
   const input = c.req.valid('json');
+  const productService = getProductService(c);
 
   try {
     const createInput: CreateProductInput = {
@@ -132,7 +148,7 @@ products.post('/', zValidator('json', createProductSchema), async (c) => {
       identifiers: input.identifiers,
       createdBy: userId,
     };
-    const product = await productService.createProduct(organizationId, createInput);
+    const product = await productService.createProduct(createInput);
     return c.json(ok(product), 201);
   } catch (error) {
     if (error instanceof ValidationError) {
@@ -154,10 +170,10 @@ products.post('/', zValidator('json', createProductSchema), async (c) => {
  * Get a product by ID.
  */
 products.get('/:id', async (c) => {
-  const { organizationId } = c.get('tenant');
   const productId = c.req.param('id');
+  const productService = getProductService(c);
 
-  const product = await productService.getProduct(organizationId, productId);
+  const product = await productService.getProduct(productId);
 
   if (!product) {
     return c.json(err('NOT_FOUND', 'Product not found'), 404);
@@ -171,11 +187,11 @@ products.get('/:id', async (c) => {
  * Update a product.
  */
 products.patch('/:id', zValidator('json', updateProductSchema), async (c) => {
-  const { organizationId } = c.get('tenant');
   const productId = c.req.param('id');
   const input = c.req.valid('json');
+  const productService = getProductService(c);
 
-  const product = await productService.updateProduct(organizationId, productId, input);
+  const product = await productService.updateProduct(productId, input);
 
   if (!product) {
     return c.json(err('NOT_FOUND', 'Product not found'), 404);
@@ -189,10 +205,10 @@ products.patch('/:id', zValidator('json', updateProductSchema), async (c) => {
  * Archive a product (soft delete).
  */
 products.delete('/:id', async (c) => {
-  const { organizationId } = c.get('tenant');
   const productId = c.req.param('id');
+  const productService = getProductService(c);
 
-  const product = await productService.archiveProduct(organizationId, productId);
+  const product = await productService.archiveProduct(productId);
 
   if (!product) {
     return c.json(err('NOT_FOUND', 'Product not found'), 404);
@@ -209,13 +225,14 @@ products.post(
   '/:id/versions',
   zValidator('json', createVersionSchema),
   async (c) => {
-    const { organizationId } = c.get('tenant');
     const { id: userId } = c.get('user');
     const productId = c.req.param('id');
     const { workspace } = c.req.valid('json');
 
+    const versionService = getVersionService(c);
+
     try {
-      const version = await versionService.createVersion(organizationId, {
+      const version = await versionService.createVersion({
         productId,
         workspace,
         createdBy: userId,
@@ -238,9 +255,10 @@ products.post(
  * List versions for a product.
  */
 products.get('/:id/versions', async (c) => {
-  const { organizationId } = c.get('tenant');
   const productId = c.req.param('id');
   const workspaceParam = c.req.query('workspace');
+
+  const versionService = getVersionService(c);
 
   // Validate workspace parameter if provided
   let workspace: ProductWorkspace | undefined;
@@ -251,11 +269,7 @@ products.get('/:id/versions', async (c) => {
     }
   }
 
-  const versions = await versionService.listVersions(
-    organizationId,
-    productId,
-    workspace
-  );
+  const versions = await versionService.listVersions(productId, workspace);
 
   return c.json(ok({ items: versions }));
 });

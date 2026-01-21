@@ -8,6 +8,29 @@ export * from './events.js';
 export * from './validation.js';
 export * from './iam-auth.js';
 
+// MikroORM entities - exported under MikroOrm namespace to avoid Prisma conflicts
+export * as MikroOrm from './entities/index.js';
+
+// Re-export Organization specifically for tenant middleware (distinct from Prisma's Organization type)
+export { Organization } from './entities/Organization.js';
+
+// Re-export enums that are used directly (not via MikroOrm namespace)
+export { DppSnapshotStatus } from './entities/DppSnapshot.js';
+export { VersionStatus, Workspace } from './entities/ProductVersion.js';
+export { ProductType, ProductStatus } from './entities/Product.js';
+export { OutboxStatus } from './entities/OutboxEvent.js';
+
+// MikroORM tenant context utilities (aliased to avoid conflict with Prisma versions)
+export {
+  createTenantSchema as createTenantSchemaMikroOrm,
+  dropTenantSchema as dropTenantSchemaMikroOrm,
+  createTenantEm,
+  withTenantContext,
+  validateSchemaName as validateSchemaNameMikroOrm,
+  formatSchemaName,
+  listTenantSchemas,
+} from './tenant-context.js';
+
 // =============================================================================
 // Debug Logging
 // =============================================================================

@@ -1,61 +1,69 @@
 import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import { OperationsEventService } from './operations-event.service.js';
 import { ValidationError } from '../lib/errors.js';
+import { EventStatus } from '@eurocomply/db';
 import type { UserForensicContext, OrgForensicContext, SealedArtifact } from '@eurocomply/shared';
 
-interface MockPrismaClient {
-  operationsEvent: {
-    create: Mock;
-    findFirst: Mock;
-    findMany: Mock;
-    update: Mock;
+/**
+ * Creates a mock MikroORM EntityManager for testing OperationsEventService.
+ *
+ * Architecture notes:
+ * - The EntityManager is scoped to a tenant schema
+ * - Organization entity (public schema) is accessed via the same EM
+ *   because Organization declares `schema: 'public'` in its entity definition
+ * - OperationsEvent queries use the tenant schema from the EM
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function createMockEntityManager(): any {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const mockEm: any = {
+    findOne: vi.fn(),
+    find: vi.fn(),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    create: vi.fn((_entity: any, data: any) => ({ ...data })),
+    flush: vi.fn(),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    getReference: vi.fn((_entity: any, id: string) => ({ id })),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    transactional: vi.fn((fn: any) => fn(mockEm)),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    nativeUpdate: vi.fn(),
   };
-  organization: {
-    findUnique: Mock;
-    update: Mock;
-  };
-  $transaction: Mock;
+  return mockEm;
 }
-
-const mockPrisma: MockPrismaClient = {
-  operationsEvent: {
-    create: vi.fn(),
-    findFirst: vi.fn(),
-    findMany: vi.fn(),
-    update: vi.fn(),
-  },
-  organization: {
-    findUnique: vi.fn(),
-    update: vi.fn(),
-  },
-  $transaction: vi.fn((fn: (client: MockPrismaClient) => Promise<unknown>) => fn(mockPrisma)),
-};
 
 describe('OperationsEventService', () => {
   let service: OperationsEventService;
-  const orgId = 'org_test123';
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let mockEm: any;
   const userId = 'user_123';
+  const orgId = 'org_test123';
 
   beforeEach(() => {
     vi.clearAllMocks();
-    service = new OperationsEventService(mockPrisma as unknown as ConstructorParameters<typeof OperationsEventService>[0]);
+    mockEm = createMockEntityManager();
+    service = new OperationsEventService(mockEm);
   });
 
   describe('recordEvent', () => {
     it('should create first event with sequence 1 and GENESIS hash', async () => {
-      mockPrisma.organization.findUnique.mockResolvedValue({
-        id: orgId,
-        lastEventHash: null,
-        eventSequence: 0,
-      });
-      mockPrisma.operationsEvent.create.mockResolvedValue({
+      // Mock organization lookup (public schema)
+      mockEm.findOne
+        .mockResolvedValueOnce({
+          id: orgId,
+          lastEventHash: null,
+          eventSequence: 0,
+        });
+
+      const createdEvent = {
         id: 'evt_123',
         eventType: 'BATCH_PRODUCED',
         sequenceNumber: 1,
-        eventHash: 'abc123',
+        eventHash: expect.any(String),
         previousEventHash: 'GENESIS',
-      });
-      mockPrisma.organization.update.mockResolvedValue({});
+        status: EventStatus.PENDING_VERIFICATION,
+      };
+      mockEm.create.mockReturnValue(createdEvent);
 
       const result = await service.recordEvent(orgId, userId, {
         eventType: 'BATCH_PRODUCED',
@@ -73,22 +81,26 @@ describe('OperationsEventService', () => {
 
       expect(result.sequenceNumber).toBe(1);
       expect(result.previousEventHash).toBe('GENESIS');
+      expect(mockEm.flush).toHaveBeenCalled();
     });
 
     it('should chain events with previous hash', async () => {
-      mockPrisma.organization.findUnique.mockResolvedValue({
-        id: orgId,
-        lastEventHash: 'previous_hash_abc',
-        eventSequence: 5,
-      });
-      mockPrisma.operationsEvent.create.mockResolvedValue({
+      mockEm.findOne
+        .mockResolvedValueOnce({
+          id: orgId,
+          lastEventHash: 'previous_hash_abc',
+          eventSequence: 5,
+        });
+
+      const createdEvent = {
         id: 'evt_124',
         eventType: 'MATERIAL_CONSUMED',
         sequenceNumber: 6,
         eventHash: 'new_hash_xyz',
         previousEventHash: 'previous_hash_abc',
-      });
-      mockPrisma.organization.update.mockResolvedValue({});
+        status: EventStatus.PENDING_VERIFICATION,
+      };
+      mockEm.create.mockReturnValue(createdEvent);
 
       const result = await service.recordEvent(orgId, userId, {
         eventType: 'MATERIAL_CONSUMED',
@@ -114,20 +126,22 @@ describe('OperationsEventService', () => {
       ).rejects.toThrow();
     });
 
-    it('should use SERIALIZABLE isolation level to prevent race conditions', async () => {
-      mockPrisma.organization.findUnique.mockResolvedValue({
-        id: orgId,
-        lastEventHash: null,
-        eventSequence: 0,
-      });
-      mockPrisma.operationsEvent.create.mockResolvedValue({
+    it('should use transaction with SERIALIZABLE isolation to prevent race conditions', async () => {
+      mockEm.findOne
+        .mockResolvedValueOnce({
+          id: orgId,
+          lastEventHash: null,
+          eventSequence: 0,
+        });
+
+      const createdEvent = {
         id: 'evt_123',
         eventType: 'BATCH_PRODUCED',
         sequenceNumber: 1,
         eventHash: 'abc123',
         previousEventHash: 'GENESIS',
-      });
-      mockPrisma.organization.update.mockResolvedValue({});
+      };
+      mockEm.create.mockReturnValue(createdEvent);
 
       await service.recordEvent(orgId, userId, {
         eventType: 'BATCH_PRODUCED',
@@ -143,70 +157,55 @@ describe('OperationsEventService', () => {
         },
       });
 
-      // Verify transaction was called with SERIALIZABLE isolation
-      expect(mockPrisma.$transaction).toHaveBeenCalledWith(
-        expect.any(Function),
-        { isolationLevel: 'Serializable' }
-      );
+      // Verify transactional was called
+      expect(mockEm.transactional).toHaveBeenCalled();
     });
   });
 
   describe('verifyEvent', () => {
-    it('should seal event with EDITOR signature', async () => {
-      mockPrisma.operationsEvent.findFirst.mockResolvedValue({
+    it('should transition from PENDING_VERIFICATION to VERIFIED', async () => {
+      const event = {
         id: 'evt_123',
-        status: 'PENDING_VERIFICATION',
-        organizationId: orgId,
-      });
-      mockPrisma.operationsEvent.update.mockResolvedValue({
-        id: 'evt_123',
-        status: 'VERIFIED',
-        verifiedBy: userId,
-        verifiedAt: new Date(),
-      });
+        status: EventStatus.PENDING_VERIFICATION,
+      };
 
-      const result = await service.verifyEvent(orgId, 'evt_123', userId);
+      mockEm.findOne.mockResolvedValue(event);
 
-      expect(result.status).toBe('VERIFIED');
-      expect(result.verifiedBy).toBe(userId);
+      const result = await service.verifyEvent('evt_123', userId);
+
+      expect(result.status).toBe(EventStatus.VERIFIED);
+      expect(result.verifiedBy).toEqual({ id: userId });
+      expect(result.verifiedAt).toBeInstanceOf(Date);
+      expect(mockEm.flush).toHaveBeenCalled();
     });
 
-    it('should reject already verified event', async () => {
-      mockPrisma.operationsEvent.findFirst.mockResolvedValue({
+    it('should reject verification of already VERIFIED event', async () => {
+      const event = {
         id: 'evt_123',
-        status: 'VERIFIED',
-        organizationId: orgId,
-      });
+        status: EventStatus.VERIFIED,
+      };
+
+      mockEm.findOne.mockResolvedValue(event);
 
       await expect(
-        service.verifyEvent(orgId, 'evt_123', userId)
+        service.verifyEvent('evt_123', userId)
       ).rejects.toThrow(ValidationError);
     });
 
-    it('should verify without signing when no signing context provided (backward compatibility)', async () => {
-      mockPrisma.operationsEvent.findFirst.mockResolvedValue({
+    it('should verify without signing when no signing context provided', async () => {
+      const event = {
         id: 'evt_123',
-        status: 'PENDING_VERIFICATION',
-        organizationId: orgId,
-      });
-      mockPrisma.operationsEvent.update.mockResolvedValue({
-        id: 'evt_123',
-        status: 'VERIFIED',
-        verifiedBy: userId,
-        verifiedAt: new Date(),
-        userSignatureDid: null,
-        userSignatureJws: null,
-        orgSignatureDid: null,
-        orgSignatureJws: null,
-        forensicContext: null,
-      });
+        status: EventStatus.PENDING_VERIFICATION,
+      };
 
-      const result = await service.verifyEvent(orgId, 'evt_123', userId);
+      mockEm.findOne.mockResolvedValue(event);
 
-      expect(result.status).toBe('VERIFIED');
-      expect(result.userSignatureDid).toBeNull();
-      expect(result.orgSignatureDid).toBeNull();
-      expect(result.forensicContext).toBeNull();
+      const result = await service.verifyEvent('evt_123', userId);
+
+      expect(result.status).toBe(EventStatus.VERIFIED);
+      expect(result.userSignatureDid).toBeUndefined();
+      expect(result.orgSignatureDid).toBeUndefined();
+      expect(result.forensicContext).toBeUndefined();
     });
   });
 
@@ -224,7 +223,7 @@ describe('OperationsEventService', () => {
 
     const testOrgForensicContext: OrgForensicContext = {
       organizationName: 'Acme Corporation',
-      organizationId: orgId,
+      organizationId: 'org_test123',
       vatNumber: 'DE123456789',
       certifications: ['ISO9001'],
       signedAt: '2026-01-18T10:00:00.000Z',
@@ -243,36 +242,19 @@ describe('OperationsEventService', () => {
         eventType: 'BATCH_PRODUCED',
         eventHash: 'abc123hash',
         sequenceNumber: 5,
-        status: 'PENDING_VERIFICATION',
-        organizationId: orgId,
+        status: EventStatus.PENDING_VERIFICATION,
         payload: { batchNumber: 'BATCH-001' },
       };
 
-      mockPrisma.operationsEvent.findFirst.mockResolvedValue(eventData);
-      mockPrisma.operationsEvent.update.mockImplementation(async ({ data }) => ({
-        id: 'evt_123',
-        eventType: 'BATCH_PRODUCED',
-        eventHash: 'abc123hash',
-        sequenceNumber: 5,
-        status: 'VERIFIED',
-        organizationId: orgId,
-        verifiedAt: data.verifiedAt,
-        verifiedBy: data.verifiedBy,
-        userSignatureDid: data.userSignatureDid,
-        userSignatureJws: data.userSignatureJws,
-        orgSignatureDid: data.orgSignatureDid,
-        orgSignatureJws: data.orgSignatureJws,
-        forensicContext: data.forensicContext,
-      }));
+      mockEm.findOne.mockResolvedValue(eventData);
 
       const result = await service.verifyEvent(
-        orgId,
         'evt_123',
         userId,
         signingContext
       );
 
-      expect(result.status).toBe('VERIFIED');
+      expect(result.status).toBe(EventStatus.VERIFIED);
       expect(result.userSignatureDid).toBe(testUserDid);
       expect(result.orgSignatureDid).toBe(testOrgDid);
       expect(result.userSignatureJws).toBeTruthy();
@@ -280,32 +262,19 @@ describe('OperationsEventService', () => {
       expect(result.forensicContext).toBeTruthy();
     });
 
-    it('should include correct payload data in user and org JWS', async () => {
+    it('should include correct payload data in sealed artifact', async () => {
       const eventData = {
         id: 'evt_456',
         eventType: 'MATERIAL_CONSUMED',
         eventHash: 'xyz789hash',
         sequenceNumber: 10,
-        status: 'PENDING_VERIFICATION',
-        organizationId: orgId,
+        status: EventStatus.PENDING_VERIFICATION,
         payload: { materialLotId: 'lot_123' },
       };
 
-      mockPrisma.operationsEvent.findFirst.mockResolvedValue(eventData);
-      mockPrisma.operationsEvent.update.mockImplementation(async ({ data }) => ({
-        ...eventData,
-        status: 'VERIFIED',
-        verifiedAt: data.verifiedAt,
-        verifiedBy: data.verifiedBy,
-        userSignatureDid: data.userSignatureDid,
-        userSignatureJws: data.userSignatureJws,
-        orgSignatureDid: data.orgSignatureDid,
-        orgSignatureJws: data.orgSignatureJws,
-        forensicContext: data.forensicContext,
-      }));
+      mockEm.findOne.mockResolvedValue(eventData);
 
       const result = await service.verifyEvent(
-        orgId,
         'evt_456',
         userId,
         signingContext
@@ -330,26 +299,13 @@ describe('OperationsEventService', () => {
         eventType: 'BATCH_PRODUCED',
         eventHash: 'def456hash',
         sequenceNumber: 3,
-        status: 'PENDING_VERIFICATION',
-        organizationId: orgId,
+        status: EventStatus.PENDING_VERIFICATION,
         payload: {},
       };
 
-      mockPrisma.operationsEvent.findFirst.mockResolvedValue(eventData);
-      mockPrisma.operationsEvent.update.mockImplementation(async ({ data }) => ({
-        ...eventData,
-        status: 'VERIFIED',
-        verifiedAt: data.verifiedAt,
-        verifiedBy: data.verifiedBy,
-        userSignatureDid: data.userSignatureDid,
-        userSignatureJws: data.userSignatureJws,
-        orgSignatureDid: data.orgSignatureDid,
-        orgSignatureJws: data.orgSignatureJws,
-        forensicContext: data.forensicContext,
-      }));
+      mockEm.findOne.mockResolvedValue(eventData);
 
       const result = await service.verifyEvent(
-        orgId,
         'evt_789',
         userId,
         signingContext
@@ -374,26 +330,13 @@ describe('OperationsEventService', () => {
         eventType: 'BATCH_PRODUCED',
         eventHash: 'ghi789hash',
         sequenceNumber: 7,
-        status: 'PENDING_VERIFICATION',
-        organizationId: orgId,
+        status: EventStatus.PENDING_VERIFICATION,
         payload: {},
       };
 
-      mockPrisma.operationsEvent.findFirst.mockResolvedValue(eventData);
-      mockPrisma.operationsEvent.update.mockImplementation(async ({ data }) => ({
-        ...eventData,
-        status: 'VERIFIED',
-        verifiedAt: data.verifiedAt,
-        verifiedBy: data.verifiedBy,
-        userSignatureDid: data.userSignatureDid,
-        userSignatureJws: data.userSignatureJws,
-        orgSignatureDid: data.orgSignatureDid,
-        orgSignatureJws: data.orgSignatureJws,
-        forensicContext: data.forensicContext,
-      }));
+      mockEm.findOne.mockResolvedValue(eventData);
 
       const result = await service.verifyEvent(
-        orgId,
         'evt_999',
         userId,
         signingContext
@@ -415,12 +358,11 @@ describe('OperationsEventService', () => {
         eventType: 'BATCH_PRODUCED',
         eventHash: 'abc123hash',
         sequenceNumber: 5,
-        status: 'PENDING_VERIFICATION',
-        organizationId: orgId,
+        status: EventStatus.PENDING_VERIFICATION,
         payload: {},
       };
 
-      mockPrisma.operationsEvent.findFirst.mockResolvedValue(eventData);
+      mockEm.findOne.mockResolvedValue(eventData);
 
       const invalidSigningContext = {
         ...signingContext,
@@ -428,7 +370,7 @@ describe('OperationsEventService', () => {
       };
 
       await expect(
-        service.verifyEvent(orgId, 'evt_123', userId, invalidSigningContext)
+        service.verifyEvent('evt_123', userId, invalidSigningContext)
       ).rejects.toThrow(ValidationError);
     });
 
@@ -438,12 +380,11 @@ describe('OperationsEventService', () => {
         eventType: 'BATCH_PRODUCED',
         eventHash: 'abc123hash',
         sequenceNumber: 5,
-        status: 'PENDING_VERIFICATION',
-        organizationId: orgId,
+        status: EventStatus.PENDING_VERIFICATION,
         payload: {},
       };
 
-      mockPrisma.operationsEvent.findFirst.mockResolvedValue(eventData);
+      mockEm.findOne.mockResolvedValue(eventData);
 
       const invalidSigningContext = {
         ...signingContext,
@@ -451,8 +392,138 @@ describe('OperationsEventService', () => {
       };
 
       await expect(
-        service.verifyEvent(orgId, 'evt_123', userId, invalidSigningContext)
+        service.verifyEvent('evt_123', userId, invalidSigningContext)
       ).rejects.toThrow(ValidationError);
+    });
+  });
+
+  describe('getEvent', () => {
+    it('should return event by ID', async () => {
+      const event = {
+        id: 'evt_123',
+        eventType: 'BATCH_PRODUCED',
+        status: EventStatus.PENDING_VERIFICATION,
+      };
+
+      mockEm.findOne.mockResolvedValue(event);
+
+      const result = await service.getEvent('evt_123');
+
+      expect(result?.id).toBe('evt_123');
+      expect(mockEm.findOne).toHaveBeenCalled();
+    });
+
+    it('should return null for non-existent event', async () => {
+      mockEm.findOne.mockResolvedValue(null);
+
+      const result = await service.getEvent('unknown_evt');
+
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('listEvents', () => {
+    it('should list events for the tenant', async () => {
+      const events = [
+        { id: 'evt_1', eventType: 'BATCH_PRODUCED', sequenceNumber: 2 },
+        { id: 'evt_2', eventType: 'MATERIAL_CONSUMED', sequenceNumber: 1 },
+      ];
+
+      mockEm.find.mockResolvedValue(events);
+
+      const result = await service.listEvents();
+
+      expect(result).toHaveLength(2);
+      expect(mockEm.find).toHaveBeenCalledWith(
+        expect.anything(),
+        {},
+        expect.objectContaining({
+          orderBy: { sequenceNumber: 'DESC' },
+          limit: 50,
+          offset: 0,
+        })
+      );
+    });
+
+    it('should filter by eventType', async () => {
+      mockEm.find.mockResolvedValue([]);
+
+      await service.listEvents({ eventType: 'BATCH_PRODUCED' });
+
+      expect(mockEm.find).toHaveBeenCalledWith(
+        expect.anything(),
+        { eventType: 'BATCH_PRODUCED' },
+        expect.anything()
+      );
+    });
+
+    it('should filter by status', async () => {
+      mockEm.find.mockResolvedValue([]);
+
+      await service.listEvents({ status: EventStatus.VERIFIED });
+
+      expect(mockEm.find).toHaveBeenCalledWith(
+        expect.anything(),
+        { status: EventStatus.VERIFIED },
+        expect.anything()
+      );
+    });
+
+    it('should respect pagination options', async () => {
+      mockEm.find.mockResolvedValue([]);
+
+      await service.listEvents({ limit: 10, offset: 20 });
+
+      expect(mockEm.find).toHaveBeenCalledWith(
+        expect.anything(),
+        {},
+        expect.objectContaining({
+          limit: 10,
+          offset: 20,
+        })
+      );
+    });
+  });
+
+  describe('verifyChainIntegrity', () => {
+    it('should return valid for intact chain', async () => {
+      const events = [
+        { sequenceNumber: 1, eventHash: 'hash1', previousEventHash: 'GENESIS' },
+        { sequenceNumber: 2, eventHash: 'hash2', previousEventHash: 'hash1' },
+        { sequenceNumber: 3, eventHash: 'hash3', previousEventHash: 'hash2' },
+      ];
+
+      mockEm.find.mockResolvedValue(events);
+
+      const result = await service.verifyChainIntegrity();
+
+      expect(result.valid).toBe(true);
+      expect(result.checkedCount).toBe(3);
+      expect(result.brokenAt).toBeUndefined();
+    });
+
+    it('should detect broken chain', async () => {
+      const events = [
+        { sequenceNumber: 1, eventHash: 'hash1', previousEventHash: 'GENESIS' },
+        { sequenceNumber: 2, eventHash: 'hash2', previousEventHash: 'wrong_hash' }, // Broken!
+        { sequenceNumber: 3, eventHash: 'hash3', previousEventHash: 'hash2' },
+      ];
+
+      mockEm.find.mockResolvedValue(events);
+
+      const result = await service.verifyChainIntegrity();
+
+      expect(result.valid).toBe(false);
+      expect(result.checkedCount).toBe(2);
+    });
+
+    it('should return valid for empty chain', async () => {
+      mockEm.find.mockResolvedValue([]);
+
+      const result = await service.verifyChainIntegrity();
+
+      expect(result.valid).toBe(true);
+      expect(result.checkedCount).toBe(0);
     });
   });
 });

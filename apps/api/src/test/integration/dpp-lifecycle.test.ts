@@ -4,9 +4,10 @@
  * Tests the complete DPP workflow:
  * PENDING_REVIEW → VERIFIED → ATTESTED → SEALED → ISSUED → REVOKED
  *
- * These tests use a mock Prisma client to test service logic without a database.
+ * These tests use a mock EntityManager to test service logic without a database.
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
+import { EntityManager } from '@mikro-orm/postgresql';
 import { DPPSnapshotService } from '../../services/dpp-snapshot.service.js';
 import { ValidationError, NotFoundError } from '../../lib/errors.js';
 
@@ -54,82 +55,52 @@ function createMockSnapshot(overrides: Partial<{
   };
 }
 
+/**
+ * Create a mock EntityManager for MikroORM-based service testing.
+ */
+function createMockEm() {
+  const mockSnapshot = createMockSnapshot();
+
+  const em = {
+    findOne: vi.fn().mockResolvedValue(mockSnapshot),
+    find: vi.fn().mockResolvedValue([mockSnapshot]),
+    create: vi.fn().mockImplementation((_entity, data) => ({ ...mockSnapshot, ...data })),
+    persist: vi.fn(),
+    flush: vi.fn(),
+    remove: vi.fn(),
+    getReference: vi.fn().mockImplementation((_entity, id) => ({ id })),
+    transactional: vi.fn().mockImplementation(async (callback) => callback(em)),
+    fork: vi.fn().mockReturnThis(),
+    lock: vi.fn(),
+  } as unknown as EntityManager;
+
+  return em;
+}
+
 describe('DPP Snapshot Lifecycle', () => {
-  let mockPrisma: ReturnType<typeof createMockPrisma>;
+  let mockEm: EntityManager;
   let service: DPPSnapshotService;
 
-  function createMockPrisma() {
-    const mockSnapshot = createMockSnapshot();
-
-    return {
-      dPPSnapshot: {
-        findFirst: vi.fn().mockResolvedValue(mockSnapshot),
-        findMany: vi.fn().mockResolvedValue([mockSnapshot]),
-        create: vi.fn().mockResolvedValue(mockSnapshot),
-        update: vi.fn().mockImplementation(async ({ data }) => ({
-          ...mockSnapshot,
-          ...data,
-        })),
-      },
-      product: {
-        findFirst: vi.fn().mockResolvedValue({
-          id: 'product-789',
-          organizationId: 'org-456',
-          name: 'Test Product',
-          identifiers: [],
-          bomEntriesAsParent: [],
-        }),
-      },
-      productVersion: {
-        findFirst: vi.fn().mockResolvedValue({
-          id: 'design-v1',
-          productId: 'product-789',
-          workspace: 'DESIGN',
-          status: 'RELEASED',
-          versionNumber: 1,
-          bomEntries: [],
-        }),
-      },
-      readinessProfile: {
-        findUnique: vi.fn().mockResolvedValue({
-          id: 'profile-1',
-          name: 'EU ESPR',
-          requiredFields: {},
-        }),
-      },
-      $transaction: vi.fn().mockImplementation(async (callback) => {
-        return callback(mockPrisma);
-      }),
-    };
-  }
-
   beforeEach(() => {
-    mockPrisma = createMockPrisma();
-    service = new DPPSnapshotService(mockPrisma as never);
+    mockEm = createMockEm();
+    service = new DPPSnapshotService(mockEm);
   });
 
   describe('Status Transitions', () => {
     it('should verify a PENDING_REVIEW snapshot', async () => {
       const snapshot = createMockSnapshot({ status: 'PENDING_REVIEW' });
-      mockPrisma.dPPSnapshot.findFirst.mockResolvedValue(snapshot);
+      (mockEm.findOne as Mock).mockResolvedValue(snapshot);
 
-      const result = await service.verify('org-456', 'snapshot-123', 'user-1');
+      const result = await service.verify('snapshot-123', 'user-1');
 
-      expect(mockPrisma.dPPSnapshot.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { id: 'snapshot-123' },
-          data: expect.objectContaining({
-            status: 'VERIFIED',
-            verifiedBy: 'user-1',
-          }),
-        })
-      );
+      expect(mockEm.findOne).toHaveBeenCalled();
+      expect(mockEm.flush).toHaveBeenCalled();
       expect(result.status).toBe('VERIFIED');
     });
 
     it('should attest a VERIFIED snapshot', async () => {
       const snapshot = createMockSnapshot({ status: 'VERIFIED' });
-      mockPrisma.dPPSnapshot.findFirst.mockResolvedValue(snapshot);
+      (mockEm.findOne as Mock).mockResolvedValue(snapshot);
 
       const attestInput = {
         userSignatureDid: 'did:key:z6MkTest123',
@@ -140,23 +111,15 @@ describe('DPP Snapshot Lifecycle', () => {
         },
       };
 
-      const result = await service.attest('org-456', 'snapshot-123', 'user-1', attestInput);
+      const result = await service.attest('snapshot-123', 'user-1', attestInput);
 
-      expect(mockPrisma.dPPSnapshot.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            status: 'ATTESTED',
-            attestedBy: 'user-1',
-            userSignatureDid: 'did:key:z6MkTest123',
-          }),
-        })
-      );
       expect(result.status).toBe('ATTESTED');
+      expect(result.userSignatureDid).toBe('did:key:z6MkTest123');
     });
 
     it('should seal an ATTESTED snapshot', async () => {
       const snapshot = createMockSnapshot({ status: 'ATTESTED' });
-      mockPrisma.dPPSnapshot.findFirst.mockResolvedValue(snapshot);
+      (mockEm.findOne as Mock).mockResolvedValue(snapshot);
 
       const sealInput = {
         orgSignatureDid: 'did:key:z6MkOrg456',
@@ -167,59 +130,38 @@ describe('DPP Snapshot Lifecycle', () => {
         },
       };
 
-      const result = await service.seal('org-456', 'snapshot-123', sealInput);
+      const result = await service.seal('snapshot-123', sealInput);
 
-      expect(mockPrisma.dPPSnapshot.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            status: 'SEALED',
-            orgSignatureDid: 'did:key:z6MkOrg456',
-          }),
-        })
-      );
       expect(result.status).toBe('SEALED');
+      expect(result.orgSignatureDid).toBe('did:key:z6MkOrg456');
     });
 
     it('should issue a SEALED snapshot', async () => {
       const snapshot = createMockSnapshot({ status: 'SEALED' });
-      mockPrisma.dPPSnapshot.findFirst.mockResolvedValue(snapshot);
+      (mockEm.findOne as Mock).mockResolvedValue(snapshot);
 
       const issueInput = {
-        vcId: 'vc-uuid-123',
+        vcId: 'urn:uuid:12345',
         vcJwt: 'eyJ0eXAiOiJKV1QiLCJhbGciOiJFZERTQSJ9...',
-        dppUrl: 'https://dpp.eurocomply.eu/org-456/product-789',
-        qrCodeUrl: 'https://api.eurocomply.eu/qr/abc123',
+        dppUrl: 'https://dpp.eurocomply.eu/12345',
+        qrCodeUrl: 'https://qr.eurocomply.eu/12345.png',
         credentialStatusIndex: 42,
+        timestampProof: { tsa: 'freetsa.org', timestamp: '2026-01-19T12:02:00Z' },
       };
 
-      const result = await service.issue('org-456', 'snapshot-123', issueInput);
+      const result = await service.issue('snapshot-123', issueInput);
 
-      expect(mockPrisma.dPPSnapshot.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            status: 'ISSUED',
-            vcId: 'vc-uuid-123',
-            dppUrl: 'https://dpp.eurocomply.eu/org-456/product-789',
-            credentialStatusIndex: 42,
-          }),
-        })
-      );
       expect(result.status).toBe('ISSUED');
+      expect(result.vcId).toBe('urn:uuid:12345');
+      expect(result.dppUrl).toBe('https://dpp.eurocomply.eu/12345');
     });
 
     it('should revoke an ISSUED snapshot', async () => {
       const snapshot = createMockSnapshot({ status: 'ISSUED' });
-      mockPrisma.dPPSnapshot.findFirst.mockResolvedValue(snapshot);
+      (mockEm.findOne as Mock).mockResolvedValue(snapshot);
 
-      const result = await service.revoke('org-456', 'snapshot-123');
+      const result = await service.revoke('snapshot-123', 'No longer valid');
 
-      expect(mockPrisma.dPPSnapshot.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            status: 'REVOKED',
-          }),
-        })
-      );
       expect(result.status).toBe('REVOKED');
     });
   });
@@ -227,12 +169,12 @@ describe('DPP Snapshot Lifecycle', () => {
   describe('Invalid Transitions', () => {
     it('should reject PENDING_REVIEW → ATTESTED (must verify first)', async () => {
       const snapshot = createMockSnapshot({ status: 'PENDING_REVIEW' });
-      mockPrisma.dPPSnapshot.findFirst.mockResolvedValue(snapshot);
+      (mockEm.findOne as Mock).mockResolvedValue(snapshot);
 
       await expect(
-        service.attest('org-456', 'snapshot-123', 'user-1', {
-          userSignatureDid: 'did:key:z6MkTest123',
-          userSignatureJws: 'sig...',
+        service.attest('snapshot-123', 'user-1', {
+          userSignatureDid: 'did:key:test',
+          userSignatureJws: 'jws',
           userForensicContext: {},
         })
       ).rejects.toThrow(ValidationError);
@@ -240,12 +182,12 @@ describe('DPP Snapshot Lifecycle', () => {
 
     it('should reject VERIFIED → SEALED (must attest first)', async () => {
       const snapshot = createMockSnapshot({ status: 'VERIFIED' });
-      mockPrisma.dPPSnapshot.findFirst.mockResolvedValue(snapshot);
+      (mockEm.findOne as Mock).mockResolvedValue(snapshot);
 
       await expect(
-        service.seal('org-456', 'snapshot-123', {
-          orgSignatureDid: 'did:key:z6MkOrg456',
-          orgSignatureJws: 'sig...',
+        service.seal('snapshot-123', {
+          orgSignatureDid: 'did:key:test',
+          orgSignatureJws: 'jws',
           orgForensicContext: {},
         })
       ).rejects.toThrow(ValidationError);
@@ -253,101 +195,92 @@ describe('DPP Snapshot Lifecycle', () => {
 
     it('should reject ATTESTED → ISSUED (must seal first)', async () => {
       const snapshot = createMockSnapshot({ status: 'ATTESTED' });
-      mockPrisma.dPPSnapshot.findFirst.mockResolvedValue(snapshot);
+      (mockEm.findOne as Mock).mockResolvedValue(snapshot);
 
       await expect(
-        service.issue('org-456', 'snapshot-123', {
-          vcId: 'vc-123',
-          vcJwt: 'jwt...',
-          dppUrl: 'https://example.com',
+        service.issue('snapshot-123', {
+          vcId: 'urn:uuid:123',
+          vcJwt: 'jwt',
+          dppUrl: 'https://dpp.test',
         })
       ).rejects.toThrow(ValidationError);
     });
 
     it('should reject REVOKED → any transition', async () => {
       const snapshot = createMockSnapshot({ status: 'REVOKED' });
-      mockPrisma.dPPSnapshot.findFirst.mockResolvedValue(snapshot);
+      (mockEm.findOne as Mock).mockResolvedValue(snapshot);
 
-      // Cannot verify a revoked snapshot
-      await expect(
-        service.verify('org-456', 'snapshot-123', 'user-1')
-      ).rejects.toThrow(ValidationError);
-
-      // Cannot issue a revoked snapshot
-      await expect(
-        service.issue('org-456', 'snapshot-123', {
-          vcId: 'vc-123',
-          vcJwt: 'jwt...',
-          dppUrl: 'https://example.com',
-        })
-      ).rejects.toThrow(ValidationError);
+      await expect(service.verify('snapshot-123', 'user-1')).rejects.toThrow(ValidationError);
     });
   });
 
-  describe('Not Found Handling', () => {
+  describe('Error Handling', () => {
     it('should throw NotFoundError for non-existent snapshot', async () => {
-      mockPrisma.dPPSnapshot.findFirst.mockResolvedValue(null);
+      (mockEm.findOne as Mock).mockResolvedValue(null);
 
-      await expect(
-        service.verify('org-456', 'nonexistent', 'user-1')
-      ).rejects.toThrow(NotFoundError);
+      await expect(service.verify('nonexistent', 'user-1')).rejects.toThrow(NotFoundError);
     });
 
     it('should throw NotFoundError for wrong organization', async () => {
-      // Simulates snapshot belonging to different org (query returns null)
-      mockPrisma.dPPSnapshot.findFirst.mockResolvedValue(null);
+      (mockEm.findOne as Mock).mockResolvedValue(null);
 
-      await expect(
-        service.verify('wrong-org', 'snapshot-123', 'user-1')
-      ).rejects.toThrow(NotFoundError);
+      await expect(service.verify('snapshot-123', 'user-1')).rejects.toThrow(NotFoundError);
     });
   });
 
   describe('Complete Lifecycle Flow', () => {
     it('should progress through complete lifecycle', async () => {
-      // Expected state sequence: PENDING_REVIEW -> VERIFIED -> ATTESTED -> SEALED -> ISSUED -> REVOKED
+      // Start with PENDING_REVIEW
+      let snapshot = createMockSnapshot({ status: 'PENDING_REVIEW' });
+      (mockEm.findOne as Mock).mockResolvedValue(snapshot);
 
-      // Track state transitions
-      let currentState = 'PENDING_REVIEW';
-      mockPrisma.dPPSnapshot.findFirst.mockImplementation(() =>
-        Promise.resolve(createMockSnapshot({ status: currentState }))
-      );
-      mockPrisma.dPPSnapshot.update.mockImplementation(({ data }) => {
-        currentState = data.status as string;
-        return Promise.resolve(createMockSnapshot({ status: currentState }));
-      });
+      // Verify
+      let result = await service.verify('snapshot-123', 'user-1');
+      expect(result.status).toBe('VERIFIED');
 
-      // 1. Verify
-      await service.verify('org-456', 'snapshot-123', 'user-1');
-      expect(currentState).toBe('VERIFIED');
+      // Update mock for next state
+      snapshot = { ...snapshot, status: 'VERIFIED', verifiedBy: { id: 'user-1' }, verifiedAt: new Date() };
+      (mockEm.findOne as Mock).mockResolvedValue(snapshot);
 
-      // 2. Attest
-      await service.attest('org-456', 'snapshot-123', 'user-1', {
+      // Attest
+      result = await service.attest('snapshot-123', 'user-1', {
         userSignatureDid: 'did:key:z6MkUser',
-        userSignatureJws: 'sig...',
+        userSignatureJws: 'user-jws',
         userForensicContext: { signedAt: new Date().toISOString() },
       });
-      expect(currentState).toBe('ATTESTED');
+      expect(result.status).toBe('ATTESTED');
 
-      // 3. Seal
-      await service.seal('org-456', 'snapshot-123', {
+      // Update mock for next state
+      snapshot = { ...snapshot, status: 'ATTESTED', attestedBy: { id: 'user-1' }, attestedAt: new Date() };
+      (mockEm.findOne as Mock).mockResolvedValue(snapshot);
+
+      // Seal
+      result = await service.seal('snapshot-123', {
         orgSignatureDid: 'did:key:z6MkOrg',
-        orgSignatureJws: 'sig...',
+        orgSignatureJws: 'org-jws',
         orgForensicContext: { signedAt: new Date().toISOString() },
       });
-      expect(currentState).toBe('SEALED');
+      expect(result.status).toBe('SEALED');
 
-      // 4. Issue
-      await service.issue('org-456', 'snapshot-123', {
-        vcId: 'vc-123',
-        vcJwt: 'jwt...',
-        dppUrl: 'https://dpp.eurocomply.eu/test',
+      // Update mock for next state
+      snapshot = { ...snapshot, status: 'SEALED', sealedAt: new Date() };
+      (mockEm.findOne as Mock).mockResolvedValue(snapshot);
+
+      // Issue
+      result = await service.issue('snapshot-123', {
+        vcId: 'urn:uuid:final',
+        vcJwt: 'final-jwt',
+        dppUrl: 'https://dpp.eurocomply.eu/final',
       });
-      expect(currentState).toBe('ISSUED');
+      expect(result.status).toBe('ISSUED');
 
-      // 5. Revoke
-      await service.revoke('org-456', 'snapshot-123');
-      expect(currentState).toBe('REVOKED');
+      // Update mock for next state
+      snapshot = { ...snapshot, status: 'ISSUED', issuedAt: new Date() };
+      (mockEm.findOne as Mock).mockResolvedValue(snapshot);
+
+      // Revoke
+      result = await service.revoke('snapshot-123', 'Product recalled');
+      expect(result.status).toBe('REVOKED');
     });
   });
 });

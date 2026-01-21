@@ -1,8 +1,9 @@
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
+import { MikroORM, EntityManager } from '@mikro-orm/postgresql';
 import { ok, err, type SealedArtifact } from '@eurocomply/shared';
 import { createWaltIdClient } from '@eurocomply/walt-id';
-import { prisma } from '@eurocomply/db';
+import { MikroOrm } from '@eurocomply/db';
 import { VerificationService } from '../services/verification.service.js';
 import { StatusList2021Service } from '../services/status-list.service.js';
 import { TimestampService } from '../services/timestamp.service.js';
@@ -16,9 +17,71 @@ import {
 } from '../lib/schemas.js';
 import { loggers } from '../lib/logger.js';
 
+const { OrgDidHistory } = MikroOrm;
+
 const log = loggers.verification;
 
 const verification = new Hono();
+
+// Module-level ORM instance
+let _orm: MikroORM | null = null;
+let _statusListService: StatusList2021Service | null = null;
+let _verificationService: VerificationService | null = null;
+
+/**
+ * Set the MikroORM instance for verification routes.
+ * Call this at app startup to initialize services.
+ */
+export function setVerificationRouteOrm(orm: MikroORM): void {
+  _orm = orm;
+
+  // Initialize services with EntityManager
+  const em = orm.em.fork();
+  _statusListService = new StatusList2021Service(em);
+
+  // Use configurable TSA provider (default: FREETSA)
+  const tsaProvider = process.env['TSA_PROVIDER'] || 'FREETSA';
+  if (tsaProvider === 'FREETSA' && process.env['NODE_ENV'] === 'production') {
+    log.warn(
+      'Using FREETSA in production. Consider using a qualified TSA for legally binding timestamps. ' +
+      'Set TSA_PROVIDER environment variable to configure.'
+    );
+  }
+
+  const timestampService = TimestampService.forProvider(tsaProvider as 'FREETSA');
+  const waltIdClient = createWaltIdClient({
+    WALTID_CORE_URL: process.env['WALTID_CORE_URL'],
+    WALTID_SIGNATORY_URL: process.env['WALTID_SIGNATORY_URL'],
+    WALTID_CUSTODIAN_URL: process.env['WALTID_CUSTODIAN_URL'],
+    WALTID_AUDITOR_URL: process.env['WALTID_AUDITOR_URL'],
+    WALTID_API_KEY: process.env['WALTID_API_KEY'],
+  });
+
+  _verificationService = new VerificationService(
+    waltIdClient,
+    _statusListService,
+    timestampService
+  );
+
+  log.info({ tsaProvider }, 'Verification services initialized with MikroORM');
+}
+
+/**
+ * Reset verification route state (for testing only).
+ */
+export function resetVerificationRouteOrm(): void {
+  _orm = null;
+  _statusListService = null;
+  _verificationService = null;
+}
+
+/**
+ * Get EntityManager, forking from the ORM instance.
+ */
+function getEm(): EntityManager | null {
+  if (!_orm) return null;
+  return _orm.em.fork();
+}
 
 // Apply rate limiting to all verification routes
 // These are public endpoints vulnerable to DoS attacks
@@ -34,40 +97,6 @@ verification.use('/*', bodyLimit({
     );
   },
 }));
-
-// ============================================
-// Service Initialization (fail-fast at startup)
-// ============================================
-
-// Initialize services at module load time for fail-fast behavior
-// This ensures configuration problems are discovered at startup, not on first request
-
-const statusListService = new StatusList2021Service(prisma);
-
-// Use configurable TSA provider (default: FREETSA)
-const tsaProvider = process.env['TSA_PROVIDER'] || 'FREETSA';
-if (tsaProvider === 'FREETSA' && process.env['NODE_ENV'] === 'production') {
-  log.warn(
-    'Using FREETSA in production. Consider using a qualified TSA for legally binding timestamps. ' +
-    'Set TSA_PROVIDER environment variable to configure.'
-  );
-}
-
-const timestampService = TimestampService.forProvider(tsaProvider as 'FREETSA');
-const waltIdClient = createWaltIdClient({
-  WALTID_CORE_URL: process.env['WALTID_CORE_URL'],
-  WALTID_SIGNATORY_URL: process.env['WALTID_SIGNATORY_URL'],
-  WALTID_CUSTODIAN_URL: process.env['WALTID_CUSTODIAN_URL'],
-  WALTID_AUDITOR_URL: process.env['WALTID_AUDITOR_URL'],
-  WALTID_API_KEY: process.env['WALTID_API_KEY'],
-});
-const verificationService = new VerificationService(
-  waltIdClient,
-  statusListService,
-  timestampService
-);
-
-log.info({ tsaProvider }, 'Verification services initialized');
 
 /**
  * POST /api/v1/verify
@@ -91,6 +120,10 @@ log.info({ tsaProvider }, 'Verification services initialized');
  */
 verification.post('/', async (c) => {
   try {
+    if (!_verificationService) {
+      return c.json(err('SERVICE_UNAVAILABLE', 'Verification service not initialized'), 503);
+    }
+
     const rawBody = await c.req.json();
 
     // Validate request body with Zod schema
@@ -102,7 +135,7 @@ verification.post('/', async (c) => {
     const { artifact, checkRevocation, revocationTime } = validation.data;
 
     // Schema validation ensures structure matches SealedArtifact
-    const result = await verificationService.verifySealedArtifact(artifact as SealedArtifact, {
+    const result = await _verificationService.verifySealedArtifact(artifact as SealedArtifact, {
       checkRevocation,
       revocationTime: revocationTime ? new Date(revocationTime) : undefined,
     });
@@ -137,6 +170,10 @@ verification.post('/', async (c) => {
  */
 verification.post('/signature', async (c) => {
   try {
+    if (!_verificationService) {
+      return c.json(err('SERVICE_UNAVAILABLE', 'Verification service not initialized'), 503);
+    }
+
     const rawBody = await c.req.json();
 
     // Validate request body with Zod schema
@@ -146,7 +183,7 @@ verification.post('/signature', async (c) => {
     }
 
     // Schema validation ensures structure matches SealedArtifact
-    const result = await verificationService.verifySignaturesOnly(validation.data.artifact as SealedArtifact);
+    const result = await _verificationService.verifySignaturesOnly(validation.data.artifact as SealedArtifact);
 
     return c.json(ok(result));
   } catch (error) {
@@ -172,18 +209,25 @@ verification.get('/status/:orgId', async (c) => {
   const orgId = c.req.param('orgId');
 
   try {
-    // Get organization's current DID to use as issuer
-    const orgDid = await prisma.orgDidHistory.findFirst({
-      where: { organizationId: orgId, validTo: null, revokedAt: null },
+    const em = getEm();
+    if (!em || !_statusListService) {
+      return c.json(err('NOT_FOUND', 'Service not available'), 404);
+    }
+
+    // Get organization's current DID to use as issuer using MikroORM
+    const orgDid = await em.findOne(OrgDidHistory, {
+      organizationId: orgId,
+      validTo: null,
+      revokedAt: null,
+    }, {
       orderBy: { validFrom: 'desc' },
-      select: { did: true },
     });
 
     if (!orgDid) {
       return c.json(err('NOT_FOUND', 'Organization DID not found'), 404);
     }
 
-    const credential = await statusListService.generateStatusListCredential(
+    const credential = await _statusListService.generateStatusListCredential(
       orgId,
       orgDid.did
     );

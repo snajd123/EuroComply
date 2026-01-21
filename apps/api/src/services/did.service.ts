@@ -1,6 +1,18 @@
-import { type PrismaClient } from '@eurocomply/db';
+import { EntityManager, IsolationLevel } from '@mikro-orm/postgresql';
+import { MikroOrm, Organization } from '@eurocomply/db';
 import { type WaltIdClient } from '@eurocomply/walt-id';
 import { type StatusList2021Service } from './status-list.service.js';
+import { NotFoundError } from '../lib/errors.js';
+import { randomUUID } from 'crypto';
+
+const { UserDidHistory, OrgDidHistory } = MikroOrm;
+
+/**
+ * Generates a unique ID with the given prefix.
+ */
+function generateId(prefix: string): string {
+  return `${prefix}_${randomUUID().replace(/-/g, '')}`;
+}
 
 export interface DidCreationResult {
   did: string;
@@ -12,12 +24,18 @@ export interface DidCreationResult {
  *
  * DIDs (Decentralized Identifiers) are created using walt.id and stored
  * in history tables for key rotation tracking and revocation support.
+ *
+ * Architecture notes:
+ * - The EntityManager passed to the constructor is already scoped to the tenant schema
+ * - UserDidHistory and OrgDidHistory live in the tenant schema
+ * - Organization entity (public schema) is accessed for DID storage
+ *   because Organization declares `schema: 'public'` in its entity definition
  */
 export class DidService {
   constructor(
     private readonly waltIdClient: WaltIdClient,
     private readonly statusListService: StatusList2021Service,
-    private readonly prisma: PrismaClient
+    private readonly em: EntityManager
   ) {}
 
   /**
@@ -28,8 +46,16 @@ export class DidService {
    *
    * @param organizationId - The organization to create DID for
    * @returns The created DID and key ID
+   * @throws NotFoundError if organization not found
    */
   async createOrganizationDid(organizationId: string): Promise<DidCreationResult> {
+    // Get organization (public schema)
+    const org = await this.em.findOne(Organization, { id: organizationId });
+
+    if (!org) {
+      throw new NotFoundError('Organization', organizationId);
+    }
+
     // Create DID via walt.id
     const didResponse = await this.waltIdClient.createDid({
       method: 'key',
@@ -41,25 +67,21 @@ export class DidService {
       organizationId
     );
 
-    // Update organization with DID
-    await this.prisma.organization.update({
-      where: { id: organizationId },
-      data: {
-        did: didResponse.did,
-        waltIdKeyId: didResponse.keyId,
-      },
+    // Update organization with DID (public schema)
+    org.did = didResponse.did;
+    org.waltIdKeyId = didResponse.keyId;
+
+    // Create history entry for tracking (tenant schema)
+    this.em.create(OrgDidHistory, {
+      id: generateId('odid'),
+      organizationId,
+      did: didResponse.did,
+      waltIdKeyId: didResponse.keyId,
+      validFrom: new Date(),
+      statusListIndex,
     });
 
-    // Create history entry for tracking
-    await this.prisma.orgDidHistory.create({
-      data: {
-        organizationId,
-        did: didResponse.did,
-        waltIdKeyId: didResponse.keyId,
-        validFrom: new Date(),
-        statusListIndex,
-      },
-    });
+    await this.em.flush();
 
     return {
       did: didResponse.did,
@@ -82,14 +104,11 @@ export class DidService {
     organizationId: string
   ): Promise<DidCreationResult> {
     // Check if user already has a valid DID
-    const existingDid = await this.prisma.userDidHistory.findFirst({
-      where: {
-        userId,
-        validTo: null,
-        revokedAt: null,
-      },
-      orderBy: { validFrom: 'desc' },
-    });
+    const existingDid = await this.em.findOne(
+      UserDidHistory,
+      { userId, validTo: null, revokedAt: null },
+      { orderBy: { validFrom: 'DESC' } }
+    );
 
     if (existingDid) {
       return {
@@ -109,16 +128,17 @@ export class DidService {
       organizationId
     );
 
-    // Create history entry
-    await this.prisma.userDidHistory.create({
-      data: {
-        userId,
-        did: didResponse.did,
-        waltIdKeyId: didResponse.keyId,
-        validFrom: new Date(),
-        statusListIndex,
-      },
+    // Create history entry (tenant schema)
+    this.em.create(UserDidHistory, {
+      id: generateId('udid'),
+      userId,
+      did: didResponse.did,
+      waltIdKeyId: didResponse.keyId,
+      validFrom: new Date(),
+      statusListIndex,
     });
+
+    await this.em.flush();
 
     return {
       did: didResponse.did,
@@ -133,14 +153,11 @@ export class DidService {
    * @returns The current DID info or null if none exists
    */
   async getOrganizationDid(organizationId: string): Promise<DidCreationResult | null> {
-    const orgDid = await this.prisma.orgDidHistory.findFirst({
-      where: {
-        organizationId,
-        validTo: null,
-        revokedAt: null,
-      },
-      orderBy: { validFrom: 'desc' },
-    });
+    const orgDid = await this.em.findOne(
+      OrgDidHistory,
+      { organizationId, validTo: null, revokedAt: null },
+      { orderBy: { validFrom: 'DESC' } }
+    );
 
     if (!orgDid) {
       return null;
@@ -159,14 +176,11 @@ export class DidService {
    * @returns The current DID info or null if none exists
    */
   async getUserDid(userId: string): Promise<DidCreationResult | null> {
-    const userDid = await this.prisma.userDidHistory.findFirst({
-      where: {
-        userId,
-        validTo: null,
-        revokedAt: null,
-      },
-      orderBy: { validFrom: 'desc' },
-    });
+    const userDid = await this.em.findOne(
+      UserDidHistory,
+      { userId, validTo: null, revokedAt: null },
+      { orderBy: { validFrom: 'DESC' } }
+    );
 
     if (!userDid) {
       return null;

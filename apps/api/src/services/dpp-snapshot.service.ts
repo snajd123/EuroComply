@@ -1,6 +1,9 @@
-import { PrismaClient, DPPSnapshot } from '@eurocomply/db';
-import { createHash } from 'crypto';
+import { EntityManager, LockMode } from '@mikro-orm/postgresql';
+import { MikroOrm, DppSnapshotStatus } from '@eurocomply/db';
+import { createHash, randomUUID } from 'crypto';
 import { NotFoundError, ValidationError } from '../lib/errors.js';
+
+const { Product, ProductVersion, BomEntry, DppSnapshot, ReadinessProfile, User } = MikroOrm;
 
 export interface CreateSnapshotInput {
   productId: string;
@@ -40,64 +43,79 @@ const VALID_TRANSITIONS: Record<SnapshotStatus, SnapshotStatus[]> = {
   REVOKED: [],
 };
 
+/**
+ * Generates a unique ID with the given prefix.
+ */
+function generateId(prefix: string): string {
+  return `${prefix}_${randomUUID().replace(/-/g, '')}`;
+}
+
+/**
+ * DPPSnapshotService manages the DPP issuance workflow.
+ *
+ * Workflow: PENDING_REVIEW → VERIFIED → ATTESTED → SEALED → ISSUED → REVOKED
+ *
+ * Architecture notes:
+ * - The EntityManager passed to the constructor is already scoped to the tenant schema
+ * - No organizationId filtering needed - schema isolation handles tenant separation
+ * - Deep-clones product data at snapshot creation for immutability
+ */
 export class DPPSnapshotService {
-  constructor(private prisma: PrismaClient) {}
+  constructor(private em: EntityManager) {}
 
   /**
    * Create a new DPP snapshot with deep-cloned product data.
    */
-  async createSnapshot(
-    organizationId: string,
-    input: CreateSnapshotInput
-  ): Promise<DPPSnapshot> {
-    return this.prisma.$transaction(async (tx) => {
+  async createSnapshot(input: CreateSnapshotInput): Promise<MikroOrm.DppSnapshot> {
+    return this.em.transactional(async (em) => {
       // Get product with all related data
-      const product = await tx.product.findFirst({
-        where: { id: input.productId, organizationId },
-        include: {
-          identifiers: true,
-          bomEntriesAsParent: {
-            include: { childProduct: true },
-          },
-        },
-      });
+      const product = await em.findOne(
+        Product,
+        { id: input.productId },
+        { populate: ['identifiers'] }
+      );
 
       if (!product) {
         throw new NotFoundError('Product', input.productId);
       }
 
       // Get released design version
-      const designVersion = await tx.productVersion.findFirst({
-        where: {
-          productId: input.productId,
-          workspace: 'DESIGN',
-          status: 'RELEASED',
+      const designVersion = await em.findOne(
+        ProductVersion,
+        {
+          product: input.productId,
+          workspace: 'DESIGN' as unknown as MikroOrm.Workspace,
+          status: 'RELEASED' as unknown as MikroOrm.VersionStatus,
         },
-        orderBy: { versionNumber: 'desc' },
-        include: { bomEntries: true },
-      });
+        { orderBy: { versionNumber: 'DESC' } }
+      );
 
       if (!designVersion) {
         throw new ValidationError('No released DESIGN version found for product');
       }
 
+      // Get BOM entries for this version
+      const bomEntries = await em.find(BomEntry, { version: designVersion.id });
+
       // Get marketing version if provided
-      let marketingVersion = null;
+      let marketingVersion: MikroOrm.ProductVersion | null = null;
       if (input.marketingVersionId) {
-        marketingVersion = await tx.productVersion.findFirst({
-          where: {
-            id: input.marketingVersionId,
-            productId: input.productId,
-            workspace: 'MARKETING',
-            status: 'RELEASED',
-          },
+        marketingVersion = await em.findOne(ProductVersion, {
+          id: input.marketingVersionId,
+          product: input.productId,
+          workspace: 'MARKETING' as unknown as MikroOrm.Workspace,
+          status: 'RELEASED' as unknown as MikroOrm.VersionStatus,
         });
+
+        if (!marketingVersion) {
+          throw new ValidationError(
+            `Marketing version ${input.marketingVersionId} not found or not released`
+          );
+        }
       }
 
       // Get readiness profile
-      const profile = await tx.readinessProfile.findUnique({
-        where: { id: input.readinessProfileId },
-      });
+      const profile = await em.findOne(ReadinessProfile, { id: input.readinessProfileId });
 
       if (!profile) {
         throw new NotFoundError('ReadinessProfile', input.readinessProfileId);
@@ -110,17 +128,27 @@ export class DPPSnapshotService {
           name: product.name,
           description: product.description,
           productType: product.productType,
-          identifiers: product.identifiers,
+          identifiers: product.identifiers.getItems().map((id) => ({
+            type: id.type,
+            value: id.value,
+          })),
         },
         designVersion: {
           id: designVersion.id,
           versionNumber: designVersion.versionNumber,
-          bomEntries: designVersion.bomEntries,
+          bomEntries: bomEntries.map((entry) => ({
+            id: entry.id,
+            childProductId: entry.childProduct.id,
+            quantity: entry.quantity,
+            unit: entry.unit,
+          })),
         },
-        marketingVersion: marketingVersion ? {
-          id: marketingVersion.id,
-          versionNumber: marketingVersion.versionNumber,
-        } : null,
+        marketingVersion: marketingVersion
+          ? {
+              id: marketingVersion.id,
+              versionNumber: marketingVersion.versionNumber,
+            }
+          : null,
         snapshotTimestamp: new Date().toISOString(),
       };
 
@@ -132,75 +160,70 @@ export class DPPSnapshotService {
       // Calculate completion score (simplified)
       const completionScore = 100; // Would use checkReadiness in production
 
-      return tx.dPPSnapshot.create({
-        data: {
-          organizationId,
-          productId: input.productId,
-          designVersionId: designVersion.id,
-          marketingVersionId: marketingVersion?.id,
-          data: snapshotData,
-          dataHash,
-          readinessProfileId: input.readinessProfileId,
-          completionScore,
-          status: 'PENDING_REVIEW',
-        },
+      const snapshot = em.create(DppSnapshot, {
+        id: generateId('snap'),
+        product: em.getReference(Product, input.productId),
+        designVersion: em.getReference(ProductVersion, designVersion.id),
+        marketingVersion: marketingVersion
+          ? em.getReference(ProductVersion, marketingVersion.id)
+          : undefined,
+        readinessProfile: em.getReference(ReadinessProfile, input.readinessProfileId),
+        data: snapshotData,
+        dataHash,
+        completionScore,
+        status: DppSnapshotStatus.PENDING_REVIEW,
+        createdAt: new Date(),
       });
+
+      await em.flush();
+      return snapshot;
     });
   }
 
   /**
    * Get a snapshot by ID.
    */
-  async getSnapshot(
-    organizationId: string,
-    snapshotId: string
-  ): Promise<DPPSnapshot | null> {
-    return this.prisma.dPPSnapshot.findFirst({
-      where: { id: snapshotId, organizationId },
-      include: { readinessProfile: true },
-    });
+  async getSnapshot(snapshotId: string): Promise<MikroOrm.DppSnapshot | null> {
+    return this.em.findOne(
+      DppSnapshot,
+      { id: snapshotId },
+      { populate: ['readinessProfile', 'product'] }
+    );
   }
 
   /**
-   * List snapshots for an organization.
+   * List snapshots for the tenant.
    */
-  async listSnapshots(
-    organizationId: string,
-    options?: {
-      productId?: string;
-      status?: SnapshotStatus;
-      limit?: number;
-      offset?: number;
-    }
-  ): Promise<DPPSnapshot[]> {
-    return this.prisma.dPPSnapshot.findMany({
-      where: {
-        organizationId,
-        ...(options?.productId && { productId: options.productId }),
-        ...(options?.status && { status: options.status }),
+  async listSnapshots(options?: {
+    productId?: string;
+    status?: SnapshotStatus;
+    limit?: number;
+    offset?: number;
+  }): Promise<MikroOrm.DppSnapshot[]> {
+    return this.em.find(
+      DppSnapshot,
+      {
+        ...(options?.productId && { product: options.productId }),
+        ...(options?.status && { status: options.status as unknown as MikroOrm.DppSnapshotStatus }),
       },
-      orderBy: { createdAt: 'desc' },
-      take: options?.limit ?? 50,
-      skip: options?.offset ?? 0,
-      include: { readinessProfile: true },
-    });
+      {
+        orderBy: { createdAt: 'DESC' },
+        limit: options?.limit ?? 50,
+        offset: options?.offset ?? 0,
+        populate: ['readinessProfile'],
+      }
+    );
   }
 
   /**
    * Verify snapshot (CONTRIBUTOR action).
    * PENDING_REVIEW → VERIFIED
    */
-  async verify(
-    organizationId: string,
-    snapshotId: string,
-    verifiedBy: string
-  ): Promise<DPPSnapshot> {
-    return this.transitionStatus(
-      organizationId,
-      snapshotId,
-      'VERIFIED',
-      { verifiedBy, verifiedAt: new Date() }
-    );
+  async verify(snapshotId: string, verifiedById: string): Promise<MikroOrm.DppSnapshot> {
+    return this.transitionStatus(snapshotId, 'VERIFIED', {
+      verifiedBy: this.em.getReference(User, verifiedById),
+      verifiedAt: new Date(),
+    });
   }
 
   /**
@@ -208,115 +231,95 @@ export class DPPSnapshotService {
    * VERIFIED → ATTESTED
    */
   async attest(
-    organizationId: string,
     snapshotId: string,
-    attestedBy: string,
+    attestedById: string,
     input: AttestInput
-  ): Promise<DPPSnapshot> {
-    return this.transitionStatus(
-      organizationId,
-      snapshotId,
-      'ATTESTED',
-      {
-        attestedBy,
-        attestedAt: new Date(),
-        userSignatureDid: input.userSignatureDid,
-        userSignatureJws: input.userSignatureJws,
-        userForensicContext: input.userForensicContext,
-      }
-    );
+  ): Promise<MikroOrm.DppSnapshot> {
+    return this.transitionStatus(snapshotId, 'ATTESTED', {
+      attestedBy: this.em.getReference(User, attestedById),
+      attestedAt: new Date(),
+      userSignatureDid: input.userSignatureDid,
+      userSignatureJws: input.userSignatureJws,
+      userForensicContext: input.userForensicContext,
+    });
   }
 
   /**
    * Seal snapshot (SYSTEM action with org DID signature).
    * ATTESTED → SEALED
    */
-  async seal(
-    organizationId: string,
-    snapshotId: string,
-    input: SealInput
-  ): Promise<DPPSnapshot> {
-    return this.transitionStatus(
-      organizationId,
-      snapshotId,
-      'SEALED',
-      {
-        sealedAt: new Date(),
-        orgSignatureDid: input.orgSignatureDid,
-        orgSignatureJws: input.orgSignatureJws,
-        orgForensicContext: input.orgForensicContext,
-      }
-    );
+  async seal(snapshotId: string, input: SealInput): Promise<MikroOrm.DppSnapshot> {
+    return this.transitionStatus(snapshotId, 'SEALED', {
+      sealedAt: new Date(),
+      orgSignatureDid: input.orgSignatureDid,
+      orgSignatureJws: input.orgSignatureJws,
+      orgForensicContext: input.orgForensicContext,
+    });
   }
 
   /**
    * Issue DPP (final step with VC minting).
    * SEALED → ISSUED
    */
-  async issue(
-    organizationId: string,
-    snapshotId: string,
-    input: IssueInput
-  ): Promise<DPPSnapshot> {
-    return this.transitionStatus(
-      organizationId,
-      snapshotId,
-      'ISSUED',
-      {
-        issuedAt: new Date(),
-        vcId: input.vcId,
-        vcJwt: input.vcJwt,
-        dppUrl: input.dppUrl,
-        qrCodeUrl: input.qrCodeUrl,
-        credentialStatusIndex: input.credentialStatusIndex,
-        timestampProof: input.timestampProof,
-      }
-    );
+  async issue(snapshotId: string, input: IssueInput): Promise<MikroOrm.DppSnapshot> {
+    return this.transitionStatus(snapshotId, 'ISSUED', {
+      issuedAt: new Date(),
+      vcId: input.vcId,
+      vcJwt: input.vcJwt,
+      dppUrl: input.dppUrl,
+      qrCodeUrl: input.qrCodeUrl,
+      credentialStatusIndex: input.credentialStatusIndex,
+      timestampProof: input.timestampProof,
+    });
   }
 
   /**
    * Revoke an issued DPP.
    * ISSUED → REVOKED
    */
-  async revoke(
-    organizationId: string,
-    snapshotId: string
-  ): Promise<DPPSnapshot> {
-    return this.transitionStatus(organizationId, snapshotId, 'REVOKED', {});
+  async revoke(snapshotId: string): Promise<MikroOrm.DppSnapshot> {
+    return this.transitionStatus(snapshotId, 'REVOKED', {});
   }
 
   /**
    * Internal method to handle status transitions with validation.
+   * Uses transaction with pessimistic locking to prevent race conditions.
    */
   private async transitionStatus(
-    organizationId: string,
     snapshotId: string,
     targetStatus: SnapshotStatus,
     updateData: Record<string, unknown>
-  ): Promise<DPPSnapshot> {
-    const snapshot = await this.prisma.dPPSnapshot.findFirst({
-      where: { id: snapshotId, organizationId },
-    });
-
-    if (!snapshot) {
-      throw new NotFoundError('DPPSnapshot', snapshotId);
-    }
-
-    const currentStatus = snapshot.status as SnapshotStatus;
-    const allowedTransitions = VALID_TRANSITIONS[currentStatus];
-
-    if (!allowedTransitions.includes(targetStatus)) {
-      throw new ValidationError(
-        `Cannot transition from ${currentStatus} to ${targetStatus}`
+  ): Promise<MikroOrm.DppSnapshot> {
+    return this.em.transactional(async (em) => {
+      // Use pessimistic write lock to prevent concurrent transitions
+      const snapshot = await em.findOne(
+        DppSnapshot,
+        { id: snapshotId },
+        { lockMode: LockMode.PESSIMISTIC_WRITE }
       );
-    }
 
-    return this.prisma.dPPSnapshot.update({
-      where: { id: snapshotId },
-      data: {
-        status: targetStatus,
-        ...updateData,
-      },
+      if (!snapshot) {
+        throw new NotFoundError('DPPSnapshot', snapshotId);
+      }
+
+      const currentStatus = snapshot.status as unknown as SnapshotStatus;
+      const allowedTransitions = VALID_TRANSITIONS[currentStatus];
+
+      if (!allowedTransitions.includes(targetStatus)) {
+        throw new ValidationError(
+          `Cannot transition from ${currentStatus} to ${targetStatus}`
+        );
+      }
+
+      snapshot.status = targetStatus as unknown as MikroOrm.DppSnapshotStatus;
+
+      // Apply update data - these are typed updates from the calling methods
+      for (const [key, value] of Object.entries(updateData)) {
+        (snapshot as unknown as Record<string, unknown>)[key] = value;
+      }
+
+      await em.flush();
+      return snapshot;
     });
   }
 }

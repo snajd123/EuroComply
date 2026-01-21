@@ -1,5 +1,14 @@
-import { PrismaClient, ReadinessProfile } from '@eurocomply/db';
+import { EntityManager } from '@mikro-orm/postgresql';
+import { MikroOrm } from '@eurocomply/db';
 import { NotFoundError } from '../lib/errors.js';
+
+const { ReadinessProfile } = MikroOrm;
+
+function generateId(prefix: string): string {
+  const timestamp = Date.now().toString(36);
+  const random = Math.random().toString(36).substring(2, 8);
+  return `${prefix}_${timestamp}${random}`;
+}
 
 export interface CreateReadinessProfileInput {
   name: string;
@@ -17,42 +26,44 @@ export interface UpdateReadinessProfileInput {
 }
 
 export class ReadinessProfileService {
-  constructor(private prisma: PrismaClient) {}
+  constructor(private em: EntityManager) {}
 
   /**
    * Create a new readiness profile.
    */
-  async create(input: CreateReadinessProfileInput): Promise<ReadinessProfile> {
-    return this.prisma.readinessProfile.create({
-      data: input,
+  async create(input: CreateReadinessProfileInput): Promise<InstanceType<typeof ReadinessProfile>> {
+    const profile = this.em.create(ReadinessProfile, {
+      id: generateId('rp'),
+      name: input.name,
+      category: input.category,
+      description: input.description,
+      requiredFields: input.requiredFields,
+      requiredAttestations: input.requiredAttestations,
     });
+    this.em.persist(profile);
+    await this.em.flush();
+    return profile;
   }
 
   /**
    * Get a readiness profile by ID.
    */
-  async getById(id: string): Promise<ReadinessProfile | null> {
-    return this.prisma.readinessProfile.findUnique({
-      where: { id },
-    });
+  async getById(id: string): Promise<InstanceType<typeof ReadinessProfile> | null> {
+    return this.em.findOne(ReadinessProfile, { id });
   }
 
   /**
    * Get a readiness profile by category.
    */
-  async getByCategory(category: string): Promise<ReadinessProfile | null> {
-    return this.prisma.readinessProfile.findUnique({
-      where: { category },
-    });
+  async getByCategory(category: string): Promise<InstanceType<typeof ReadinessProfile> | null> {
+    return this.em.findOne(ReadinessProfile, { category });
   }
 
   /**
    * List all readiness profiles.
    */
-  async list(): Promise<ReadinessProfile[]> {
-    return this.prisma.readinessProfile.findMany({
-      orderBy: { name: 'asc' },
-    });
+  async list(): Promise<InstanceType<typeof ReadinessProfile>[]> {
+    return this.em.find(ReadinessProfile, {}, { orderBy: { name: 'asc' } });
   }
 
   /**
@@ -61,36 +72,42 @@ export class ReadinessProfileService {
   async update(
     id: string,
     input: UpdateReadinessProfileInput
-  ): Promise<ReadinessProfile> {
-    const existing = await this.prisma.readinessProfile.findUnique({
-      where: { id },
-    });
+  ): Promise<InstanceType<typeof ReadinessProfile>> {
+    const existing = await this.em.findOne(ReadinessProfile, { id });
 
     if (!existing) {
       throw new NotFoundError('ReadinessProfile', id);
     }
 
-    return this.prisma.readinessProfile.update({
-      where: { id },
-      data: input,
-    });
+    if (input.name !== undefined) {
+      existing.name = input.name;
+    }
+    if (input.description !== undefined) {
+      existing.description = input.description;
+    }
+    if (input.requiredFields !== undefined) {
+      existing.requiredFields = input.requiredFields;
+    }
+    if (input.requiredAttestations !== undefined) {
+      existing.requiredAttestations = input.requiredAttestations;
+    }
+
+    await this.em.flush();
+    return existing;
   }
 
   /**
    * Delete a readiness profile.
    */
   async delete(id: string): Promise<void> {
-    const existing = await this.prisma.readinessProfile.findUnique({
-      where: { id },
-    });
+    const existing = await this.em.findOne(ReadinessProfile, { id });
 
     if (!existing) {
       throw new NotFoundError('ReadinessProfile', id);
     }
 
-    await this.prisma.readinessProfile.delete({
-      where: { id },
-    });
+    this.em.remove(existing);
+    await this.em.flush();
   }
 
   /**

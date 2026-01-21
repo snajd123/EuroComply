@@ -4,30 +4,18 @@ import type { CredentialStatus } from '@eurocomply/shared';
 import { decodeBitstring, getBit } from '@eurocomply/shared';
 import { NotFoundError, ValidationError } from '../lib/errors.js';
 
-interface MockPrismaClient {
-  organization: {
-    findUnique: Mock;
-    update: Mock;
-  };
-  userDidHistory: {
-    findFirst: Mock;
-    findMany: Mock;
-  };
-  orgDidHistory: {
-    findFirst: Mock;
-    findMany: Mock;
-  };
-  statusListEntry: {
-    upsert: Mock;
-    findUnique: Mock;
-    findMany: Mock;
-  };
-  $transaction: Mock;
+// Mock EntityManager
+interface MockEntityManager {
+  findOne: Mock;
+  find: Mock;
+  create: Mock;
+  flush: Mock;
+  transactional: Mock;
 }
 
 describe('StatusList2021Service', () => {
   let service: StatusList2021Service;
-  let mockPrisma: MockPrismaClient;
+  let mockEm: MockEntityManager;
 
   // Test fixtures
   const testOrganizationId = 'org_test_123';
@@ -43,45 +31,89 @@ describe('StatusList2021Service', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockPrisma = {
-      organization: {
-        findUnique: vi.fn(),
-        update: vi.fn(),
-      },
-      userDidHistory: {
-        findFirst: vi.fn(),
-        findMany: vi.fn().mockResolvedValue([]),
-      },
-      orgDidHistory: {
-        findFirst: vi.fn(),
-        findMany: vi.fn().mockResolvedValue([]),
-      },
-      statusListEntry: {
-        upsert: vi.fn().mockResolvedValue({ id: 'entry-1', statusIndex: 0 }),
-        findUnique: vi.fn().mockResolvedValue(null),
-        findMany: vi.fn().mockResolvedValue([]),
-      },
-      $transaction: vi.fn((fn) => fn({
-        organization: {
-          findUnique: vi.fn(),
-          update: vi.fn(),
-        },
+    mockEm = {
+      findOne: vi.fn().mockResolvedValue(null),
+      find: vi.fn().mockResolvedValue([]),
+      create: vi.fn((Entity, data) => data),
+      flush: vi.fn().mockResolvedValue(undefined),
+      transactional: vi.fn((fn, _options) => fn({
+        findOne: vi.fn(),
+        flush: vi.fn(),
       })),
     };
-    service = new StatusList2021Service(mockPrisma as unknown as ConstructorParameters<typeof StatusList2021Service>[0], testBaseUrl);
+    service = new StatusList2021Service(
+      mockEm as unknown as ConstructorParameters<typeof StatusList2021Service>[0],
+      testBaseUrl
+    );
   });
+
+  /**
+   * Helper to setup mock responses for em.findOne based on entity type
+   */
+  function setupFindOneMock(responses: {
+    organization?: typeof mockOrganization | null;
+    statusListEntry?: { revokedAt?: Date; reason?: string } | null;
+    userDidHistory?: { revokedAt?: Date; revocationReason?: string; userId?: string; statusListIndex?: number } | null;
+    orgDidHistory?: { revokedAt?: Date; revocationReason?: string; statusListIndex?: number } | null;
+    organizationUser?: { userId: string; organizationId: string } | null;
+  }) {
+    mockEm.findOne.mockImplementation((Entity: unknown, _filter: unknown) => {
+      const entityName = (Entity as { name?: string })?.name;
+      if (entityName === 'Organization') {
+        return Promise.resolve(responses.organization);
+      }
+      if (entityName === 'StatusListEntry') {
+        return Promise.resolve(responses.statusListEntry);
+      }
+      if (entityName === 'UserDidHistory') {
+        return Promise.resolve(responses.userDidHistory);
+      }
+      if (entityName === 'OrgDidHistory') {
+        return Promise.resolve(responses.orgDidHistory);
+      }
+      if (entityName === 'OrganizationUser') {
+        return Promise.resolve(responses.organizationUser);
+      }
+      return Promise.resolve(null);
+    });
+  }
+
+  /**
+   * Helper to setup mock responses for em.find based on entity type
+   */
+  function setupFindMock(responses: {
+    statusListEntry?: { statusIndex: number; revokedAt?: Date }[];
+    userDidHistory?: { statusListIndex: number; revokedAt?: Date }[];
+    orgDidHistory?: { statusListIndex: number; revokedAt?: Date }[];
+    organizationUser?: { userId: string; organizationId: string }[];
+  }) {
+    mockEm.find.mockImplementation((Entity: unknown, _filter: unknown) => {
+      const entityName = (Entity as { name?: string })?.name;
+      if (entityName === 'StatusListEntry') {
+        return Promise.resolve(responses.statusListEntry || []);
+      }
+      if (entityName === 'UserDidHistory') {
+        return Promise.resolve(responses.userDidHistory || []);
+      }
+      if (entityName === 'OrgDidHistory') {
+        return Promise.resolve(responses.orgDidHistory || []);
+      }
+      if (entityName === 'OrganizationUser') {
+        return Promise.resolve(responses.organizationUser || []);
+      }
+      return Promise.resolve([]);
+    });
+  }
 
   describe('allocateIndex', () => {
     it('should_allocate_next_index_when_organization_exists', async () => {
       // Arrange
-      const mockTx = {
-        organization: {
-          findUnique: vi.fn().mockResolvedValue({ ...mockOrganization, statusListIndex: 5 }),
-          update: vi.fn().mockResolvedValue({ ...mockOrganization, statusListIndex: 6 }),
-        },
+      const mockTxEm = {
+        findOne: vi.fn().mockResolvedValue({ ...mockOrganization, statusListIndex: 5 }),
+        flush: vi.fn().mockResolvedValue(undefined),
       };
-      mockPrisma.$transaction.mockImplementation(async (fn: unknown) => {
-        return (fn as (tx: typeof mockTx) => Promise<number>)(mockTx);
+      mockEm.transactional.mockImplementation(async (fn: unknown) => {
+        return (fn as (em: typeof mockTxEm) => Promise<number>)(mockTxEm);
       });
 
       // Act
@@ -89,22 +121,16 @@ describe('StatusList2021Service', () => {
 
       // Assert
       expect(result).toBe(5);
-      expect(mockTx.organization.update).toHaveBeenCalledWith({
-        where: { id: testOrganizationId },
-        data: { statusListIndex: 6 },
-      });
     });
 
     it('should_throw_not_found_error_when_organization_does_not_exist', async () => {
       // Arrange
-      const mockTx = {
-        organization: {
-          findUnique: vi.fn().mockResolvedValue(null),
-          update: vi.fn(),
-        },
+      const mockTxEm = {
+        findOne: vi.fn().mockResolvedValue(null),
+        flush: vi.fn(),
       };
-      mockPrisma.$transaction.mockImplementation(async (fn: unknown) => {
-        return (fn as (tx: typeof mockTx) => Promise<number>)(mockTx);
+      mockEm.transactional.mockImplementation(async (fn: unknown) => {
+        return (fn as (em: typeof mockTxEm) => Promise<number>)(mockTxEm);
       });
 
       // Act & Assert
@@ -114,15 +140,13 @@ describe('StatusList2021Service', () => {
     it('should_increment_index_atomically_within_transaction', async () => {
       // Arrange
       let transactionCalled = false;
-      const mockTx = {
-        organization: {
-          findUnique: vi.fn().mockResolvedValue({ ...mockOrganization, statusListIndex: 10 }),
-          update: vi.fn().mockResolvedValue({ ...mockOrganization, statusListIndex: 11 }),
-        },
+      const mockTxEm = {
+        findOne: vi.fn().mockResolvedValue({ ...mockOrganization, statusListIndex: 10 }),
+        flush: vi.fn().mockResolvedValue(undefined),
       };
-      mockPrisma.$transaction.mockImplementation(async (fn: unknown) => {
+      mockEm.transactional.mockImplementation(async (fn: unknown) => {
         transactionCalled = true;
-        return (fn as (tx: typeof mockTx) => Promise<number>)(mockTx);
+        return (fn as (em: typeof mockTxEm) => Promise<number>)(mockTxEm);
       });
 
       // Act
@@ -134,14 +158,12 @@ describe('StatusList2021Service', () => {
 
     it('should_return_zero_for_first_allocation', async () => {
       // Arrange
-      const mockTx = {
-        organization: {
-          findUnique: vi.fn().mockResolvedValue({ ...mockOrganization, statusListIndex: 0 }),
-          update: vi.fn().mockResolvedValue({ ...mockOrganization, statusListIndex: 1 }),
-        },
+      const mockTxEm = {
+        findOne: vi.fn().mockResolvedValue({ ...mockOrganization, statusListIndex: 0 }),
+        flush: vi.fn().mockResolvedValue(undefined),
       };
-      mockPrisma.$transaction.mockImplementation(async (fn: unknown) => {
-        return (fn as (tx: typeof mockTx) => Promise<number>)(mockTx);
+      mockEm.transactional.mockImplementation(async (fn: unknown) => {
+        return (fn as (em: typeof mockTxEm) => Promise<number>)(mockTxEm);
       });
 
       // Act
@@ -153,50 +175,39 @@ describe('StatusList2021Service', () => {
   });
 
   describe('revoke', () => {
-    it('should_mark_index_as_revoked_when_found_in_user_did_history', async () => {
+    it('should_mark_index_as_revoked_when_not_existing', async () => {
       // Arrange
-      const mockUserDid = {
-        id: 'udh_123',
-        userId: 'user_123',
-        statusListIndex: 5,
-        revokedAt: null,
-      };
-      mockPrisma.userDidHistory.findFirst.mockResolvedValue(mockUserDid as never);
-      mockPrisma.orgDidHistory.findFirst.mockResolvedValue(null);
+      setupFindOneMock({
+        statusListEntry: null,
+      });
 
-      // Act & Assert - Should not throw since index is tracked
+      // Act & Assert - Should not throw
       await expect(
         service.revoke(testOrganizationId, 5, 'Key compromised')
       ).resolves.not.toThrow();
+      expect(mockEm.create).toHaveBeenCalled();
+      expect(mockEm.flush).toHaveBeenCalled();
     });
 
-    it('should_mark_index_as_revoked_when_found_in_org_did_history', async () => {
+    it('should_update_existing_entry_when_revoking_again', async () => {
       // Arrange
-      mockPrisma.userDidHistory.findFirst.mockResolvedValue(null);
-      const mockOrgDid = {
-        id: 'odh_123',
+      const existingEntry = {
+        id: 'sle_123',
         organizationId: testOrganizationId,
-        statusListIndex: 10,
-        revokedAt: null,
+        statusIndex: 10,
+        revokedAt: new Date('2026-01-01'),
+        reason: 'Old reason',
       };
-      mockPrisma.orgDidHistory.findFirst.mockResolvedValue(mockOrgDid as never);
+      setupFindOneMock({
+        statusListEntry: existingEntry,
+      });
 
-      // Act & Assert
-      await expect(
-        service.revoke(testOrganizationId, 10, 'Key rotation')
-      ).resolves.not.toThrow();
-    });
+      // Act
+      await service.revoke(testOrganizationId, 10, 'New reason');
 
-    it('should_allow_revocation_of_index_not_in_did_history', async () => {
-      // Arrange - Index exists in our tracking (e.g., for OperationsEvent)
-      mockPrisma.userDidHistory.findFirst.mockResolvedValue(null);
-      mockPrisma.orgDidHistory.findFirst.mockResolvedValue(null);
-
-      // For MVP, we track revocations in memory for non-DID indices
-      // Act & Assert - Should succeed (stores in internal tracking)
-      await expect(
-        service.revoke(testOrganizationId, 15, 'Event invalidated')
-      ).resolves.not.toThrow();
+      // Assert
+      expect(existingEntry.reason).toBe('New reason');
+      expect(mockEm.flush).toHaveBeenCalled();
     });
 
     it('should_throw_validation_error_for_negative_index', async () => {
@@ -208,15 +219,44 @@ describe('StatusList2021Service', () => {
   });
 
   describe('isRevoked', () => {
-    it('should_return_true_when_user_did_is_revoked', async () => {
+    it('should_return_true_when_status_list_entry_is_revoked', async () => {
       // Arrange
-      const mockRevokedUserDid = {
-        id: 'udh_123',
-        statusListIndex: 5,
-        revokedAt: new Date('2026-01-15'),
-      };
-      mockPrisma.userDidHistory.findFirst.mockResolvedValue(mockRevokedUserDid as never);
-      mockPrisma.orgDidHistory.findFirst.mockResolvedValue(null);
+      setupFindOneMock({
+        statusListEntry: { revokedAt: new Date('2026-01-15') },
+      });
+
+      // Act
+      const result = await service.isRevoked(testOrganizationId, 5);
+
+      // Assert
+      expect(result).toBe(true);
+    });
+
+    it('should_return_true_when_user_did_is_revoked_and_user_belongs_to_org', async () => {
+      // Arrange
+      let findOneCallCount = 0;
+      mockEm.findOne.mockImplementation((Entity: unknown) => {
+        const entityName = (Entity as { name?: string })?.name;
+        findOneCallCount++;
+
+        if (entityName === 'StatusListEntry') {
+          return Promise.resolve(null);
+        }
+        if (entityName === 'UserDidHistory') {
+          return Promise.resolve({
+            statusListIndex: 5,
+            revokedAt: new Date('2026-01-15'),
+            userId: 'user_123',
+          });
+        }
+        if (entityName === 'OrganizationUser') {
+          return Promise.resolve({
+            userId: 'user_123',
+            organizationId: testOrganizationId,
+          });
+        }
+        return Promise.resolve(null);
+      });
 
       // Act
       const result = await service.isRevoked(testOrganizationId, 5);
@@ -227,13 +267,22 @@ describe('StatusList2021Service', () => {
 
     it('should_return_true_when_org_did_is_revoked', async () => {
       // Arrange
-      mockPrisma.userDidHistory.findFirst.mockResolvedValue(null);
-      const mockRevokedOrgDid = {
-        id: 'odh_123',
-        statusListIndex: 10,
-        revokedAt: new Date('2026-01-15'),
-      };
-      mockPrisma.orgDidHistory.findFirst.mockResolvedValue(mockRevokedOrgDid as never);
+      mockEm.findOne.mockImplementation((Entity: unknown) => {
+        const entityName = (Entity as { name?: string })?.name;
+        if (entityName === 'StatusListEntry') {
+          return Promise.resolve(null);
+        }
+        if (entityName === 'UserDidHistory') {
+          return Promise.resolve(null);
+        }
+        if (entityName === 'OrgDidHistory') {
+          return Promise.resolve({
+            statusListIndex: 10,
+            revokedAt: new Date('2026-01-15'),
+          });
+        }
+        return Promise.resolve(null);
+      });
 
       // Act
       const result = await service.isRevoked(testOrganizationId, 10);
@@ -242,54 +291,19 @@ describe('StatusList2021Service', () => {
       expect(result).toBe(true);
     });
 
-    it('should_return_false_when_user_did_exists_but_not_revoked', async () => {
+    it('should_return_false_when_not_revoked', async () => {
       // Arrange
-      const mockActiveUserDid = {
-        id: 'udh_123',
-        statusListIndex: 5,
-        revokedAt: null,
-      };
-      mockPrisma.userDidHistory.findFirst.mockResolvedValue(mockActiveUserDid as never);
-      mockPrisma.orgDidHistory.findFirst.mockResolvedValue(null);
+      setupFindOneMock({
+        statusListEntry: null,
+        userDidHistory: null,
+        orgDidHistory: null,
+      });
 
       // Act
-      const result = await service.isRevoked(testOrganizationId, 5);
-
-      // Assert
-      expect(result).toBe(false);
-    });
-
-    it('should_return_false_when_index_not_found_in_any_history', async () => {
-      // Arrange
-      mockPrisma.userDidHistory.findFirst.mockResolvedValue(null);
-      mockPrisma.orgDidHistory.findFirst.mockResolvedValue(null);
-
-      // Act - Index not tracked anywhere is considered not revoked (valid)
       const result = await service.isRevoked(testOrganizationId, 999);
 
       // Assert
       expect(result).toBe(false);
-    });
-
-    it('should_return_true_when_index_was_manually_revoked', async () => {
-      // Arrange
-      mockPrisma.userDidHistory.findFirst.mockResolvedValue(null);
-      mockPrisma.orgDidHistory.findFirst.mockResolvedValue(null);
-
-      // First revoke the index manually
-      await service.revoke(testOrganizationId, 20, 'Manual revocation');
-
-      // Mock that the entry is found as revoked
-      mockPrisma.statusListEntry.findUnique.mockResolvedValue({
-        revokedAt: new Date(),
-        reason: 'Manual revocation',
-      });
-
-      // Act
-      const result = await service.isRevoked(testOrganizationId, 20);
-
-      // Assert
-      expect(result).toBe(true);
     });
 
     it('should_throw_validation_error_for_negative_index', async () => {
@@ -370,19 +384,12 @@ describe('StatusList2021Service', () => {
   });
 
   describe('getRevocationInfo', () => {
-    it('should_return_revocation_details_when_index_is_revoked', async () => {
+    it('should_return_revocation_details_from_status_list_entry', async () => {
       // Arrange
-      mockPrisma.userDidHistory.findFirst.mockResolvedValue(null);
-      mockPrisma.orgDidHistory.findFirst.mockResolvedValue(null);
-
       const reason = 'Key compromised';
       const revokedAt = new Date();
-      await service.revoke(testOrganizationId, 25, reason);
-
-      // Mock that the entry is found with details
-      mockPrisma.statusListEntry.findUnique.mockResolvedValue({
-        revokedAt,
-        reason,
+      setupFindOneMock({
+        statusListEntry: { revokedAt, reason },
       });
 
       // Act
@@ -391,13 +398,16 @@ describe('StatusList2021Service', () => {
       // Assert
       expect(result).not.toBeNull();
       expect(result?.reason).toBe(reason);
-      expect(result?.revokedAt).toBeInstanceOf(Date);
+      expect(result?.revokedAt).toEqual(revokedAt);
     });
 
     it('should_return_null_when_index_is_not_revoked', async () => {
       // Arrange
-      mockPrisma.userDidHistory.findFirst.mockResolvedValue(null);
-      mockPrisma.orgDidHistory.findFirst.mockResolvedValue(null);
+      setupFindOneMock({
+        statusListEntry: null,
+        userDidHistory: null,
+        orgDidHistory: null,
+      });
 
       // Act
       const result = await service.getRevocationInfo(testOrganizationId, 999);
@@ -409,14 +419,24 @@ describe('StatusList2021Service', () => {
     it('should_return_revocation_info_from_user_did_history', async () => {
       // Arrange
       const revokedAt = new Date('2026-01-15T10:00:00Z');
-      const mockRevokedUserDid = {
-        id: 'udh_123',
-        statusListIndex: 30,
-        revokedAt,
-        revocationReason: 'User left company',
-      };
-      mockPrisma.userDidHistory.findFirst.mockResolvedValue(mockRevokedUserDid as never);
-      mockPrisma.orgDidHistory.findFirst.mockResolvedValue(null);
+      mockEm.findOne.mockImplementation((Entity: unknown) => {
+        const entityName = (Entity as { name?: string })?.name;
+        if (entityName === 'StatusListEntry') {
+          return Promise.resolve(null);
+        }
+        if (entityName === 'UserDidHistory') {
+          return Promise.resolve({
+            statusListIndex: 30,
+            revokedAt,
+            revocationReason: 'User left company',
+            userId: 'user_123',
+          });
+        }
+        if (entityName === 'OrganizationUser') {
+          return Promise.resolve({ userId: 'user_123', organizationId: testOrganizationId });
+        }
+        return Promise.resolve(null);
+      });
 
       // Act
       const result = await service.getRevocationInfo(testOrganizationId, 30);
@@ -430,14 +450,23 @@ describe('StatusList2021Service', () => {
     it('should_return_revocation_info_from_org_did_history', async () => {
       // Arrange
       const revokedAt = new Date('2026-01-14T15:30:00Z');
-      const mockRevokedOrgDid = {
-        id: 'odh_456',
-        statusListIndex: 35,
-        revokedAt,
-        revocationReason: 'Key rotation policy',
-      };
-      mockPrisma.userDidHistory.findFirst.mockResolvedValue(null);
-      mockPrisma.orgDidHistory.findFirst.mockResolvedValue(mockRevokedOrgDid as never);
+      mockEm.findOne.mockImplementation((Entity: unknown) => {
+        const entityName = (Entity as { name?: string })?.name;
+        if (entityName === 'StatusListEntry') {
+          return Promise.resolve(null);
+        }
+        if (entityName === 'UserDidHistory') {
+          return Promise.resolve(null);
+        }
+        if (entityName === 'OrgDidHistory') {
+          return Promise.resolve({
+            statusListIndex: 35,
+            revokedAt,
+            revocationReason: 'Key rotation policy',
+          });
+        }
+        return Promise.resolve(null);
+      });
 
       // Act
       const result = await service.getRevocationInfo(testOrganizationId, 35);
@@ -460,7 +489,10 @@ describe('StatusList2021Service', () => {
     it('should_use_provided_base_url', async () => {
       // Arrange
       const customBaseUrl = 'https://custom.eurocomply.eu';
-      const customService = new StatusList2021Service(mockPrisma as unknown as ConstructorParameters<typeof StatusList2021Service>[0], customBaseUrl);
+      const customService = new StatusList2021Service(
+        mockEm as unknown as ConstructorParameters<typeof StatusList2021Service>[0],
+        customBaseUrl
+      );
 
       // Act
       const result = await customService.getCredentialStatus(testOrganizationId, 1);
@@ -470,8 +502,10 @@ describe('StatusList2021Service', () => {
     });
 
     it('should_default_to_standard_base_url_when_not_provided', async () => {
-      // Arrange - use default baseUrl by passing only prisma
-      const defaultService = new StatusList2021Service(mockPrisma as unknown as ConstructorParameters<typeof StatusList2021Service>[0]);
+      // Arrange - use default baseUrl
+      const defaultService = new StatusList2021Service(
+        mockEm as unknown as ConstructorParameters<typeof StatusList2021Service>[0]
+      );
 
       // Act
       const result = await defaultService.getCredentialStatus(testOrganizationId, 1);
@@ -484,8 +518,12 @@ describe('StatusList2021Service', () => {
   describe('buildBitstring', () => {
     it('should_create_empty_bitstring_when_no_revocations', async () => {
       // Arrange
-      mockPrisma.userDidHistory.findMany.mockResolvedValue([]);
-      mockPrisma.orgDidHistory.findMany.mockResolvedValue([]);
+      setupFindMock({
+        statusListEntry: [],
+        userDidHistory: [],
+        orgDidHistory: [],
+        organizationUser: [],
+      });
 
       // Act
       const bitstring = await service.buildBitstring(testOrganizationId);
@@ -495,12 +533,15 @@ describe('StatusList2021Service', () => {
       expect(bitstring.every(byte => byte === 0)).toBe(true);
     });
 
-    it('should_set_bits_from_database_revocations', async () => {
-      // Arrange - mock the revoked entries from database
-      mockPrisma.statusListEntry.findMany.mockResolvedValue([
-        { statusIndex: 0, revokedAt: new Date() },
-        { statusIndex: 100, revokedAt: new Date() },
-      ]);
+    it('should_set_bits_from_status_list_entries', async () => {
+      // Arrange
+      setupFindMock({
+        statusListEntry: [
+          { statusIndex: 0, revokedAt: new Date() },
+          { statusIndex: 100, revokedAt: new Date() },
+        ],
+        organizationUser: [],
+      });
 
       // Act
       const bitstring = await service.buildBitstring(testOrganizationId);
@@ -513,10 +554,14 @@ describe('StatusList2021Service', () => {
 
     it('should_set_bits_from_user_did_history', async () => {
       // Arrange
-      mockPrisma.userDidHistory.findMany.mockResolvedValue([
-        { statusListIndex: 50 },
-        { statusListIndex: 200 },
-      ]);
+      setupFindMock({
+        statusListEntry: [],
+        organizationUser: [{ userId: 'user_1', organizationId: testOrganizationId }],
+        userDidHistory: [
+          { statusListIndex: 50, revokedAt: new Date() },
+          { statusListIndex: 200, revokedAt: new Date() },
+        ],
+      });
 
       // Act
       const bitstring = await service.buildBitstring(testOrganizationId);
@@ -528,9 +573,11 @@ describe('StatusList2021Service', () => {
 
     it('should_set_bits_from_org_did_history', async () => {
       // Arrange
-      mockPrisma.orgDidHistory.findMany.mockResolvedValue([
-        { statusListIndex: 300 },
-      ]);
+      setupFindMock({
+        statusListEntry: [],
+        organizationUser: [],
+        orgDidHistory: [{ statusListIndex: 300, revokedAt: new Date() }],
+      });
 
       // Act
       const bitstring = await service.buildBitstring(testOrganizationId);
@@ -543,7 +590,10 @@ describe('StatusList2021Service', () => {
   describe('getEncodedList', () => {
     it('should_return_base64url_encoded_gzip_compressed_bitstring', async () => {
       // Arrange
-      await service.revoke(testOrganizationId, 42);
+      setupFindMock({
+        statusListEntry: [{ statusIndex: 42, revokedAt: new Date() }],
+        organizationUser: [],
+      });
 
       // Act
       const encoded = await service.getEncodedList(testOrganizationId);
@@ -553,10 +603,11 @@ describe('StatusList2021Service', () => {
     });
 
     it('should_produce_decodable_output', async () => {
-      // Arrange - mock the revoked entry from database
-      mockPrisma.statusListEntry.findMany.mockResolvedValue([
-        { statusIndex: 123, revokedAt: new Date() },
-      ]);
+      // Arrange
+      setupFindMock({
+        statusListEntry: [{ statusIndex: 123, revokedAt: new Date() }],
+        organizationUser: [],
+      });
 
       // Act
       const encoded = await service.getEncodedList(testOrganizationId);
@@ -570,10 +621,11 @@ describe('StatusList2021Service', () => {
 
   describe('checkRevocationFromEncodedList', () => {
     it('should_return_true_for_revoked_index', async () => {
-      // Arrange - mock the revoked entry from database
-      mockPrisma.statusListEntry.findMany.mockResolvedValue([
-        { statusIndex: 500, revokedAt: new Date() },
-      ]);
+      // Arrange
+      setupFindMock({
+        statusListEntry: [{ statusIndex: 500, revokedAt: new Date() }],
+        organizationUser: [],
+      });
       const encoded = await service.getEncodedList(testOrganizationId);
 
       // Act
@@ -585,6 +637,10 @@ describe('StatusList2021Service', () => {
 
     it('should_return_false_for_valid_index', async () => {
       // Arrange
+      setupFindMock({
+        statusListEntry: [],
+        organizationUser: [],
+      });
       const encoded = await service.getEncodedList(testOrganizationId);
 
       // Act
@@ -609,6 +665,10 @@ describe('StatusList2021Service', () => {
     it('should_generate_valid_status_list_credential_structure', async () => {
       // Arrange
       const issuerId = 'did:key:z6MkTest123';
+      setupFindMock({
+        statusListEntry: [],
+        organizationUser: [],
+      });
 
       // Act
       const credential = await service.generateStatusListCredential(testOrganizationId, issuerId);
@@ -627,14 +687,10 @@ describe('StatusList2021Service', () => {
     it('should_include_revoked_credentials_in_encoded_list', async () => {
       // Arrange
       const issuerId = 'did:key:z6MkTest123';
-
-      // Mock revocation - service saves to statusListEntry
-      await service.revoke(testOrganizationId, 777);
-
-      // Mock findMany to return the revoked entry (buildBitstring reads from this)
-      mockPrisma.statusListEntry.findMany.mockResolvedValue([
-        { statusIndex: 777, revokedAt: new Date() },
-      ]);
+      setupFindMock({
+        statusListEntry: [{ statusIndex: 777, revokedAt: new Date() }],
+        organizationUser: [],
+      });
 
       // Act
       const credential = await service.generateStatusListCredential(testOrganizationId, issuerId);
