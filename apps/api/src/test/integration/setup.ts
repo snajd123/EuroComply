@@ -4,7 +4,12 @@
  * Each test file gets an isolated tenant schema that is created before
  * tests run and dropped after tests complete.
  */
-import { PrismaClient, createTenantSchema, dropTenantSchema } from '@eurocomply/db';
+import { MikroORM, EntityManager, PostgreSqlDriver } from '@mikro-orm/postgresql';
+import {
+  MikroOrm,
+  createTenantSchemaMikroOrm,
+  dropTenantSchemaMikroOrm,
+} from '@eurocomply/db';
 import { randomBytes } from 'crypto';
 
 // ============================================
@@ -55,19 +60,64 @@ const TEST_DATABASE_URL =
   process.env['DATABASE_URL'] ||
   'postgresql://postgres:postgres@localhost:5433/eurocomply_test?schema=public';
 
-// Global Prisma client for integration tests
-export const testPrisma = new PrismaClient({
-  datasources: {
-    db: { url: TEST_DATABASE_URL },
+// Global MikroORM instance for integration tests (initialized lazily)
+let _testOrm: MikroORM | null = null;
+
+/**
+ * Get or initialize the test MikroORM instance.
+ */
+async function getTestOrm(): Promise<MikroORM> {
+  if (!_testOrm) {
+    _testOrm = await MikroORM.init({
+      driver: PostgreSqlDriver,
+      clientUrl: TEST_DATABASE_URL,
+      entities: [
+        MikroOrm.Organization,
+        MikroOrm.User,
+        MikroOrm.OrganizationUser,
+        MikroOrm.UserDidHistory,
+        MikroOrm.OrgDidHistory,
+        MikroOrm.Product,
+        MikroOrm.ProductIdentifier,
+        MikroOrm.ProductVersion,
+        MikroOrm.BomEntry,
+        MikroOrm.OutboxEvent,
+        MikroOrm.OperationsEvent,
+        MikroOrm.DppSnapshot,
+        MikroOrm.ReadinessProfile,
+        MikroOrm.AuditLog,
+        MikroOrm.StatusList,
+        MikroOrm.StatusListEntry,
+      ],
+      debug: !!process.env['DEBUG'],
+      allowGlobalContext: true,
+    });
+  }
+  return _testOrm;
+}
+
+/**
+ * Exported testOrm for direct access (lazy initialization).
+ * Use getTestOrm() for async initialization.
+ */
+export const testOrm = {
+  get orm(): MikroORM {
+    if (!_testOrm) {
+      throw new Error('Test ORM not initialized. Call setupIntegrationTest() first.');
+    }
+    return _testOrm;
   },
-  log: process.env['DEBUG'] ? ['query', 'error', 'warn'] : ['error'],
-});
+  get em(): EntityManager {
+    return this.orm.em;
+  },
+};
 
 /**
  * Test context passed to each test.
  */
 export interface TestContext {
-  prisma: PrismaClient;
+  orm: MikroORM;
+  em: EntityManager;
   schemaName: string;
   organizationId: string;
   userId: string;
@@ -90,48 +140,48 @@ function generateSchemaName(): string {
  * Call this in beforeAll() of your integration test file.
  */
 export async function setupIntegrationTest(): Promise<TestContext> {
+  const orm = await getTestOrm();
+  const em = orm.em.fork();
   const schemaName = generateSchemaName();
 
   // Create test organization in public schema
-  const organization = await testPrisma.organization.create({
-    data: {
-      name: `Test Org ${schemaName}`,
-      slug: schemaName,
-      schemaName: schemaName,
-      subscriptionTier: 'starter',
-      subscriptionStatus: 'active',
-      userLimit: 20,
-      storageLimit: BigInt(536870912000),
-    },
+  const organization = em.create(MikroOrm.Organization, {
+    name: `Test Org ${schemaName}`,
+    slug: schemaName,
+    schemaName: schemaName,
+    subscriptionTier: 'starter',
+    subscriptionStatus: 'active',
+    userLimit: 20,
+    storageLimit: BigInt(536870912000),
   });
+  await em.persistAndFlush(organization);
 
   // Create test user
-  const user = await testPrisma.user.create({
-    data: {
-      clerkId: `clerk_test_${schemaName}`,
-      email: `test-${schemaName}@example.com`,
-      name: 'Test User',
-    },
+  const user = em.create(MikroOrm.User, {
+    clerkId: `clerk_test_${schemaName}`,
+    email: `test-${schemaName}@example.com`,
+    name: 'Test User',
   });
+  await em.persistAndFlush(user);
 
   // Create organization membership
-  await testPrisma.organizationUser.create({
-    data: {
-      organizationId: organization.id,
-      userId: user.id,
-      role: 'owner',
-      designAuthority: 'MANAGER',
-      operationsAuthority: 'MANAGER',
-      marketingAuthority: 'MANAGER',
-      complianceAuthority: 'MANAGER',
-    },
+  const membership = em.create(MikroOrm.OrganizationUser, {
+    organization: organization,
+    user: user,
+    role: 'owner',
+    designAuthority: 'MANAGER',
+    operationsAuthority: 'MANAGER',
+    marketingAuthority: 'MANAGER',
+    complianceAuthority: 'MANAGER',
   });
+  await em.persistAndFlush(membership);
 
   // Create tenant schema
-  await createTenantSchema(testPrisma, schemaName);
+  await createTenantSchemaMikroOrm(orm, schemaName);
 
   currentContext = {
-    prisma: testPrisma,
+    orm,
+    em,
     schemaName,
     organizationId: organization.id,
     userId: user.id,
@@ -158,51 +208,52 @@ export async function setupIntegrationTest(): Promise<TestContext> {
 export async function teardownIntegrationTest(): Promise<void> {
   if (!currentContext) return;
 
-  const { organizationId, userId, schemaName } = currentContext;
+  const { orm, organizationId, userId, schemaName } = currentContext;
+  const em = orm.em.fork();
 
   try {
     // 1. Delete BOM entries (depends on product versions)
-    await testPrisma.bomEntry.deleteMany({
-      where: { version: { product: { organizationId } } },
+    await em.nativeDelete(MikroOrm.BomEntry, {
+      version: { product: { organization: organizationId } },
     });
 
     // 2. Delete product versions (depends on products)
-    await testPrisma.productVersion.deleteMany({
-      where: { product: { organizationId } },
+    await em.nativeDelete(MikroOrm.ProductVersion, {
+      product: { organization: organizationId },
     });
 
     // 3. Delete product identifiers (depends on products)
-    await testPrisma.productIdentifier.deleteMany({
-      where: { product: { organizationId } },
+    await em.nativeDelete(MikroOrm.ProductIdentifier, {
+      product: { organization: organizationId },
     });
 
     // 4. Delete products
-    await testPrisma.product.deleteMany({
-      where: { organizationId },
+    await em.nativeDelete(MikroOrm.Product, {
+      organization: organizationId,
     });
 
     // 5. Delete outbox events
-    await testPrisma.outboxEvent.deleteMany({
-      where: { organizationId },
+    await em.nativeDelete(MikroOrm.OutboxEvent, {
+      organization: organizationId,
     });
 
     // 6. Delete organization users
-    await testPrisma.organizationUser.deleteMany({
-      where: { organizationId },
+    await em.nativeDelete(MikroOrm.OrganizationUser, {
+      organization: organizationId,
     });
 
     // 7. Delete user
-    await testPrisma.user.deleteMany({
-      where: { id: userId },
+    await em.nativeDelete(MikroOrm.User, {
+      id: userId,
     });
 
     // 8. Delete organization
-    await testPrisma.organization.deleteMany({
-      where: { id: organizationId },
+    await em.nativeDelete(MikroOrm.Organization, {
+      id: organizationId,
     });
 
     // 9. Drop tenant schema
-    await dropTenantSchema(testPrisma, schemaName);
+    await dropTenantSchemaMikroOrm(orm, schemaName);
   } catch (error) {
     console.error('Error during test teardown:', error);
   }
@@ -225,8 +276,9 @@ export function getTestContext(): TestContext {
  */
 export async function cleanupOutboxEvents(): Promise<void> {
   if (!currentContext) return;
-  await testPrisma.outboxEvent.deleteMany({
-    where: { organizationId: currentContext.organizationId },
+  const em = currentContext.orm.em.fork();
+  await em.nativeDelete(MikroOrm.OutboxEvent, {
+    organization: currentContext.organizationId,
   });
 }
 
@@ -235,5 +287,8 @@ export async function cleanupOutboxEvents(): Promise<void> {
  * Call this once at the end of all integration tests.
  */
 export async function disconnectTestDatabase(): Promise<void> {
-  await testPrisma.$disconnect();
+  if (_testOrm) {
+    await _testOrm.close();
+    _testOrm = null;
+  }
 }
