@@ -1,8 +1,22 @@
 import { defineConfig } from '@mikro-orm/postgresql';
-import { Organization } from './entities/index.js';
+import {
+  Organization,
+  Category,
+  UnitDefinition,
+  AttributeTemplate,
+  Product,
+  ProductVersion,
+} from './entities/index.js';
 
 export default defineConfig({
-  entities: [Organization],
+  entities: [
+    Organization,
+    Category,
+    UnitDefinition,
+    AttributeTemplate,
+    Product,
+    ProductVersion,
+  ],
   dbName: process.env['DATABASE_NAME'] ?? 'eurocomply',
   host: process.env['DATABASE_HOST'] ?? 'localhost',
   port: parseInt(process.env['DATABASE_PORT'] ?? '5432', 10),
