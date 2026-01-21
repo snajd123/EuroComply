@@ -1015,7 +1015,57 @@ export class SnapshotEngineService {
       triggeredBy: 'SYSTEM',
     }));
 
+    // Trigger Forensic Package generation (background worker)
+    // Bundles: PDFs, HTML viewer, JSON snapshots → R2-hosted .zip
+    await this.eventBus.emit('DPP_PROVISIONED', {
+      dppId: snapshot.id,
+      organizationId: snapshot.organization.id,
+      generateForensicPackage: true,
+    });
+
     return snapshot;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // FORENSIC PACKAGE GENERATION (Background Worker)
+  // Triggered after DPP is PROVISIONED for offline audit capability
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  @OnEvent('DPP_PROVISIONED')
+  async generateForensicPackage(payload: { dppId: string; organizationId: string }): Promise<void> {
+    const dpp = await this.em.findOneOrFail(DPPSnapshot, payload.dppId, {
+      populate: ['complianceSnapshot', 'readinessProfile'],
+    });
+
+    // 1. Generate self-contained HTML viewer
+    const htmlViewer = await this.renderForensicViewer(dpp);
+
+    // 2. Collect referenced regulation PDFs
+    const pdfPaths = await this.collectReferencedPDFs(dpp);
+
+    // 3. Bundle JSON snapshots (design, marketing, operations, compliance)
+    const jsonBundle = {
+      dpp: this.serializeSnapshot(dpp),
+      verification: {
+        snapshotHash: dpp.snapshotHash,
+        issuanceJws: dpp.issuanceJws,
+        signerDid: dpp.signerDid,
+        timestampProof: dpp.timestampProof,
+      },
+    };
+
+    // 4. Create ZIP archive and upload to R2
+    const zipPath = await this.bundleForensicPackage({
+      htmlViewer,
+      pdfPaths,
+      jsonBundle,
+      dppUri: dpp.dppUri,
+    });
+
+    // 5. Store reference for Forensic Seal View
+    dpp.forensicPackagePath = zipPath;
+    dpp.forensicPackageGeneratedAt = new Date();
+    await this.em.flush();
   }
 
   /**

@@ -256,8 +256,8 @@ export class AttributeTemplate extends BaseEntity {
   @Property({ length: 100, nullable: true })
   rollupSource?: string;
 
-  @Property({ length: 10, default: 'BLOCKER' })
-  validationSeverity!: string;
+  // NOTE: Severity is now managed at RuleTemplate level via Regulatory Advisor
+  // See: docs/plans/13-regulatory-advisor.md
 
   // ═══════════════════════════════════════════════════════════════════════════
   // REGULATORY ADVISOR INTEGRATION
@@ -1189,6 +1189,9 @@ export class DiffCalculationService {
     }
 
     // 6. Check main product has all required attributes
+    // NOTE: This is a basic pre-release check. Authoritative severity
+    // comes from RuleTemplate via PreFlightAuditService.
+    // See: docs/plans/13-regulatory-advisor.md
     const productRequired = requiredByCategory.get(product.category.id) || [];
     const productValues = valuesByProduct.get(product.id) || new Set();
 
@@ -1196,7 +1199,7 @@ export class DiffCalculationService {
       if (!productValues.has(attr.code)) {
         errors.push({
           type: 'MISSING_ATTRIBUTE',
-          severity: attr.validationSeverity as 'BLOCKER' | 'WARNING',
+          severity: 'WARNING',  // Severity defined in RuleTemplate, not AttributeTemplate
           entityType: 'product',
           entityId: product.id,
           entityName: product.name,
@@ -1216,7 +1219,7 @@ export class DiffCalculationService {
         if (!materialValues.has(attr.code)) {
           errors.push({
             type: 'MISSING_ATTRIBUTE',
-            severity: attr.validationSeverity as 'BLOCKER' | 'WARNING',
+            severity: 'WARNING',  // Severity defined in RuleTemplate, not AttributeTemplate
             entityType: 'material',
             entityId: material.id,
             entityName: material.name,

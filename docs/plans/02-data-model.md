@@ -393,6 +393,45 @@ CREATE TABLE public.marketplace_listings (
 CREATE INDEX idx_marketplace_listings_status ON public.marketplace_listings(status, type);
 CREATE INDEX idx_marketplace_listings_publisher ON public.marketplace_listings(publisher_id);
 
+-- System rule templates (platform-managed compliance rules)
+-- Note: organization_id = NULL indicates SYSTEM scope
+CREATE TABLE public.rule_templates (
+    id VARCHAR(30) PRIMARY KEY,
+    code VARCHAR(100) NOT NULL UNIQUE,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    scope VARCHAR(20) NOT NULL DEFAULT 'SYSTEM',
+    type VARCHAR(20) NOT NULL,
+    rule_category VARCHAR(20) NOT NULL,
+    severity VARCHAR(20) NOT NULL,
+    legal_anchor_id VARCHAR(30) REFERENCES public.regulation_anchors(id),
+    active_from DATE NOT NULL,
+    active_until DATE,
+    validation_logic JSONB,
+    version INT DEFAULT 1,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_public_rule_templates_category ON public.rule_templates(rule_category);
+CREATE INDEX idx_public_rule_templates_active ON public.rule_templates(active_from, active_until);
+
+-- System reason codes (platform-managed deviation justifications)
+CREATE TABLE public.reason_codes (
+    id VARCHAR(30) PRIMARY KEY,
+    code VARCHAR(50) NOT NULL UNIQUE,
+    label VARCHAR(100) NOT NULL,
+    description TEXT NOT NULL,
+    scope VARCHAR(20) NOT NULL DEFAULT 'SYSTEM',
+    regulation_id VARCHAR(30) REFERENCES public.regulation_documents(id),
+    requires_narrative BOOLEAN DEFAULT false,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_public_reason_codes_active ON public.reason_codes(is_active);
+
 -- Adoption count update function (called from application layer)
 -- Note: Cross-schema triggers are complex; use application-level atomic updates:
 -- BEGIN;
