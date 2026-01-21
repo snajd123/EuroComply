@@ -2,6 +2,32 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { createApp } from './app.js';
 import { clearProductsStore } from './routes/products.js';
 
+// Type definitions for API responses
+interface HealthResponse {
+  status: string;
+}
+
+interface ApiInfoResponse {
+  message: string;
+}
+
+interface OrganizationResponse {
+  data: {
+    id: string;
+    name: string;
+    schemaName: string;
+  };
+}
+
+interface ProductsListResponse {
+  data: Array<{
+    id: string;
+    name: string;
+    categoryId: string;
+    tenantId: string;
+  }>;
+}
+
 function createTestToken(schemaName: string, userId: string): string {
   const payload = btoa(JSON.stringify({ schema_name: schemaName, sub: userId }));
   return `header.${payload}.signature`;
@@ -18,7 +44,7 @@ describe('EuroComply API E2E', () => {
     it('GET /health returns healthy status', async () => {
       const res = await app.request('/health');
       expect(res.status).toBe(200);
-      const data = await res.json();
+      const data = (await res.json()) as HealthResponse;
       expect(data.status).toBe('healthy');
     });
   });
@@ -27,7 +53,7 @@ describe('EuroComply API E2E', () => {
     it('GET /api/v1 returns API info', async () => {
       const res = await app.request('/api/v1');
       expect(res.status).toBe(200);
-      const data = await res.json();
+      const data = (await res.json()) as ApiInfoResponse;
       expect(data.message).toBe('EuroComply API v1');
     });
   });
@@ -44,13 +70,13 @@ describe('EuroComply API E2E', () => {
         }),
       });
       expect(createRes.status).toBe(201);
-      const created = await createRes.json();
+      const created = (await createRes.json()) as OrganizationResponse;
       const orgId = created.data.id;
 
       // Retrieve
       const getRes = await app.request(`/api/v1/organizations/${orgId}`);
       expect(getRes.status).toBe(200);
-      const retrieved = await getRes.json();
+      const retrieved = (await getRes.json()) as OrganizationResponse;
       expect(retrieved.data.name).toBe('E2E Test Corp');
     });
   });
@@ -92,17 +118,17 @@ describe('EuroComply API E2E', () => {
       const list1 = await app.request('/api/v1/products', {
         headers: { Authorization: `Bearer ${token1}` },
       });
-      const data1 = await list1.json();
+      const data1 = (await list1.json()) as ProductsListResponse;
       expect(data1.data.length).toBe(1);
-      expect(data1.data[0].name).toBe('Corp1 Product');
+      expect(data1.data[0]?.name).toBe('Corp1 Product');
 
       // List tenant 2 - should only see their product
       const list2 = await app.request('/api/v1/products', {
         headers: { Authorization: `Bearer ${token2}` },
       });
-      const data2 = await list2.json();
+      const data2 = (await list2.json()) as ProductsListResponse;
       expect(data2.data.length).toBe(1);
-      expect(data2.data[0].name).toBe('Corp2 Product');
+      expect(data2.data[0]?.name).toBe('Corp2 Product');
     });
   });
 });
