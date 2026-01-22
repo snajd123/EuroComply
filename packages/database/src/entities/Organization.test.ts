@@ -33,6 +33,7 @@ describe('Organization entity', () => {
   it('creates an organization with defaults', async () => {
     const org = new Organization();
     org.name = 'Test Corp';
+    org.slug = 'test-corp';
     org.schemaName = 'tenant_test';
 
     em.persist(org);
@@ -48,10 +49,12 @@ describe('Organization entity', () => {
   it('enforces unique schema names', async () => {
     const org1 = new Organization();
     org1.name = 'Corp 1';
+    org1.slug = 'corp-1';
     org1.schemaName = 'tenant_unique';
 
     const org2 = new Organization();
     org2.name = 'Corp 2';
+    org2.slug = 'corp-2';
     org2.schemaName = 'tenant_unique';
 
     em.persist(org1);
@@ -64,6 +67,7 @@ describe('Organization entity', () => {
   it('retrieves organization by schema name', async () => {
     const org = new Organization();
     org.name = 'Find Me Corp';
+    org.slug = 'find-me-corp';
     org.schemaName = 'tenant_findme';
 
     em.persist(org);

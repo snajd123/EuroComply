@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { MikroORM } from '@mikro-orm/postgresql';
 import { createApp } from '../app.js';
 import { createWebhooksRouter } from '../routes/webhooks.js';
 import {
@@ -10,7 +9,7 @@ import {
 import { setupTestDb, teardownTestDb, isDatabaseAvailable } from '@eurocomply/database/test-utils';
 
 describe('Tenant Provisioning E2E', () => {
-  let orm: MikroORM;
+  let orm: Awaited<ReturnType<typeof setupTestDb>>;
   let provisioner: TenantProvisioner;
   let app: ReturnType<typeof createApp>;
   // Schema name derived from Clerk org ID: 'org_e2e_test' -> 'tenant_org_e2e_test'
@@ -80,7 +79,7 @@ describe('Tenant Provisioning E2E', () => {
     });
 
     expect(res.status).toBe(200);
-    const data = await res.json();
+    const data = await res.json() as { success: boolean; schemaName: string };
     expect(data.success).toBe(true);
     expect(data.schemaName).toBe(testSchema);
 
