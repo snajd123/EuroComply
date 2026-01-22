@@ -1,17 +1,18 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { Hono } from 'hono';
-import { organizationsRouter } from './organizations.js';
+import { organizationsRouter, clearOrganizationsStore } from './organizations.js';
 
 interface OrganizationResponse {
   data: {
     id: string;
     name: string;
+    slug: string;
     schemaName: string;
     clerkOrgId?: string;
     regulatoryAdvisorEnabled: boolean;
     enforcementMode: 'ENFORCING' | 'SILENT';
     captureComplianceInSilentMode: boolean;
-    kmsKeyArn?: string;
+    provisioningStatus: string;
     createdAt: string;
     updatedAt: string;
   };
@@ -30,6 +31,10 @@ interface ErrorResponse {
 describe('organizations routes', () => {
   const app = new Hono();
   app.route('/organizations', organizationsRouter);
+
+  beforeEach(() => {
+    clearOrganizationsStore();
+  });
 
   describe('GET /organizations', () => {
     it('returns empty array initially', async () => {
@@ -56,23 +61,24 @@ describe('organizations routes', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: 'Acme Corp',
-          schemaName: 'tenant_acme',
+          slug: 'acme-corp',
         }),
       });
       expect(res.status).toBe(201);
       const data = (await res.json()) as OrganizationResponse;
       expect(data.data.name).toBe('Acme Corp');
-      expect(data.data.schemaName).toBe('tenant_acme');
+      expect(data.data.slug).toBe('acme-corp');
+      expect(data.data.schemaName).toBe('tenant_acme_corp');
       expect(data.data.id).toBeDefined();
     });
 
-    it('validates schemaName format', async () => {
+    it('validates slug format', async () => {
       const res = await app.request('/organizations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: 'Invalid Corp',
-          schemaName: 'invalid-schema', // Missing tenant_ prefix
+          slug: 'Invalid Slug!', // Invalid characters
         }),
       });
       expect(res.status).toBe(400);
@@ -94,7 +100,7 @@ describe('organizations routes', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: 'Test Org',
-          schemaName: 'tenant_test',
+          slug: 'test-org',
         }),
       });
       const createData = (await createRes.json()) as OrganizationResponse;

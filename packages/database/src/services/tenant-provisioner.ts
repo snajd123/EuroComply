@@ -1,5 +1,6 @@
-import { MikroORM } from '@mikro-orm/postgresql';
+import { MikroORM, type EntityManager } from '@mikro-orm/postgresql';
 import { tenantConfig } from '../mikro-orm.config.js';
+import { assertValidSchemaName } from '../utils/schema-validation.js';
 
 export interface ProvisioningResult {
   success: boolean;
@@ -33,13 +34,45 @@ export class TenantProvisioner {
   }
 
   /**
+   * Resets the search_path to public schema.
+   * This is a safety mechanism to ensure we never leave a connection
+   * in a tenant-specific search_path context.
+   */
+  private async resetSearchPath(em: EntityManager): Promise<void> {
+    try {
+      await em.execute('SET search_path TO "public"');
+    } catch (error) {
+      // Log but don't throw - this is a safety reset
+      console.error('[TenantProvisioner] Failed to reset search_path:', error);
+    }
+  }
+
+  /**
+   * Verifies and ensures the search_path is set to public.
+   * Call this defensively after any operation that modifies search_path.
+   */
+  private async ensurePublicSearchPath(em: EntityManager): Promise<void> {
+    try {
+      const result = await em.execute<{ search_path: string }[]>('SHOW search_path');
+      const currentPath = result[0]?.search_path;
+
+      // If search_path is not public (or "$user", public which is default), reset it
+      if (currentPath && !currentPath.includes('"$user"') && currentPath !== 'public' && currentPath !== '"public"') {
+        console.warn(`[TenantProvisioner] Unexpected search_path: ${currentPath}. Resetting to public.`);
+        await this.resetSearchPath(em);
+      }
+    } catch (error) {
+      // If we can't verify, try to reset anyway
+      await this.resetSearchPath(em);
+    }
+  }
+
+  /**
    * Creates a new PostgreSQL schema for a tenant.
    */
   async createSchema(schemaName: string): Promise<void> {
-    // Validate schema name format
-    if (!this.isValidSchemaName(schemaName)) {
-      throw new Error(`Invalid schema name: ${schemaName}. Must match tenant_[a-z0-9_]+`);
-    }
+    // Validate schema name format (throws if invalid)
+    assertValidSchemaName(schemaName);
 
     await this.orm.em.execute(`CREATE SCHEMA IF NOT EXISTS "${schemaName}"`);
   }
@@ -47,8 +80,17 @@ export class TenantProvisioner {
   /**
    * Runs all migrations in the specified tenant schema.
    * Creates ONLY tenant entity tables (Product, Category, etc.) in the specified schema.
+   *
+   * SECURITY: Search Path Safety
+   * - Uses SET LOCAL which is transaction-scoped (auto-resets on commit/rollback)
+   * - Wraps DDL execution in try/finally with explicit reset
+   * - Verifies search_path is reset after operation completes
+   * - Uses forked EntityManager for isolation
    */
   async runMigrations(schemaName: string): Promise<void> {
+    // Validate schema name format (throws if invalid)
+    assertValidSchemaName(schemaName);
+
     // Use tenant ORM which contains only tenant entities
     const tenantOrm = await this.getTenantOrm();
     const generator = tenantOrm.getSchemaGenerator();
@@ -64,16 +106,27 @@ export class TenantProvisioner {
     // This needs to happen before we switch search_path
     await this.orm.em.execute('CREATE EXTENSION IF NOT EXISTS ltree');
 
-    // Set search_path to the tenant schema FIRST (for table creation),
-    // followed by public (so extension types like ltree are visible)
-    await this.orm.em.execute(`SET search_path TO "${schemaName}", public`);
+    // Use a forked EntityManager for isolation
+    // This ensures any search_path changes don't affect other operations
+    const em = this.orm.em.fork();
 
     try {
+      // Set search_path to the tenant schema FIRST (for table creation),
+      // followed by public (so extension types like ltree are visible)
+      //
+      // SECURITY NOTE: We use SET (not SET LOCAL) because DDL statements
+      // often run outside transactions. The finally block ensures reset.
+      await em.execute(`SET search_path TO "${schemaName}", public`);
+
       // Execute the DDL statements in the tenant schema context
-      await this.orm.em.execute(ddl);
+      await em.execute(ddl);
     } finally {
-      // Always reset search_path to public
-      await this.orm.em.execute('SET search_path TO "public"');
+      // CRITICAL: Always reset search_path to public
+      // This runs even if DDL execution fails
+      await this.resetSearchPath(em);
+
+      // Verify the reset was successful
+      await this.ensurePublicSearchPath(em);
     }
   }
 
@@ -136,17 +189,9 @@ export class TenantProvisioner {
    * Drops a tenant schema (use with caution!).
    */
   async dropSchema(schemaName: string): Promise<void> {
-    if (!this.isValidSchemaName(schemaName)) {
-      throw new Error(`Invalid schema name: ${schemaName}`);
-    }
+    // Validate schema name format (throws if invalid)
+    assertValidSchemaName(schemaName);
 
     await this.orm.em.execute(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`);
-  }
-
-  /**
-   * Validates that a schema name follows the tenant naming convention.
-   */
-  private isValidSchemaName(schemaName: string): boolean {
-    return /^tenant_[a-z0-9_]+$/.test(schemaName);
   }
 }

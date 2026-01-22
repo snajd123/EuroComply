@@ -2,74 +2,186 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { createId } from '@eurocomply/core';
-import { Organization, ProvisioningStatus, OutboxEvent, OutboxStatus } from '@eurocomply/database';
+import {
+  Organization,
+  ProvisioningStatus,
+  OutboxEvent,
+  OutboxStatus,
+  generateSchemaName,
+} from '@eurocomply/database';
 
-// In-memory store for testing (will be replaced with MikroORM)
-interface LocalOrganization {
-  id: string;
-  name: string;
-  schemaName: string;
-  clerkOrgId?: string;
-  regulatoryAdvisorEnabled: boolean;
-  enforcementMode: 'ENFORCING' | 'SILENT';
-  captureComplianceInSilentMode: boolean;
-  kmsKeyArn?: string;
-  createdAt: string;
-  updatedAt: string;
+// ============================================================================
+// Type Definitions
+// ============================================================================
+
+export interface EntityManagerLike {
+  findOne: <T>(entity: new () => T, where: Record<string, unknown>) => Promise<T | null>;
+  findAll: <T>(entity: new () => T) => Promise<T[]>;
+  find: <T>(entity: new () => T, where: Record<string, unknown>) => Promise<T[]>;
+  create: <T>(entity: new () => T, data: Record<string, unknown>) => T;
+  persist: (entity: unknown) => void;
+  persistAndFlush: (entity: unknown) => Promise<void>;
+  flush: () => Promise<void>;
+  fork: (options?: { schema?: string }) => EntityManagerLike;
 }
 
-const organizations: Map<string, LocalOrganization> = new Map();
+export interface OrmLike {
+  em: EntityManagerLike;
+}
+
+export interface TenantProvisionerLike {
+  provisionTenant: (schemaName: string) => Promise<{ success: boolean; schemaName: string; error?: string }>;
+}
+
+// ============================================================================
+// Zod Schemas
+// ============================================================================
 
 const createOrganizationSchema = z.object({
   name: z.string().min(1).max(255),
-  schemaName: z.string().min(1).max(63).regex(/^tenant_[a-z0-9_]+$/),
+  slug: z.string().min(1).max(255).regex(/^[a-z0-9-]+$/, 'Slug must be lowercase alphanumeric with hyphens'),
   clerkOrgId: z.string().optional(),
   regulatoryAdvisorEnabled: z.boolean().default(true),
   enforcementMode: z.enum(['ENFORCING', 'SILENT']).default('SILENT'),
   captureComplianceInSilentMode: z.boolean().default(true),
 });
 
+export interface OrganizationsRouterOptions {
+  orm: OrmLike;
+}
+
+/**
+ * Creates the organizations router with database backing.
+ */
+export function createOrganizationsRouter(options: OrganizationsRouterOptions) {
+  const { orm } = options;
+  const router = new Hono();
+
+  // List organizations
+  router.get('/', async (c) => {
+    const em = orm.em.fork();
+    const orgs = await em.findAll(Organization);
+
+    return c.json({
+      data: orgs.map(serializeOrganization),
+      meta: { total: orgs.length },
+    });
+  });
+
+  // Create organization
+  router.post(
+    '/',
+    zValidator('json', createOrganizationSchema),
+    async (c) => {
+      const em = orm.em.fork();
+      const body = c.req.valid('json');
+
+      // Check for duplicate slug
+      const existing = await em.findOne(Organization, { slug: body.slug });
+      if (existing) {
+        return c.json({ error: 'Conflict', message: 'Organization with this slug already exists' }, 409);
+      }
+
+      // Generate schema name from slug
+      const schemaName = generateSchemaName(body.slug);
+
+      const org = em.create(Organization, {
+        id: createId(),
+        name: body.name,
+        slug: body.slug,
+        schemaName,
+        clerkOrgId: body.clerkOrgId,
+        regulatoryAdvisorEnabled: body.regulatoryAdvisorEnabled,
+        enforcementMode: body.enforcementMode,
+        captureComplianceInSilentMode: body.captureComplianceInSilentMode,
+        provisioningStatus: ProvisioningStatus.PENDING,
+      });
+
+      await em.persistAndFlush(org);
+
+      return c.json({ data: serializeOrganization(org) }, 201);
+    }
+  );
+
+  // Get organization by ID
+  router.get('/:id', async (c) => {
+    const em = orm.em.fork();
+    const id = c.req.param('id');
+    const org = await em.findOne(Organization, { id });
+
+    if (!org) {
+      return c.json({ error: 'Not Found', message: 'Organization not found' }, 404);
+    }
+
+    return c.json({ data: serializeOrganization(org) });
+  });
+
+  return router;
+}
+
+/**
+ * Serializes an Organization entity to a plain object for API response.
+ */
+function serializeOrganization(org: Organization) {
+  return {
+    id: org.id,
+    name: org.name,
+    slug: org.slug,
+    schemaName: org.schemaName,
+    clerkOrgId: org.clerkOrgId,
+    regulatoryAdvisorEnabled: org.regulatoryAdvisorEnabled,
+    enforcementMode: org.enforcementMode,
+    captureComplianceInSilentMode: org.captureComplianceInSilentMode,
+    provisioningStatus: org.provisioningStatus,
+    createdAt: org.createdAt.toISOString(),
+    updatedAt: org.updatedAt.toISOString(),
+  };
+}
+
+/**
+ * @deprecated Use createOrganizationsRouter with ORM injection instead.
+ * This is kept for backwards compatibility with tests that don't have database.
+ */
 export const organizationsRouter = new Hono();
 
-// List organizations
+// In-memory fallback for tests without database
+const inMemoryOrgs: Map<string, ReturnType<typeof serializeOrganization>> = new Map();
+
 organizationsRouter.get('/', (c) => {
-  const orgs = Array.from(organizations.values());
-  return c.json({
-    data: orgs,
-    meta: { total: orgs.length },
-  });
+  const orgs = Array.from(inMemoryOrgs.values());
+  return c.json({ data: orgs, meta: { total: orgs.length } });
 });
 
-// Create organization
 organizationsRouter.post(
   '/',
   zValidator('json', createOrganizationSchema),
   (c) => {
     const body = c.req.valid('json');
     const now = new Date().toISOString();
+    const schemaName = generateSchemaName(body.slug);
 
-    const org: LocalOrganization = {
+    const org = {
       id: createId(),
       name: body.name,
-      schemaName: body.schemaName,
+      slug: body.slug,
+      schemaName,
       clerkOrgId: body.clerkOrgId,
       regulatoryAdvisorEnabled: body.regulatoryAdvisorEnabled,
       enforcementMode: body.enforcementMode,
       captureComplianceInSilentMode: body.captureComplianceInSilentMode,
+      provisioningStatus: ProvisioningStatus.PENDING as const,
       createdAt: now,
       updatedAt: now,
     };
 
-    organizations.set(org.id, org);
-
+    inMemoryOrgs.set(org.id, org);
     return c.json({ data: org }, 201);
   }
 );
 
-// Get organization by ID
 organizationsRouter.get('/:id', (c) => {
   const id = c.req.param('id');
-  const org = organizations.get(id);
+  const org = inMemoryOrgs.get(id);
 
   if (!org) {
     return c.json({ error: 'Not Found', message: 'Organization not found' }, 404);
@@ -78,26 +190,13 @@ organizationsRouter.get('/:id', (c) => {
   return c.json({ data: org });
 });
 
+export function clearOrganizationsStore(): void {
+  inMemoryOrgs.clear();
+}
+
 // ============================================================================
 // Admin Router for Provisioning Operations
 // ============================================================================
-
-export interface OrmLike {
-  em: {
-    fork: () => EntityManagerLike;
-  };
-}
-
-export interface EntityManagerLike {
-  findOne: <T>(entity: new () => T, where: Record<string, unknown>) => Promise<T | null>;
-  flush: () => Promise<void>;
-  create: <T>(entity: new () => T, data: Record<string, unknown>) => T;
-  persist: (entity: unknown) => void;
-}
-
-export interface TenantProvisionerLike {
-  provisionTenant: (schemaName: string) => Promise<{ success: boolean; schemaName: string; error?: string }>;
-}
 
 export interface OrganizationsAdminRouterOptions {
   orm: OrmLike;

@@ -1,4 +1,5 @@
 export * from './entities/index.js';
+export * from './utils/index.js';
 export { initOrm, getOrm, closeOrm, createTenantEm } from './orm.js';
 export { default as mikroOrmConfig, tenantConfig } from './mikro-orm.config.js';
 export { ParallelMigrator, type ParallelMigratorOptions, type MigrationResults } from './migrations/parallel-migrator.js';

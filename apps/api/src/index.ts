@@ -28,7 +28,7 @@ async function main() {
   });
 
   console.log('Creating app...');
-  const app = createApp({ webhooksRouter, organizationsAdminRouter });
+  const app = createApp({ orm, webhooksRouter, organizationsAdminRouter });
 
   console.log(`Starting server on port ${port}...`);
 

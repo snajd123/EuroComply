@@ -28,7 +28,8 @@
     "@eurocomply/core": "workspace:*",
     "@mikro-orm/core": "^6.4.0",
     "@mikro-orm/postgresql": "^6.4.0",
-    "@mikro-orm/migrations": "^6.4.0"
+    "@mikro-orm/migrations": "^6.4.0",
+    "zod": "^3.24.0"
   },
   "devDependencies": {
     "@mikro-orm/cli": "^6.4.0",

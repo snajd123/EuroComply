@@ -2,8 +2,12 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { secureHeaders } from 'hono/secure-headers';
-import { organizationsRouter } from './routes/organizations.js';
-import { productsRouter } from './routes/products.js';
+import {
+  organizationsRouter,
+  createOrganizationsRouter,
+  type OrmLike,
+} from './routes/organizations.js';
+import { productsRouter, createProductsRouter } from './routes/products.js';
 import { tenantMiddleware } from './middleware/tenant.js';
 
 export type Env = {
@@ -15,6 +19,8 @@ export type Env = {
 };
 
 export interface AppDependencies {
+  /** MikroORM instance for database-backed routes */
+  orm?: OrmLike;
   webhooksRouter?: Hono;
   organizationsAdminRouter?: Hono;
 }
@@ -51,7 +57,12 @@ export function createApp(deps?: AppDependencies): Hono<Env> {
   });
 
   // Public routes (no tenant middleware)
-  v1.route('/organizations', organizationsRouter);
+  // Use database-backed router if ORM is provided, otherwise fallback to in-memory
+  if (deps?.orm) {
+    v1.route('/organizations', createOrganizationsRouter({ orm: deps.orm }));
+  } else {
+    v1.route('/organizations', organizationsRouter);
+  }
 
   // Internal admin routes (should be behind additional auth in production)
   // Must be registered BEFORE tenant routes to avoid middleware conflict
@@ -63,7 +74,11 @@ export function createApp(deps?: AppDependencies): Hono<Env> {
   // Apply tenant middleware explicitly to each protected route
   // This avoids catch-all patterns that would interfere with admin routes
   v1.use('/products/*', tenantMiddleware);
-  v1.route('/products', productsRouter);
+  if (deps?.orm) {
+    v1.route('/products', createProductsRouter({ orm: deps.orm }));
+  } else {
+    v1.route('/products', productsRouter);
+  }
 
   app.route('/api/v1', v1);
 

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createApp } from './app.js';
 import { clearProductsStore } from './routes/products.js';
+import { clearOrganizationsStore } from './routes/organizations.js';
 
 // Type definitions for API responses
 interface HealthResponse {
@@ -15,6 +16,7 @@ interface OrganizationResponse {
   data: {
     id: string;
     name: string;
+    slug: string;
     schemaName: string;
   };
 }
@@ -38,6 +40,7 @@ describe('EuroComply API E2E', () => {
 
   beforeEach(() => {
     clearProductsStore();
+    clearOrganizationsStore();
   });
 
   describe('Health Check', () => {
@@ -66,12 +69,14 @@ describe('EuroComply API E2E', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: 'E2E Test Corp',
-          schemaName: 'tenant_e2e',
+          slug: 'e2e-test',
         }),
       });
       expect(createRes.status).toBe(201);
       const created = (await createRes.json()) as OrganizationResponse;
       const orgId = created.data.id;
+      expect(created.data.slug).toBe('e2e-test');
+      expect(created.data.schemaName).toBe('tenant_e2e_test');
 
       // Retrieve
       const getRes = await app.request(`/api/v1/organizations/${orgId}`);
