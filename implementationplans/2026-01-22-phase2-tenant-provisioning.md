@@ -344,8 +344,13 @@ export class TenantProvisioner {
   }
 
   /**
-   * Grants DML permissions to the application user.
-   * In production, this would grant to eurocomply_app user.
+   * Grants DML permissions to the application user for THIS SCHEMA ONLY.
+   *
+   * SECURITY: Blast Radius Containment
+   * - Permissions are schema-scoped, not database-wide
+   * - eurocomply_app in tenant_A cannot access tenant_B tables
+   * - Even SQL injection is contained to the current tenant's data
+   * - Combined with SET search_path at connection time for defense-in-depth
    */
   async grantPermissions(schemaName: string, appUser: string = 'eurocomply_app'): Promise<void> {
     try {
