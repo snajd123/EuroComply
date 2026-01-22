@@ -57,7 +57,7 @@ export function createOrganizationsRouter(options: OrganizationsRouterOptions) {
   const { orm } = options;
   const router = new Hono();
 
-  // List organizations
+  // List organizations (read-only)
   router.get('/', async (c) => {
     const em = orm.em.fork();
     const orgs = await em.findAll(Organization);
@@ -68,40 +68,8 @@ export function createOrganizationsRouter(options: OrganizationsRouterOptions) {
     });
   });
 
-  // Create organization
-  router.post(
-    '/',
-    zValidator('json', createOrganizationSchema),
-    async (c) => {
-      const em = orm.em.fork();
-      const body = c.req.valid('json');
-
-      // Check for duplicate slug
-      const existing = await em.findOne(Organization, { slug: body.slug });
-      if (existing) {
-        return c.json({ error: 'Conflict', message: 'Organization with this slug already exists' }, 409);
-      }
-
-      // Generate schema name from slug
-      const schemaName = generateSchemaName(body.slug);
-
-      const org = em.create(Organization, {
-        id: createId(),
-        name: body.name,
-        slug: body.slug,
-        schemaName,
-        clerkOrgId: body.clerkOrgId,
-        regulatoryAdvisorEnabled: body.regulatoryAdvisorEnabled,
-        enforcementMode: body.enforcementMode,
-        captureComplianceInSilentMode: body.captureComplianceInSilentMode,
-        provisioningStatus: ProvisioningStatus.PENDING,
-      });
-
-      await em.persistAndFlush(org);
-
-      return c.json({ data: serializeOrganization(org) }, 201);
-    }
-  );
+  // Note: Organization creation is handled exclusively via Clerk webhooks.
+  // There is no public POST endpoint - this ensures single source of truth.
 
   // Get organization by ID
   router.get('/:id', async (c) => {
@@ -237,12 +205,14 @@ export function createOrganizationsAdminRouter(options: OrganizationsAdminRouter
   });
 
   /**
-   * POST /organizations/:id/retry-provisioning
+   * POST /organizations/:id/provision
    *
-   * Retries provisioning for a failed organization.
-   * Use this when provisioning failed due to transient errors (DB connection, etc.)
+   * Provisions an organization with PENDING or FAILED status.
+   * - PENDING: Initial provisioning (e.g., if webhook didn't auto-provision)
+   * - FAILED: Retry after transient errors (DB connection, etc.)
+   * - READY: Returns 400 (already provisioned)
    */
-  router.post('/:id/retry-provisioning', async (c) => {
+  router.post('/:id/provision', async (c) => {
     const id = c.req.param('id');
     const em = orm.em.fork();
 
@@ -259,7 +229,8 @@ export function createOrganizationsAdminRouter(options: OrganizationsAdminRouter
       }, 400);
     }
 
-    // Store previous error for the event payload
+    // Store previous status/error for the event payload
+    const previousStatus = org.provisioningStatus;
     const previousError = org.provisioningError;
 
     // Update status to PROVISIONING
@@ -267,7 +238,7 @@ export function createOrganizationsAdminRouter(options: OrganizationsAdminRouter
     org.provisioningError = undefined;
     await em.flush();
 
-    // Retry provisioning
+    // Provision the tenant
     const result = await provisioner.provisionTenant(org.schemaName);
 
     if (!result.success) {
@@ -284,14 +255,19 @@ export function createOrganizationsAdminRouter(options: OrganizationsAdminRouter
     // Success - update status and emit event
     org.provisioningStatus = ProvisioningStatus.READY;
 
+    const eventType = previousStatus === ProvisioningStatus.FAILED
+      ? 'organization.provisioning_retried'
+      : 'organization.provisioned';
+
     const outboxEvent = em.create(OutboxEvent, {
       id: createId(),
       aggregateType: 'Organization',
       aggregateId: org.id,
-      eventType: 'organization.provisioning_retried',
+      eventType,
       payload: {
         organizationId: org.id,
         schemaName: org.schemaName,
+        previousStatus,
         previousError,
       },
       status: OutboxStatus.PENDING,

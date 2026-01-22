@@ -440,6 +440,33 @@ INTEGRATION FLOW
 
 ---
 
+## 5.1 Organization Lifecycle
+
+### Creation (Clerk-Only)
+
+Organizations are created **exclusively** through Clerk webhooks:
+
+1. User creates organization in Clerk (via frontend UI)
+2. Clerk sends `organization.created` webhook
+3. Backend creates Organization record + provisions tenant schema
+4. Status updated to READY
+
+**There is no public API endpoint to create organizations.** This ensures:
+- Single source of truth (Clerk)
+- Consistent provisioning flow
+- No orphaned organizations
+
+### Admin Operations
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /api/v1/organizations` | List organizations (read-only) |
+| `GET /api/v1/organizations/:id` | Get organization details |
+| `GET /api/v1/admin/organizations/:id/status` | Check provisioning status |
+| `POST /api/v1/admin/organizations/:id/provision` | Trigger/retry provisioning |
+
+---
+
 ## 6. Version Control
 
 ### Version States

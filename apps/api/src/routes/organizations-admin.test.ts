@@ -23,8 +23,8 @@ describe('organizations admin routes', () => {
     mockOrm.em.fork.mockReturnValue(mockOrm.em);
   });
 
-  describe('POST /organizations/:id/retry-provisioning', () => {
-    it('retries provisioning for failed organization', async () => {
+  describe('POST /organizations/:id/provision', () => {
+    it('provisions a failed organization', async () => {
       const router = createOrganizationsAdminRouter({
         orm: mockOrm as any,
         provisioner: mockProvisioner as any,
@@ -43,7 +43,7 @@ describe('organizations admin routes', () => {
       mockOrm.em.findOne.mockResolvedValue(failedOrg);
       mockProvisioner.provisionTenant.mockResolvedValue({ success: true, schemaName: 'tenant_org_abc123' });
 
-      const res = await app.request('/organizations/org_123/retry-provisioning', {
+      const res = await app.request('/organizations/org_123/provision', {
         method: 'POST',
       });
 
@@ -53,7 +53,35 @@ describe('organizations admin routes', () => {
       expect(mockProvisioner.provisionTenant).toHaveBeenCalledWith('tenant_org_abc123');
     });
 
-    it('rejects retry for already provisioned organization', async () => {
+    it('provisions a pending organization', async () => {
+      const router = createOrganizationsAdminRouter({
+        orm: mockOrm as any,
+        provisioner: mockProvisioner as any,
+      });
+
+      const app = new Hono();
+      app.route('/organizations', router);
+
+      const pendingOrg = {
+        id: 'org_123',
+        schemaName: 'tenant_org_abc123',
+        provisioningStatus: ProvisioningStatus.PENDING,
+      };
+
+      mockOrm.em.findOne.mockResolvedValue(pendingOrg);
+      mockProvisioner.provisionTenant.mockResolvedValue({ success: true, schemaName: 'tenant_org_abc123' });
+
+      const res = await app.request('/organizations/org_123/provision', {
+        method: 'POST',
+      });
+
+      expect(res.status).toBe(200);
+      const data = await res.json() as { success: boolean };
+      expect(data.success).toBe(true);
+      expect(mockProvisioner.provisionTenant).toHaveBeenCalledWith('tenant_org_abc123');
+    });
+
+    it('rejects provisioning for already provisioned organization', async () => {
       const router = createOrganizationsAdminRouter({
         orm: mockOrm as any,
         provisioner: mockProvisioner as any,
@@ -70,7 +98,7 @@ describe('organizations admin routes', () => {
 
       mockOrm.em.findOne.mockResolvedValue(readyOrg);
 
-      const res = await app.request('/organizations/org_123/retry-provisioning', {
+      const res = await app.request('/organizations/org_123/provision', {
         method: 'POST',
       });
 
@@ -90,7 +118,7 @@ describe('organizations admin routes', () => {
 
       mockOrm.em.findOne.mockResolvedValue(null);
 
-      const res = await app.request('/organizations/org_999/retry-provisioning', {
+      const res = await app.request('/organizations/org_999/provision', {
         method: 'POST',
       });
 

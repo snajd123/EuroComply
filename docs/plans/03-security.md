@@ -55,6 +55,14 @@ SSO (Enterprise)
 - Configured per organization in Clerk
 ```
 
+### Organization Creation Control
+
+Organization creation is restricted to Clerk webhooks only:
+- No public API endpoint for creating organizations
+- Prevents unauthorized tenant creation
+- All organizations tied to Clerk identity
+- Webhook signature verification required
+
 ### Session Token Structure
 
 Clerk JWT includes tenant context to avoid database lookups:

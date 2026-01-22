@@ -45,45 +45,10 @@ describe('organizations routes', () => {
     });
   });
 
-  describe('POST /organizations', () => {
-    it('validates required fields', async () => {
-      const res = await app.request('/organizations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      expect(res.status).toBe(400);
-    });
-
-    it('accepts valid organization data', async () => {
-      const res = await app.request('/organizations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: 'Acme Corp',
-          slug: 'acme-corp',
-        }),
-      });
-      expect(res.status).toBe(201);
-      const data = (await res.json()) as OrganizationResponse;
-      expect(data.data.name).toBe('Acme Corp');
-      expect(data.data.slug).toBe('acme-corp');
-      expect(data.data.schemaName).toBe('tenant_acme_corp');
-      expect(data.data.id).toBeDefined();
-    });
-
-    it('validates slug format', async () => {
-      const res = await app.request('/organizations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: 'Invalid Corp',
-          slug: 'Invalid Slug!', // Invalid characters
-        }),
-      });
-      expect(res.status).toBe(400);
-    });
-  });
+  // Note: POST /organizations endpoint has been removed.
+  // Organizations are created exclusively via Clerk webhooks.
+  // The in-memory router still has POST for test utilities, but
+  // the database-backed createOrganizationsRouter() does not.
 
   describe('GET /organizations/:id', () => {
     it('returns 404 for unknown ID', async () => {
@@ -94,7 +59,7 @@ describe('organizations routes', () => {
     });
 
     it('returns organization by ID', async () => {
-      // First create an organization
+      // Create organization using in-memory router (test utility)
       const createRes = await app.request('/organizations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
