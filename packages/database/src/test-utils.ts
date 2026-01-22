@@ -15,9 +15,13 @@ export async function setupTestDb(): Promise<MikroORM> {
     allowGlobalContext: true,
   });
 
-  // Ensure schema exists
+  // Ensure schema and required extensions exist
   const generator = testOrm.getSchemaGenerator();
   await generator.ensureDatabase();
+
+  // Install LTREE extension (required for Category entity)
+  await testOrm.em.execute('CREATE EXTENSION IF NOT EXISTS ltree');
+
   await generator.updateSchema();
 
   return testOrm;
