@@ -10,10 +10,15 @@ export type Env = {
   Variables: {
     tenantSchema?: string;
     userId?: string;
+    webhookPayload?: unknown;
   };
 };
 
-export function createApp(): Hono<Env> {
+export interface AppDependencies {
+  webhooksRouter?: Hono;
+}
+
+export function createApp(deps?: AppDependencies): Hono<Env> {
   const app = new Hono<Env>();
 
   // Global middleware
@@ -31,6 +36,11 @@ export function createApp(): Hono<Env> {
   app.get('/health', (c) => {
     return c.json({ status: 'healthy', timestamp: new Date().toISOString() });
   });
+
+  // Webhooks (no CORS, no auth - signature verified)
+  if (deps?.webhooksRouter) {
+    app.route('/webhooks', deps.webhooksRouter);
+  }
 
   // API version prefix
   const v1 = new Hono<Env>();
