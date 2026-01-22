@@ -13,6 +13,10 @@
     "./entities": {
       "import": "./dist/entities/index.js",
       "types": "./dist/entities/index.d.ts"
+    },
+    "./test-utils": {
+      "import": "./dist/test-utils.js",
+      "types": "./dist/test-utils.d.ts"
     }
   },
   "scripts": {
