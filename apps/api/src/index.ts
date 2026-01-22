@@ -2,6 +2,7 @@ import { serve } from '@hono/node-server';
 import { createApp } from './app.js';
 import { initOrm, TenantProvisioner } from '@eurocomply/database';
 import { createWebhooksRouter } from './routes/webhooks.js';
+import { createOrganizationsAdminRouter } from './routes/organizations.js';
 
 async function main() {
   const port = parseInt(process.env['PORT'] ?? '3001', 10);
@@ -20,8 +21,14 @@ async function main() {
     // clerk: createClerkClient({ secretKey: process.env['CLERK_SECRET_KEY'] }), // Add when needed
   });
 
+  console.log('Creating admin router...');
+  const organizationsAdminRouter = createOrganizationsAdminRouter({
+    orm,
+    provisioner,
+  });
+
   console.log('Creating app...');
-  const app = createApp({ webhooksRouter });
+  const app = createApp({ webhooksRouter, organizationsAdminRouter });
 
   console.log(`Starting server on port ${port}...`);
 

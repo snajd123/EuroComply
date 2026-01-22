@@ -53,17 +53,17 @@ export function createApp(deps?: AppDependencies): Hono<Env> {
   // Public routes (no tenant middleware)
   v1.route('/organizations', organizationsRouter);
 
-  // Tenant-scoped routes (require authentication)
-  const tenantRoutes = new Hono<Env>();
-  tenantRoutes.use('*', tenantMiddleware);
-  tenantRoutes.route('/products', productsRouter);
-
-  v1.route('/', tenantRoutes);
-
   // Internal admin routes (should be behind additional auth in production)
+  // Must be registered BEFORE tenant routes to avoid middleware conflict
   if (deps?.organizationsAdminRouter) {
     v1.route('/admin/organizations', deps.organizationsAdminRouter);
   }
+
+  // Tenant-scoped routes (require authentication)
+  // Apply tenant middleware explicitly to each protected route
+  // This avoids catch-all patterns that would interfere with admin routes
+  v1.use('/products/*', tenantMiddleware);
+  v1.route('/products', productsRouter);
 
   app.route('/api/v1', v1);
 

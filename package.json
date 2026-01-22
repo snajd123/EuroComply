@@ -6,9 +6,18 @@
     "build": "turbo run build",
     "test": "turbo run test",
     "lint": "turbo run lint",
-    "dev": "turbo run dev"
+    "dev": "turbo run dev",
+    "dev:local": "./scripts/dev-local.sh",
+    "dev:tunnel": "./scripts/dev-local.sh --with-tunnel",
+    "db:start": "docker-compose up -d postgres-test",
+    "db:stop": "docker-compose stop postgres-test",
+    "db:reset": "docker-compose down -v postgres-test && docker-compose up -d postgres-test",
+    "test:webhook": "cd apps/api && node --env-file=../../.env --import tsx scripts/test-clerk-webhook.ts",
+    "db:schema": "./scripts/test-schema.sh",
+    "db:cleanup": "./scripts/test-cleanup.sh"
   },
   "devDependencies": {
+    "tsx": "^4.19.0",
     "turbo": "^2.3.0",
     "typescript": "^5.7.0"
   }

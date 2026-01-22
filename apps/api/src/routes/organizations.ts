@@ -109,6 +109,35 @@ export function createOrganizationsAdminRouter(options: OrganizationsAdminRouter
   const router = new Hono();
 
   /**
+   * GET /organizations/:id/status
+   *
+   * Get organization status by ID (internal ID or Clerk org ID)
+   */
+  router.get('/:id/status', async (c) => {
+    const id = c.req.param('id');
+    const em = orm.em.fork();
+
+    // Try to find by internal ID first, then by Clerk org ID
+    let org = await em.findOne(Organization, { id });
+    if (!org) {
+      org = await em.findOne(Organization, { clerkOrgId: id });
+    }
+
+    if (!org) {
+      return c.json({ error: 'Organization not found' }, 404);
+    }
+
+    return c.json({
+      id: org.id,
+      name: org.name,
+      schemaName: org.schemaName,
+      clerkOrgId: org.clerkOrgId,
+      provisioningStatus: org.provisioningStatus,
+      provisioningError: org.provisioningError,
+    });
+  });
+
+  /**
    * POST /organizations/:id/retry-provisioning
    *
    * Retries provisioning for a failed organization.

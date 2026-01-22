@@ -1,4 +1,5 @@
 import { MikroORM } from '@mikro-orm/postgresql';
+import { tenantConfig } from '../mikro-orm.config.js';
 
 export interface ProvisioningResult {
   success: boolean;
@@ -7,7 +8,29 @@ export interface ProvisioningResult {
 }
 
 export class TenantProvisioner {
+  private tenantOrm: MikroORM | null = null;
+
   constructor(private readonly orm: MikroORM) {}
+
+  /**
+   * Gets or creates the tenant ORM instance for schema generation.
+   * This ORM contains only tenant-specific entities.
+   */
+  private async getTenantOrm(): Promise<MikroORM> {
+    if (!this.tenantOrm) {
+      // Create ORM with tenant entities only, reusing connection settings
+      this.tenantOrm = await MikroORM.init({
+        ...tenantConfig,
+        dbName: this.orm.config.get('dbName'),
+        host: this.orm.config.get('host'),
+        port: this.orm.config.get('port'),
+        user: this.orm.config.get('user'),
+        password: this.orm.config.get('password'),
+        allowGlobalContext: true,
+      });
+    }
+    return this.tenantOrm;
+  }
 
   /**
    * Creates a new PostgreSQL schema for a tenant.
@@ -23,12 +46,14 @@ export class TenantProvisioner {
 
   /**
    * Runs all migrations in the specified tenant schema.
-   * Creates all entity tables in the specified schema.
+   * Creates ONLY tenant entity tables (Product, Category, etc.) in the specified schema.
    */
   async runMigrations(schemaName: string): Promise<void> {
-    const generator = this.orm.getSchemaGenerator();
+    // Use tenant ORM which contains only tenant entities
+    const tenantOrm = await this.getTenantOrm();
+    const generator = tenantOrm.getSchemaGenerator();
 
-    // Get the DDL for creating all entity tables
+    // Get the DDL for creating tenant entity tables only
     const ddl = await generator.getCreateSchemaSQL();
 
     if (!ddl.trim()) {

@@ -19,10 +19,21 @@ export async function setupTestDb(): Promise<MikroORM> {
   const generator = testOrm.getSchemaGenerator();
   await generator.ensureDatabase();
 
-  // Install LTREE extension (required for Category entity)
-  await testOrm.em.execute('CREATE EXTENSION IF NOT EXISTS ltree');
+  // Install LTREE extension (required for Category entity in tenant schemas)
+  // Extensions are database-wide, so we install it here for use by tenant provisioner
+  // Note: Wrapped in try-catch to handle race condition when tests run in parallel
+  try {
+    await testOrm.em.execute('CREATE EXTENSION IF NOT EXISTS ltree');
+  } catch (error) {
+    // Ignore duplicate key error - another test already created the extension
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.includes('pg_extension_name_index')) {
+      throw error;
+    }
+  }
 
-  await generator.updateSchema();
+  // Only update the public schema, not tenant schemas created by other tests
+  await generator.updateSchema({ schema: 'public' });
 
   return testOrm;
 }
@@ -36,9 +47,11 @@ export async function teardownTestDb(): Promise<void> {
 
 export async function clearTestDb(em: EntityManager): Promise<void> {
   const connection = em.getConnection();
-  const tables = ['audit_log', 'outbox_event', 'product_version', 'product', 'attribute_template', 'unit_definition', 'category', 'organizations'];
+  // Only clear PUBLIC schema tables (Organization, OutboxEvent)
+  // Tenant tables are in tenant schemas, not public
+  const publicTables = ['outbox_event', 'organizations'];
 
-  for (const table of tables) {
+  for (const table of publicTables) {
     try {
       await connection.execute(`TRUNCATE TABLE "${table}" CASCADE`);
     } catch {
