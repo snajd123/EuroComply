@@ -1880,6 +1880,16 @@ This implementation plan establishes **Phase 2: Tenant Provisioning** for EuroCo
 - User sync from Clerk (`organizationMembership.created`)
 - Clerk SDK integration for real metadata updates
 - Async provisioning with job queue (for scale)
-- Default data seeding (Global Category, default profiles)
 - Organization settings UI
-- Billing integration with Stripe (triggered by `organization.provisioned` event)
+
+### Phase 3: Outbox Listener Sequence for `organization.provisioned`
+
+When implementing outbox consumers, follow this order (dependencies matter):
+
+| Step | Action | Why First |
+|------|--------|-----------|
+| 1 | **Seed Foundation** - Create "Global" root category | Products require a category; this is the tenant's root |
+| 2 | **Identity Bootstrap** - Generate org's `did:key` via walt.id | Required for signing DPPs and credentials |
+| 3 | **Monetization** - Trigger Stripe trial subscription | Billing depends on org being fully functional |
+
+This ensures each step has its dependencies satisfied before execution.
