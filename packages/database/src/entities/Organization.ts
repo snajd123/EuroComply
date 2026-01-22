@@ -6,11 +6,35 @@ export enum EnforcementMode {
   SILENT = 'SILENT',
 }
 
+export enum SubscriptionTier {
+  STARTER = 'STARTER',
+  PROFESSIONAL = 'PROFESSIONAL',
+  ENTERPRISE = 'ENTERPRISE',
+}
+
+export enum SubscriptionStatus {
+  TRIALING = 'TRIALING',
+  ACTIVE = 'ACTIVE',
+  PAST_DUE = 'PAST_DUE',
+  CANCELED = 'CANCELED',
+}
+
+export enum ProvisioningStatus {
+  PENDING = 'PENDING',
+  PROVISIONING = 'PROVISIONING',
+  READY = 'READY',
+  FAILED = 'FAILED',
+}
+
 @Entity({ tableName: 'organizations', schema: 'public' })
 export class Organization extends BaseEntity {
   @Property({ type: 'text' })
   @Unique()
   name!: string;
+
+  @Property({ type: 'text' })
+  @Unique()
+  slug!: string;
 
   @Property({ type: 'text', name: 'schema_name' })
   @Unique()
@@ -19,6 +43,21 @@ export class Organization extends BaseEntity {
   @Property({ type: 'text', nullable: true, name: 'clerk_org_id' })
   @Unique()
   clerkOrgId?: string;
+
+  @Property({ type: 'text', default: 'cell_1', name: 'cell_id' })
+  cellId: string = 'cell_1';
+
+  @Enum({ items: () => SubscriptionTier, name: 'subscription_tier', default: SubscriptionTier.STARTER })
+  subscriptionTier: SubscriptionTier = SubscriptionTier.STARTER;
+
+  @Enum({ items: () => SubscriptionStatus, name: 'subscription_status', default: SubscriptionStatus.TRIALING })
+  subscriptionStatus: SubscriptionStatus = SubscriptionStatus.TRIALING;
+
+  @Enum({ items: () => ProvisioningStatus, name: 'provisioning_status', default: ProvisioningStatus.PENDING })
+  provisioningStatus: ProvisioningStatus = ProvisioningStatus.PENDING;
+
+  @Property({ type: 'text', nullable: true, name: 'provisioning_error' })
+  provisioningError?: string;
 
   @Property({ type: 'boolean', name: 'regulatory_advisor_enabled', default: true })
   regulatoryAdvisorEnabled: boolean = true;
