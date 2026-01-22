@@ -2,11 +2,10 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { createId } from '@eurocomply/core';
+import { Organization, ProvisioningStatus, OutboxEvent, OutboxStatus } from '@eurocomply/database';
 
 // In-memory store for testing (will be replaced with MikroORM)
-const organizations: Map<string, Organization> = new Map();
-
-interface Organization {
+interface LocalOrganization {
   id: string;
   name: string;
   schemaName: string;
@@ -18,6 +17,8 @@ interface Organization {
   createdAt: string;
   updatedAt: string;
 }
+
+const organizations: Map<string, LocalOrganization> = new Map();
 
 const createOrganizationSchema = z.object({
   name: z.string().min(1).max(255),
@@ -47,7 +48,7 @@ organizationsRouter.post(
     const body = c.req.valid('json');
     const now = new Date().toISOString();
 
-    const org: Organization = {
+    const org: LocalOrganization = {
       id: createId(),
       name: body.name,
       schemaName: body.schemaName,
@@ -76,3 +77,107 @@ organizationsRouter.get('/:id', (c) => {
 
   return c.json({ data: org });
 });
+
+// ============================================================================
+// Admin Router for Provisioning Operations
+// ============================================================================
+
+export interface OrmLike {
+  em: {
+    fork: () => EntityManagerLike;
+  };
+}
+
+export interface EntityManagerLike {
+  findOne: <T>(entity: new () => T, where: Record<string, unknown>) => Promise<T | null>;
+  flush: () => Promise<void>;
+  create: <T>(entity: new () => T, data: Record<string, unknown>) => T;
+  persist: (entity: unknown) => void;
+}
+
+export interface TenantProvisionerLike {
+  provisionTenant: (schemaName: string) => Promise<{ success: boolean; schemaName: string; error?: string }>;
+}
+
+export interface OrganizationsAdminRouterOptions {
+  orm: OrmLike;
+  provisioner: TenantProvisionerLike;
+}
+
+export function createOrganizationsAdminRouter(options: OrganizationsAdminRouterOptions) {
+  const { orm, provisioner } = options;
+  const router = new Hono();
+
+  /**
+   * POST /organizations/:id/retry-provisioning
+   *
+   * Retries provisioning for a failed organization.
+   * Use this when provisioning failed due to transient errors (DB connection, etc.)
+   */
+  router.post('/:id/retry-provisioning', async (c) => {
+    const id = c.req.param('id');
+    const em = orm.em.fork();
+
+    const org = await em.findOne(Organization, { id });
+
+    if (!org) {
+      return c.json({ error: 'Organization not found' }, 404);
+    }
+
+    if (org.provisioningStatus === ProvisioningStatus.READY) {
+      return c.json({
+        error: 'Organization already provisioned',
+        message: 'This organization is already in READY state',
+      }, 400);
+    }
+
+    // Store previous error for the event payload
+    const previousError = org.provisioningError;
+
+    // Update status to PROVISIONING
+    org.provisioningStatus = ProvisioningStatus.PROVISIONING;
+    org.provisioningError = undefined;
+    await em.flush();
+
+    // Retry provisioning
+    const result = await provisioner.provisionTenant(org.schemaName);
+
+    if (!result.success) {
+      org.provisioningStatus = ProvisioningStatus.FAILED;
+      org.provisioningError = result.error;
+      await em.flush();
+
+      return c.json({
+        success: false,
+        error: `Provisioning failed: ${result.error}`,
+      }, 500);
+    }
+
+    // Success - update status and emit event
+    org.provisioningStatus = ProvisioningStatus.READY;
+
+    const outboxEvent = em.create(OutboxEvent, {
+      id: createId(),
+      aggregateType: 'Organization',
+      aggregateId: org.id,
+      eventType: 'organization.provisioning_retried',
+      payload: {
+        organizationId: org.id,
+        schemaName: org.schemaName,
+        previousError,
+      },
+      status: OutboxStatus.PENDING,
+    });
+    em.persist(outboxEvent);
+    await em.flush();
+
+    return c.json({
+      success: true,
+      organizationId: org.id,
+      schemaName: org.schemaName,
+      provisioningStatus: org.provisioningStatus,
+    });
+  });
+
+  return router;
+}

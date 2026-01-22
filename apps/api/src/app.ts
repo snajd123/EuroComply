@@ -16,6 +16,7 @@ export type Env = {
 
 export interface AppDependencies {
   webhooksRouter?: Hono;
+  organizationsAdminRouter?: Hono;
 }
 
 export function createApp(deps?: AppDependencies): Hono<Env> {
@@ -58,6 +59,11 @@ export function createApp(deps?: AppDependencies): Hono<Env> {
   tenantRoutes.route('/products', productsRouter);
 
   v1.route('/', tenantRoutes);
+
+  // Internal admin routes (should be behind additional auth in production)
+  if (deps?.organizationsAdminRouter) {
+    v1.route('/admin/organizations', deps.organizationsAdminRouter);
+  }
 
   app.route('/api/v1', v1);
 
