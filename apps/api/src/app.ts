@@ -8,7 +8,9 @@ import {
   type OrmLike,
 } from './routes/organizations.js';
 import { productsRouter, createProductsRouter } from './routes/products.js';
-import { tenantMiddleware } from './middleware/tenant.js';
+import { createApiKeysRouter } from './routes/api-keys.js';
+import { tenantMiddleware, createTenantMiddlewareWithApiKeys } from './middleware/tenant.js';
+import { adminAuthMiddleware } from './middleware/admin-auth.js';
 
 export type Env = {
   Variables: {
@@ -56,27 +58,39 @@ export function createApp(deps?: AppDependencies): Hono<Env> {
     return c.json({ message: 'EuroComply API v1' });
   });
 
-  // Public routes (no tenant middleware)
-  // Use database-backed router if ORM is provided, otherwise fallback to in-memory
+  // Admin routes (protected by API key)
+  // All organization management requires admin authentication
+  v1.use('/admin/*', adminAuthMiddleware());
+
   if (deps?.orm) {
-    v1.route('/organizations', createOrganizationsRouter({ orm: deps.orm }));
+    // Organizations list/get - admin only
+    v1.route('/admin/organizations', createOrganizationsRouter({ orm: deps.orm }));
   } else {
-    v1.route('/organizations', organizationsRouter);
+    v1.route('/admin/organizations', organizationsRouter);
   }
 
-  // Internal admin routes (should be behind additional auth in production)
-  // Must be registered BEFORE tenant routes to avoid middleware conflict
+  // Additional admin operations (status, provision, delete)
   if (deps?.organizationsAdminRouter) {
     v1.route('/admin/organizations', deps.organizationsAdminRouter);
   }
 
-  // Tenant-scoped routes (require authentication)
+  // API key management routes (JWT-only authentication)
+  // These routes allow tenants to create, list, and revoke their API keys
+  if (deps?.orm) {
+    v1.use('/api-keys/*', tenantMiddleware); // JWT only for key management
+    v1.route('/api-keys', createApiKeysRouter({ em: deps.orm.em as any }));
+  }
+
+  // Tenant-scoped routes (require authentication via JWT or API key)
   // Apply tenant middleware explicitly to each protected route
   // This avoids catch-all patterns that would interfere with admin routes
-  v1.use('/products/*', tenantMiddleware);
   if (deps?.orm) {
+    // With ORM: Support both JWT and API key authentication
+    v1.use('/products/*', createTenantMiddlewareWithApiKeys(deps.orm.em as any));
     v1.route('/products', createProductsRouter({ orm: deps.orm }));
   } else {
+    // Without ORM: JWT-only authentication (for testing)
+    v1.use('/products/*', tenantMiddleware);
     v1.route('/products', productsRouter);
   }
 

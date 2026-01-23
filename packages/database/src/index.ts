@@ -3,4 +3,16 @@ export * from './utils/index.js';
 export { initOrm, getOrm, closeOrm, createTenantEm } from './orm.js';
 export { default as mikroOrmConfig, tenantConfig } from './mikro-orm.config.js';
 export { ParallelMigrator, type ParallelMigratorOptions, type MigrationResults } from './migrations/parallel-migrator.js';
-export { TenantProvisioner, type ProvisioningResult } from './services/index.js';
+export {
+  TenantProvisioner,
+  type ProvisioningResult,
+  ApiKeyService,
+  generateRawApiKey,
+  hashApiKey,
+  extractKeyPrefix,
+  type CreateApiKeyResult,
+  type ValidateApiKeyResult,
+} from './services/index.js';
+
+// Re-export common MikroORM types for convenience
+export type { EntityManager, MikroORM } from '@mikro-orm/postgresql';

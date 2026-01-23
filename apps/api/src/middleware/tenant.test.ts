@@ -1,121 +1,210 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Hono } from 'hono';
+import { tenantMiddleware, extractTenantFromJwt, createTenantMiddleware } from './tenant.js';
 import type { Env } from '../app.js';
-import { createTenantMiddleware } from './tenant.js';
 
-vi.mock('../utils/jwt.js', () => ({
-  verifyAndExtractTenant: vi.fn(),
-  extractTenantFromJwtUnsafe: vi.fn(),
+// Mock @clerk/backend for middleware tests
+vi.mock('@clerk/backend', () => ({
+  verifyToken: vi.fn(),
 }));
 
-import { verifyAndExtractTenant, extractTenantFromJwtUnsafe } from '../utils/jwt.js';
+import { verifyToken } from '@clerk/backend';
 
-describe('createTenantMiddleware', () => {
-  let app: Hono<Env>;
-  const originalEnv = process.env;
+const mockVerifyToken = vi.mocked(verifyToken);
 
+describe('tenant middleware', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env = { ...originalEnv };
   });
 
-  afterEach(() => {
-    process.env = originalEnv;
-  });
+  describe('extractTenantFromJwt (deprecated)', () => {
+    it('extracts schema_name from JWT payload', () => {
+      // Base64 encoded payload: {"schema_name":"tenant_acme","sub":"user123"}
+      const payload = btoa(JSON.stringify({ schema_name: 'tenant_acme', sub: 'user123' }));
+      const token = `header.${payload}.signature`;
 
-  it('returns 401 for missing Authorization header', async () => {
-    app = new Hono<Env>();
-    app.use('*', createTenantMiddleware());
-    app.get('/test', (c) => c.json({ ok: true }));
-
-    const res = await app.request('/test');
-
-    expect(res.status).toBe(401);
-    const body = await res.json() as { error: string };
-    expect(body.error).toBe('Unauthorized');
-  });
-
-  it('returns 401 for invalid Authorization header format', async () => {
-    app = new Hono<Env>();
-    app.use('*', createTenantMiddleware());
-    app.get('/test', (c) => c.json({ ok: true }));
-
-    const res = await app.request('/test', {
-      headers: { Authorization: 'Basic abc123' },
+      const result = extractTenantFromJwt(token);
+      expect(result).toEqual({ schemaName: 'tenant_acme', userId: 'user123' });
     });
 
-    expect(res.status).toBe(401);
-  });
-
-  it('verifies token with ZITADEL when ZITADEL_INSTANCE_URL is set', async () => {
-    process.env['ZITADEL_INSTANCE_URL'] = 'https://test.zitadel.cloud';
-    process.env['ZITADEL_CLIENT_ID'] = 'test-client-id';
-
-    vi.mocked(verifyAndExtractTenant).mockResolvedValue({
-      schemaName: 'tenant_abc123',
-      userId: 'user_123',
+    it('returns null for invalid token', () => {
+      expect(extractTenantFromJwt('')).toBeNull();
+      expect(extractTenantFromJwt('invalid')).toBeNull();
+      expect(extractTenantFromJwt('a.b')).toBeNull();
     });
 
-    app = new Hono<Env>();
-    app.use('*', createTenantMiddleware());
-    app.get('/test', (c) => c.json({
-      schema: c.get('tenantSchema'),
-      user: c.get('userId'),
-    }));
-
-    const res = await app.request('/test', {
-      headers: { Authorization: 'Bearer valid.jwt.token' },
-    });
-
-    expect(res.status).toBe(200);
-    const body = await res.json() as { schema: string; user: string };
-    expect(body.schema).toBe('tenant_abc123');
-    expect(body.user).toBe('user_123');
-
-    expect(verifyAndExtractTenant).toHaveBeenCalledWith('valid.jwt.token', {
-      instanceUrl: 'https://test.zitadel.cloud',
-      clientId: 'test-client-id',
+    it('returns null if schema_name missing', () => {
+      const payload = btoa(JSON.stringify({ sub: 'user123' }));
+      const token = `header.${payload}.signature`;
+      expect(extractTenantFromJwt(token)).toBeNull();
     });
   });
 
-  it('falls back to unsafe extraction in development without ZITADEL config', async () => {
-    delete process.env['ZITADEL_INSTANCE_URL'];
-    process.env['NODE_ENV'] = 'development';
+  describe('tenantMiddleware (without CLERK_SECRET_KEY)', () => {
+    // These tests run without CLERK_SECRET_KEY, so they use unsafe extraction
 
-    vi.mocked(extractTenantFromJwtUnsafe).mockReturnValue({
-      schemaName: 'tenant_dev',
-      userId: 'dev_user',
+    it('sets tenant context from Authorization header', async () => {
+      const app = new Hono<Env>();
+      app.use('*', tenantMiddleware);
+      app.get('/test', (c) => {
+        return c.json({
+          schema: c.get('tenantSchema'),
+          user: c.get('userId'),
+        });
+      });
+
+      const payload = btoa(JSON.stringify({ schema_name: 'tenant_acme', sub: 'user123' }));
+      const token = `header.${payload}.signature`;
+
+      const res = await app.request('/test', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      expect(res.status).toBe(200);
+      const data = (await res.json()) as { schema: string; user: string };
+      expect(data.schema).toBe('tenant_acme');
+      expect(data.user).toBe('user123');
     });
 
-    app = new Hono<Env>();
-    app.use('*', createTenantMiddleware());
-    app.get('/test', (c) => c.json({
-      schema: c.get('tenantSchema'),
-    }));
+    it('returns 401 without Authorization header', async () => {
+      const app = new Hono<Env>();
+      app.use('*', tenantMiddleware);
+      app.get('/test', (c) => c.json({ ok: true }));
 
-    const res = await app.request('/test', {
-      headers: { Authorization: 'Bearer dev.token' },
+      const res = await app.request('/test');
+      expect(res.status).toBe(401);
+
+      const data = (await res.json()) as { error: string; message: string };
+      expect(data.error).toBe('Unauthorized');
+      expect(data.message).toBe('Missing X-API-Key or Authorization header');
     });
 
-    expect(res.status).toBe(200);
-    expect(extractTenantFromJwtUnsafe).toHaveBeenCalledWith('dev.token');
+    it('returns 401 for invalid token format', async () => {
+      const app = new Hono<Env>();
+      app.use('*', tenantMiddleware);
+      app.get('/test', (c) => c.json({ ok: true }));
+
+      const res = await app.request('/test', {
+        headers: { Authorization: 'Bearer invalid-token' },
+      });
+      expect(res.status).toBe(401);
+
+      const data = (await res.json()) as { error: string; message: string };
+      expect(data.message).toBe('Invalid token or missing tenant context');
+    });
+
+    it('returns 401 when Authorization header is not Bearer', async () => {
+      const app = new Hono<Env>();
+      app.use('*', tenantMiddleware);
+      app.get('/test', (c) => c.json({ ok: true }));
+
+      const res = await app.request('/test', {
+        headers: { Authorization: 'Basic dXNlcjpwYXNz' },
+      });
+      expect(res.status).toBe(401);
+    });
   });
 
-  it('returns 401 when token verification fails', async () => {
-    process.env['ZITADEL_INSTANCE_URL'] = 'https://test.zitadel.cloud';
+  describe('createTenantMiddleware (with secretKey)', () => {
+    it('verifies JWT signature when secretKey is provided', async () => {
+      mockVerifyToken.mockResolvedValue({
+        data: {
+          sub: 'user_verified',
+          org_metadata: { schema_name: 'tenant_secure' },
+        },
+        errors: undefined,
+      } as any);
 
-    vi.mocked(verifyAndExtractTenant).mockResolvedValue(null);
+      const middleware = createTenantMiddleware({ secretKey: 'sk_test_xxxxx' });
+      const app = new Hono<Env>();
+      app.use('*', middleware);
+      app.get('/test', (c) => {
+        return c.json({
+          schema: c.get('tenantSchema'),
+          user: c.get('userId'),
+        });
+      });
 
-    app = new Hono<Env>();
-    app.use('*', createTenantMiddleware());
-    app.get('/test', (c) => c.json({ ok: true }));
+      const res = await app.request('/test', {
+        headers: { Authorization: 'Bearer real.jwt.token' },
+      });
 
-    const res = await app.request('/test', {
-      headers: { Authorization: 'Bearer invalid.token' },
+      expect(res.status).toBe(200);
+      const data = (await res.json()) as { schema: string; user: string };
+      expect(data.schema).toBe('tenant_secure');
+      expect(data.user).toBe('user_verified');
+      expect(mockVerifyToken).toHaveBeenCalledWith('real.jwt.token', expect.any(Object));
     });
 
-    expect(res.status).toBe(401);
-    const body = await res.json() as { message: string };
-    expect(body.message).toBe('Invalid token or missing tenant context');
+    it('returns 401 when JWT verification fails', async () => {
+      mockVerifyToken.mockResolvedValue({
+        data: undefined,
+        errors: [new Error('Invalid signature')],
+      } as any);
+
+      const middleware = createTenantMiddleware({ secretKey: 'sk_test_xxxxx' });
+      const app = new Hono<Env>();
+      app.use('*', middleware);
+      app.get('/test', (c) => c.json({ ok: true }));
+
+      const res = await app.request('/test', {
+        headers: { Authorization: 'Bearer invalid.signature.token' },
+      });
+
+      expect(res.status).toBe(401);
+      const data = (await res.json()) as { error: string; message: string };
+      expect(data.message).toBe('Invalid token or missing tenant context');
+    });
+
+    it('returns 401 when verified token has no schema_name', async () => {
+      mockVerifyToken.mockResolvedValue({
+        data: {
+          sub: 'user_no_schema',
+          org_id: 'org_123',
+          // Missing org_metadata.schema_name
+        },
+        errors: undefined,
+      } as any);
+
+      const middleware = createTenantMiddleware({ secretKey: 'sk_test_xxxxx' });
+      const app = new Hono<Env>();
+      app.use('*', middleware);
+      app.get('/test', (c) => c.json({ ok: true }));
+
+      const res = await app.request('/test', {
+        headers: { Authorization: 'Bearer no.schema.token' },
+      });
+
+      expect(res.status).toBe(401);
+    });
+
+    it('passes authorizedParties to verifyToken', async () => {
+      mockVerifyToken.mockResolvedValue({
+        data: {
+          sub: 'user_test',
+          org_metadata: { schema_name: 'tenant_test' },
+        },
+        errors: undefined,
+      } as any);
+
+      const middleware = createTenantMiddleware({
+        secretKey: 'sk_test_xxxxx',
+        authorizedParties: ['https://app.example.com', 'https://admin.example.com'],
+      });
+
+      const app = new Hono<Env>();
+      app.use('*', middleware);
+      app.get('/test', (c) => c.json({ ok: true }));
+
+      await app.request('/test', {
+        headers: { Authorization: 'Bearer test.token' },
+      });
+
+      expect(mockVerifyToken).toHaveBeenCalledWith('test.token', {
+        secretKey: 'sk_test_xxxxx',
+        jwtKey: undefined,
+        authorizedParties: ['https://app.example.com', 'https://admin.example.com'],
+      });
+    });
   });
 });

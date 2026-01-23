@@ -6,6 +6,7 @@ export {
   SubscriptionStatus,
   ProvisioningStatus
 } from './Organization.js';
+export { ApiKey } from './ApiKey.js';
 export { Category, CategoryType } from './Category.js';
 export { UnitDefinition } from './UnitDefinition.js';
 export {
@@ -22,6 +23,7 @@ export { WebhookEvent, WebhookStatus } from './WebhookEvent.js';
 
 // Import classes for entity arrays
 import { Organization } from './Organization.js';
+import { ApiKey } from './ApiKey.js';
 import { OutboxEvent } from './OutboxEvent.js';
 import { WebhookEvent } from './WebhookEvent.js';
 import { Category } from './Category.js';
@@ -37,6 +39,7 @@ import { AuditLog } from './AuditLog.js';
  */
 export const publicEntities = [
   Organization,
+  ApiKey,
   OutboxEvent,
   WebhookEvent,
 ];

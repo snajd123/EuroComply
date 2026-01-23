@@ -1,98 +1,48 @@
-import { describe, it, expect } from 'vitest';
-import { verifyZitadelWebhook } from './webhook.js';
-import { createHmac } from 'crypto';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { Hono } from 'hono';
+import { clerkWebhookMiddleware, verifyClerkWebhook } from './webhook.js';
 
-describe('verifyZitadelWebhook', () => {
-  const signingKey = 'test-signing-key-12345';
-
-  function createValidSignature(payload: string, timestamp: number): string {
-    const signedPayload = `${timestamp}.${payload}`;
-    const hmac = createHmac('sha256', signingKey);
-    hmac.update(signedPayload);
-    const signature = hmac.digest('hex');
-    return `t=${timestamp},v1=${signature}`;
-  }
-
-  it('returns valid for correct signature', () => {
-    const payload = '{"type":"org.created","data":{"id":"org_123"}}';
-    const timestamp = Math.floor(Date.now() / 1000);
-    const signature = createValidSignature(payload, timestamp);
-
-    const result = verifyZitadelWebhook({
-      payload,
-      signature,
-      signingKey,
+describe('webhook middleware', () => {
+  describe('verifyClerkWebhook', () => {
+    it('returns false for missing headers', () => {
+      const result = verifyClerkWebhook({
+        payload: '{}',
+        headers: {},
+        secret: 'whsec_test',
+      });
+      expect(result.valid).toBe(false);
+      expect(result.error).toContain('Missing');
     });
 
-    expect(result.valid).toBe(true);
-    expect(result.payload).toEqual(JSON.parse(payload));
+    it('returns false for invalid signature', () => {
+      const result = verifyClerkWebhook({
+        payload: '{"type":"test"}',
+        headers: {
+          'svix-id': 'msg_123',
+          'svix-timestamp': String(Math.floor(Date.now() / 1000)),
+          'svix-signature': 'v1,invalid_signature',
+        },
+        secret: 'whsec_test',
+      });
+      expect(result.valid).toBe(false);
+    });
   });
 
-  it('returns invalid for wrong signature', () => {
-    const payload = '{"type":"org.created"}';
-    const timestamp = Math.floor(Date.now() / 1000);
-    const wrongSignature = `t=${timestamp},v1=wrongsignature`;
+  describe('clerkWebhookMiddleware', () => {
+    it('rejects requests without svix headers', async () => {
+      const app = new Hono();
+      app.use('*', clerkWebhookMiddleware('whsec_test'));
+      app.post('/webhook', (c) => c.json({ ok: true }));
 
-    const result = verifyZitadelWebhook({
-      payload,
-      signature: wrongSignature,
-      signingKey,
+      const res = await app.request('/webhook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'test' }),
+      });
+
+      expect(res.status).toBe(401);
+      const data = (await res.json()) as { error: string };
+      expect(data.error).toBe('Invalid webhook signature');
     });
-
-    expect(result.valid).toBe(false);
-    expect(result.error).toContain('signature');
-  });
-
-  it('returns invalid for missing signature header', () => {
-    const result = verifyZitadelWebhook({
-      payload: '{}',
-      signature: undefined,
-      signingKey,
-    });
-
-    expect(result.valid).toBe(false);
-    expect(result.error).toContain('Missing');
-  });
-
-  it('returns invalid for malformed signature header', () => {
-    const result = verifyZitadelWebhook({
-      payload: '{}',
-      signature: 'malformed-header',
-      signingKey,
-    });
-
-    expect(result.valid).toBe(false);
-    expect(result.error).toContain('Malformed');
-  });
-
-  it('returns invalid for expired timestamp (>5 min old)', () => {
-    const payload = '{"type":"org.created"}';
-    const oldTimestamp = Math.floor(Date.now() / 1000) - 400;
-    const signature = createValidSignature(payload, oldTimestamp);
-
-    const result = verifyZitadelWebhook({
-      payload,
-      signature,
-      signingKey,
-      timestampToleranceSeconds: 300,
-    });
-
-    expect(result.valid).toBe(false);
-    expect(result.error).toContain('expired');
-  });
-
-  it('accepts timestamp within tolerance', () => {
-    const payload = '{"type":"org.created"}';
-    const recentTimestamp = Math.floor(Date.now() / 1000) - 60;
-    const signature = createValidSignature(payload, recentTimestamp);
-
-    const result = verifyZitadelWebhook({
-      payload,
-      signature,
-      signingKey,
-      timestampToleranceSeconds: 300,
-    });
-
-    expect(result.valid).toBe(true);
   });
 });

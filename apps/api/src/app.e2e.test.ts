@@ -35,7 +35,11 @@ function createTestToken(schemaName: string, userId: string): string {
   return `header.${payload}.signature`;
 }
 
+const TEST_ADMIN_KEY = 'test-admin-key-12345';
+
 describe('EuroComply API E2E', () => {
+  // Set admin key for testing
+  process.env['ADMIN_API_KEY'] = TEST_ADMIN_KEY;
   const app = createApp();
 
   beforeEach(() => {
@@ -61,12 +65,20 @@ describe('EuroComply API E2E', () => {
     });
   });
 
-  describe('Organization Flow', () => {
-    it('creates and retrieves organization', async () => {
+  describe('Organization Flow (Admin-Only)', () => {
+    it('rejects requests without admin key', async () => {
+      const res = await app.request('/api/v1/admin/organizations');
+      expect(res.status).toBe(401);
+    });
+
+    it('creates and retrieves organization with admin key', async () => {
       // Create
-      const createRes = await app.request('/api/v1/organizations', {
+      const createRes = await app.request('/api/v1/admin/organizations', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Admin-Key': TEST_ADMIN_KEY,
+        },
         body: JSON.stringify({
           name: 'E2E Test Corp',
           slug: 'e2e-test',
@@ -79,7 +91,9 @@ describe('EuroComply API E2E', () => {
       expect(created.data.schemaName).toBe('tenant_e2e_test');
 
       // Retrieve
-      const getRes = await app.request(`/api/v1/organizations/${orgId}`);
+      const getRes = await app.request(`/api/v1/admin/organizations/${orgId}`, {
+        headers: { 'X-Admin-Key': TEST_ADMIN_KEY },
+      });
       expect(getRes.status).toBe(200);
       const retrieved = (await getRes.json()) as OrganizationResponse;
       expect(retrieved.data.name).toBe('E2E Test Corp');
