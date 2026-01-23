@@ -8,7 +8,7 @@ interface OrganizationResponse {
     name: string;
     slug: string;
     schemaName: string;
-    clerkOrgId?: string;
+    zitadelOrgId?: string;
     regulatoryAdvisorEnabled: boolean;
     enforcementMode: 'ENFORCING' | 'SILENT';
     captureComplianceInSilentMode: boolean;
@@ -46,7 +46,7 @@ describe('organizations routes', () => {
   });
 
   // Note: POST /organizations endpoint has been removed.
-  // Organizations are created exclusively via Clerk webhooks.
+  // Organizations are created exclusively via ZITADEL webhooks.
   // The in-memory router still has POST for test utilities, but
   // the database-backed createOrganizationsRouter() does not.
 
