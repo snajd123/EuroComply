@@ -9,6 +9,7 @@ export {
 } from './Organization.js';
 export { ApiKey } from './ApiKey.js';
 export { Category, CategoryType } from './Category.js';
+export { CategoryAdoption, AdoptionMode } from './CategoryAdoption.js';
 export { UnitDefinition } from './UnitDefinition.js';
 export {
   AttributeTemplate,
@@ -28,6 +29,7 @@ import { ApiKey } from './ApiKey.js';
 import { OutboxEvent } from './OutboxEvent.js';
 import { WebhookEvent } from './WebhookEvent.js';
 import { Category } from './Category.js';
+import { CategoryAdoption } from './CategoryAdoption.js';
 import { UnitDefinition } from './UnitDefinition.js';
 import { AttributeTemplate } from './AttributeTemplate.js';
 import { Product } from './Product.js';
@@ -52,6 +54,7 @@ export const publicEntities = [
  */
 export const tenantEntities = [
   Category,
+  CategoryAdoption,
   AttributeTemplate,
   Product,
   ProductVersion,
