@@ -70,4 +70,7 @@ export class Organization extends BaseEntity {
 
   @Property({ type: 'text', nullable: true, name: 'kms_key_arn' })
   kmsKeyArn?: string;
+
+  @Property({ type: 'json', nullable: true, name: 'unit_preferences' })
+  unitPreferences?: Record<string, string>;  // { "MASS": "KGM", "LENGTH": "MTR" }
 }
