@@ -1,5 +1,6 @@
 import { Entity, Property, Index, ManyToOne, OneToMany, Collection, Enum } from '@mikro-orm/core';
 import { BaseEntity } from './BaseEntity.js';
+import { TargetType } from './enums/index.js';
 
 export enum CategoryType {
   ROOT = 'ROOT',
@@ -21,6 +22,9 @@ export class Category extends BaseEntity {
 
   @Enum({ items: () => CategoryType, default: CategoryType.BRANCH })
   type: CategoryType = CategoryType.BRANCH;
+
+  @Enum({ items: () => TargetType, name: 'target_type', default: TargetType.PRODUCT })
+  targetType: TargetType = TargetType.PRODUCT;
 
   @Property({ type: 'int', default: 0 })
   depth: number = 0;
