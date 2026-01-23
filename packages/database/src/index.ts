@@ -13,6 +13,10 @@ export {
   extractKeyPrefix,
   type CreateApiKeyResult,
   type ValidateApiKeyResult,
+  UnitConversionService,
+  ConversionError,
+  type UnitLookup,
+  type ConversionResult,
 } from './services/index.js';
 
 // Re-export common MikroORM types for convenience
