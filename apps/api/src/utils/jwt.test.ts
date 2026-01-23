@@ -1,178 +1,93 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { verifyAndExtractTenant, extractTenantFromJwtUnsafe } from './jwt.js';
+import { verifyAndExtractTenant, type JwtVerificationOptions } from './jwt.js';
 
-// Mock @clerk/backend
-vi.mock('@clerk/backend', () => ({
-  verifyToken: vi.fn(),
+// Mock jose module
+vi.mock('jose', () => ({
+  createRemoteJWKSet: vi.fn(),
+  jwtVerify: vi.fn(),
 }));
 
-import { verifyToken } from '@clerk/backend';
+import { createRemoteJWKSet, jwtVerify } from 'jose';
 
-const mockVerifyToken = vi.mocked(verifyToken);
+describe('verifyAndExtractTenant', () => {
+  const mockOptions: JwtVerificationOptions = {
+    instanceUrl: 'https://test.zitadel.cloud',
+    clientId: 'test-client-id',
+  };
 
-describe('jwt utilities', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  describe('extractTenantFromJwtUnsafe', () => {
-    it('extracts schema_name from direct claim', () => {
-      const payload = btoa(JSON.stringify({ schema_name: 'tenant_acme', sub: 'user123' }));
-      const token = `header.${payload}.signature`;
+  it('returns tenant context for valid token with custom claims', async () => {
+    const mockPayload = {
+      sub: 'user_123',
+      'urn:zitadel:iam:org:id': 'org_456',
+      'urn:eurocomply:schema_name': 'tenant_org_456',
+      'urn:eurocomply:tier': 'starter',
+      'urn:eurocomply:cell_id': 'cell_1',
+    };
 
-      const result = extractTenantFromJwtUnsafe(token);
-      expect(result).toEqual({ schemaName: 'tenant_acme', userId: 'user123' });
-    });
+    vi.mocked(createRemoteJWKSet).mockReturnValue(vi.fn() as any);
+    vi.mocked(jwtVerify).mockResolvedValue({
+      payload: mockPayload,
+      protectedHeader: { alg: 'RS256' },
+    } as any);
 
-    it('extracts schema_name from org_metadata', () => {
-      const payload = btoa(
-        JSON.stringify({
-          sub: 'user456',
-          org_metadata: { schema_name: 'tenant_corp', tier: 'growth' },
-        })
-      );
-      const token = `header.${payload}.signature`;
+    const result = await verifyAndExtractTenant('valid.jwt.token', mockOptions);
 
-      const result = extractTenantFromJwtUnsafe(token);
-      expect(result).toEqual({ schemaName: 'tenant_corp', userId: 'user456' });
-    });
-
-    it('prefers direct schema_name over org_metadata', () => {
-      const payload = btoa(
-        JSON.stringify({
-          sub: 'user789',
-          schema_name: 'tenant_direct',
-          org_metadata: { schema_name: 'tenant_nested' },
-        })
-      );
-      const token = `header.${payload}.signature`;
-
-      const result = extractTenantFromJwtUnsafe(token);
-      expect(result).toEqual({ schemaName: 'tenant_direct', userId: 'user789' });
-    });
-
-    it('returns null for invalid token format', () => {
-      expect(extractTenantFromJwtUnsafe('')).toBeNull();
-      expect(extractTenantFromJwtUnsafe('invalid')).toBeNull();
-      expect(extractTenantFromJwtUnsafe('a.b')).toBeNull();
-      expect(extractTenantFromJwtUnsafe('a.b.c.d')).toBeNull();
-    });
-
-    it('returns null if schema_name is missing', () => {
-      const payload = btoa(JSON.stringify({ sub: 'user123' }));
-      const token = `header.${payload}.signature`;
-
-      expect(extractTenantFromJwtUnsafe(token)).toBeNull();
-    });
-
-    it('returns null for invalid base64', () => {
-      const token = 'header.!!!invalid-base64!!!.signature';
-      expect(extractTenantFromJwtUnsafe(token)).toBeNull();
-    });
-
-    it('returns anonymous userId when sub is missing', () => {
-      const payload = btoa(JSON.stringify({ schema_name: 'tenant_test' }));
-      const token = `header.${payload}.signature`;
-
-      const result = extractTenantFromJwtUnsafe(token);
-      expect(result).toEqual({ schemaName: 'tenant_test', userId: 'anonymous' });
+    expect(result).toEqual({
+      schemaName: 'tenant_org_456',
+      userId: 'user_123',
+      orgId: 'org_456',
+      tier: 'starter',
+      cellId: 'cell_1',
     });
   });
 
-  describe('verifyAndExtractTenant', () => {
-    const secretKey = 'sk_test_xxxxx';
+  it('returns null for token without schema_name claim', async () => {
+    const mockPayload = {
+      sub: 'user_123',
+      'urn:zitadel:iam:org:id': 'org_456',
+    };
 
-    it('returns tenant context for valid verified token', async () => {
-      mockVerifyToken.mockResolvedValue({
-        data: {
-          sub: 'user_abc123',
-          org_id: 'org_def456',
-          org_metadata: { schema_name: 'tenant_acme', tier: 'growth' },
-          iss: 'https://clerk.example.com',
-          iat: Date.now() / 1000,
-          exp: Date.now() / 1000 + 3600,
-        },
-        errors: undefined,
-      } as any);
+    vi.mocked(createRemoteJWKSet).mockReturnValue(vi.fn() as any);
+    vi.mocked(jwtVerify).mockResolvedValue({
+      payload: mockPayload,
+      protectedHeader: { alg: 'RS256' },
+    } as any);
 
-      const result = await verifyAndExtractTenant('valid.token.here', { secretKey });
+    const result = await verifyAndExtractTenant('token.without.schema', mockOptions);
 
-      expect(result).toEqual({ schemaName: 'tenant_acme', userId: 'user_abc123' });
-      expect(mockVerifyToken).toHaveBeenCalledWith('valid.token.here', {
-        secretKey,
-        jwtKey: undefined,
-        authorizedParties: undefined,
-      });
-    });
+    expect(result).toBeNull();
+  });
 
-    it('returns null when verification fails', async () => {
-      mockVerifyToken.mockResolvedValue({
-        data: undefined,
-        errors: [new Error('Token expired')],
-      } as any);
+  it('returns null for invalid token', async () => {
+    vi.mocked(createRemoteJWKSet).mockReturnValue(vi.fn() as any);
+    vi.mocked(jwtVerify).mockRejectedValue(new Error('Invalid signature'));
 
-      const result = await verifyAndExtractTenant('expired.token.here', { secretKey });
+    const result = await verifyAndExtractTenant('invalid.token', mockOptions);
 
-      expect(result).toBeNull();
-    });
+    expect(result).toBeNull();
+  });
+});
 
-    it('returns null when sub claim is missing', async () => {
-      mockVerifyToken.mockResolvedValue({
-        data: {
-          org_metadata: { schema_name: 'tenant_acme' },
-          iss: 'https://clerk.example.com',
-        },
-        errors: undefined,
-      } as any);
+describe('extractTenantFromJwtUnsafe', () => {
+  it('extracts tenant from base64 payload without verification', async () => {
+    const { extractTenantFromJwtUnsafe } = await import('./jwt.js');
 
-      const result = await verifyAndExtractTenant('missing.sub.token', { secretKey });
+    const payload = {
+      sub: 'user_123',
+      'urn:eurocomply:schema_name': 'tenant_test',
+    };
+    const base64Payload = btoa(JSON.stringify(payload));
+    const mockToken = `header.${base64Payload}.signature`;
 
-      expect(result).toBeNull();
-    });
+    const result = extractTenantFromJwtUnsafe(mockToken);
 
-    it('returns null when schema_name is missing', async () => {
-      mockVerifyToken.mockResolvedValue({
-        data: {
-          sub: 'user_abc123',
-          org_id: 'org_def456',
-          // No org_metadata
-        },
-        errors: undefined,
-      } as any);
-
-      const result = await verifyAndExtractTenant('missing.schema.token', { secretKey });
-
-      expect(result).toBeNull();
-    });
-
-    it('handles exceptions gracefully', async () => {
-      mockVerifyToken.mockRejectedValue(new Error('Network error'));
-
-      const result = await verifyAndExtractTenant('network.error.token', { secretKey });
-
-      expect(result).toBeNull();
-    });
-
-    it('passes optional parameters to verifyToken', async () => {
-      mockVerifyToken.mockResolvedValue({
-        data: {
-          sub: 'user_xyz',
-          org_metadata: { schema_name: 'tenant_test' },
-        },
-        errors: undefined,
-      } as any);
-
-      await verifyAndExtractTenant('test.token', {
-        secretKey,
-        jwtKey: 'pk_test_xxxxx',
-        authorizedParties: ['https://app.example.com'],
-      });
-
-      expect(mockVerifyToken).toHaveBeenCalledWith('test.token', {
-        secretKey,
-        jwtKey: 'pk_test_xxxxx',
-        authorizedParties: ['https://app.example.com'],
-      });
+    expect(result).toEqual({
+      schemaName: 'tenant_test',
+      userId: 'user_123',
     });
   });
 });

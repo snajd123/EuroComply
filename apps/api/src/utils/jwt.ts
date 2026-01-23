@@ -1,88 +1,72 @@
-import { verifyToken } from '@clerk/backend';
+import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose';
 import type { TenantContext } from '../middleware/tenant.js';
 
-/**
- * Options for JWT verification
- */
 export interface JwtVerificationOptions {
-  /** Clerk secret key for API calls to fetch JWKS */
-  secretKey: string;
-  /** Optional: Clerk JWT public key for networkless verification */
-  jwtKey?: string;
-  /** Optional: List of authorized parties (origins) that can use this token */
-  authorizedParties?: string[];
+  instanceUrl: string;
+  clientId?: string;
 }
 
-/**
- * Clerk JWT payload structure with organization metadata
- */
-interface ClerkOrgMetadata {
-  schema_name?: string;
+export interface ZitadelTenantContext extends TenantContext {
+  orgId?: string;
   tier?: string;
-  cell_id?: string;
+  cellId?: string;
 }
 
-/**
- * Verifies a Clerk JWT token and extracts tenant context.
- *
- * This function:
- * 1. Verifies the JWT signature against Clerk's JWKS
- * 2. Validates standard JWT claims (exp, iat, nbf)
- * 3. Extracts the tenant schema_name from org_metadata
- *
- * @param token - The JWT token to verify
- * @param options - Verification options including Clerk secret key
- * @returns TenantContext if valid, null otherwise
- */
+interface ZitadelJwtPayload extends JWTPayload {
+  'urn:zitadel:iam:org:id'?: string;
+  'urn:eurocomply:schema_name'?: string;
+  'urn:eurocomply:tier'?: string;
+  'urn:eurocomply:cell_id'?: string;
+}
+
+const jwksCache = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
+
+function getJWKS(instanceUrl: string) {
+  const cached = jwksCache.get(instanceUrl);
+  if (cached) return cached;
+
+  const jwksUrl = new URL('/.well-known/jwks.json', instanceUrl);
+  const jwks = createRemoteJWKSet(jwksUrl);
+  jwksCache.set(instanceUrl, jwks);
+  return jwks;
+}
+
 export async function verifyAndExtractTenant(
   token: string,
   options: JwtVerificationOptions
-): Promise<TenantContext | null> {
+): Promise<ZitadelTenantContext | null> {
   try {
-    const result = await verifyToken(token, {
-      secretKey: options.secretKey,
-      jwtKey: options.jwtKey,
-      authorizedParties: options.authorizedParties,
+    const jwks = getJWKS(options.instanceUrl);
+
+    const { payload } = await jwtVerify(token, jwks, {
+      audience: options.clientId,
+      issuer: options.instanceUrl,
     });
 
-    // verifyToken returns { data, errors } discriminated union
-    if (result.errors) {
-      return null;
-    }
+    const zitadelPayload = payload as ZitadelJwtPayload;
 
-    const payload = result.data;
-
-    // Extract user ID from 'sub' claim
-    const userId = payload.sub;
+    const userId = zitadelPayload.sub;
     if (!userId) {
       return null;
     }
 
-    // Extract schema_name from org_metadata (custom claim configured in Clerk)
-    // Clerk allows adding custom claims to JWTs via session token customization
-    const orgMetadata = payload.org_metadata as ClerkOrgMetadata | undefined;
-    const schemaName = orgMetadata?.schema_name;
-
+    const schemaName = zitadelPayload['urn:eurocomply:schema_name'];
     if (!schemaName || typeof schemaName !== 'string') {
       return null;
     }
 
-    return { schemaName, userId };
+    return {
+      schemaName,
+      userId,
+      orgId: zitadelPayload['urn:zitadel:iam:org:id'],
+      tier: zitadelPayload['urn:eurocomply:tier'],
+      cellId: zitadelPayload['urn:eurocomply:cell_id'],
+    };
   } catch {
-    // Any unexpected errors during verification
     return null;
   }
 }
 
-/**
- * Extracts tenant context from a JWT token WITHOUT signature verification.
- *
- * WARNING: This is INSECURE and should only be used for:
- * - Unit tests with mock tokens
- * - Development environments without Clerk
- *
- * @deprecated Use verifyAndExtractTenant for production
- */
 export function extractTenantFromJwtUnsafe(token: string): TenantContext | null {
   try {
     const parts = token.split('.');
@@ -90,11 +74,9 @@ export function extractTenantFromJwtUnsafe(token: string): TenantContext | null 
       return null;
     }
 
-    // Base64 decode the payload (middle part)
     const payload = JSON.parse(atob(parts[1]!));
 
-    // Support both direct schema_name and nested org_metadata.schema_name
-    const schemaName = payload.schema_name ?? payload.org_metadata?.schema_name;
+    const schemaName = payload['urn:eurocomply:schema_name'] ?? payload.schema_name;
     const userId = payload.sub;
 
     if (!schemaName || typeof schemaName !== 'string') {
