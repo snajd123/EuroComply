@@ -170,9 +170,9 @@ export class TenantProvisioner {
       SELECT COUNT(*) as count
       FROM information_schema.tables
       WHERE table_schema = '${schemaName}'
-        AND table_name IN ('category', 'product', 'product_version')
+        AND table_name IN ('category', 'product', 'product_version', 'users', 'organization_users')
     `);
-    return parseInt(result[0]?.count ?? '0', 10) >= 3;
+    return parseInt(result[0]?.count ?? '0', 10) >= 5;
   }
 
   /**

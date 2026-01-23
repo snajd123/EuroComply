@@ -61,6 +61,8 @@ describe('TenantProvisioner', () => {
     expect(tableNames).toContain('category');
     expect(tableNames).toContain('product');
     expect(tableNames).toContain('product_version');
+    expect(tableNames).toContain('users');
+    expect(tableNames).toContain('organization_users');
   });
 
   it('provisions complete tenant', async (context) => {
