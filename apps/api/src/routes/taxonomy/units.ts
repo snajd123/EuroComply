@@ -2,7 +2,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
-import { UnitSystem, UnitConversionService, type UnitLookup } from '@eurocomply/database';
+import { UnitSystem, UnitConversionService, type UnitLookup, type UnitInfo } from '@eurocomply/database';
 
 // ============================================================================
 // Types
@@ -49,30 +49,25 @@ export function createUnitsRouter(repo: UnitsRepository) {
 
   // Create unit lookup adapter for conversion service
   const lookup: UnitLookup = {
-    findUnit: async (code) => {
+    findUnit: async (code): Promise<UnitInfo | null> => {
       const unit = await repo.findByCode(code);
       if (!unit) return null;
-      // Map to UnitDefinition-like object
       return {
         code: unit.code,
-        name: unit.name,
-        symbol: unit.symbol,
         system: unit.system,
         factor: unit.factor,
         isBase: unit.isBase,
-      } as any;
+      };
     },
-    findBaseUnit: async (system) => {
+    findBaseUnit: async (system): Promise<UnitInfo | null> => {
       const unit = await repo.findBaseUnit(system);
       if (!unit) return null;
       return {
         code: unit.code,
-        name: unit.name,
-        symbol: unit.symbol,
         system: unit.system,
         factor: unit.factor,
         isBase: unit.isBase,
-      } as any;
+      };
     },
   };
 

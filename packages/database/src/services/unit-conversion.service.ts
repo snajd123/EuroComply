@@ -1,4 +1,3 @@
-import { UnitDefinition } from '../entities/UnitDefinition.js';
 import { UnitSystem } from '../entities/enums/index.js';
 
 export class ConversionError extends Error {
@@ -8,9 +7,20 @@ export class ConversionError extends Error {
   }
 }
 
+/**
+ * Minimal unit info needed for conversion operations.
+ * This is a subset of UnitDefinition that can be provided by any data source.
+ */
+export interface UnitInfo {
+  code: string;
+  system: UnitSystem;
+  factor: string;
+  isBase: boolean;
+}
+
 export interface UnitLookup {
-  findUnit(code: string): Promise<UnitDefinition | null>;
-  findBaseUnit(system: UnitSystem): Promise<UnitDefinition | null>;
+  findUnit(code: string): Promise<UnitInfo | null>;
+  findBaseUnit(system: UnitSystem): Promise<UnitInfo | null>;
 }
 
 export interface ConversionResult {

@@ -1,8 +1,20 @@
 // apps/api/src/routes/taxonomy/units.test.ts
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Hono } from 'hono';
-import { createUnitsRouter } from './units.js';
+import { createUnitsRouter, type UnitData } from './units.js';
 import { UnitSystem } from '@eurocomply/database';
+
+interface ApiResponse<T> {
+  data: T;
+  meta?: { total: number };
+  error?: string;
+  message?: string;
+}
+
+interface ConversionData {
+  from: { val: number; unit: string };
+  to: { val: number; unit: string };
+}
 
 // Mock unit data
 const mockUnits = [
@@ -37,16 +49,16 @@ describe('units routes', () => {
     it('returns all units', async () => {
       const res = await app.request('/units');
       expect(res.status).toBe(200);
-      const data = await res.json();
-      expect(data.data).toHaveLength(3);
+      const body = await res.json() as ApiResponse<UnitData[]>;
+      expect(body.data).toHaveLength(3);
     });
 
     it('filters by system', async () => {
       const res = await app.request('/units?system=MASS');
       expect(res.status).toBe(200);
-      const data = await res.json();
-      expect(data.data).toHaveLength(2);
-      expect(data.data.every((u: any) => u.system === 'MASS')).toBe(true);
+      const body = await res.json() as ApiResponse<UnitData[]>;
+      expect(body.data).toHaveLength(2);
+      expect(body.data.every((u) => u.system === 'MASS')).toBe(true);
     });
   });
 
@@ -54,9 +66,9 @@ describe('units routes', () => {
     it('returns unit by code', async () => {
       const res = await app.request('/units/KGM');
       expect(res.status).toBe(200);
-      const data = await res.json();
-      expect(data.data.code).toBe('KGM');
-      expect(data.data.name).toBe('Kilogram');
+      const body = await res.json() as ApiResponse<UnitData>;
+      expect(body.data.code).toBe('KGM');
+      expect(body.data.name).toBe('Kilogram');
     });
 
     it('returns 404 for unknown code', async () => {
@@ -69,11 +81,11 @@ describe('units routes', () => {
     it('converts between units', async () => {
       const res = await app.request('/units/convert?from=GRM&to=KGM&value=500');
       expect(res.status).toBe(200);
-      const data = await res.json();
-      expect(data.data.from.val).toBe(500);
-      expect(data.data.from.unit).toBe('GRM');
-      expect(data.data.to.val).toBeCloseTo(0.5, 10);
-      expect(data.data.to.unit).toBe('KGM');
+      const body = await res.json() as ApiResponse<ConversionData>;
+      expect(body.data.from.val).toBe(500);
+      expect(body.data.from.unit).toBe('GRM');
+      expect(body.data.to.val).toBeCloseTo(0.5, 10);
+      expect(body.data.to.unit).toBe('KGM');
     });
 
     it('returns 400 for missing parameters', async () => {

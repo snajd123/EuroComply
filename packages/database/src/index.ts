@@ -16,6 +16,7 @@ export {
   UnitConversionService,
   ConversionError,
   type UnitLookup,
+  type UnitInfo,
   type ConversionResult,
 } from './services/index.js';
 
