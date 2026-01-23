@@ -1,7 +1,7 @@
 import { Migration } from '@mikro-orm/migrations';
 
 export class Migration20260123_UnitDefinitionUnece extends Migration {
-  async up(): Promise<void> {
+  override async up(): Promise<void> {
     // Drop old table if exists (clean slate for new schema)
     this.addSql('DROP TABLE IF EXISTS "public"."unit_definition" CASCADE;');
 
@@ -30,7 +30,7 @@ export class Migration20260123_UnitDefinitionUnece extends Migration {
     this.addSql('CREATE INDEX "unit_definition_system_index" ON "public"."unit_definition" ("system");');
   }
 
-  async down(): Promise<void> {
+  override async down(): Promise<void> {
     this.addSql('DROP TABLE IF EXISTS "public"."unit_definition" CASCADE;');
   }
 }
