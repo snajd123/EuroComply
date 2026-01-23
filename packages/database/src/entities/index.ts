@@ -22,6 +22,9 @@ export { ProductVersion, VersionStatus } from './ProductVersion.js';
 export { OutboxEvent, OutboxStatus } from './OutboxEvent.js';
 export { AuditLog, AuditAction } from './AuditLog.js';
 export { WebhookEvent, WebhookStatus } from './WebhookEvent.js';
+export { WorkspaceAuthority } from './WorkspaceAuthority.js';
+export { User } from './User.js';
+export { OrganizationUser } from './OrganizationUser.js';
 
 // Import classes for entity arrays
 import { Organization } from './Organization.js';
@@ -35,6 +38,8 @@ import { AttributeTemplate } from './AttributeTemplate.js';
 import { Product } from './Product.js';
 import { ProductVersion } from './ProductVersion.js';
 import { AuditLog } from './AuditLog.js';
+import { User } from './User.js';
+import { OrganizationUser } from './OrganizationUser.js';
 
 /**
  * Entities that belong in the PUBLIC schema.
@@ -59,4 +64,6 @@ export const tenantEntities = [
   Product,
   ProductVersion,
   AuditLog,
+  User,
+  OrganizationUser,
 ];
