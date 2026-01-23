@@ -43,6 +43,7 @@ export const publicEntities = [
   ApiKey,
   OutboxEvent,
   WebhookEvent,
+  UnitDefinition,
 ];
 
 /**
@@ -51,7 +52,6 @@ export const publicEntities = [
  */
 export const tenantEntities = [
   Category,
-  UnitDefinition,
   AttributeTemplate,
   Product,
   ProductVersion,
