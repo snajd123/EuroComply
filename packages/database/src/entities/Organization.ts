@@ -24,6 +24,8 @@ export enum ProvisioningStatus {
   PROVISIONING = 'PROVISIONING',
   READY = 'READY',
   FAILED = 'FAILED',
+  DELETING = 'DELETING',
+  DELETE_FAILED = 'DELETE_FAILED',
 }
 
 @Entity({ tableName: 'organizations', schema: 'public' })
@@ -40,9 +42,9 @@ export class Organization extends BaseEntity {
   @Unique()
   schemaName!: string;
 
-  @Property({ type: 'text', nullable: true, name: 'clerk_org_id' })
+  @Property({ type: 'text', nullable: true, name: 'zitadel_org_id' })
   @Unique()
-  clerkOrgId?: string;
+  zitadelOrgId?: string;
 
   @Property({ type: 'text', default: 'cell_1', name: 'cell_id' })
   cellId: string = 'cell_1';
@@ -58,6 +60,9 @@ export class Organization extends BaseEntity {
 
   @Property({ type: 'text', nullable: true, name: 'provisioning_error' })
   provisioningError?: string;
+
+  @Property({ nullable: true, name: 'provisioning_started_at' })
+  provisioningStartedAt?: Date;
 
   @Property({ type: 'boolean', name: 'regulatory_advisor_enabled', default: true })
   regulatoryAdvisorEnabled: boolean = true;
