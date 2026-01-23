@@ -1,0 +1,12 @@
+export enum UnitSystem {
+  MASS = 'MASS',
+  LENGTH = 'LENGTH',
+  AREA = 'AREA',
+  VOLUME = 'VOLUME',
+  TEMPERATURE = 'TEMPERATURE',
+  PERCENTAGE = 'PERCENTAGE',
+  COUNT = 'COUNT',
+  TIME = 'TIME',
+  ENERGY = 'ENERGY',
+  CURRENCY = 'CURRENCY',
+}

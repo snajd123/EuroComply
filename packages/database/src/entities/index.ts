@@ -1,4 +1,5 @@
 export { BaseEntity } from './BaseEntity.js';
+export { UnitSystem } from './enums/index.js';
 export {
   Organization,
   EnforcementMode,
