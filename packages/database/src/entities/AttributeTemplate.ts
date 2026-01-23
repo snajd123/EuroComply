@@ -2,10 +2,12 @@ import { Entity, Property, ManyToOne, Enum, Index } from '@mikro-orm/core';
 import { BaseEntity } from './BaseEntity.js';
 import { Category } from './Category.js';
 import { UnitDefinition } from './UnitDefinition.js';
+import { TargetType, UnitSystem } from './enums/index.js';
 
 export enum AttributeType {
   STRING = 'STRING',
   NUMBER = 'NUMBER',
+  NUMBER_UNIT = 'NUMBER_UNIT',
   BOOLEAN = 'BOOLEAN',
   DATE = 'DATE',
   ENUM = 'ENUM',
@@ -48,8 +50,21 @@ export class AttributeTemplate extends BaseEntity {
   @ManyToOne(() => Category, { name: 'category_id' })
   category!: Category;
 
+  @Enum({ items: () => TargetType, name: 'target_type', default: TargetType.PRODUCT })
+  targetType: TargetType = TargetType.PRODUCT;
+
   @ManyToOne(() => UnitDefinition, { nullable: true, name: 'unit_id' })
   unit?: UnitDefinition;
+
+  // Soft link to public.unit_definitions (for cell scaling)
+  @Property({ type: 'text', nullable: true, name: 'default_unit_id' })
+  defaultUnitId?: string;
+
+  @Enum({ items: () => UnitSystem, nullable: true, name: 'unit_system' })
+  unitSystem?: UnitSystem;
+
+  @Property({ type: 'text', nullable: true, name: 'weight_basis_key' })
+  weightBasisKey?: string;  // For WEIGHTED_AVG: attribute key to weight by
 
   @Enum({ items: () => RollupMethod, name: 'rollup_method', default: RollupMethod.NONE })
   rollupMethod: RollupMethod = RollupMethod.NONE;
