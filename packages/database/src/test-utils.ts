@@ -47,9 +47,9 @@ export async function teardownTestDb(): Promise<void> {
 
 export async function clearTestDb(em: EntityManager): Promise<void> {
   const connection = em.getConnection();
-  // Only clear PUBLIC schema tables (Organization, OutboxEvent)
+  // Only clear PUBLIC schema tables (Organization, OutboxEvent, WebhookEvent)
   // Tenant tables are in tenant schemas, not public
-  const publicTables = ['outbox_event', 'organizations'];
+  const publicTables = ['outbox_event', 'organizations', 'webhook_events'];
 
   for (const table of publicTables) {
     try {

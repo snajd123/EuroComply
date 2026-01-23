@@ -1,7 +1,7 @@
 # Architecture Design
 
 **Status:** Active
-**Last Updated:** 2026-01-21
+**Last Updated:** 2026-01-23
 
 ---
 
@@ -134,7 +134,7 @@ Product is the central entity that all workspaces reference. Products include fi
 | **Item Store** | DynamoDB | High-scale key-value (items, events) |
 | **File Storage** | Cloudflare R2 | DPP files, images, zero egress |
 | **CDN** | Cloudflare | Edge caching, DDoS protection |
-| **Auth** | Clerk | Authentication, SSO |
+| **Auth** | ZITADEL | Authentication, SSO, Organizations |
 | **Signing** | walt.id | DID/VC signing |
 
 ### MikroORM Configuration
@@ -198,19 +198,17 @@ tenant_{slug}.status_lists           -- Revocation registry
 
 ### Tenant Context via JWT (Zero DB Lookups)
 
-**Critical optimization:** Store tenant metadata in Clerk JWT to avoid database hits on every request.
+**Critical optimization:** Store tenant metadata in ZITADEL JWT custom claims to avoid database hits on every request.
 
-**Clerk Session Token Configuration:**
+**ZITADEL JWT Custom Claims (via Actions):**
 
-```typescript
-// Set in Clerk organization metadata (at org creation/update)
+```json
 {
-  "org_id": "org_abc123",
-  "org_metadata": {
-    "schema_name": "tenant_abc123",
-    "tier": "growth",
-    "cell_id": "cell_1"
-  }
+  "sub": "user_123",
+  "urn:zitadel:iam:org:id": "org_456",
+  "urn:eurocomply:schema_name": "tenant_org_456",
+  "urn:eurocomply:tier": "starter",
+  "urn:eurocomply:cell_id": "cell_1"
 }
 ```
 
@@ -222,9 +220,9 @@ import { MikroORM } from '@mikro-orm/postgresql';
 
 export function tenantMiddleware(orm: MikroORM) {
   return async (c: Context, next: Next) => {
-    // Read schema directly from JWT - NO database lookup
-    const sessionClaims = c.get('sessionClaims');
-    const schemaName = sessionClaims.org_metadata?.schema_name;
+    // Read schema directly from JWT custom claims - NO database lookup
+    const claims = c.get('jwtPayload');
+    const schemaName = claims['urn:eurocomply:schema_name'];
 
     if (!schemaName) {
       throw new HTTPException(400, { message: 'Organization not configured' });
@@ -234,7 +232,7 @@ export function tenantMiddleware(orm: MikroORM) {
     const tenantEm = orm.em.fork({ schema: schemaName });
     c.set('em', tenantEm);
     c.set('schemaName', schemaName);
-    c.set('tier', sessionClaims.org_metadata?.tier);
+    c.set('tier', claims['urn:eurocomply:tier']);
 
     await next();
 
@@ -248,9 +246,9 @@ export function tenantMiddleware(orm: MikroORM) {
 
 | Event | Action |
 |-------|--------|
-| Organization created | Set `schema_name`, `tier`, `cell_id` in Clerk |
-| Tier upgraded/downgraded | Update `tier` in Clerk |
-| Tenant migrated to new cell | Update `cell_id` in Clerk |
+| Organization created | Set custom claims via ZITADEL Actions |
+| Tier upgraded/downgraded | Update `urn:eurocomply:tier` in ZITADEL Actions |
+| Tenant migrated to new cell | Update `urn:eurocomply:cell_id` in ZITADEL Actions |
 
 **Fallback for edge cases:**
 
@@ -261,8 +259,8 @@ if (!schemaName) {
   if (!org) throw new HTTPException(404, { message: 'Organization not found' });
   schemaName = org.schemaName;
 
-  // Update Clerk metadata asynchronously (self-healing)
-  updateClerkOrgMetadata(organizationId, { schema_name: org.schemaName });
+  // Update ZITADEL Actions metadata asynchronously (self-healing)
+  updateZitadelOrgMetadata(organizationId, { schema_name: org.schemaName });
 }
 ```
 
@@ -374,67 +372,68 @@ async function startServer() {
 
 ## 5. Authentication
 
-### Provider: Clerk
+### Provider: ZITADEL Cloud (EU)
 
 Selected for:
-- Modern B2B features (organizations, roles)
-- SSO/SAML support (Enterprise tier)
+- Swiss-based company, EU data hosting (GDPR compliant)
+- Built-in organizations with per-org SSO
+- Modern B2B features (organizations, roles, Actions)
+- SSO/SAML support included
 - OAuth support (Shopify integration)
-- Reasonable pricing at B2B scale
+- Open source core, transparent security
 
 ### Authentication Flow
 
 ```
 USER LOGIN
 1. User visits app.eurocomply.eu
-2. Clerk handles login (magic link, password, or SSO)
-3. Clerk issues session token with org_metadata
-4. EuroComply API validates token via Clerk SDK
-5. Middleware reads schema_name from JWT (no DB lookup)
+2. ZITADEL handles login (password, passkeys, or SSO)
+3. ZITADEL issues JWT with custom claims (via Actions)
+4. EuroComply API validates token via ZITADEL JWKS
+5. Middleware reads schema_name from JWT custom claims (no DB lookup)
 6. API checks workspace authorities from session
 
 SESSION MANAGEMENT
-- Clerk manages session tokens
+- ZITADEL manages session tokens
 - HttpOnly, Secure cookies
 - Automatic refresh
-- Session revocation via Clerk dashboard
+- Session revocation via ZITADEL Console
 
 SSO (Enterprise)
 - SAML 2.0: Okta, Azure AD, OneLogin
 - OIDC: Google Workspace, Azure AD, Auth0
-- Configured per organization in Clerk
+- Configured per organization in ZITADEL
 ```
 
-### Clerk Organization Metadata
+### ZITADEL Custom Claims (via Actions)
 
 ```typescript
-// Set when organization is created
-await clerk.organizations.update(orgId, {
-  publicMetadata: {
-    schema_name: `tenant_${slug}`,
-    tier: 'starter',
-    cell_id: 'cell_1',
-  }
-});
+// ZITADEL Action: Inject custom claims at token issuance
+function setClaims(ctx, api) {
+  // Claims are set based on organization metadata
+  api.claims.setClaim('urn:eurocomply:schema_name', `tenant_${ctx.v1.user.orgId}`);
+  api.claims.setClaim('urn:eurocomply:tier', ctx.v1.org.metadata.tier || 'starter');
+  api.claims.setClaim('urn:eurocomply:cell_id', ctx.v1.org.metadata.cell_id || 'cell_1');
+}
 ```
 
-### Clerk + walt.id Integration
+### ZITADEL + walt.id Integration
 
 ```
-AUTHENTICATION (Clerk)          SIGNING (walt.id)
+AUTHENTICATION (ZITADEL)        SIGNING (walt.id)
 - User login/sessions           - DID generation
 - Organization management       - Key storage (Custodian)
 - SSO/SAML                      - VC signing
 - JWT issuance                  - Signature verification
 
 INTEGRATION FLOW
-1. User logs in via Clerk -> clerk_user_id assigned
+1. User logs in via ZITADEL -> zitadel_user_id assigned
 2. First action requiring signature:
    - Generate Ed25519 keypair in walt.id
    - Derive did:key from public key
-   - Store mapping: clerk_user_id -> walt_id_key_id -> did
+   - Store mapping: zitadel_user_id -> walt_id_key_id -> did
 3. Subsequent signatures:
-   - Look up walt_id_key_id from clerk_user_id
+   - Look up walt_id_key_id from zitadel_user_id
    - Sign via walt.id Custodian API
 ```
 
@@ -442,19 +441,30 @@ INTEGRATION FLOW
 
 ## 5.1 Organization Lifecycle
 
-### Creation (Clerk-Only)
+### Creation (ZITADEL-Only)
 
-Organizations are created **exclusively** through Clerk webhooks:
+Organizations are created **exclusively** through ZITADEL Actions v2 webhooks:
 
-1. User creates organization in Clerk (via frontend UI)
-2. Clerk sends `organization.created` webhook
+1. User creates organization in ZITADEL (via frontend UI)
+2. ZITADEL sends `org.created` webhook
 3. Backend creates Organization record + provisions tenant schema
 4. Status updated to READY
 
 **There is no public API endpoint to create organizations.** This ensures:
-- Single source of truth (Clerk)
+- Single source of truth (ZITADEL)
 - Consistent provisioning flow
 - No orphaned organizations
+
+### Deletion (ZITADEL-Only)
+
+Organizations are deleted **exclusively** through ZITADEL Actions v2 webhooks:
+
+1. Admin deletes organization in ZITADEL
+2. ZITADEL sends `org.removed` webhook
+3. Backend creates audit event, drops tenant schema, deletes Organization record
+4. All tenant data is permanently removed
+
+**Warning:** This is a destructive operation. All tenant data is permanently deleted.
 
 ### Admin Operations
 
@@ -957,7 +967,7 @@ READ PATH (Cloudflare Global)
   - CDN: Edge caching (<50ms global)
 
 EXTERNAL SERVICES
-  - Clerk: Authentication
+  - ZITADEL: Authentication (EU region)
   - walt.id: VC signing
 ```
 
@@ -988,7 +998,7 @@ EXTERNAL SERVICES
 |-------|----------------|
 | **Edge** | Cloudflare WAF, DDoS protection |
 | **Network** | VPC, private subnets, security groups |
-| **Authentication** | Clerk, JWT validation |
+| **Authentication** | ZITADEL, JWT validation |
 | **Authorization** | RBAC per workspace |
 | **Tenant isolation** | Schema-per-tenant (PostgreSQL) |
 | **Encryption at rest** | Per-tenant KMS DEKs |
@@ -1058,6 +1068,7 @@ AWS KMS Master Key (per-cell)
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.3 | 2026-01-23 | Migrated authentication from Clerk to ZITADEL Cloud EU |
 | 2.2 | 2026-01-21 | Added feature toggles to Regulatory Advisor section; noted optional nature with enable/silent/enforcing modes |
 | 2.1 | 2026-01-21 | Added Regulation Layer (Section 8); Regulatory Advisor cross-cutting layer; template ownership model; soft gate workflow |
 | 2.0 | 2026-01-21 | Rewritten for MikroORM, JWT-based tenant context, parallel migrations |

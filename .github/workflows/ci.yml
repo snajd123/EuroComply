@@ -122,7 +122,7 @@ jobs:
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/eurocomply_test?schema=public
       REDIS_URL: redis://localhost:6379
-      CLERK_SECRET_KEY: test_clerk_secret_key
+      ZITADEL_INSTANCE_URL: https://test.zitadel.cloud
       NODE_ENV: test
 
     steps:
@@ -272,7 +272,7 @@ jobs:
             -e NODE_ENV=production \
             -e DATABASE_URL=postgresql://test:test@localhost:5432/test \
             -e REDIS_URL=redis://localhost:6379 \
-            -e CLERK_SECRET_KEY=test_key \
+            -e ZITADEL_INSTANCE_URL=https://test.zitadel.cloud \
             eurocomply-api:${{ github.sha }} \
             node --version || true
 

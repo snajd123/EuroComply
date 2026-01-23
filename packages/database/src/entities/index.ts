@@ -18,10 +18,12 @@ export { Product, ProductStatus } from './Product.js';
 export { ProductVersion, VersionStatus } from './ProductVersion.js';
 export { OutboxEvent, OutboxStatus } from './OutboxEvent.js';
 export { AuditLog, AuditAction } from './AuditLog.js';
+export { WebhookEvent, WebhookStatus } from './WebhookEvent.js';
 
 // Import classes for entity arrays
 import { Organization } from './Organization.js';
 import { OutboxEvent } from './OutboxEvent.js';
+import { WebhookEvent } from './WebhookEvent.js';
 import { Category } from './Category.js';
 import { UnitDefinition } from './UnitDefinition.js';
 import { AttributeTemplate } from './AttributeTemplate.js';
@@ -36,6 +38,7 @@ import { AuditLog } from './AuditLog.js';
 export const publicEntities = [
   Organization,
   OutboxEvent,
+  WebhookEvent,
 ];
 
 /**

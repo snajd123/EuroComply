@@ -45,7 +45,7 @@ GET /api/v1
 
 ## 3. Organizations (Read-Only Routes)
 
-> **Note:** Organizations are created exclusively via Clerk webhooks. There is no public API endpoint to create organizations. This ensures Clerk is the single source of truth.
+> **Note:** Organizations are created exclusively via ZITADEL Actions v2 webhooks. There is no public API endpoint to create organizations. This ensures ZITADEL is the single source of truth.
 
 ### GET /api/v1/organizations
 List all organizations.
@@ -99,7 +99,7 @@ GET /api/v1/organizations/abc123xyz
 ## 4. Admin Operations
 
 ### GET /api/v1/admin/organizations/:id/status
-Get organization provisioning status. Accepts internal ID or Clerk org ID.
+Get organization provisioning status. Accepts internal ID or ZITADEL org ID.
 
 **Request:**
 ```
@@ -112,7 +112,7 @@ GET /api/v1/admin/organizations/abc123xyz/status
   "id": "abc123xyz",
   "name": "Acme Corporation",
   "schemaName": "tenant_acme_corp",
-  "clerkOrgId": null,
+  "zitadelOrgId": null,
   "provisioningStatus": "PENDING",
   "provisioningError": null
 }
@@ -123,6 +123,8 @@ Possible `provisioningStatus` values:
 - `PROVISIONING` - Currently being provisioned
 - `READY` - Successfully provisioned
 - `FAILED` - Provisioning failed (check `provisioningError`)
+- `DELETING` - Deletion in progress
+- `DELETE_FAILED` - Deletion failed (check `provisioningError`)
 
 ---
 
@@ -166,6 +168,81 @@ POST /api/v1/admin/organizations/abc123xyz/provision
 
 ---
 
+### POST /api/v1/admin/organizations/:id/retry-deletion
+Retry deletion for organizations stuck in `DELETE_FAILED` or `DELETING` status.
+
+Use this endpoint when:
+- Schema drop failed during deletion
+- Deletion process was interrupted
+
+**Request:**
+```
+POST /api/v1/admin/organizations/abc123xyz/retry-deletion
+```
+
+**Expected Response (200) - Success:**
+```json
+{
+  "success": true,
+  "message": "Organization and tenant schema deleted",
+  "organizationId": "abc123xyz",
+  "schemaName": "tenant_acme_corp"
+}
+```
+
+**Error Response (400) - Invalid state:**
+```json
+{
+  "error": "Invalid state for retry deletion",
+  "message": "Organization is in READY state. Only DELETE_FAILED or DELETING orgs can be retried."
+}
+```
+
+**Error Response (500) - Deletion failed:**
+```json
+{
+  "success": false,
+  "error": "Deletion failed: <error details>"
+}
+```
+
+---
+
+### POST /api/v1/admin/organizations/:id/sync-zitadel-metadata
+Manually sync organization metadata to ZITADEL. Useful when ZITADEL API update failed during provisioning.
+
+**Request:**
+```
+POST /api/v1/admin/organizations/abc123xyz/sync-zitadel-metadata
+```
+
+**Expected Response (200) - Success:**
+```json
+{
+  "success": true,
+  "message": "ZITADEL metadata synced successfully",
+  "organizationId": "abc123xyz",
+  "zitadelOrgId": "org_zitadel123"
+}
+```
+
+**Error Response (400) - No ZITADEL ID:**
+```json
+{
+  "error": "Organization has no ZITADEL ID"
+}
+```
+
+**Error Response (500) - Sync failed:**
+```json
+{
+  "success": false,
+  "error": "ZITADEL sync failed: <error details>"
+}
+```
+
+---
+
 ## 5. Products (Tenant-Scoped Routes)
 
 These routes require a JWT token with tenant information.
@@ -177,7 +254,7 @@ These routes require a JWT token with tenant information.
 Authorization: Bearer <JWT_TOKEN>
 ```
 
-**For Testing (without Clerk):**
+**For Testing (without ZITADEL):**
 Create a mock JWT with this structure:
 ```
 header.payload.signature
@@ -187,9 +264,7 @@ Where payload is base64-encoded JSON:
 ```json
 {
   "sub": "user_123",
-  "org_metadata": {
-    "schema_name": "tenant_acme_corp"
-  }
+  "urn:eurocomply:schema_name": "tenant_acme_corp"
 }
 ```
 
@@ -197,9 +272,7 @@ Where payload is base64-encoded JSON:
 ```javascript
 const payload = {
   sub: "user_123",
-  org_metadata: {
-    schema_name: "tenant_acme_corp"
-  }
+  "urn:eurocomply:schema_name": "tenant_acme_corp"
 };
 const token = "header." + btoa(JSON.stringify(payload)) + ".signature";
 pm.environment.set("TEST_TOKEN", token);
@@ -336,25 +409,48 @@ Authorization: Bearer {{TEST_TOKEN}}
 
 ---
 
-## 6. Webhooks (Clerk Integration)
+## 6. Webhooks (ZITADEL Integration)
 
-### POST /webhooks/clerk
-Receive Clerk organization events.
+### POST /webhooks/zitadel
+Receive ZITADEL organization events.
 
 **Required Headers:**
 ```
 Content-Type: application/json
-svix-id: <webhook-id>
-svix-timestamp: <unix-timestamp>
-svix-signature: <signature>
+x-request-id: <webhook-id>     # Optional, for idempotency
+zitadel-signature: <signature>
 ```
 
-**organization.created Event:**
+### Idempotency
+
+Webhooks are tracked by `x-request-id` to ensure idempotent processing:
+
+- **Duplicate webhook (already completed):** Returns 200 with `idempotent: true`
+- **Webhook still processing:** Returns 409 Conflict
+- **Failed webhook retry:** Processes again
+
+**Idempotent Response (200):**
 ```json
 {
-  "type": "organization.created",
+  "success": true,
+  "idempotent": true,
+  "message": "Webhook already processed"
+}
+```
+
+**Conflict Response (409):**
+```json
+{
+  "error": "Webhook already processing"
+}
+```
+
+**org.created Event:**
+```json
+{
+  "type": "org.created",
   "data": {
-    "id": "org_clerk123",
+    "id": "org_zitadel123",
     "name": "New Company",
     "slug": "new-company",
     "created_at": 1705942800000
@@ -362,32 +458,96 @@ svix-signature: <signature>
 }
 ```
 
-**organization.deleted Event:**
+**org.removed Event:**
 ```json
 {
-  "type": "organization.deleted",
+  "type": "org.removed",
   "data": {
-    "id": "org_clerk123",
-    "deleted": true
+    "id": "org_zitadel123",
+    "name": "Company Name",
+    "slug": "company-name",
+    "created_at": 1705942800000
   }
 }
 ```
 
-**Expected Response (200):**
+**Expected Response (200) - Success:**
 ```json
 {
   "success": true,
   "organizationId": "internal_id",
-  "schemaName": "tenant_new_company"
+  "schemaName": "tenant_org_zitadel123",
+  "zitadelOrgId": "org_zitadel123"
 }
 ```
+
+### org.created - Race Condition Handling
+
+The webhook handler includes race condition guards:
+
+| Existing Org Status | Behavior |
+|---------------------|----------|
+| `READY` | Returns success (idempotent) |
+| `PROVISIONING` (< 5 min) | Returns 409 conflict |
+| `PROVISIONING` (> 5 min) | Treats as timed out, retries |
+| `PENDING` / `FAILED` | Retries provisioning |
+
+**Idempotent Response (200) - Already provisioned:**
+```json
+{
+  "success": true,
+  "organizationId": "internal_id",
+  "schemaName": "tenant_org_zitadel123",
+  "zitadelOrgId": "org_zitadel123",
+  "idempotent": true
+}
+```
+
+### org.removed - Two-Phase Deletion
+
+Deletion uses a two-phase approach for reliability:
+
+1. **Phase 1:** Mark organization as `DELETING`, create audit event
+2. **Phase 2:** Drop schema, delete organization record
+
+If schema drop fails, the organization is marked as `DELETE_FAILED` for retry via admin endpoint.
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "organizationId": "internal_id",
+  "schemaName": "tenant_org_zitadel123",
+  "message": "Organization and tenant schema deleted"
+}
+```
+
+**Idempotent Response (200) - Already deleted:**
+```json
+{
+  "success": true,
+  "message": "Already deleted"
+}
+```
+
+**Error Response (500) - Schema drop failed:**
+```json
+{
+  "success": false,
+  "error": "Schema drop failed: <error details>"
+}
+```
+
+The organization will be in `DELETE_FAILED` status and can be retried via `POST /api/v1/admin/organizations/:id/retry-deletion`.
+
+> **Warning:** Organization deletion is a destructive operation. The tenant schema and all data within it are permanently deleted.
 
 ---
 
 ## Testing Flow (Recommended Order)
 
 1. **Health Check** - Verify API is running
-2. **Create Organization via Clerk** - Use Clerk dashboard or webhook simulation
+2. **Create Organization via ZITADEL** - Use ZITADEL Console or webhook simulation
 3. **Check Status** - GET /api/v1/admin/organizations/:id/status
 4. **Provision** - POST /api/v1/admin/organizations/:id/provision (if PENDING/FAILED)
 5. **Create Category** - (via database or future API endpoint)
@@ -411,6 +571,19 @@ svix-signature: <signature>
 ## Notes
 
 - **Slug format**: lowercase letters, numbers, and hyphens only (e.g., `acme-corp`)
-- **Schema name**: Auto-generated as `tenant_<slug_with_underscores>` (e.g., `tenant_acme_corp`)
+- **Schema name**: Auto-generated from ZITADEL org ID (e.g., `tenant_org_abc12345`)
 - **Tenant isolation**: Products are isolated per tenant schema - one tenant cannot see another's products
-- **JWT verification**: In production with `CLERK_SECRET_KEY` set, tokens are verified via Clerk JWKS
+- **JWT verification**: In production with `ZITADEL_ISSUER` set, tokens are verified via ZITADEL JWKS
+- **Webhook idempotency**: Webhooks are tracked by `x-request-id` header to prevent duplicate processing
+- **Best-effort ZITADEL updates**: ZITADEL metadata sync failures don't fail provisioning - use sync-zitadel-metadata endpoint to retry
+- **Provisioning timeout**: Stuck `PROVISIONING` status (> 5 minutes) is treated as failed and allows retry
+
+## Error Recovery
+
+| Problem | Solution |
+|---------|----------|
+| Provisioning failed | `POST /admin/organizations/:id/provision` |
+| Deletion failed | `POST /admin/organizations/:id/retry-deletion` |
+| ZITADEL metadata out of sync | `POST /admin/organizations/:id/sync-zitadel-metadata` |
+| Duplicate webhook received | Automatic - returns idempotent response |
+| Webhook stuck processing | Wait or check webhook_events table |

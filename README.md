@@ -57,7 +57,7 @@ All workspaces share a central product registry ("The Hub") with workspace-speci
 | **Item Store** | DynamoDB | High-scale serialized items |
 | **Storage** | Cloudflare R2 | Zero-egress DPP hosting |
 | **CDN** | Cloudflare | Edge caching, DDoS protection |
-| **Auth** | Clerk | Authentication, SSO |
+| **Auth** | ZITADEL | Authentication, SSO |
 | **Signing** | walt.id | DID/VC infrastructure |
 
 ### Multi-Tenancy
@@ -164,7 +164,8 @@ DB_USER=postgres
 DB_PASSWORD=postgres
 
 # Authentication
-CLERK_SECRET_KEY=sk_test_xxxxx
+ZITADEL_DOMAIN=your-instance.zitadel.cloud
+ZITADEL_CLIENT_ID=your-client-id
 
 # walt.id
 WALTID_CORE_URL=http://localhost:7000

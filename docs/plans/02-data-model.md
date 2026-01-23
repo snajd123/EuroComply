@@ -462,7 +462,7 @@ CREATE INDEX idx_ingestion_jobs_status ON public.ingestion_jobs(status);
 
 ### User
 
-Users are stored **per-tenant**. A user who belongs to multiple organizations has separate records in each tenant schema, linked by `clerkId`.
+Users are stored **per-tenant**. A user who belongs to multiple organizations has separate records in each tenant schema, linked by `zitadelId`.
 
 ```typescript
 // packages/db/src/entities/User.ts
@@ -474,9 +474,9 @@ export class User {
   @PrimaryKey()
   id!: string;
 
-  @Property({ name: 'clerk_id' })
+  @Property({ name: 'zitadel_id' })
   @Unique()
-  clerkId!: string;
+  zitadelId!: string;
 
   @Property()
   @Unique()
@@ -507,17 +507,17 @@ export class User {
 Since users exist in multiple tenant schemas, profile changes must propagate to all:
 
 ```typescript
-// apps/api/src/webhooks/clerk.ts
-// Triggered by Clerk user.updated webhook
+// apps/api/src/webhooks/zitadel.ts
+// Triggered by ZITADEL user events
 
-async function syncUserToAllTenants(orm: MikroORM, clerkUser: ClerkUser) {
-  // 1. Get all organizations this user belongs to (from Clerk)
-  const memberships = await clerk.users.getOrganizationMemberships(clerkUser.id);
+async function syncUserToAllTenants(orm: MikroORM, zitadelUser: ZitadelUser) {
+  // 1. Get all organizations this user belongs to (from ZITADEL)
+  const memberships = await zitadel.listUserGrants(zitadelUser.id);
 
   // 2. Update user record in each tenant schema
-  for (const membership of memberships.data) {
+  for (const membership of memberships.result) {
     const org = await orm.em.findOne(Organization, {
-      id: membership.organization.id
+      zitadelOrgId: membership.orgId
     });
 
     if (!org) continue;
@@ -525,11 +525,11 @@ async function syncUserToAllTenants(orm: MikroORM, clerkUser: ClerkUser) {
     const em = orm.em.fork({ schema: org.schemaName });
     await em.nativeUpdate(
       User,
-      { clerkId: clerkUser.id },
+      { zitadelId: zitadelUser.id },
       {
-        name: `${clerkUser.firstName ?? ''} ${clerkUser.lastName ?? ''}`.trim(),
-        email: clerkUser.emailAddresses[0]?.emailAddress,
-        avatarUrl: clerkUser.imageUrl,
+        name: zitadelUser.human?.profile?.displayName ?? '',
+        email: zitadelUser.human?.email?.email,
+        avatarUrl: zitadelUser.human?.profile?.avatarUrl,
         updatedAt: new Date(),
       }
     );
@@ -539,13 +539,13 @@ async function syncUserToAllTenants(orm: MikroORM, clerkUser: ClerkUser) {
 
 **Sync Events:**
 
-| Clerk Event | Action |
-|-------------|--------|
-| `user.created` | Create user in tenant schema (on org membership) |
-| `user.updated` | Update name/email/avatar in ALL tenant schemas |
-| `user.deleted` | Remove from ALL tenant schemas |
-| `organizationMembership.created` | Create user record in that tenant |
-| `organizationMembership.deleted` | Delete user record from that tenant |
+| ZITADEL Event | Action |
+|---------------|--------|
+| `user.human.added` | Create user in tenant schema (on org membership) |
+| `user.human.profile.changed` | Update name/email/avatar in ALL tenant schemas |
+| `user.removed` | Remove from ALL tenant schemas |
+| `org.member.added` | Create user record in that tenant |
+| `org.member.removed` | Delete user record from that tenant |
 
 ### OrganizationUser
 
@@ -1755,10 +1755,10 @@ Complete SQL for creating a new tenant schema:
 CREATE SCHEMA IF NOT EXISTS ${schemaName};
 SET search_path = ${schemaName};
 
--- Users (synced from Clerk)
+-- Users (synced from ZITADEL)
 CREATE TABLE users (
     id VARCHAR(30) PRIMARY KEY,
-    clerk_id VARCHAR(255) UNIQUE NOT NULL,
+    zitadel_id VARCHAR(255) UNIQUE NOT NULL,
     email VARCHAR(255) UNIQUE NOT NULL,
     name VARCHAR(255),
     avatar_url TEXT,
@@ -2208,6 +2208,7 @@ const id = createId();
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.5 | 2026-01-23 | Updated Clerk references to ZITADEL for auth provider migration |
 | 3.4 | 2026-01-21 | Added public.ingestion_jobs DDL to Public Schema section |
 | 3.3 | 2026-01-21 | Added Approval Gate Workflow: ComplianceStatus enum, ProductVersion compliance fields, RuleDeviation dual-link model (design-time + authorization), AuditResultSnapshot entity for frozen PreFlight results |
 | 3.2 | 2026-01-21 | Added per-rule overrideMode to ReadinessProfileRule (ENFORCING/SILENT/DISABLED); audit trail fields; Compliance MANAGER governance note |

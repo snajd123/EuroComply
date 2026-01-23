@@ -17,8 +17,7 @@ async function main() {
   const webhooksRouter = createWebhooksRouter({
     orm,
     provisioner,
-    webhookSecret: process.env['CLERK_WEBHOOK_SECRET'],
-    // clerk: createClerkClient({ secretKey: process.env['CLERK_SECRET_KEY'] }), // Add when needed
+    webhookSigningKey: process.env['ZITADEL_WEBHOOK_SIGNING_KEY'],
   });
 
   console.log('Creating admin router...');
@@ -38,7 +37,7 @@ async function main() {
   });
 
   console.log(`Server running at http://localhost:${port}`);
-  console.log(`Webhook endpoint: http://localhost:${port}/webhooks/clerk`);
+  console.log(`Webhook endpoint: http://localhost:${port}/webhooks/zitadel`);
 }
 
 main().catch((error) => {

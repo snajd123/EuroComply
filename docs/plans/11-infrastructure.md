@@ -775,7 +775,7 @@ terraform {
 | `/eurocomply/{env}/database` | RDS master password | Lambda only |
 | `/eurocomply/{env}/database-migrate` | Migration user password | CI/CD only |
 | `/eurocomply/{env}/redis` | ElastiCache AUTH token | ECS |
-| `/eurocomply/{env}/clerk` | Clerk API keys | ECS |
+| `/eurocomply/{env}/zitadel` | ZITADEL API keys | ECS |
 | `/eurocomply/{env}/stripe` | Stripe API keys | ECS |
 | `/eurocomply/{env}/r2` | Cloudflare R2 credentials | ECS |
 
@@ -905,4 +905,5 @@ Note: Sovereign Cloud pricing is ~10-20% higher than standard regions.
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.1 | 2026-01-23 | Updated Clerk references to ZITADEL for auth provider migration |
 | 2.0 | 2026-01-21 | Consolidated from DevOps, Testing, walt.id infrastructure designs |

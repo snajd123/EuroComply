@@ -1,13 +1,13 @@
 # Security Design
 
 **Status:** Active
-**Last Updated:** 2026-01-21
+**Last Updated:** 2026-01-23
 
 ---
 
 ## 1. Overview
 
-EuroComply security is built on defense in depth, with Clerk handling authentication and workspace-based authorization controlling access.
+EuroComply security is built on defense in depth, with ZITADEL handling authentication and workspace-based authorization controlling access.
 
 ### Security Principles
 
@@ -21,64 +21,60 @@ EuroComply security is built on defense in depth, with Clerk handling authentica
 
 ---
 
-## 2. Authentication (Clerk)
+## 2. Authentication (ZITADEL)
 
-### Why Clerk
+### Why ZITADEL
 
-| Concern | Clerk Provides |
-|---------|----------------|
-| **Auth complexity** | Handles magic links, passwords, SSO |
-| **Session management** | Secure cookies, refresh tokens |
-| **MFA** | Built-in TOTP, WebAuthn |
-| **Compliance** | SOC 2, GDPR compliant |
-| **Cost** | MAU-based pricing (why we have user limits) |
+| Concern | ZITADEL Provides |
+|---------|------------------|
+| **Data sovereignty** | Swiss-based, EU data hosting |
+| **Transparency** | Open source core |
+| **Organizations** | Built-in organizations with per-org SSO |
+| **Compliance** | GDPR compliant, SOC 2 Type II |
+| **Cost** | Transparent pricing |
 
 ### Authentication Flow
 
 ```
 USER LOGIN
 1. User visits app.eurocomply.eu
-2. Clerk handles login (magic link, password, or SSO)
-3. Clerk issues session token with org_metadata
-4. EuroComply API validates token via Clerk SDK
+2. ZITADEL handles login (magic link, password, passkeys, SSO)
+3. ZITADEL issues OIDC tokens with custom claims
+4. EuroComply API validates token via JWKS verification
 5. Middleware reads schema_name from JWT (no DB lookup)
 
 SESSION MANAGEMENT
-- Clerk manages session tokens
+- ZITADEL manages sessions
 - HttpOnly, Secure cookies
 - Automatic refresh
-- Session revocation via Clerk dashboard
+- Session revocation via ZITADEL Console
 
 SSO (Enterprise)
 - SAML 2.0: Okta, Azure AD, OneLogin
 - OIDC: Google Workspace, Azure AD, Auth0
-- Configured per organization in Clerk
+- Configured per organization in ZITADEL
 ```
 
 ### Organization Creation Control
 
-Organization creation is restricted to Clerk webhooks only:
+Organization creation is restricted to ZITADEL Actions v2 webhooks only:
 - No public API endpoint for creating organizations
 - Prevents unauthorized tenant creation
-- All organizations tied to Clerk identity
+- All organizations tied to ZITADEL identity
 - Webhook signature verification required
 
 ### Session Token Structure
 
-Clerk JWT includes tenant context to avoid database lookups:
+ZITADEL OIDC token includes tenant context to avoid database lookups:
 
 ```typescript
-// Clerk session claims
+// ZITADEL OIDC token with custom claims (via Actions)
 {
   "sub": "user_abc123",
-  "org_id": "org_def456",
-  "org_slug": "acme-corp",
-  "org_role": "member",
-  "org_metadata": {
-    "schema_name": "tenant_acme",
-    "tier": "growth",
-    "cell_id": "cell_1"
-  }
+  "urn:zitadel:iam:org:id": "org_def456",
+  "urn:eurocomply:schema_name": "tenant_acme",
+  "urn:eurocomply:tier": "growth",
+  "urn:eurocomply:cell_id": "cell_1"
 }
 ```
 
@@ -86,27 +82,33 @@ Clerk JWT includes tenant context to avoid database lookups:
 
 ```typescript
 // apps/api/src/middleware/auth.middleware.ts
-import { clerkClient } from '@clerk/backend';
+import { createRemoteJWKSet, jwtVerify } from 'jose';
+
+const JWKS = createRemoteJWKSet(
+  new URL(`${process.env.ZITADEL_INSTANCE_URL}/.well-known/jwks.json`)
+);
 
 export async function authMiddleware(c: Context, next: Next) {
-  const sessionToken = c.req.header('Authorization')?.replace('Bearer ', '');
+  const token = c.req.header('Authorization')?.replace('Bearer ', '');
 
-  if (!sessionToken) {
+  if (!token) {
     throw new HTTPException(401, { message: 'Missing authorization' });
   }
 
-  // Verify session with Clerk
-  const session = await clerkClient.sessions.verifySession(
-    c.req.header('X-Clerk-Session-Id') ?? '',
-    sessionToken
-  );
+  try {
+    const { payload } = await jwtVerify(token, JWKS, {
+      issuer: process.env.ZITADEL_INSTANCE_URL,
+      audience: process.env.ZITADEL_CLIENT_ID,
+    });
 
-  // Attach to context
-  c.set('userId', session.userId);
-  c.set('organizationId', session.lastActiveOrganizationId);
-  c.set('sessionClaims', session.publicMetadata);
+    c.set('userId', payload.sub);
+    c.set('organizationId', payload['urn:zitadel:iam:org:id']);
+    c.set('claims', payload);
 
-  await next();
+    await next();
+  } catch (error) {
+    throw new HTTPException(401, { message: 'Invalid token' });
+  }
 }
 ```
 
@@ -203,7 +205,7 @@ export function authorize(workspace: Workspace, action: Action) {
 
     // Get user's membership in this tenant
     const membership = await em.findOne(OrganizationUser, {
-      user: { clerkId: userId }
+      user: { zitadelId: userId }
     });
 
     if (!membership) {
@@ -242,7 +244,7 @@ export function requireOrgAdmin() {
     const userId = c.get('userId');
 
     const membership = await em.findOne(OrganizationUser, {
-      user: { clerkId: userId }
+      user: { zitadelId: userId }
     });
 
     if (!membership?.isOrgAdmin) {
@@ -386,8 +388,8 @@ USER SIGNING KEY (did:key)
 - Rotation: NEVER
 
 JWT SIGNING KEY
-- Purpose: Sign session tokens (handled by Clerk)
-- Rotation: Managed by Clerk
+- Purpose: Sign session tokens (handled by ZITADEL)
+- Rotation: Managed by ZITADEL
 ```
 
 ### Key Compromise Response
@@ -639,7 +641,7 @@ const RATE_LIMITS: Record<string, { window: string; max: number }> = {
 | Risk | Mitigation |
 |------|------------|
 | Injection | Parameterized queries (MikroORM), input validation |
-| Broken Auth | Clerk handles auth |
+| Broken Auth | ZITADEL handles auth |
 | Sensitive Data | Encryption at rest/transit |
 | XXE | JSON-only APIs |
 | Broken Access | Workspace authority checks, schema isolation |
@@ -687,5 +689,6 @@ export function securityHeaders() {
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.2 | 2026-01-23 | Migrated authentication from Clerk to ZITADEL Cloud EU |
 | 2.1 | 2026-01-21 | Added Regulatory Advisor permissions table; Compliance MANAGER authority for rule overrides |
 | 2.0 | 2026-01-21 | Rewritten for MikroORM, JWT-based tenant context, updated auth flow |

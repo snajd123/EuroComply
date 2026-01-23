@@ -6,6 +6,7 @@ export interface ProvisioningResult {
   success: boolean;
   schemaName: string;
   error?: string;
+  alreadyProvisioned?: boolean;
 }
 
 export class TenantProvisioner {
@@ -158,22 +159,46 @@ export class TenantProvisioner {
   }
 
   /**
+   * Checks if a tenant schema has already been provisioned.
+   * Returns true if the schema contains the expected core tables.
+   */
+  async isSchemaProvisioned(schemaName: string): Promise<boolean> {
+    // Validate schema name first (throws if invalid)
+    assertValidSchemaName(schemaName);
+
+    const result = await this.orm.em.execute<{ count: string }[]>(`
+      SELECT COUNT(*) as count
+      FROM information_schema.tables
+      WHERE table_schema = '${schemaName}'
+        AND table_name IN ('category', 'product', 'product_version')
+    `);
+    return parseInt(result[0]?.count ?? '0', 10) >= 3;
+  }
+
+  /**
    * Provisions a complete tenant: creates schema, runs migrations, grants permissions.
+   * This method is idempotent - calling it multiple times on the same schema is safe.
    */
   async provisionTenant(schemaName: string): Promise<ProvisioningResult> {
     try {
-      // 1. Create the schema
+      // 1. Create the schema (IF NOT EXISTS - idempotent)
       await this.createSchema(schemaName);
 
-      // 2. Run migrations to create tables
-      await this.runMigrations(schemaName);
+      // 2. Check if already provisioned to skip migrations
+      const alreadyProvisioned = await this.isSchemaProvisioned(schemaName);
 
-      // 3. Grant permissions (best effort in dev)
+      if (!alreadyProvisioned) {
+        // 3. Run migrations to create tables
+        await this.runMigrations(schemaName);
+      }
+
+      // 4. Grant permissions (idempotent - best effort in dev)
       await this.grantPermissions(schemaName);
 
       return {
         success: true,
         schemaName,
+        alreadyProvisioned,
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
