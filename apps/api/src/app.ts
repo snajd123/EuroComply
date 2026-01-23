@@ -9,6 +9,7 @@ import {
 } from './routes/organizations.js';
 import { productsRouter, createProductsRouter } from './routes/products.js';
 import { createApiKeysRouter } from './routes/api-keys.js';
+import { createUnitsRouter, type UnitsRepository } from './routes/taxonomy/index.js';
 import { tenantMiddleware, createTenantMiddlewareWithApiKeys } from './middleware/tenant.js';
 import { adminAuthMiddleware } from './middleware/admin-auth.js';
 
@@ -25,6 +26,7 @@ export interface AppDependencies {
   orm?: OrmLike;
   webhooksRouter?: Hono;
   organizationsAdminRouter?: Hono;
+  unitsRepository?: UnitsRepository;
 }
 
 export function createApp(deps?: AppDependencies): Hono<Env> {
@@ -80,6 +82,13 @@ export function createApp(deps?: AppDependencies): Hono<Env> {
     v1.use('/api-keys/*', tenantMiddleware); // JWT only for key management
     v1.route('/api-keys', createApiKeysRouter({ em: deps.orm.em as any }));
   }
+
+  // Taxonomy routes (public, no auth required)
+  const taxonomy = new Hono<Env>();
+  if (deps?.unitsRepository) {
+    taxonomy.route('/units', createUnitsRouter(deps.unitsRepository));
+  }
+  v1.route('/taxonomy', taxonomy);
 
   // Tenant-scoped routes (require authentication via JWT or API key)
   // Apply tenant middleware explicitly to each protected route
