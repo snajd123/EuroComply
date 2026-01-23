@@ -1,12 +1,11 @@
 export {
   handleOrganizationCreated,
   handleOrganizationDeleted,
-  clerkOrgIdToSchemaName,
-  type ClerkOrganizationEvent,
-  type ClerkClient,
+  zitadelOrgIdToSchemaName,
+  type ZitadelOrganizationEvent,
   type HandlerDependencies,
   type HandlerResult,
   type OrmLike,
   type EntityManagerLike,
   type TenantProvisionerLike,
-} from './clerk.js';
+} from './zitadel.js';

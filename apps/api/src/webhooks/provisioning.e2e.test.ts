@@ -12,8 +12,9 @@ describe('Tenant Provisioning E2E', () => {
   let orm: Awaited<ReturnType<typeof setupTestDb>>;
   let provisioner: TenantProvisioner;
   let app: ReturnType<typeof createApp>;
-  // Schema name derived from Clerk org ID: 'org_e2e_test' -> 'tenant_org_e2e_test'
-  const testSchema = 'tenant_org_e2e_test';
+  // Schema name derived from ZITADEL org ID: '123456789012345678' -> 'tenant_org_12345678'
+  const testOrgId = '123456789012345678';
+  const testSchema = 'tenant_org_12345678';
 
   beforeAll(async () => {
     if (!(await isDatabaseAvailable())) {
@@ -26,7 +27,7 @@ describe('Tenant Provisioning E2E', () => {
     const webhooksRouter = createWebhooksRouter({
       orm,
       provisioner,
-      webhookSecret: 'whsec_test',
+      webhookSigningKey: 'test-signing-key',
       skipSignatureVerification: true,
     });
 
@@ -58,22 +59,23 @@ describe('Tenant Provisioning E2E', () => {
     }
   });
 
-  it('provisions tenant on organization.created webhook', async (context) => {
+  it('provisions tenant on org.created webhook', async (context) => {
     if (!(await isDatabaseAvailable())) {
       context.skip();
       return;
     }
 
-    const res = await app.request('/webhooks/clerk', {
+    const res = await app.request('/webhooks/zitadel', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-request-id': `req_e2e_test_${Date.now()}`,
+      },
       body: JSON.stringify({
-        type: 'organization.created',
+        type: 'org.created',
         data: {
-          id: 'org_e2e_test',
+          orgId: testOrgId,
           name: 'E2E Test Org',
-          slug: 'e2e-test-org',
-          created_at: Date.now(),
         },
       }),
     });

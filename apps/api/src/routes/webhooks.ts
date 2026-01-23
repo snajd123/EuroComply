@@ -1,34 +1,51 @@
 import { Hono } from 'hono';
-import { verifyClerkWebhook } from '../middleware/webhook.js';
+import { WebhookEvent, WebhookStatus } from '@eurocomply/database';
+import { createId } from '@eurocomply/core';
+import { verifyZitadelWebhook } from '../middleware/webhook.js';
 import {
   handleOrganizationCreated,
   handleOrganizationDeleted,
-  type ClerkOrganizationEvent,
-  type ClerkClient,
+  type ZitadelOrganizationEvent,
   type OrmLike,
   type TenantProvisionerLike,
-} from '../webhooks/clerk.js';
+} from '../webhooks/zitadel.js';
 
 export interface WebhooksRouterOptions {
   orm: OrmLike;
   provisioner: TenantProvisionerLike;
-  webhookSecret?: string;
-  clerk?: ClerkClient;
+  webhookSigningKey?: string;
   skipSignatureVerification?: boolean; // For testing only
 }
 
 export function createWebhooksRouter(options: WebhooksRouterOptions) {
-  const { orm, provisioner, webhookSecret, clerk, skipSignatureVerification } = options;
+  const { orm, provisioner, webhookSigningKey, skipSignatureVerification } = options;
   const router = new Hono();
 
-  router.post('/clerk', async (c) => {
-    // Check webhook secret is configured
-    if (!webhookSecret) {
-      return c.json({ error: 'Webhook secret not configured' }, 500);
+  router.post('/zitadel', async (c) => {
+    // Check webhook signing key is configured
+    if (!webhookSigningKey && !skipSignatureVerification) {
+      return c.json({ error: 'Webhook signing key not configured' }, 500);
+    }
+
+    // Get request ID for idempotency (ZITADEL uses x-request-id or we generate one)
+    const requestId = c.req.header('x-request-id') ?? createId();
+
+    const em = orm.em.fork();
+
+    // Check for existing webhook (idempotency)
+    const existingWebhook = await em.findOne(WebhookEvent, { svixId: requestId });
+    if (existingWebhook) {
+      if (existingWebhook.status === WebhookStatus.COMPLETED) {
+        return c.json({ success: true, idempotent: true, message: 'Webhook already processed' });
+      }
+      if (existingWebhook.status === WebhookStatus.PROCESSING) {
+        return c.json({ error: 'Webhook already processing' }, 409);
+      }
+      // FAILED status - allow retry by continuing
     }
 
     // Get the raw body for signature verification
-    let event: ClerkOrganizationEvent;
+    let event: ZitadelOrganizationEvent;
 
     if (skipSignatureVerification) {
       // For testing: parse body directly
@@ -36,31 +53,54 @@ export function createWebhooksRouter(options: WebhooksRouterOptions) {
     } else {
       // Production: verify signature
       const payload = await c.req.text();
+      const signature = c.req.header('zitadel-signature');
 
-      const result = verifyClerkWebhook({
+      const result = verifyZitadelWebhook({
         payload,
-        headers: {
-          'svix-id': c.req.header('svix-id'),
-          'svix-timestamp': c.req.header('svix-timestamp'),
-          'svix-signature': c.req.header('svix-signature'),
-        },
-        secret: webhookSecret,
+        signature,
+        signingKey: webhookSigningKey!,
       });
 
       if (!result.valid) {
         return c.json({ error: 'Invalid webhook signature', details: result.error }, 401);
       }
 
-      event = result.payload as ClerkOrganizationEvent;
+      event = result.payload as ZitadelOrganizationEvent;
     }
+
+    // Create or update webhook event record
+    let webhookEvent: WebhookEvent;
+    if (existingWebhook) {
+      // Retry of failed webhook
+      webhookEvent = existingWebhook;
+      webhookEvent.status = WebhookStatus.PROCESSING;
+      webhookEvent.errorMessage = undefined;
+    } else {
+      // New webhook
+      webhookEvent = em.create(WebhookEvent, {
+        id: createId(),
+        svixId: requestId, // Reusing field for request ID
+        eventType: event.type,
+        payload: event.data as Record<string, unknown>,
+        status: WebhookStatus.PROCESSING,
+      });
+      em.persist(webhookEvent);
+    }
+    await em.flush();
 
     // Handle the event based on type
     switch (event.type) {
-      case 'organization.created': {
-        const result = await handleOrganizationCreated(event, { orm, provisioner, clerk });
+      case 'org.created': {
+        const result = await handleOrganizationCreated(event, { orm, provisioner });
         if (!result.success) {
+          webhookEvent.status = WebhookStatus.FAILED;
+          webhookEvent.errorMessage = result.error;
+          await em.flush();
           return c.json({ success: false, error: result.error }, 500);
         }
+        webhookEvent.status = WebhookStatus.COMPLETED;
+        webhookEvent.completedAt = new Date();
+        await em.flush();
         return c.json({
           success: true,
           organizationId: result.organizationId,
@@ -68,24 +108,45 @@ export function createWebhooksRouter(options: WebhooksRouterOptions) {
         });
       }
 
-      case 'organization.deleted': {
+      case 'org.removed': {
         const result = await handleOrganizationDeleted(event, { orm, provisioner });
         if (!result.success) {
+          // Treat "already deleted" as success for idempotency
+          if (result.error === 'Already deleted') {
+            webhookEvent.status = WebhookStatus.COMPLETED;
+            webhookEvent.completedAt = new Date();
+            await em.flush();
+            return c.json({ success: true, message: 'Already deleted' });
+          }
+          webhookEvent.status = WebhookStatus.FAILED;
+          webhookEvent.errorMessage = result.error;
+          await em.flush();
           return c.json({ success: false, error: result.error }, 500);
         }
+        webhookEvent.status = WebhookStatus.COMPLETED;
+        webhookEvent.completedAt = new Date();
+        await em.flush();
         return c.json({
           success: true,
           organizationId: result.organizationId,
+          schemaName: result.schemaName,
+          message: 'Organization and tenant schema deleted',
         });
       }
 
-      case 'organization.updated': {
+      case 'org.updated': {
         // For now, just acknowledge - can add handling later
+        webhookEvent.status = WebhookStatus.COMPLETED;
+        webhookEvent.completedAt = new Date();
+        await em.flush();
         return c.json({ success: true, message: 'Event acknowledged' });
       }
 
       default: {
         // Unknown event type - acknowledge but don't process
+        webhookEvent.status = WebhookStatus.COMPLETED;
+        webhookEvent.completedAt = new Date();
+        await em.flush();
         return c.json({ success: true, message: 'Event type not handled' });
       }
     }
