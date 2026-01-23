@@ -1,4 +1,5 @@
-import { Entity, Property, Unique, Filter } from '@mikro-orm/core';
+import { Entity, Property, Unique, Filter, OneToOne } from '@mikro-orm/core';
+import { OrganizationUser } from './OrganizationUser.js';
 import { BaseEntity } from './BaseEntity.js';
 
 @Filter({ name: 'notDeleted', cond: { deletedAt: null }, default: true })
@@ -24,5 +25,6 @@ export class User extends BaseEntity {
   @Property({ type: 'datetime', nullable: true, name: 'deleted_at' })
   deletedAt?: Date;
 
-  // Relationship added in Task 3 after OrganizationUser exists
+  @OneToOne(() => OrganizationUser, (ou) => ou.user)
+  membership?: OrganizationUser;
 }
