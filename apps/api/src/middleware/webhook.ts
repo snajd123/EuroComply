@@ -1,5 +1,5 @@
 import { createMiddleware } from 'hono/factory';
-import { Webhook } from 'svix';
+import { createHmac, timingSafeEqual } from 'crypto';
 
 export interface WebhookVerificationResult {
   valid: boolean;
@@ -7,67 +7,109 @@ export interface WebhookVerificationResult {
   payload?: unknown;
 }
 
-export interface VerifyOptions {
+export interface VerifyZitadelOptions {
   payload: string;
-  headers: Record<string, string | undefined>;
-  secret: string;
+  signature: string | undefined;
+  signingKey: string;
+  timestampToleranceSeconds?: number;
 }
 
-/**
- * Verifies a Clerk webhook signature using Svix.
- */
-export function verifyClerkWebhook(options: VerifyOptions): WebhookVerificationResult {
-  const { payload, headers, secret } = options;
+export function verifyZitadelWebhook(options: VerifyZitadelOptions): WebhookVerificationResult {
+  const { payload, signature, signingKey, timestampToleranceSeconds = 300 } = options;
 
-  const svixId = headers['svix-id'];
-  const svixTimestamp = headers['svix-timestamp'];
-  const svixSignature = headers['svix-signature'];
-
-  if (!svixId || !svixTimestamp || !svixSignature) {
+  if (!signature) {
     return {
       valid: false,
-      error: 'Missing required Svix headers (svix-id, svix-timestamp, svix-signature)',
+      error: 'Missing zitadel-signature header',
+    };
+  }
+
+  const parts = signature.split(',');
+  const timestampPart = parts.find(p => p.startsWith('t='));
+  const signaturePart = parts.find(p => p.startsWith('v1='));
+
+  if (!timestampPart || !signaturePart) {
+    return {
+      valid: false,
+      error: 'Malformed zitadel-signature header',
+    };
+  }
+
+  const timestamp = parseInt(timestampPart.slice(2), 10);
+  const receivedSignature = signaturePart.slice(3);
+
+  if (isNaN(timestamp)) {
+    return {
+      valid: false,
+      error: 'Malformed timestamp in signature header',
+    };
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  if (Math.abs(now - timestamp) > timestampToleranceSeconds) {
+    return {
+      valid: false,
+      error: `Webhook timestamp expired (received: ${timestamp}, now: ${now})`,
+    };
+  }
+
+  const signedPayload = `${timestamp}.${payload}`;
+  const hmac = createHmac('sha256', signingKey);
+  hmac.update(signedPayload);
+  const expectedSignature = hmac.digest('hex');
+
+  try {
+    const receivedBuffer = Buffer.from(receivedSignature, 'hex');
+    const expectedBuffer = Buffer.from(expectedSignature, 'hex');
+
+    if (receivedBuffer.length !== expectedBuffer.length) {
+      return {
+        valid: false,
+        error: 'Invalid signature length',
+      };
+    }
+
+    if (!timingSafeEqual(receivedBuffer, expectedBuffer)) {
+      return {
+        valid: false,
+        error: 'Invalid webhook signature',
+      };
+    }
+  } catch {
+    return {
+      valid: false,
+      error: 'Invalid signature format',
     };
   }
 
   try {
-    const wh = new Webhook(secret);
-    const verified = wh.verify(payload, {
-      'svix-id': svixId,
-      'svix-timestamp': svixTimestamp,
-      'svix-signature': svixSignature,
-    });
-    return { valid: true, payload: verified };
-  } catch (error) {
+    return {
+      valid: true,
+      payload: JSON.parse(payload),
+    };
+  } catch {
     return {
       valid: false,
-      error: error instanceof Error ? error.message : 'Signature verification failed',
+      error: 'Invalid JSON payload',
     };
   }
 }
 
-/**
- * Middleware that verifies Clerk webhook signatures.
- */
-export function clerkWebhookMiddleware(secret: string) {
+export function zitadelWebhookMiddleware(signingKey: string) {
   return createMiddleware(async (c, next) => {
     const payload = await c.req.text();
+    const signature = c.req.header('zitadel-signature');
 
-    const result = verifyClerkWebhook({
+    const result = verifyZitadelWebhook({
       payload,
-      headers: {
-        'svix-id': c.req.header('svix-id'),
-        'svix-timestamp': c.req.header('svix-timestamp'),
-        'svix-signature': c.req.header('svix-signature'),
-      },
-      secret,
+      signature,
+      signingKey,
     });
 
     if (!result.valid) {
       return c.json({ error: 'Invalid webhook signature', details: result.error }, 401);
     }
 
-    // Store verified payload for handler
     c.set('webhookPayload', result.payload);
     await next();
   });
