@@ -1757,24 +1757,532 @@ git commit -m "feat(database): add unitPreferences to Organization entity"
 
 > **Continue with remaining Phase 2 tasks...**
 
-The implementation plan continues with:
-- Task 2.6: Create Categories API routes
-- Task 2.7: Create Attributes API routes
-- Task 2.8: Create CategoryService for inheritance resolution
-- Task 2.9: Create migration for schema changes
-- Task 2.10: Phase 2 integration tests
+---
+
+### Task 2.6: Create Categories API Routes
+
+**Files:**
+- Create: `apps/api/src/routes/taxonomy/categories.ts`
+- Create: `apps/api/src/routes/taxonomy/categories.test.ts`
+
+> Implementation follows same pattern as units routes. Key endpoints:
+> - `GET /categories` - List with filters (scope, targetType, parent)
+> - `GET /categories/:id` - Get with inherited attributes
+> - `POST /categories` - Create tenant category
+> - `POST /categories/:systemId/adopt` - Adopt system category
+> - `POST /categories/:id/sync` - Sync forked category
+
+---
+
+### Task 2.7: Create Attributes API Routes
+
+**Files:**
+- Create: `apps/api/src/routes/taxonomy/attributes.ts`
+- Create: `apps/api/src/routes/taxonomy/attributes.test.ts`
+
+> Key endpoints:
+> - `GET /categories/:categoryId/attributes` - List with ?inherited=true
+> - `POST /attributes` - Create tenant attribute
+> - `PATCH /attributes/:id` - Update tenant attribute
+
+---
+
+### Task 2.8: Create CategoryService with LTREE-Optimized Inheritance
+
+**Files:**
+- Create: `packages/database/src/services/category.service.ts`
+- Create: `packages/database/src/services/category.service.test.ts`
+
+**CRITICAL: LTREE Query Optimization**
+
+Do NOT use recursive individual lookups to resolve category inheritance. LTREE supports ancestor queries in a single operation:
+
+```typescript
+// packages/database/src/services/category.service.ts
+import { EntityManager } from '@mikro-orm/postgresql';
+import { Category } from '../entities/Category.js';
+import { AttributeTemplate } from '../entities/AttributeTemplate.js';
+
+export class CategoryService {
+  constructor(private readonly em: EntityManager) {}
+
+  /**
+   * Get all attributes for a category, including inherited from ancestors.
+   * Uses LTREE @> operator for single-query ancestor fetch.
+   */
+  async getAttributesWithInheritance(categoryId: string): Promise<AttributeTemplate[]> {
+    const category = await this.em.findOneOrFail(Category, { id: categoryId });
+
+    // LTREE ancestor query - fetches ALL ancestors in ONE query
+    // Example: 'apparel.tops.tshirts' matches 'apparel', 'apparel.tops', 'apparel.tops.tshirts'
+    const ancestorCategories = await this.em.find(Category, {
+      // @> means "is ancestor of or equal to"
+      // We flip it: find categories whose path is contained in ours
+    }, {
+      filters: false,
+    });
+
+    // Raw query for LTREE ancestor matching
+    const ancestors = await this.em.execute<{ id: string }[]>(`
+      SELECT id FROM category
+      WHERE path @> $1::ltree
+      ORDER BY depth ASC
+    `, [category.path]);
+
+    const ancestorIds = ancestors.map(a => a.id);
+
+    // Fetch all attributes for all ancestors in one query
+    const attributes = await this.em.find(AttributeTemplate, {
+      category: { id: { $in: ancestorIds } },
+      isActive: true,
+    }, {
+      orderBy: { sortOrder: 'ASC' },
+    });
+
+    // Later attributes (deeper categories) override earlier ones with same key
+    const attributeMap = new Map<string, AttributeTemplate>();
+    for (const attr of attributes) {
+      attributeMap.set(attr.key, attr);
+    }
+
+    return Array.from(attributeMap.values());
+  }
+
+  /**
+   * Get category with all ancestors.
+   */
+  async getCategoryWithAncestors(categoryId: string): Promise<Category[]> {
+    const category = await this.em.findOneOrFail(Category, { id: categoryId });
+
+    const ancestors = await this.em.execute<Category[]>(`
+      SELECT * FROM category
+      WHERE $1::ltree <@ path
+      ORDER BY depth ASC
+    `, [category.path]);
+
+    return ancestors;
+  }
+}
+```
+
+**Why This Matters:**
+- Recursive lookup: N queries for N-level depth (slow, connection overhead)
+- LTREE `@>` query: 1 query regardless of depth (fast, uses GiST index)
+
+---
+
+### Task 2.9: Create Migration for Phase 2 Schema Changes
+
+**Files:**
+- Create: `packages/database/src/migrations/Migration20260123_TaxonomyPhase2.ts`
+
+> Migration adds:
+> - `target_type` column to `category`
+> - `target_type`, `unit_system`, `weight_basis_key`, `default_unit_id` to `attribute_template`
+> - New `category_adoption` table
+> - `unit_preferences` to `organizations`
+
+---
+
+### Task 2.10: Phase 2 Integration Tests
+
+**Files:**
+- Create: `apps/api/src/routes/taxonomy/categories.e2e.test.ts`
 
 ---
 
 ## Phase 3: Products & Values
 
-> Tasks for attribute value storage, validation, and unit transform middleware
+### Task 3.1: Define AttributeValue Zod Schema
+
+**Files:**
+- Create: `packages/database/src/schemas/attribute-value.schema.ts`
+
+```typescript
+import { z } from 'zod';
+
+export const attributeValueSchema = z.object({
+  templateId: z.string(),
+
+  // Original input (preserved exactly)
+  inputVal: z.unknown(),
+  inputUnit: z.string().optional(),
+
+  // Normalized for storage/calculation
+  val: z.unknown(),
+  unit: z.string().optional(),  // UNECE code
+
+  source: z.enum(['MANUAL', 'INHERITED', 'CALCULATED', 'CALCULATED_PARTIAL', 'IMPORTED', 'CANNOT_CALCULATE']),
+  updatedAt: z.string().datetime(),
+});
+
+export const productVersionDataSchema = z.object({
+  attributes: z.record(z.string(), attributeValueSchema),
+});
+```
+
+---
+
+### Task 3.2: Create AttributeValidationService
+
+**Files:**
+- Create: `packages/database/src/services/attribute-validation.service.ts`
+
+> Validates attribute values against their templates:
+> - Type checking (NUMBER_UNIT requires number val)
+> - Unit system matching
+> - Min/max/pattern validation rules
+> - Required field checks
+
+---
+
+### Task 3.3: Create Unit Transform Middleware (Hono)
+
+**Files:**
+- Create: `apps/api/src/middleware/unit-transform.ts`
+- Create: `apps/api/src/middleware/unit-transform.test.ts`
+
+**CRITICAL: Implement as Hono Middleware**
+
+The unit transformation MUST be implemented as middleware, not inline in routes. This ensures:
+1. Single place to parse `X-Unit-Preferences` header
+2. Automatic transformation of ALL unit-aware attributes in response
+3. Consistent behavior across all taxonomy-aware endpoints
+
+```typescript
+// apps/api/src/middleware/unit-transform.ts
+import { createMiddleware } from 'hono/factory';
+import { UnitSystem, UnitConversionService } from '@eurocomply/database';
+import type { Env } from '../app.js';
+
+interface UnitPreferences {
+  [key: string]: string;  // { "MASS": "OZA", "LENGTH": "INH" }
+}
+
+/**
+ * Middleware that transforms unit-aware attributes in responses.
+ *
+ * Checks X-Unit-Preferences header, then user prefs, then org prefs, then system defaults.
+ * Recursively walks response JSON to find and convert attribute values.
+ */
+export function unitTransformMiddleware(
+  conversionService: UnitConversionService,
+  resolveUserPrefs: (userId: string) => Promise<UnitPreferences | null>,
+  resolveOrgPrefs: (orgId: string) => Promise<UnitPreferences | null>,
+) {
+  return createMiddleware<Env>(async (c, next) => {
+    await next();
+
+    // Only transform JSON responses
+    const contentType = c.res.headers.get('content-type');
+    if (!contentType?.includes('application/json')) {
+      return;
+    }
+
+    // Resolve preferences: Header > User > Org > System
+    const preferences = await resolvePreferences(c, resolveUserPrefs, resolveOrgPrefs);
+    if (Object.keys(preferences).length === 0) {
+      return; // No preferences, no transformation needed
+    }
+
+    // Clone response and transform
+    const body = await c.res.json();
+    const transformed = await transformResponse(body, preferences, conversionService);
+
+    // Replace response with transformed body
+    c.res = new Response(JSON.stringify(transformed), {
+      status: c.res.status,
+      headers: c.res.headers,
+    });
+  });
+}
+
+async function resolvePreferences(
+  c: any,
+  resolveUserPrefs: (userId: string) => Promise<UnitPreferences | null>,
+  resolveOrgPrefs: (orgId: string) => Promise<UnitPreferences | null>,
+): Promise<UnitPreferences> {
+  const result: UnitPreferences = {};
+
+  // 1. Parse header (highest priority)
+  const header = c.req.header('X-Unit-Preferences');
+  if (header) {
+    // Format: "MASS=OZA,LENGTH=INH"
+    for (const pair of header.split(',')) {
+      const [system, unit] = pair.split('=');
+      if (system && unit) {
+        result[system.trim()] = unit.trim();
+      }
+    }
+  }
+
+  // 2. User preferences (if not in header)
+  const userId = c.get('userId');
+  if (userId) {
+    const userPrefs = await resolveUserPrefs(userId);
+    if (userPrefs) {
+      for (const [system, unit] of Object.entries(userPrefs)) {
+        if (!result[system]) {
+          result[system] = unit;
+        }
+      }
+    }
+  }
+
+  // 3. Org preferences (if not in header or user)
+  const tenantSchema = c.get('tenantSchema');
+  if (tenantSchema) {
+    const orgPrefs = await resolveOrgPrefs(tenantSchema);
+    if (orgPrefs) {
+      for (const [system, unit] of Object.entries(orgPrefs)) {
+        if (!result[system]) {
+          result[system] = unit;
+        }
+      }
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Recursively transform unit-aware attributes in response.
+ */
+async function transformResponse(
+  obj: any,
+  preferences: UnitPreferences,
+  conversionService: UnitConversionService,
+): Promise<any> {
+  if (obj === null || obj === undefined) return obj;
+  if (Array.isArray(obj)) {
+    return Promise.all(obj.map(item => transformResponse(item, preferences, conversionService)));
+  }
+  if (typeof obj !== 'object') return obj;
+
+  // Check if this looks like an attribute value with unit
+  if (obj.val !== undefined && obj.unit && obj.templateId) {
+    return transformAttributeValue(obj, preferences, conversionService);
+  }
+
+  // Recurse into nested objects
+  const result: any = {};
+  for (const [key, value] of Object.entries(obj)) {
+    result[key] = await transformResponse(value, preferences, conversionService);
+  }
+  return result;
+}
+
+async function transformAttributeValue(
+  attr: any,
+  preferences: UnitPreferences,
+  conversionService: UnitConversionService,
+): Promise<any> {
+  // Find the unit system for this attribute's unit
+  // This requires looking up the unit to get its system
+  try {
+    const unitInfo = await conversionService.lookup.findUnit(attr.unit);
+    if (!unitInfo) return attr;
+
+    const preferredUnit = preferences[unitInfo.system];
+    if (!preferredUnit || preferredUnit === attr.unit) {
+      return attr; // No conversion needed
+    }
+
+    const converted = await conversionService.convert(attr.val, attr.unit, preferredUnit);
+
+    return {
+      ...attr,
+      val: converted.val,
+      unit: converted.unit,
+      displayLabel: `${converted.val} ${converted.unit}`,
+      _stored: {
+        val: attr.val,
+        unit: attr.unit,
+      },
+    };
+  } catch {
+    return attr; // On error, return unchanged
+  }
+}
+```
+
+---
+
+### Task 3.4: Create Product Attributes API Routes
+
+**Files:**
+- Create: `apps/api/src/routes/products/attributes.ts`
+
+> Endpoints:
+> - `GET /products/:id/versions/:versionId/attributes`
+> - `PATCH /products/:id/versions/:versionId/attributes`
+
+---
+
+### Task 3.5: Create Migration Script for Existing Metadata
+
+**Files:**
+- Create: `packages/database/src/migrations/migrate-product-metadata.ts`
+
+> Converts existing `metadata: { "weight": "500g" }` to structured attributes
 
 ---
 
 ## Phase 4: Rollups & Polish
 
-> Tasks for RollupEngine, BOM flattening, and trigger hooks
+### Task 4.1: Create RollupEngine Service
+
+**Files:**
+- Create: `packages/database/src/services/rollup-engine.service.ts`
+- Create: `packages/database/src/services/rollup-engine.service.test.ts`
+
+---
+
+### Task 4.2: Implement CALCULATED_PARTIAL Source Status
+
+**CRITICAL: Partial Calculation Warnings**
+
+When calculating rollups, if ANY component is missing the required attribute, the result MUST be flagged as `CALCULATED_PARTIAL` so users know the value is incomplete.
+
+```typescript
+export enum AttributeSource {
+  MANUAL = 'MANUAL',
+  INHERITED = 'INHERITED',
+  CALCULATED = 'CALCULATED',
+  CALCULATED_PARTIAL = 'CALCULATED_PARTIAL',  // Some components missing data
+  IMPORTED = 'IMPORTED',
+  CANNOT_CALCULATE = 'CANNOT_CALCULATE',
+}
+
+interface RollupResult {
+  val: number | null;
+  unit: string;
+  source: AttributeSource;
+  missingComponents?: string[];  // IDs of components that were skipped
+  totalComponents: number;
+  includedComponents: number;
+}
+
+async function calculateSum(
+  flatBom: FlatBomNode[],
+  attributeKey: string,
+  template: AttributeTemplate,
+): Promise<RollupResult> {
+  let sum = 0;
+  const missingComponents: string[] = [];
+  let includedCount = 0;
+
+  for (const node of flatBom) {
+    const attrValue = node.attributes[attributeKey];
+
+    if (!attrValue || attrValue.val === null || attrValue.val === undefined) {
+      // Track missing component
+      missingComponents.push(node.productId);
+      continue;
+    }
+
+    // Convert to base unit and add
+    const baseValue = await this.unitConversion.toBase(
+      attrValue.val * node.effectiveQuantity,
+      attrValue.unit
+    );
+    sum += baseValue.val;
+    includedCount++;
+  }
+
+  // Determine source based on completeness
+  let source: AttributeSource;
+  if (includedCount === 0) {
+    source = AttributeSource.CANNOT_CALCULATE;
+  } else if (missingComponents.length > 0) {
+    source = AttributeSource.CALCULATED_PARTIAL;
+  } else {
+    source = AttributeSource.CALCULATED;
+  }
+
+  return {
+    val: includedCount > 0 ? sum : null,
+    unit: template.defaultUnitId ?? 'KGM',
+    source,
+    missingComponents: missingComponents.length > 0 ? missingComponents : undefined,
+    totalComponents: flatBom.length,
+    includedComponents: includedCount,
+  };
+}
+```
+
+**API Response for Partial Calculations:**
+
+```json
+{
+  "data": {
+    "weight": {
+      "val": 0.67,
+      "unit": "KGM",
+      "source": "CALCULATED_PARTIAL",
+      "warning": "2 of 5 components missing weight attribute",
+      "missingComponents": ["prod_abc", "prod_def"],
+      "totalComponents": 5,
+      "includedComponents": 3
+    }
+  }
+}
+```
+
+---
+
+### Task 4.3: Implement BOM Flattener
+
+**Files:**
+- Create: `packages/database/src/services/bom-flattener.service.ts`
+
+> Recursive tree walk calculating effective quantities at each level
+
+---
+
+### Task 4.4: Create Rollup Trigger Hooks
+
+**Files:**
+- Create: `packages/database/src/subscribers/rollup-trigger.subscriber.ts`
+
+> MikroORM subscriber that triggers recalculation on:
+> - BOM entry added/removed
+> - Child product version released
+
+---
+
+### Task 4.5: Create Manual Recalculation API
+
+**Files:**
+- Add to: `apps/api/src/routes/products/attributes.ts`
+
+> `POST /products/:id/versions/:versionId/attributes/rollup`
+
+---
+
+## Implementation Notes
+
+### LTREE Query Reference
+
+```sql
+-- Find all ancestors of a category (inclusive)
+SELECT * FROM category WHERE path @> 'apparel.tops.tshirts' ORDER BY depth;
+
+-- Find all descendants of a category (inclusive)
+SELECT * FROM category WHERE path <@ 'apparel.tops.tshirts' ORDER BY depth;
+
+-- Find direct children only
+SELECT * FROM category WHERE parent_id = 'cat_123';
+
+-- Count products in category and all descendants
+SELECT COUNT(*) FROM product p
+JOIN category c ON p.category_id = c.id
+WHERE c.path <@ 'apparel';
+```
+
+### Unit Conversion Precision
+
+Always use string storage for factors (`factor: '0.0283495231'`) and convert to number only during calculation. This prevents floating-point precision loss in storage.
 
 ---
 
@@ -1783,3 +2291,4 @@ The implementation plan continues with:
 | Version | Date | Changes |
 |---------|------|---------|
 | 1.0 | 2026-01-23 | Initial implementation plan |
+| 1.1 | 2026-01-23 | Added LTREE optimization for inheritance, Hono middleware for unit transform, CALCULATED_PARTIAL status |
