@@ -11,6 +11,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@eurocomply/core": "workspace:*",
     "@eurocomply/database": "workspace:*"
   },
   "devDependencies": {

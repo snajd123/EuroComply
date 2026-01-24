@@ -60,6 +60,9 @@ importers:
 
   apps/worker:
     dependencies:
+      '@eurocomply/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@eurocomply/database':
         specifier: workspace:*
         version: link:../../packages/database
