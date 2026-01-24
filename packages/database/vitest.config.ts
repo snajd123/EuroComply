@@ -21,6 +21,10 @@ export default defineConfig({
     environment: 'node',
     testTimeout: 30000,
     hookTimeout: 30000,
+    reporters: ['default', 'html'],
+    outputFile: {
+      html: './test-reports/index.html',
+    },
     env: {
       DATABASE_HOST: 'localhost',
       DATABASE_PORT: '5433',
