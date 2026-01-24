@@ -35,7 +35,7 @@ export async function processOutbox(options: Partial<ProcessOutboxOptions> = {})
 
   try {
     while (running) {
-      const results = await processor.processAllSchemas(opts.batchSize);
+      const results = await processor.processAllSchemas(opts.batchSize, opts.maxRetries);
 
       if (results.totalProcessed > 0 || results.totalFailed > 0) {
         console.log(

@@ -37,43 +37,38 @@ export class OutboxProcessorService {
     const em = this.orm.em.fork({ schema });
 
     // Use raw SQL with SKIP LOCKED for proper concurrent worker safety
-    // MikroORM's PESSIMISTIC_WRITE_OR_FAIL uses NOWAIT which throws errors
-    const result = await em.transactional(async (txEm) => {
-      // Claim and update in one atomic operation
-      const rows = await txEm.execute<OutboxEvent[]>(`
-        UPDATE "${schema}".outbox_event
-        SET status = '${OutboxStatus.PROCESSING}', updated_at = NOW()
-        WHERE id = (
-          SELECT id FROM "${schema}".outbox_event
-          WHERE status = '${OutboxStatus.PENDING}'
-          ORDER BY created_at ASC
-          LIMIT 1
-          FOR UPDATE SKIP LOCKED
-        )
-        RETURNING *
-      `);
+    // The UPDATE with subquery + RETURNING is atomic, no transaction wrapper needed
+    const rows = await em.getConnection().execute<Record<string, unknown>[]>(`
+      UPDATE "${schema}".outbox_event
+      SET status = '${OutboxStatus.PROCESSING}', updated_at = NOW()
+      WHERE id = (
+        SELECT id FROM "${schema}".outbox_event
+        WHERE status = '${OutboxStatus.PENDING}'
+        ORDER BY created_at ASC
+        LIMIT 1
+        FOR UPDATE SKIP LOCKED
+      )
+      RETURNING *
+    `);
 
-      if (!rows || rows.length === 0) return null;
+    if (!rows || rows.length === 0) return null;
 
-      // Map raw result to entity (column names are snake_case)
-      const row = rows[0]!;
-      const event = new OutboxEvent();
-      event.id = row.id;
-      event.aggregateType = (row as Record<string, unknown>).aggregate_type as string;
-      event.aggregateId = (row as Record<string, unknown>).aggregate_id as string;
-      event.eventType = (row as Record<string, unknown>).event_type as string;
-      event.payload = row.payload;
-      event.status = row.status;
-      event.retryCount = (row as Record<string, unknown>).retry_count as number;
-      event.processedAt = (row as Record<string, unknown>).processed_at as Date | undefined;
-      event.errorMessage = (row as Record<string, unknown>).error_message as string | undefined;
-      event.createdAt = (row as Record<string, unknown>).created_at as Date;
-      event.updatedAt = (row as Record<string, unknown>).updated_at as Date;
+    // Map raw result to entity (column names are snake_case)
+    const row = rows[0]!;
+    const event = new OutboxEvent();
+    event.id = row.id as string;
+    event.aggregateType = row.aggregate_type as string;
+    event.aggregateId = row.aggregate_id as string;
+    event.eventType = row.event_type as string;
+    event.payload = row.payload as Record<string, unknown>;
+    event.status = row.status as OutboxStatus;
+    event.retryCount = row.retry_count as number;
+    event.processedAt = row.processed_at as Date | undefined;
+    event.errorMessage = row.error_message as string | undefined;
+    event.createdAt = row.created_at as Date;
+    event.updatedAt = row.updated_at as Date;
 
-      return event;
-    });
-
-    return result;
+    return event;
   }
 
   /**
@@ -162,7 +157,7 @@ export class OutboxProcessorService {
    * Process a batch of pending events from a schema.
    * Returns counts of processed, failed, and skipped events.
    */
-  async processBatch(schema: string, batchSize: number): Promise<BatchResult> {
+  async processBatch(schema: string, batchSize: number, maxRetries: number = 5): Promise<BatchResult> {
     const em = this.orm.em.fork({ schema });
     const events = await em.find(
       OutboxEvent,
@@ -173,7 +168,7 @@ export class OutboxProcessorService {
     const result: BatchResult = { processed: 0, failed: 0, skipped: 0 };
 
     for (const event of events) {
-      const processResult = await this.processEvent(schema, event.id);
+      const processResult = await this.processEvent(schema, event.id, maxRetries);
       if (processResult.success) {
         result.processed++;
         if (processResult.skipped) {
@@ -191,7 +186,7 @@ export class OutboxProcessorService {
    * Process events from all schemas (public + active tenants).
    * Returns detailed results per schema and totals.
    */
-  async processAllSchemas(batchSize: number): Promise<AllSchemasResult> {
+  async processAllSchemas(batchSize: number, maxRetries: number = 5): Promise<AllSchemasResult> {
     const result: AllSchemasResult = {
       public: { processed: 0, failed: 0, skipped: 0 },
       tenants: new Map(),
@@ -200,7 +195,7 @@ export class OutboxProcessorService {
     };
 
     // 1. Process public schema (system events)
-    result.public = await this.processBatch('public', batchSize);
+    result.public = await this.processBatch('public', batchSize, maxRetries);
     result.totalProcessed += result.public.processed;
     result.totalFailed += result.public.failed;
 
@@ -208,7 +203,7 @@ export class OutboxProcessorService {
     const schemas = await this.getActiveSchemas();
     for (const schema of schemas) {
       try {
-        const tenantResult = await this.processBatch(schema, batchSize);
+        const tenantResult = await this.processBatch(schema, batchSize, maxRetries);
         result.tenants.set(schema, tenantResult);
         result.totalProcessed += tenantResult.processed;
         result.totalFailed += tenantResult.failed;
