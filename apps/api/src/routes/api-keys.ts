@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import type { Env } from '../app.js';
-import { ApiKeyService, Organization, ApiKey, type EntityManager } from '@eurocomply/database';
+import { ApiKeyService, Organization, type EntityManager } from '@eurocomply/database';
+import { requireOrgAdmin } from '../middleware/authorize.js';
 
 export interface ApiKeysRouterDeps {
   /** EntityManager for database operations */
@@ -17,6 +18,9 @@ export interface ApiKeysRouterDeps {
 export function createApiKeysRouter(deps: ApiKeysRouterDeps) {
   const router = new Hono<Env>();
 
+  // All API key operations require Org Admin
+  router.use('/*', requireOrgAdmin());
+
   /**
    * POST /api/v1/api-keys
    * Create a new API key for the tenant.
@@ -32,14 +36,6 @@ export function createApiKeysRouter(deps: ApiKeysRouterDeps) {
 
     if (!schemaName || !userId) {
       return c.json({ error: 'Unauthorized', message: 'Missing tenant context' }, 401);
-    }
-
-    // API key management is only allowed via JWT, not via API key
-    if (userId.startsWith('api-key:')) {
-      return c.json(
-        { error: 'Forbidden', message: 'API key management requires JWT authentication' },
-        403
-      );
     }
 
     const body = await c.req.json<{ name?: string }>();
@@ -87,14 +83,6 @@ export function createApiKeysRouter(deps: ApiKeysRouterDeps) {
       return c.json({ error: 'Unauthorized', message: 'Missing tenant context' }, 401);
     }
 
-    // API key management is only allowed via JWT, not via API key
-    if (userId.startsWith('api-key:')) {
-      return c.json(
-        { error: 'Forbidden', message: 'API key management requires JWT authentication' },
-        403
-      );
-    }
-
     const em = deps.em.fork();
 
     // Find organization by schema name
@@ -132,14 +120,6 @@ export function createApiKeysRouter(deps: ApiKeysRouterDeps) {
 
     if (!schemaName || !userId) {
       return c.json({ error: 'Unauthorized', message: 'Missing tenant context' }, 401);
-    }
-
-    // API key management is only allowed via JWT, not via API key
-    if (userId.startsWith('api-key:')) {
-      return c.json(
-        { error: 'Forbidden', message: 'API key management requires JWT authentication' },
-        403
-      );
     }
 
     const em = deps.em.fork();
