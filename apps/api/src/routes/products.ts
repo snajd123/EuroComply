@@ -5,6 +5,7 @@ import { createId } from '@eurocomply/core';
 import { Product, ProductStatus, Category } from '@eurocomply/database';
 import type { Env } from '../app.js';
 import type { EntityManagerLike, OrmLike } from './organizations.js';
+import { authorize } from '../middleware/authorize.js';
 
 // ============================================================================
 // Zod Schemas
@@ -35,7 +36,7 @@ export function createProductsRouter(options: ProductsRouterOptions) {
   const router = new Hono<Env>();
 
   // List products for tenant
-  router.get('/', async (c) => {
+  router.get('/', authorize('design', 'view'), async (c) => {
     const schema = c.get('tenantSchema')!;
     const em = orm.em.fork({ schema });
     const products = await em.find(Product, {});
@@ -49,6 +50,7 @@ export function createProductsRouter(options: ProductsRouterOptions) {
   // Create product
   router.post(
     '/',
+    authorize('design', 'edit'),
     zValidator('json', createProductSchema),
     async (c) => {
       const schema = c.get('tenantSchema')!;
@@ -79,7 +81,7 @@ export function createProductsRouter(options: ProductsRouterOptions) {
   );
 
   // Get product by ID
-  router.get('/:id', async (c) => {
+  router.get('/:id', authorize('design', 'view'), async (c) => {
     const schema = c.get('tenantSchema')!;
     const em = orm.em.fork({ schema });
     const id = c.req.param('id');
