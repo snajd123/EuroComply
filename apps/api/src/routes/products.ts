@@ -30,6 +30,9 @@ export interface ProductsRouterOptions {
 
 /**
  * Creates the products router with database backing and tenant isolation.
+ *
+ * MULTI-TENANT SAFETY: All queries are wrapped in transactions with SET search_path
+ * to prevent cross-tenant data leakage when MikroORM generates JOINs (e.g., populate).
  */
 export function createProductsRouter(options: ProductsRouterOptions) {
   const { orm } = options;
@@ -39,7 +42,12 @@ export function createProductsRouter(options: ProductsRouterOptions) {
   router.get('/', authorize('design', 'view'), async (c) => {
     const schema = c.get('tenantSchema')!;
     const em = orm.em.fork({ schema });
-    const products = await em.find(Product, {});
+
+    // Wrap in transaction with search_path to future-proof against JOINs
+    const products = await em.transactional(async (txEm) => {
+      await txEm.execute(`SET search_path TO "${schema}", public`);
+      return txEm.find(Product, {});
+    });
 
     return c.json({
       data: products.map(serializeProduct),
@@ -57,29 +65,39 @@ export function createProductsRouter(options: ProductsRouterOptions) {
       const em = orm.em.fork({ schema });
       const body = c.req.valid('json');
 
-      // Verify category exists
-      const category = await em.findOne(Category, { id: body.categoryId });
-      if (!category) {
-        return c.json({ error: 'Bad Request', message: 'Category not found' }, 400);
-      }
+      // Wrap in transaction with search_path for JOIN safety
+      const result = await em.transactional(async (txEm) => {
+        await txEm.execute(`SET search_path TO "${schema}", public`);
 
-      const now = new Date();
-      const product = em.create(Product, {
-        id: createId(),
-        name: body.name,
-        description: body.description,
-        sku: body.sku,
-        gtin: body.gtin,
-        category,
-        status: ProductStatus.DRAFT,
-        metadata: body.metadata,
-        createdAt: now,
-        updatedAt: now,
+        // Verify category exists
+        const category = await txEm.findOne(Category, { id: body.categoryId });
+        if (!category) {
+          return { error: 'Category not found' as const };
+        }
+
+        const now = new Date();
+        const product = txEm.create(Product, {
+          id: createId(),
+          name: body.name,
+          description: body.description,
+          sku: body.sku,
+          gtin: body.gtin,
+          category,
+          status: ProductStatus.DRAFT,
+          metadata: body.metadata,
+          createdAt: now,
+          updatedAt: now,
+        });
+
+        txEm.persist(product);
+        return { product };
       });
 
-      await em.persistAndFlush(product);
+      if ('error' in result) {
+        return c.json({ error: 'Bad Request', message: result.error }, 400);
+      }
 
-      return c.json({ data: serializeProduct(product) }, 201);
+      return c.json({ data: serializeProduct(result.product) }, 201);
     }
   );
 
@@ -88,7 +106,12 @@ export function createProductsRouter(options: ProductsRouterOptions) {
     const schema = c.get('tenantSchema')!;
     const em = orm.em.fork({ schema });
     const id = c.req.param('id');
-    const product = await em.findOne(Product, { id });
+
+    // Wrap in transaction with search_path for JOIN safety
+    const product = await em.transactional(async (txEm) => {
+      await txEm.execute(`SET search_path TO "${schema}", public`);
+      return txEm.findOne(Product, { id });
+    });
 
     if (!product) {
       return c.json({ error: 'Not Found', message: 'Product not found' }, 404);
@@ -118,98 +141,3 @@ function serializeProduct(product: Product) {
   };
 }
 
-// ============================================================================
-// In-memory fallback for tests without database
-// ============================================================================
-
-interface InMemoryProduct {
-  id: string;
-  tenantSchema: string;
-  name: string;
-  description?: string;
-  sku?: string;
-  gtin?: string;
-  categoryId: string;
-  status: 'DRAFT' | 'ACTIVE' | 'ARCHIVED';
-  metadata?: Record<string, unknown>;
-  createdAt: string;
-  updatedAt: string;
-  createdBy: string;
-}
-
-const productsByTenant: Map<string, Map<string, InMemoryProduct>> = new Map();
-
-export function clearProductsStore(): void {
-  productsByTenant.clear();
-}
-
-function getTenantProducts(schema: string): Map<string, InMemoryProduct> {
-  let products = productsByTenant.get(schema);
-  if (!products) {
-    products = new Map();
-    productsByTenant.set(schema, products);
-  }
-  return products;
-}
-
-/**
- * @deprecated Use createProductsRouter with ORM injection instead.
- * This in-memory fallback is kept for backwards compatibility with tests.
- * NOTE: Does not include authorization checks - for testing only.
- */
-export const productsRouter = new Hono<Env>();
-
-productsRouter.get('/', (c) => {
-  const schema = c.get('tenantSchema')!;
-  const products = getTenantProducts(schema);
-  const data = Array.from(products.values());
-
-  return c.json({
-    data,
-    meta: { total: data.length },
-  });
-});
-
-productsRouter.post(
-  '/',
-  zValidator('json', createProductSchema),
-  (c) => {
-    const schema = c.get('tenantSchema')!;
-    const userId = c.get('userId')!;
-    const body = c.req.valid('json');
-    const now = new Date().toISOString();
-
-    const product: InMemoryProduct = {
-      id: createId(),
-      tenantSchema: schema,
-      name: body.name,
-      description: body.description,
-      sku: body.sku,
-      gtin: body.gtin,
-      categoryId: body.categoryId,
-      status: 'DRAFT',
-      metadata: body.metadata,
-      createdAt: now,
-      updatedAt: now,
-      createdBy: userId,
-    };
-
-    const products = getTenantProducts(schema);
-    products.set(product.id, product);
-
-    return c.json({ data: product }, 201);
-  }
-);
-
-productsRouter.get('/:id', (c) => {
-  const schema = c.get('tenantSchema')!;
-  const id = c.req.param('id');
-  const products = getTenantProducts(schema);
-  const product = products.get(id);
-
-  if (!product) {
-    return c.json({ error: 'Not Found', message: 'Product not found' }, 404);
-  }
-
-  return c.json({ data: product });
-});

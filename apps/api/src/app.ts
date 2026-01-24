@@ -8,7 +8,7 @@ import {
   organizationsRouter,
   createOrganizationsRouter,
 } from './routes/organizations.js';
-import { productsRouter, createProductsRouter } from './routes/products.js';
+import { createProductsRouter } from './routes/products.js';
 import { createApiKeysRouter } from './routes/api-keys.js';
 import { createUnitsRouter, type UnitsRepository } from './routes/taxonomy/index.js';
 import { tenantMiddleware, createTenantMiddlewareWithApiKeys } from './middleware/tenant.js';
@@ -105,6 +105,7 @@ export function createApp(deps?: AppDependencies): Hono<Env> {
   // Tenant-scoped routes (require authentication via JWT or API key)
   // Apply tenant middleware explicitly to each protected route
   // This avoids catch-all patterns that would interfere with admin routes
+  // NOTE: Products routes require ORM - no fallback (authorization requires database)
   if (deps?.orm) {
     // Products: Apply tenant + user middleware
     v1.use('/products/*', createTenantMiddlewareWithApiKeys(deps.orm.em as any));
@@ -112,10 +113,6 @@ export function createApp(deps?: AppDependencies): Hono<Env> {
       v1.use('/products/*', userMiddleware);
     }
     v1.route('/products', createProductsRouter({ orm: deps.orm }));
-  } else {
-    // Without ORM: JWT-only authentication (for testing)
-    v1.use('/products/*', tenantMiddleware);
-    v1.route('/products', productsRouter);
   }
 
   app.route('/api/v1', v1);

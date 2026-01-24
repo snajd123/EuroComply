@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createApp } from './app.js';
-import { clearProductsStore } from './routes/products.js';
 import { clearOrganizationsStore } from './routes/organizations.js';
 
 // Type definitions for API responses
@@ -21,20 +20,6 @@ interface OrganizationResponse {
   };
 }
 
-interface ProductsListResponse {
-  data: Array<{
-    id: string;
-    name: string;
-    categoryId: string;
-    tenantId: string;
-  }>;
-}
-
-function createTestToken(schemaName: string, userId: string): string {
-  const payload = btoa(JSON.stringify({ schema_name: schemaName, sub: userId }));
-  return `header.${payload}.signature`;
-}
-
 const TEST_ADMIN_KEY = 'test-admin-key-12345';
 
 describe('EuroComply API E2E', () => {
@@ -43,7 +28,6 @@ describe('EuroComply API E2E', () => {
   const app = createApp();
 
   beforeEach(() => {
-    clearProductsStore();
     clearOrganizationsStore();
   });
 
@@ -100,54 +84,6 @@ describe('EuroComply API E2E', () => {
     });
   });
 
-  describe('Product Flow (Tenant-Scoped)', () => {
-    it('creates products isolated by tenant', async () => {
-      const token1 = createTestToken('tenant_corp1', 'user1');
-      const token2 = createTestToken('tenant_corp2', 'user2');
-
-      // Create product in tenant 1
-      const create1 = await app.request('/api/v1/products', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token1}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          name: 'Corp1 Product',
-          categoryId: 'cat1',
-        }),
-      });
-      expect(create1.status).toBe(201);
-
-      // Create product in tenant 2
-      const create2 = await app.request('/api/v1/products', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token2}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          name: 'Corp2 Product',
-          categoryId: 'cat2',
-        }),
-      });
-      expect(create2.status).toBe(201);
-
-      // List tenant 1 - should only see their product
-      const list1 = await app.request('/api/v1/products', {
-        headers: { Authorization: `Bearer ${token1}` },
-      });
-      const data1 = (await list1.json()) as ProductsListResponse;
-      expect(data1.data.length).toBe(1);
-      expect(data1.data[0]?.name).toBe('Corp1 Product');
-
-      // List tenant 2 - should only see their product
-      const list2 = await app.request('/api/v1/products', {
-        headers: { Authorization: `Bearer ${token2}` },
-      });
-      const data2 = (await list2.json()) as ProductsListResponse;
-      expect(data2.data.length).toBe(1);
-      expect(data2.data[0]?.name).toBe('Corp2 Product');
-    });
-  });
+  // NOTE: Products flow tests moved to products.test.ts with proper ORM mocking.
+  // Products routes require database injection - no in-memory fallback.
 });

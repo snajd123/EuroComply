@@ -342,15 +342,16 @@ describe('Membership Webhooks Integration', () => {
         return;
       }
 
-      // Create org in PROVISIONING state manually
+      // Create org in PROVISIONING state manually with unique identifiers
       const em = orm.em.fork();
       const now = new Date();
+      const uniqueSuffix = Date.now().toString();
       const pendingOrg = em.create(Organization, {
-        id: 'org_pending_test',
-        name: 'Pending Org',
-        slug: 'pending-org',
-        schemaName: 'tenant_pending',
-        clerkOrgId: 'org_clerk_pending',
+        id: `org_pending_${uniqueSuffix}`,
+        name: `Pending Org ${uniqueSuffix}`,
+        slug: `pending-org-${uniqueSuffix}`,
+        schemaName: `tenant_pending_${uniqueSuffix}`,
+        clerkOrgId: `org_clerk_pending_${uniqueSuffix}`,
         cellId: 'cell_1',
         subscriptionTier: SubscriptionTier.STARTER,
         subscriptionStatus: SubscriptionStatus.TRIALING,
@@ -370,11 +371,11 @@ describe('Membership Webhooks Integration', () => {
           body: JSON.stringify({
             type: 'organizationMembership.created',
             data: {
-              id: 'mem_pending',
-              organization: { id: 'org_clerk_pending' },
+              id: `mem_pending_${uniqueSuffix}`,
+              organization: { id: `org_clerk_pending_${uniqueSuffix}` },
               public_user_data: {
-                user_id: 'user_pending',
-                identifier: 'pending@example.com',
+                user_id: `user_pending_${uniqueSuffix}`,
+                identifier: `pending_${uniqueSuffix}@example.com`,
               },
               role: 'org:member',
               created_at: Date.now(),
@@ -620,15 +621,16 @@ describe('Membership Webhooks Integration', () => {
         return;
       }
 
-      // Create org in PROVISIONING state
+      // Create org in PROVISIONING state with unique identifiers
       const em = orm.em.fork();
       const now = new Date();
+      const uniqueSuffix = Date.now().toString();
       const pendingOrg = em.create(Organization, {
-        id: 'org_pending_update',
-        name: 'Pending Update Org',
-        slug: 'pending-update-org',
-        schemaName: 'tenant_pending_update',
-        clerkOrgId: 'org_clerk_pending_update',
+        id: `org_pending_update_${uniqueSuffix}`,
+        name: `Pending Update Org ${uniqueSuffix}`,
+        slug: `pending-update-org-${uniqueSuffix}`,
+        schemaName: `tenant_pending_update_${uniqueSuffix}`,
+        clerkOrgId: `org_clerk_pending_update_${uniqueSuffix}`,
         cellId: 'cell_1',
         subscriptionTier: SubscriptionTier.STARTER,
         subscriptionStatus: SubscriptionStatus.TRIALING,
@@ -648,11 +650,11 @@ describe('Membership Webhooks Integration', () => {
           body: JSON.stringify({
             type: 'user.updated',
             data: {
-              id: 'user_pending_update',
-              email_addresses: [{ id: 'email_1', email_address: 'pending@example.com' }],
+              id: `user_pending_update_${uniqueSuffix}`,
+              email_addresses: [{ id: 'email_1', email_address: `pending_${uniqueSuffix}@example.com` }],
               primary_email_address_id: 'email_1',
               organization_memberships: [
-                { organization: { id: 'org_clerk_pending_update' } },
+                { organization: { id: `org_clerk_pending_update_${uniqueSuffix}` } },
               ],
             },
           }),

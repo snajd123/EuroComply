@@ -1,23 +1,24 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Hono } from 'hono';
-import { productsRouter, clearProductsStore, createProductsRouter } from './products.js';
-import { tenantMiddleware } from '../middleware/tenant.js';
+import { createProductsRouter } from './products.js';
 import { WorkspaceAuthority } from '@eurocomply/database';
+
+// ============================================================================
+// Types
+// ============================================================================
 
 interface ProductResponse {
   data: {
     id: string;
-    tenantSchema: string;
     name: string;
     description?: string;
     sku?: string;
     gtin?: string;
-    categoryId: string;
-    status: 'DRAFT' | 'ACTIVE' | 'ARCHIVED';
+    categoryId?: string;
+    status: string;
     metadata?: Record<string, unknown>;
     createdAt: string;
     updatedAt: string;
-    createdBy: string;
   };
 }
 
@@ -26,133 +27,98 @@ interface ProductListResponse {
   meta: { total: number };
 }
 
-function createTestToken(schemaName: string, userId: string): string {
-  const payload = btoa(JSON.stringify({ schema_name: schemaName, sub: userId }));
-  return `header.${payload}.signature`;
-}
-
-describe('products routes', () => {
-  const app = new Hono();
-  app.use('*', tenantMiddleware);
-  app.route('/products', productsRouter);
-
-  beforeEach(() => {
-    clearProductsStore();
-  });
-
-  describe('GET /products', () => {
-    it('requires authentication', async () => {
-      const res = await app.request('/products');
-      expect(res.status).toBe(401);
-    });
-
-    it('returns empty array for tenant', async () => {
-      const res = await app.request('/products', {
-        headers: { Authorization: `Bearer ${createTestToken('tenant_acme', 'user1')}` },
-      });
-      expect(res.status).toBe(200);
-      const data = (await res.json()) as ProductListResponse;
-      expect(data.data).toEqual([]);
-    });
-  });
-
-  describe('POST /products', () => {
-    it('creates product in tenant scope', async () => {
-      const res = await app.request('/products', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${createTestToken('tenant_acme', 'user1')}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          name: 'Widget A',
-          categoryId: 'cat123',
-        }),
-      });
-      expect(res.status).toBe(201);
-      const data = (await res.json()) as ProductResponse;
-      expect(data.data.name).toBe('Widget A');
-      expect(data.data.tenantSchema).toBe('tenant_acme');
-    });
-
-    it('isolates products by tenant', async () => {
-      // Create product in tenant_acme
-      await app.request('/products', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${createTestToken('tenant_acme', 'user1')}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ name: 'Acme Widget', categoryId: 'cat1' }),
-      });
-
-      // Create product in tenant_other
-      await app.request('/products', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${createTestToken('tenant_other', 'user2')}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ name: 'Other Widget', categoryId: 'cat2' }),
-      });
-
-      // List tenant_acme products
-      const acmeRes = await app.request('/products', {
-        headers: { Authorization: `Bearer ${createTestToken('tenant_acme', 'user1')}` },
-      });
-      const acmeData = (await acmeRes.json()) as ProductListResponse;
-      expect(acmeData.data.length).toBe(1);
-      expect(acmeData.data[0]!.name).toBe('Acme Widget');
-
-      // List tenant_other products
-      const otherRes = await app.request('/products', {
-        headers: { Authorization: `Bearer ${createTestToken('tenant_other', 'user2')}` },
-      });
-      const otherData = (await otherRes.json()) as ProductListResponse;
-      expect(otherData.data.length).toBe(1);
-      expect(otherData.data[0]!.name).toBe('Other Widget');
-    });
-  });
-});
+type Env = {
+  Variables: {
+    tenantSchema?: string;
+    userId?: string;
+    membership?: { designAuthority: string };
+  };
+};
 
 // ============================================================================
-// Authorization Tests (using createProductsRouter with ORM)
+// Mock ORM Factory
 // ============================================================================
 
-describe('Products Authorization', () => {
-  // Mock ORM for authorization tests
-  const mockOrm = {
+function createMockOrm(overrides: {
+  products?: Array<{ id: string; name: string; status: string; category?: { id: string }; createdAt: Date; updatedAt: Date }>;
+  category?: { id: string; name: string } | null;
+} = {}) {
+  const mockProducts = overrides.products ?? [];
+  // Use 'category' in overrides to check if explicitly set (including to null)
+  const mockCategory = 'category' in overrides ? overrides.category : { id: 'cat_123', name: 'Test Category' };
+
+  return {
     em: {
       fork: () => ({
-        find: vi.fn().mockResolvedValue([]),
-        findOne: vi.fn().mockResolvedValue({ id: 'cat_123', name: 'Test Category' }),
-        create: vi.fn().mockImplementation((_, data) => ({
-          ...data,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          category: { id: 'cat_123' },
-        })),
-        persistAndFlush: vi.fn().mockResolvedValue(undefined),
+        transactional: vi.fn().mockImplementation(async (callback) => {
+          const txEm = {
+            execute: vi.fn().mockResolvedValue(undefined),
+            find: vi.fn().mockResolvedValue(mockProducts),
+            findOne: vi.fn().mockImplementation((entity, filter) => {
+              if (entity.name === 'Category' || entity === 'Category') {
+                return Promise.resolve(mockCategory);
+              }
+              if (entity.name === 'Product' || entity === 'Product') {
+                const product = mockProducts.find((p) => p.id === filter.id);
+                return Promise.resolve(product ?? null);
+              }
+              return Promise.resolve(null);
+            }),
+            create: vi.fn().mockImplementation((_, data) => ({
+              ...data,
+              createdAt: data.createdAt || new Date(),
+              updatedAt: data.updatedAt || new Date(),
+              category: mockCategory,
+            })),
+            persist: vi.fn(),
+          };
+          return callback(txEm);
+        }),
       }),
     },
   };
+}
 
-  type Env = {
-    Variables: {
-      tenantSchema?: string;
-      userId?: string;
-      membership?: any;
-    };
-  };
+// ============================================================================
+// Authorization Tests
+// ============================================================================
 
+describe('Products Authorization', () => {
   describe('GET /products', () => {
     it('allows Design VIEWER', async () => {
+      const mockOrm = createMockOrm();
       const app = new Hono<Env>();
       app.use('*', (c, next) => {
         c.set('tenantSchema', 'tenant_test');
-        c.set('membership', {
-          designAuthority: WorkspaceAuthority.VIEWER,
-        } as any);
+        c.set('membership', { designAuthority: WorkspaceAuthority.VIEWER } as any);
+        return next();
+      });
+      app.route('/products', createProductsRouter({ orm: mockOrm as any }));
+
+      const res = await app.request('/products');
+      expect(res.status).toBe(200);
+    });
+
+    it('allows Design EDITOR', async () => {
+      const mockOrm = createMockOrm();
+      const app = new Hono<Env>();
+      app.use('*', (c, next) => {
+        c.set('tenantSchema', 'tenant_test');
+        c.set('membership', { designAuthority: WorkspaceAuthority.EDITOR } as any);
+        return next();
+      });
+      app.route('/products', createProductsRouter({ orm: mockOrm as any }));
+
+      const res = await app.request('/products');
+      expect(res.status).toBe(200);
+    });
+
+    it('allows Design MANAGER', async () => {
+      const mockOrm = createMockOrm();
+      const app = new Hono<Env>();
+      app.use('*', (c, next) => {
+        c.set('tenantSchema', 'tenant_test');
+        c.set('membership', { designAuthority: WorkspaceAuthority.MANAGER } as any);
         return next();
       });
       app.route('/products', createProductsRouter({ orm: mockOrm as any }));
@@ -162,12 +128,11 @@ describe('Products Authorization', () => {
     });
 
     it('denies user with NONE authority', async () => {
+      const mockOrm = createMockOrm();
       const app = new Hono<Env>();
       app.use('*', (c, next) => {
         c.set('tenantSchema', 'tenant_test');
-        c.set('membership', {
-          designAuthority: WorkspaceAuthority.NONE,
-        } as any);
+        c.set('membership', { designAuthority: WorkspaceAuthority.NONE } as any);
         return next();
       });
       app.route('/products', createProductsRouter({ orm: mockOrm as any }));
@@ -175,16 +140,84 @@ describe('Products Authorization', () => {
       const res = await app.request('/products');
       expect(res.status).toBe(403);
     });
-  });
 
-  describe('POST /products', () => {
-    it('denies Design VIEWER', async () => {
+    it('returns products list', async () => {
+      const mockProducts = [
+        {
+          id: 'prod_1',
+          name: 'Product 1',
+          status: 'DRAFT',
+          category: { id: 'cat_123' },
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ];
+      const mockOrm = createMockOrm({ products: mockProducts });
       const app = new Hono<Env>();
       app.use('*', (c, next) => {
         c.set('tenantSchema', 'tenant_test');
-        c.set('membership', {
-          designAuthority: WorkspaceAuthority.VIEWER,
-        } as any);
+        c.set('membership', { designAuthority: WorkspaceAuthority.VIEWER } as any);
+        return next();
+      });
+      app.route('/products', createProductsRouter({ orm: mockOrm as any }));
+
+      const res = await app.request('/products');
+      expect(res.status).toBe(200);
+      const data = (await res.json()) as ProductListResponse;
+      expect(data.data.length).toBe(1);
+      expect(data.data[0]!.name).toBe('Product 1');
+    });
+  });
+
+  describe('POST /products', () => {
+    it('allows Design EDITOR', async () => {
+      const mockOrm = createMockOrm();
+      const app = new Hono<Env>();
+      app.use('*', (c, next) => {
+        c.set('tenantSchema', 'tenant_test');
+        c.set('membership', { designAuthority: WorkspaceAuthority.EDITOR } as any);
+        return next();
+      });
+      app.route('/products', createProductsRouter({ orm: mockOrm as any }));
+
+      const res = await app.request('/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Test Product',
+          categoryId: 'cat_123',
+        }),
+      });
+      expect(res.status).toBe(201);
+    });
+
+    it('allows Design MANAGER', async () => {
+      const mockOrm = createMockOrm();
+      const app = new Hono<Env>();
+      app.use('*', (c, next) => {
+        c.set('tenantSchema', 'tenant_test');
+        c.set('membership', { designAuthority: WorkspaceAuthority.MANAGER } as any);
+        return next();
+      });
+      app.route('/products', createProductsRouter({ orm: mockOrm as any }));
+
+      const res = await app.request('/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Test Product',
+          categoryId: 'cat_123',
+        }),
+      });
+      expect(res.status).toBe(201);
+    });
+
+    it('denies Design VIEWER', async () => {
+      const mockOrm = createMockOrm();
+      const app = new Hono<Env>();
+      app.use('*', (c, next) => {
+        c.set('tenantSchema', 'tenant_test');
+        c.set('membership', { designAuthority: WorkspaceAuthority.VIEWER } as any);
         return next();
       });
       app.route('/products', createProductsRouter({ orm: mockOrm as any }));
@@ -199,6 +232,50 @@ describe('Products Authorization', () => {
       });
       expect(res.status).toBe(403);
     });
+
+    it('denies Design NONE', async () => {
+      const mockOrm = createMockOrm();
+      const app = new Hono<Env>();
+      app.use('*', (c, next) => {
+        c.set('tenantSchema', 'tenant_test');
+        c.set('membership', { designAuthority: WorkspaceAuthority.NONE } as any);
+        return next();
+      });
+      app.route('/products', createProductsRouter({ orm: mockOrm as any }));
+
+      const res = await app.request('/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Test Product',
+          categoryId: 'cat_123',
+        }),
+      });
+      expect(res.status).toBe(403);
+    });
+
+    it('returns 400 if category not found', async () => {
+      const mockOrm = createMockOrm({ category: null });
+      const app = new Hono<Env>();
+      app.use('*', (c, next) => {
+        c.set('tenantSchema', 'tenant_test');
+        c.set('membership', { designAuthority: WorkspaceAuthority.EDITOR } as any);
+        return next();
+      });
+      app.route('/products', createProductsRouter({ orm: mockOrm as any }));
+
+      const res = await app.request('/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Test Product',
+          categoryId: 'nonexistent_cat',
+        }),
+      });
+      expect(res.status).toBe(400);
+      const data = await res.json();
+      expect(data.message).toBe('Category not found');
+    });
   });
 
   describe('GET /products/:id', () => {
@@ -211,35 +288,26 @@ describe('Products Authorization', () => {
         createdAt: new Date(),
         updatedAt: new Date(),
       };
-      const mockOrmWithProduct = {
-        em: {
-          fork: () => ({
-            findOne: vi.fn().mockResolvedValue(mockProduct),
-          }),
-        },
-      };
+      const mockOrm = createMockOrm({ products: [mockProduct] });
 
       const app = new Hono<Env>();
       app.use('*', (c, next) => {
         c.set('tenantSchema', 'tenant_test');
-        c.set('membership', {
-          designAuthority: WorkspaceAuthority.VIEWER,
-        } as any);
+        c.set('membership', { designAuthority: WorkspaceAuthority.VIEWER } as any);
         return next();
       });
-      app.route('/products', createProductsRouter({ orm: mockOrmWithProduct as any }));
+      app.route('/products', createProductsRouter({ orm: mockOrm as any }));
 
       const res = await app.request('/products/prod_123');
       expect(res.status).toBe(200);
     });
 
     it('denies user with NONE authority', async () => {
+      const mockOrm = createMockOrm();
       const app = new Hono<Env>();
       app.use('*', (c, next) => {
         c.set('tenantSchema', 'tenant_test');
-        c.set('membership', {
-          designAuthority: WorkspaceAuthority.NONE,
-        } as any);
+        c.set('membership', { designAuthority: WorkspaceAuthority.NONE } as any);
         return next();
       });
       app.route('/products', createProductsRouter({ orm: mockOrm as any }));
@@ -247,5 +315,55 @@ describe('Products Authorization', () => {
       const res = await app.request('/products/prod_123');
       expect(res.status).toBe(403);
     });
+
+    it('returns 404 if product not found', async () => {
+      const mockOrm = createMockOrm({ products: [] });
+      const app = new Hono<Env>();
+      app.use('*', (c, next) => {
+        c.set('tenantSchema', 'tenant_test');
+        c.set('membership', { designAuthority: WorkspaceAuthority.VIEWER } as any);
+        return next();
+      });
+      app.route('/products', createProductsRouter({ orm: mockOrm as any }));
+
+      const res = await app.request('/products/nonexistent');
+      expect(res.status).toBe(404);
+    });
+  });
+});
+
+// ============================================================================
+// Search Path Safety Tests
+// ============================================================================
+
+describe('Products Multi-tenant Safety', () => {
+  it('sets search_path before queries', async () => {
+    const executeMock = vi.fn().mockResolvedValue(undefined);
+    const mockOrm = {
+      em: {
+        fork: () => ({
+          transactional: vi.fn().mockImplementation(async (callback) => {
+            const txEm = {
+              execute: executeMock,
+              find: vi.fn().mockResolvedValue([]),
+            };
+            return callback(txEm);
+          }),
+        }),
+      },
+    };
+
+    const app = new Hono<Env>();
+    app.use('*', (c, next) => {
+      c.set('tenantSchema', 'tenant_acme');
+      c.set('membership', { designAuthority: WorkspaceAuthority.VIEWER } as any);
+      return next();
+    });
+    app.route('/products', createProductsRouter({ orm: mockOrm as any }));
+
+    await app.request('/products');
+
+    // Verify SET search_path was called with correct tenant schema
+    expect(executeMock).toHaveBeenCalledWith('SET search_path TO "tenant_acme", public');
   });
 });
