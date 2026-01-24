@@ -3,14 +3,22 @@ import { verifyClerkWebhook } from '../middleware/webhook.js';
 import {
   handleOrganizationCreated,
   handleOrganizationDeleted,
+  handleMembershipCreated,
+  handleMembershipDeleted,
+  handleUserUpdated,
+  RetryableError,
   type ClerkOrganizationEvent,
+  type ClerkOrganizationMembershipEvent,
+  type ClerkUserUpdatedEvent,
   type ClerkClient,
   type OrmLike,
   type TenantProvisionerLike,
 } from '../webhooks/clerk.js';
+import type { MikroORM } from '@eurocomply/database';
 
 export interface WebhooksRouterOptions {
   orm: OrmLike;
+  mikroOrm?: MikroORM;  // Full ORM for membership handlers
   provisioner: TenantProvisionerLike;
   webhookSecret?: string;
   clerk?: ClerkClient;
@@ -18,7 +26,7 @@ export interface WebhooksRouterOptions {
 }
 
 export function createWebhooksRouter(options: WebhooksRouterOptions) {
-  const { orm, provisioner, webhookSecret, clerk, skipSignatureVerification } = options;
+  const { orm, mikroOrm, provisioner, webhookSecret, clerk, skipSignatureVerification } = options;
   const router = new Hono();
 
   router.post('/clerk', async (c) => {
@@ -28,7 +36,8 @@ export function createWebhooksRouter(options: WebhooksRouterOptions) {
     }
 
     // Get the raw body for signature verification
-    let event: ClerkOrganizationEvent;
+    type ClerkWebhookEvent = ClerkOrganizationEvent | ClerkOrganizationMembershipEvent | ClerkUserUpdatedEvent;
+    let event: ClerkWebhookEvent;
 
     if (skipSignatureVerification) {
       // For testing: parse body directly
@@ -51,7 +60,7 @@ export function createWebhooksRouter(options: WebhooksRouterOptions) {
         return c.json({ error: 'Invalid webhook signature', details: result.error }, 401);
       }
 
-      event = result.payload as ClerkOrganizationEvent;
+      event = result.payload as ClerkWebhookEvent;
     }
 
     // Handle the event based on type
@@ -82,6 +91,37 @@ export function createWebhooksRouter(options: WebhooksRouterOptions) {
       case 'organization.updated': {
         // For now, just acknowledge - can add handling later
         return c.json({ success: true, message: 'Event acknowledged' });
+      }
+
+      case 'organizationMembership.created': {
+        if (!mikroOrm) {
+          return c.json({ error: 'MikroORM not configured for membership handlers' }, 500);
+        }
+        try {
+          const result = await handleMembershipCreated(mikroOrm, event as unknown as ClerkOrganizationMembershipEvent);
+          return c.json(result);
+        } catch (error) {
+          if (error instanceof RetryableError) {
+            return c.json({ error: error.message }, 503);
+          }
+          throw error;
+        }
+      }
+
+      case 'organizationMembership.deleted': {
+        if (!mikroOrm) {
+          return c.json({ error: 'MikroORM not configured for membership handlers' }, 500);
+        }
+        const result = await handleMembershipDeleted(mikroOrm, event as unknown as ClerkOrganizationMembershipEvent);
+        return c.json(result);
+      }
+
+      case 'user.updated': {
+        if (!mikroOrm) {
+          return c.json({ error: 'MikroORM not configured for membership handlers' }, 500);
+        }
+        const result = await handleUserUpdated(mikroOrm, event as unknown as ClerkUserUpdatedEvent);
+        return c.json(result);
       }
 
       default: {
