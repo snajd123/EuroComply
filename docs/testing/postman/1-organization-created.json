@@ -1,0 +1,95 @@
+{
+  "info": {
+    "name": "1. organization.created",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3001" },
+    { "key": "webhookSecret", "value": "", "description": "REQUIRED: CLERK_WEBHOOK_SECRET (whsec_...)" },
+    { "key": "clerkOrgId", "value": "" },
+    { "key": "schemaName", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "organization.created",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "const suffix = Math.random().toString(36).substring(2, 8);",
+              "const orgId = 'org_test_' + suffix;",
+              "const orgName = 'Test Org ' + suffix;",
+              "const orgSlug = 'test-org-' + suffix;",
+              "const timestamp = Math.floor(Date.now() / 1000);",
+              "",
+              "pm.collectionVariables.set('clerkOrgId', orgId);",
+              "pm.variables.set('_orgId', orgId);",
+              "pm.variables.set('_orgName', orgName);",
+              "pm.variables.set('_orgSlug', orgSlug);",
+              "pm.variables.set('_timestamp', timestamp);",
+              "",
+              "console.log('Creating org:', orgId, orgName);",
+              "",
+              "const webhookSecret = pm.collectionVariables.get('webhookSecret');",
+              "if (!webhookSecret || !webhookSecret.startsWith('whsec_')) {",
+              "    throw new Error('Set webhookSecret in collection variables (whsec_...)');",
+              "}",
+              "",
+              "const body = '{\"type\":\"organization.created\",\"data\":{\"id\":\"' + orgId + '\",\"name\":\"' + orgName + '\",\"slug\":\"' + orgSlug + '\",\"created_at\":' + timestamp + '}}';",
+              "",
+              "const msgId = 'msg_' + Math.random().toString(36).substring(2, 15);",
+              "const secretBytes = CryptoJS.enc.Base64.parse(webhookSecret.replace('whsec_', ''));",
+              "const signaturePayload = msgId + '.' + timestamp + '.' + body;",
+              "const signature = CryptoJS.HmacSHA256(signaturePayload, secretBytes);",
+              "const svixSignature = 'v1,' + CryptoJS.enc.Base64.stringify(signature);",
+              "",
+              "pm.variables.set('_svixId', msgId);",
+              "pm.variables.set('_svixTimestamp', timestamp.toString());",
+              "pm.variables.set('_svixSignature', svixSignature);"
+            ],
+            "type": "text/javascript"
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "console.log('Response:', pm.response.text());",
+              "",
+              "pm.test('Status 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Org created', function () {",
+              "    const r = pm.response.json();",
+              "    pm.expect(r.success).to.be.true;",
+              "    pm.collectionVariables.set('schemaName', r.schemaName);",
+              "    console.log('Schema:', r.schemaName);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "svix-id", "value": "{{_svixId}}" },
+          { "key": "svix-timestamp", "value": "{{_svixTimestamp}}" },
+          { "key": "svix-signature", "value": "{{_svixSignature}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"type\":\"organization.created\",\"data\":{\"id\":\"{{_orgId}}\",\"name\":\"{{_orgName}}\",\"slug\":\"{{_orgSlug}}\",\"created_at\":{{_timestamp}}}}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/webhooks/clerk",
+          "host": ["{{baseUrl}}"],
+          "path": ["webhooks", "clerk"]
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,89 @@
+{
+  "info": {
+    "name": "6. organization.deleted",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3001" },
+    { "key": "webhookSecret", "value": "", "description": "REQUIRED: CLERK_WEBHOOK_SECRET (whsec_...)" },
+    { "key": "clerkOrgId", "value": "", "description": "From organization.created" }
+  ],
+  "item": [
+    {
+      "name": "organization.deleted",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "const orgId = pm.collectionVariables.get('clerkOrgId');",
+              "if (!orgId) throw new Error('Set clerkOrgId first');",
+              "",
+              "const timestamp = Math.floor(Date.now() / 1000);",
+              "",
+              "pm.variables.set('_orgId', orgId);",
+              "pm.variables.set('_timestamp', timestamp);",
+              "",
+              "console.log('Deleting org:', orgId);",
+              "",
+              "const webhookSecret = pm.collectionVariables.get('webhookSecret');",
+              "if (!webhookSecret || !webhookSecret.startsWith('whsec_')) {",
+              "    throw new Error('Set webhookSecret in collection variables (whsec_...)');",
+              "}",
+              "",
+              "const body = '{\"type\":\"organization.deleted\",\"data\":{\"id\":\"' + orgId + '\",\"name\":\"Test Org\",\"slug\":\"test-org\",\"created_at\":' + timestamp + '}}';",
+              "",
+              "const msgId = 'msg_' + Math.random().toString(36).substring(2, 15);",
+              "const secretBytes = CryptoJS.enc.Base64.parse(webhookSecret.replace('whsec_', ''));",
+              "const signaturePayload = msgId + '.' + timestamp + '.' + body;",
+              "const signature = CryptoJS.HmacSHA256(signaturePayload, secretBytes);",
+              "const svixSignature = 'v1,' + CryptoJS.enc.Base64.stringify(signature);",
+              "",
+              "pm.variables.set('_svixId', msgId);",
+              "pm.variables.set('_svixTimestamp', timestamp.toString());",
+              "pm.variables.set('_svixSignature', svixSignature);"
+            ],
+            "type": "text/javascript"
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "console.log('Response:', pm.response.text());",
+              "",
+              "pm.test('Status 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Org deleted', function () {",
+              "    const r = pm.response.json();",
+              "    pm.expect(r.success).to.be.true;",
+              "    console.log('Org deleted, schema dropped');",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "svix-id", "value": "{{_svixId}}" },
+          { "key": "svix-timestamp", "value": "{{_svixTimestamp}}" },
+          { "key": "svix-signature", "value": "{{_svixSignature}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"type\":\"organization.deleted\",\"data\":{\"id\":\"{{_orgId}}\",\"name\":\"Test Org\",\"slug\":\"test-org\",\"created_at\":{{_timestamp}}}}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/webhooks/clerk",
+          "host": ["{{baseUrl}}"],
+          "path": ["webhooks", "clerk"]
+        }
+      }
+    }
+  ]
+}
