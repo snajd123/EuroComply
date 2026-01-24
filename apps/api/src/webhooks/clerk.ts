@@ -7,7 +7,7 @@ import {
   OrganizationUser,
   WorkspaceAuthority,
 } from '@eurocomply/database';
-import type { MikroORM } from '@mikro-orm/postgresql';
+import type { MikroORM, EntityManager } from '@eurocomply/database';
 import type { Context } from 'hono';
 import { createId } from '@eurocomply/core';
 
@@ -362,7 +362,7 @@ export async function handleMembershipCreated(
   // 3. Create user in tenant schema within a transaction
   const em = orm.em.fork({ schema: org.schemaName });
 
-  return em.transactional(async (txEm) => {
+  return em.transactional(async (txEm: EntityManager) => {
     // Check if user already exists (idempotency)
     const existingUser = await txEm.findOne(User, {
       clerkId: public_user_data.user_id,
@@ -377,44 +377,41 @@ export async function handleMembershipCreated(
     const isFirstUser = userCount === 0;
 
     // Create User
-    const user = txEm.create(User, {
-      id: createId(),
-      clerkId: public_user_data.user_id,
-      email: public_user_data.identifier,
-      name: [public_user_data.first_name, public_user_data.last_name]
-        .filter(Boolean)
-        .join(' ') || undefined,
-      avatarUrl: public_user_data.image_url,
-    });
+    const user = new User();
+    user.id = createId();
+    user.clerkId = public_user_data.user_id;
+    user.email = public_user_data.identifier;
+    user.name = [public_user_data.first_name, public_user_data.last_name]
+      .filter(Boolean)
+      .join(' ') || undefined;
+    user.avatarUrl = public_user_data.image_url;
 
     // Create OrganizationUser with authorities
     const isClerkAdmin = role === 'org:admin';
 
-    const orgUser = txEm.create(OrganizationUser, {
-      id: createId(),
-      user,
-      isOrgAdmin: isFirstUser || isClerkAdmin,
-      designAuthority: isFirstUser ? WorkspaceAuthority.MANAGER : WorkspaceAuthority.NONE,
-      operationsAuthority: isFirstUser ? WorkspaceAuthority.MANAGER : WorkspaceAuthority.NONE,
-      marketingAuthority: isFirstUser ? WorkspaceAuthority.MANAGER : WorkspaceAuthority.NONE,
-      complianceAuthority: isFirstUser ? WorkspaceAuthority.MANAGER : WorkspaceAuthority.NONE,
-    });
+    const orgUser = new OrganizationUser();
+    orgUser.id = createId();
+    orgUser.user = user;
+    orgUser.isOrgAdmin = isFirstUser || isClerkAdmin;
+    orgUser.designAuthority = isFirstUser ? WorkspaceAuthority.MANAGER : WorkspaceAuthority.NONE;
+    orgUser.operationsAuthority = isFirstUser ? WorkspaceAuthority.MANAGER : WorkspaceAuthority.NONE;
+    orgUser.marketingAuthority = isFirstUser ? WorkspaceAuthority.MANAGER : WorkspaceAuthority.NONE;
+    orgUser.complianceAuthority = isFirstUser ? WorkspaceAuthority.MANAGER : WorkspaceAuthority.NONE;
 
     // Emit outbox event
-    const outboxEvent = txEm.create(OutboxEvent, {
-      id: createId(),
-      aggregateType: 'User',
-      aggregateId: user.id,
-      eventType: 'user.joined_organization',
-      payload: {
-        userId: user.id,
-        clerkUserId: public_user_data.user_id,
-        organizationId: org.id,
-        isOrgAdmin: orgUser.isOrgAdmin,
-        isFirstUser,
-      },
-      status: OutboxStatus.PENDING,
-    });
+    const outboxEvent = new OutboxEvent();
+    outboxEvent.id = createId();
+    outboxEvent.aggregateType = 'User';
+    outboxEvent.aggregateId = user.id;
+    outboxEvent.eventType = 'user.joined_organization';
+    outboxEvent.payload = {
+      userId: user.id,
+      clerkUserId: public_user_data.user_id,
+      organizationId: org.id,
+      isOrgAdmin: orgUser.isOrgAdmin,
+      isFirstUser,
+    };
+    outboxEvent.status = OutboxStatus.PENDING;
 
     txEm.persist([user, orgUser, outboxEvent]);
     // Transaction will flush on commit
@@ -446,7 +443,7 @@ export async function handleMembershipDeleted(
 
   const em = orm.em.fork({ schema: org.schemaName });
 
-  return em.transactional(async (txEm) => {
+  return em.transactional(async (txEm: EntityManager) => {
     // Soft delete - preserves audit trail references
     const updated = await txEm.nativeUpdate(
       User,
@@ -459,18 +456,17 @@ export async function handleMembershipDeleted(
     }
 
     // Emit outbox event for event-driven consistency
-    const outboxEvent = txEm.create(OutboxEvent, {
-      id: createId(),
-      aggregateType: 'User',
-      aggregateId: public_user_data.user_id,  // Use Clerk user ID as we don't have internal ID
-      eventType: 'user.left_organization',
-      payload: {
-        clerkUserId: public_user_data.user_id,
-        organizationId: org.id,
-        clerkOrgId: organization.id,
-      },
-      status: OutboxStatus.PENDING,
-    });
+    const outboxEvent = new OutboxEvent();
+    outboxEvent.id = createId();
+    outboxEvent.aggregateType = 'User';
+    outboxEvent.aggregateId = public_user_data.user_id;  // Use Clerk user ID as we don't have internal ID
+    outboxEvent.eventType = 'user.left_organization';
+    outboxEvent.payload = {
+      clerkUserId: public_user_data.user_id,
+      organizationId: org.id,
+      clerkOrgId: organization.id,
+    };
+    outboxEvent.status = OutboxStatus.PENDING;
     txEm.persist(outboxEvent);
 
     return { status: 'soft_deleted' };
@@ -504,20 +500,19 @@ export async function handleUserUpdated(
 
     // Emit one outbox event per tenant (processed async by worker)
     for (const membership of event.data.organization_memberships) {
-      const outboxEvent = em.create(OutboxEvent, {
-        id: createId(),
-        aggregateType: 'User',
-        aggregateId: event.data.id,
-        eventType: 'user.profile_sync_requested',
-        payload: {
-          clerkUserId: event.data.id,
-          clerkOrgId: membership.organization.id,
-          email: primaryEmail,
-          name,
-          avatarUrl: event.data.image_url,
-        },
-        status: OutboxStatus.PENDING,
-      });
+      const outboxEvent = new OutboxEvent();
+      outboxEvent.id = createId();
+      outboxEvent.aggregateType = 'User';
+      outboxEvent.aggregateId = event.data.id;
+      outboxEvent.eventType = 'user.profile_sync_requested';
+      outboxEvent.payload = {
+        clerkUserId: event.data.id,
+        clerkOrgId: membership.organization.id,
+        email: primaryEmail,
+        name,
+        avatarUrl: event.data.image_url,
+      };
+      outboxEvent.status = OutboxStatus.PENDING;
       em.persist(outboxEvent);
     }
     await em.flush();

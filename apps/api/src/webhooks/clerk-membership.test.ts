@@ -108,20 +108,24 @@ describe('handleMembershipCreated', () => {
     });
     mockTenantEm.findOne.mockResolvedValue(null);
     mockTenantEm.count.mockResolvedValue(0); // First user
-    mockTenantEm.create.mockImplementation((_, data) => data);
 
     const event = createEvent();
     const result = await handleMembershipCreated(mockOrm as any, event);
 
     expect(result.status).toBe('created');
-    expect(mockTenantEm.create).toHaveBeenCalledTimes(3); // User + OrganizationUser + OutboxEvent
+    // Check persist was called with array of [user, orgUser, outboxEvent]
+    expect(mockTenantEm.persist).toHaveBeenCalledTimes(1);
 
-    // Check OrganizationUser was created with MANAGER
-    const orgUserCall = mockTenantEm.create.mock.calls.find(
-      (call: any) => call[1]?.designAuthority !== undefined
-    );
-    expect(orgUserCall[1].isOrgAdmin).toBe(true);
-    expect(orgUserCall[1].designAuthority).toBe(WorkspaceAuthority.MANAGER);
+    // Get the persisted entities array
+    const persistCall = mockTenantEm.persist.mock.calls[0];
+    expect(persistCall).toBeDefined();
+    const persistedEntities = persistCall![0] as unknown[];
+    expect(persistedEntities).toHaveLength(3);
+
+    // Check OrganizationUser was created with MANAGER (second entity in array)
+    const orgUser = persistedEntities[1] as { isOrgAdmin: boolean; designAuthority: WorkspaceAuthority };
+    expect(orgUser.isOrgAdmin).toBe(true);
+    expect(orgUser.designAuthority).toBe(WorkspaceAuthority.MANAGER);
   });
 
   it('creates subsequent user with NONE + not admin', async () => {
@@ -132,19 +136,21 @@ describe('handleMembershipCreated', () => {
     });
     mockTenantEm.findOne.mockResolvedValue(null);
     mockTenantEm.count.mockResolvedValue(5); // Not first user
-    mockTenantEm.create.mockImplementation((_, data) => data);
 
     const event = createEvent();
     const result = await handleMembershipCreated(mockOrm as any, event);
 
     expect(result.status).toBe('created');
 
-    // Check OrganizationUser was created with NONE
-    const orgUserCall = mockTenantEm.create.mock.calls.find(
-      (call: any) => call[1]?.designAuthority !== undefined
-    );
-    expect(orgUserCall[1].isOrgAdmin).toBe(false);
-    expect(orgUserCall[1].designAuthority).toBe(WorkspaceAuthority.NONE);
+    // Get the persisted entities array
+    const persistCall = mockTenantEm.persist.mock.calls[0];
+    expect(persistCall).toBeDefined();
+    const persistedEntities = persistCall![0] as unknown[];
+
+    // Check OrganizationUser was created with NONE (second entity in array)
+    const orgUser = persistedEntities[1] as { isOrgAdmin: boolean; designAuthority: WorkspaceAuthority };
+    expect(orgUser.isOrgAdmin).toBe(false);
+    expect(orgUser.designAuthority).toBe(WorkspaceAuthority.NONE);
   });
 
   it('grants isOrgAdmin to Clerk org:admin role', async () => {
@@ -155,7 +161,6 @@ describe('handleMembershipCreated', () => {
     });
     mockTenantEm.findOne.mockResolvedValue(null);
     mockTenantEm.count.mockResolvedValue(5); // Not first user
-    mockTenantEm.create.mockImplementation((_, data) => data);
 
     const event = createEvent();
     event.data.role = 'org:admin';
@@ -164,11 +169,14 @@ describe('handleMembershipCreated', () => {
 
     expect(result.status).toBe('created');
 
-    // Check isOrgAdmin is true for org:admin role
-    const orgUserCall = mockTenantEm.create.mock.calls.find(
-      (call: any) => call[1]?.isOrgAdmin !== undefined
-    );
-    expect(orgUserCall[1].isOrgAdmin).toBe(true);
+    // Get the persisted entities array
+    const persistCall = mockTenantEm.persist.mock.calls[0];
+    expect(persistCall).toBeDefined();
+    const persistedEntities = persistCall![0] as unknown[];
+
+    // Check isOrgAdmin is true for org:admin role (second entity in array)
+    const orgUser = persistedEntities[1] as { isOrgAdmin: boolean };
+    expect(orgUser.isOrgAdmin).toBe(true);
   });
 });
 
@@ -247,7 +255,6 @@ describe('handleMembershipDeleted', () => {
       schemaName: 'tenant_test',
     });
     mockTenantEm.nativeUpdate.mockResolvedValue(1);
-    mockTenantEm.create.mockImplementation((_, data) => data);
 
     const event = createDeleteEvent();
     const result = await handleMembershipDeleted(mockOrm as any, event);
@@ -259,27 +266,27 @@ describe('handleMembershipDeleted', () => {
       expect.objectContaining({ deletedAt: expect.any(Date) })
     );
 
-    // Verify outbox event was created
-    expect(mockTenantEm.create).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
-        aggregateType: 'User',
-        aggregateId: 'user_clerk789',
-        eventType: 'user.left_organization',
-        payload: expect.objectContaining({
-          clerkUserId: 'user_clerk789',
-          organizationId: 'org_123',
-          clerkOrgId: 'org_clerk456',
-        }),
-      })
-    );
+    // Verify outbox event was persisted (now using new Entity() directly)
     expect(mockTenantEm.persist).toHaveBeenCalled();
+    const persistCall = mockTenantEm.persist.mock.calls[0];
+    expect(persistCall).toBeDefined();
+    const persistedEntity = persistCall![0] as {
+      aggregateType: string;
+      aggregateId: string;
+      eventType: string;
+      payload: { clerkUserId: string; organizationId: string; clerkOrgId: string };
+    };
+    expect(persistedEntity.aggregateType).toBe('User');
+    expect(persistedEntity.aggregateId).toBe('user_clerk789');
+    expect(persistedEntity.eventType).toBe('user.left_organization');
+    expect(persistedEntity.payload.clerkUserId).toBe('user_clerk789');
+    expect(persistedEntity.payload.organizationId).toBe('org_123');
+    expect(persistedEntity.payload.clerkOrgId).toBe('org_clerk456');
   });
 });
 
 describe('handleUserUpdated', () => {
   const mockEm = {
-    create: vi.fn(),
     persist: vi.fn(),
     flush: vi.fn(),
   };
@@ -292,7 +299,6 @@ describe('handleUserUpdated', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockEm.create.mockImplementation((_, data) => data);
     mockEm.flush.mockResolvedValue(undefined);
   });
 
@@ -321,7 +327,7 @@ describe('handleUserUpdated', () => {
 
     expect(result.status).toBe('queued');
     expect(result.count).toBe(0);
-    expect(mockEm.create).not.toHaveBeenCalled();
+    expect(mockEm.persist).not.toHaveBeenCalled();
     expect(mockEm.flush).toHaveBeenCalled();
   });
 
@@ -336,7 +342,6 @@ describe('handleUserUpdated', () => {
 
     expect(result.status).toBe('queued');
     expect(result.count).toBe(3);
-    expect(mockEm.create).toHaveBeenCalledTimes(3);
     expect(mockEm.persist).toHaveBeenCalledTimes(3);
   });
 
@@ -345,14 +350,14 @@ describe('handleUserUpdated', () => {
 
     await handleUserUpdated(mockOrm as any, event);
 
-    expect(mockEm.create).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
-        payload: expect.objectContaining({
-          email: 'new@example.com', // email_2 is primary
-        }),
-      })
-    );
+    // Check persist was called with entity containing correct email
+    expect(mockEm.persist).toHaveBeenCalled();
+    const persistCall = mockEm.persist.mock.calls[0];
+    expect(persistCall).toBeDefined();
+    const persistedEntity = persistCall![0] as {
+      payload: { email: string };
+    };
+    expect(persistedEntity.payload.email).toBe('new@example.com'); // email_2 is primary
   });
 
   it('includes correct payload fields in outbox event', async () => {
@@ -360,22 +365,32 @@ describe('handleUserUpdated', () => {
 
     await handleUserUpdated(mockOrm as any, event);
 
-    expect(mockEm.create).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
-        aggregateType: 'User',
-        aggregateId: 'user_clerk123',
-        eventType: 'user.profile_sync_requested',
-        payload: {
-          clerkUserId: 'user_clerk123',
-          clerkOrgId: 'org_abc',
-          email: 'new@example.com',
-          name: 'Updated Name',
-          avatarUrl: 'https://example.com/new-avatar.png',
-        },
-        status: 'PENDING',
-      })
-    );
+    // Check persist was called with entity containing correct fields
+    expect(mockEm.persist).toHaveBeenCalled();
+    const persistCall = mockEm.persist.mock.calls[0];
+    expect(persistCall).toBeDefined();
+    const persistedEntity = persistCall![0] as {
+      aggregateType: string;
+      aggregateId: string;
+      eventType: string;
+      payload: {
+        clerkUserId: string;
+        clerkOrgId: string;
+        email: string;
+        name: string;
+        avatarUrl: string;
+      };
+      status: string;
+    };
+    expect(persistedEntity.aggregateType).toBe('User');
+    expect(persistedEntity.aggregateId).toBe('user_clerk123');
+    expect(persistedEntity.eventType).toBe('user.profile_sync_requested');
+    expect(persistedEntity.payload.clerkUserId).toBe('user_clerk123');
+    expect(persistedEntity.payload.clerkOrgId).toBe('org_abc');
+    expect(persistedEntity.payload.email).toBe('new@example.com');
+    expect(persistedEntity.payload.name).toBe('Updated Name');
+    expect(persistedEntity.payload.avatarUrl).toBe('https://example.com/new-avatar.png');
+    expect(persistedEntity.status).toBe('PENDING');
   });
 
   it('handles missing name fields gracefully', async () => {
@@ -394,14 +409,14 @@ describe('handleUserUpdated', () => {
 
     await handleUserUpdated(mockOrm as any, event);
 
-    expect(mockEm.create).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
-        payload: expect.objectContaining({
-          name: undefined,
-          avatarUrl: undefined,
-        }),
-      })
-    );
+    // Check persist was called with entity containing undefined name/avatarUrl
+    expect(mockEm.persist).toHaveBeenCalled();
+    const persistCall = mockEm.persist.mock.calls[0];
+    expect(persistCall).toBeDefined();
+    const persistedEntity = persistCall![0] as {
+      payload: { name?: string; avatarUrl?: string };
+    };
+    expect(persistedEntity.payload.name).toBeUndefined();
+    expect(persistedEntity.payload.avatarUrl).toBeUndefined();
   });
 });
