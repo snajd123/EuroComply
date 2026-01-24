@@ -170,7 +170,7 @@ describe('handleMembershipCreated', () => {
   });
 });
 
-describe.skip('handleMembershipDeleted', () => {
+describe('handleMembershipDeleted', () => {
   // Mock for shared schema lookup (first fork without options)
   const mockSharedEm = {
     findOne: vi.fn(),
@@ -178,6 +178,9 @@ describe.skip('handleMembershipDeleted', () => {
 
   const mockTenantEm = {
     nativeUpdate: vi.fn(),
+    create: vi.fn(),
+    persist: vi.fn(),
+    transactional: vi.fn(),
   };
 
   const mockOrm = {
@@ -193,6 +196,10 @@ describe.skip('handleMembershipDeleted', () => {
         return mockTenantEm;
       }
       return mockSharedEm;
+    });
+    // Default: transactional executes the callback with the same em
+    mockTenantEm.transactional.mockImplementation(async (callback: any) => {
+      return callback(mockTenantEm);
     });
   });
 
@@ -232,12 +239,13 @@ describe.skip('handleMembershipDeleted', () => {
     expect(result.status).toBe('user_not_found');
   });
 
-  it('soft deletes user by setting deletedAt', async () => {
+  it('soft deletes user by setting deletedAt and creates outbox event', async () => {
     mockSharedEm.findOne.mockResolvedValue({
       id: 'org_123',
       schemaName: 'tenant_test',
     });
     mockTenantEm.nativeUpdate.mockResolvedValue(1);
+    mockTenantEm.create.mockImplementation((_, data) => data);
 
     const event = createDeleteEvent();
     const result = await handleMembershipDeleted(mockOrm as any, event);
@@ -248,5 +256,21 @@ describe.skip('handleMembershipDeleted', () => {
       { clerkId: 'user_clerk789', deletedAt: null },
       expect.objectContaining({ deletedAt: expect.any(Date) })
     );
+
+    // Verify outbox event was created
+    expect(mockTenantEm.create).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        aggregateType: 'User',
+        aggregateId: 'user_clerk789',
+        eventType: 'user.left_organization',
+        payload: expect.objectContaining({
+          clerkUserId: 'user_clerk789',
+          organizationId: 'org_123',
+          clerkOrgId: 'org_clerk456',
+        }),
+      })
+    );
+    expect(mockTenantEm.persist).toHaveBeenCalled();
   });
 });

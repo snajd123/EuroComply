@@ -421,3 +421,57 @@ export async function handleMembershipCreated(
     return { status: 'created', userId: user.id };
   });
 }
+
+/**
+ * Handles the organizationMembership.deleted webhook event.
+ * Soft deletes the User in the tenant schema to preserve audit trail references.
+ *
+ * Idempotency: If user not found or already deleted, returns appropriate status.
+ */
+export async function handleMembershipDeleted(
+  orm: MikroORM,
+  event: ClerkOrganizationMembershipEvent
+): Promise<{ status: string }> {
+  const { organization, public_user_data } = event.data;
+
+  const sharedEm = orm.em.fork();
+  const org = await sharedEm.findOne(Organization, {
+    clerkOrgId: organization.id,
+  });
+
+  if (!org) {
+    return { status: 'org_not_found' };
+  }
+
+  const em = orm.em.fork({ schema: org.schemaName });
+
+  return em.transactional(async (txEm) => {
+    // Soft delete - preserves audit trail references
+    const updated = await txEm.nativeUpdate(
+      User,
+      { clerkId: public_user_data.user_id, deletedAt: null },
+      { deletedAt: new Date() }
+    );
+
+    if (updated === 0) {
+      return { status: 'user_not_found' };
+    }
+
+    // Emit outbox event for event-driven consistency
+    const outboxEvent = txEm.create(OutboxEvent, {
+      id: createId(),
+      aggregateType: 'User',
+      aggregateId: public_user_data.user_id,  // Use Clerk user ID as we don't have internal ID
+      eventType: 'user.left_organization',
+      payload: {
+        clerkUserId: public_user_data.user_id,
+        organizationId: org.id,
+        clerkOrgId: organization.id,
+      },
+      status: OutboxStatus.PENDING,
+    });
+    txEm.persist(outboxEvent);
+
+    return { status: 'soft_deleted' };
+  });
+}
