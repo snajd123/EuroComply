@@ -151,7 +151,8 @@ function getTenantProducts(schema: string): Map<string, InMemoryProduct> {
 
 /**
  * @deprecated Use createProductsRouter with ORM injection instead.
- * This is kept for backwards compatibility with tests that don't have database.
+ * This in-memory fallback is kept for backwards compatibility with tests.
+ * NOTE: Does not include authorization checks - for testing only.
  */
 export const productsRouter = new Hono<Env>();
 
