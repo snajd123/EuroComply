@@ -14,6 +14,118 @@
 
 ---
 
+## Task 0: Wire Membership Webhooks into Router
+
+**Files:**
+- Modify: `apps/api/src/routes/webhooks.ts`
+
+**Context:** Plan C created `handleMembershipCreated`, `handleMembershipDeleted`, `handleUserUpdated`, and `createMembershipWebhookHandler` but didn't wire them into the router. The existing `/clerk` route only handles organization events.
+
+**Step 1: Read current webhooks.ts**
+
+Run: `cat apps/api/src/routes/webhooks.ts`
+
+**Step 2: Update imports**
+
+Add the membership handler imports:
+
+```typescript
+import {
+  handleOrganizationCreated,
+  handleOrganizationDeleted,
+  handleMembershipCreated,
+  handleMembershipDeleted,
+  handleUserUpdated,
+  RetryableError,
+  type ClerkOrganizationEvent,
+  type ClerkOrganizationMembershipEvent,
+  type ClerkUserUpdatedEvent,
+  type ClerkClient,
+  type OrmLike,
+  type TenantProvisionerLike,
+} from '../webhooks/clerk.js';
+```
+
+**Step 3: Update WebhooksRouterOptions**
+
+Add MikroORM type for membership handlers (they need full ORM, not just OrmLike):
+
+```typescript
+import type { MikroORM } from '@eurocomply/database';
+
+export interface WebhooksRouterOptions {
+  orm: OrmLike;
+  mikroOrm?: MikroORM;  // Full ORM for membership handlers
+  provisioner: TenantProvisionerLike;
+  webhookSecret?: string;
+  clerk?: ClerkClient;
+  skipSignatureVerification?: boolean;
+}
+```
+
+**Step 4: Add membership event cases to switch statement**
+
+Update the switch statement in the `/clerk` route:
+
+```typescript
+case 'organizationMembership.created': {
+  if (!mikroOrm) {
+    return c.json({ error: 'MikroORM not configured for membership handlers' }, 500);
+  }
+  try {
+    const result = await handleMembershipCreated(mikroOrm, event as ClerkOrganizationMembershipEvent);
+    return c.json(result);
+  } catch (error) {
+    if (error instanceof RetryableError) {
+      return c.json({ error: error.message }, 503);
+    }
+    throw error;
+  }
+}
+
+case 'organizationMembership.deleted': {
+  if (!mikroOrm) {
+    return c.json({ error: 'MikroORM not configured for membership handlers' }, 500);
+  }
+  const result = await handleMembershipDeleted(mikroOrm, event as ClerkOrganizationMembershipEvent);
+  return c.json(result);
+}
+
+case 'user.updated': {
+  if (!mikroOrm) {
+    return c.json({ error: 'MikroORM not configured for membership handlers' }, 500);
+  }
+  const result = await handleUserUpdated(mikroOrm, event as ClerkUserUpdatedEvent);
+  return c.json(result);
+}
+```
+
+**Step 5: Update index.ts to pass mikroOrm**
+
+In `apps/api/src/index.ts`, update the createWebhooksRouter call:
+
+```typescript
+const webhooksRouter = createWebhooksRouter({
+  orm,
+  mikroOrm: orm,  // Pass full ORM for membership handlers
+  provisioner,
+  webhookSecret: process.env['CLERK_WEBHOOK_SECRET'],
+});
+```
+
+**Step 6: Verify TypeScript compiles**
+
+Run: `pnpm --filter @eurocomply/api typecheck`
+
+**Step 7: Commit**
+
+```bash
+git add apps/api/src/routes/webhooks.ts apps/api/src/index.ts
+git commit -m "feat(api): wire membership webhook handlers into router"
+```
+
+---
+
 ## Task 1: Wire userMiddleware into app.ts
 
 **Files:**
@@ -556,6 +668,7 @@ curl -H "Authorization: Bearer $SECOND_USER_JWT" http://localhost:3000/api/v1/pr
 
 ## Verification Checklist
 
+- [ ] Membership webhooks (organizationMembership.created/deleted, user.updated) wired into router
 - [ ] userMiddleware wired into app.ts for products and api-keys routes
 - [ ] Products GET requires Design VIEWER
 - [ ] Products POST requires Design CONTRIBUTOR (edit action)
