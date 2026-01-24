@@ -9,6 +9,19 @@ export interface ProcessEventResult {
   error?: string;
 }
 
+export interface BatchResult {
+  processed: number;
+  failed: number;
+  skipped: number;
+}
+
+export interface AllSchemasResult {
+  public: BatchResult;
+  tenants: Map<string, BatchResult>;
+  totalProcessed: number;
+  totalFailed: number;
+}
+
 export class OutboxProcessorService {
   constructor(private orm: MikroORM) {}
 
@@ -117,5 +130,69 @@ export class OutboxProcessorService {
       await this.markFailed(schema, eventId, errorMessage, maxRetries);
       return { success: false, error: errorMessage };
     }
+  }
+
+  /**
+   * Process a batch of pending events from a schema.
+   * Returns counts of processed, failed, and skipped events.
+   */
+  async processBatch(schema: string, batchSize: number): Promise<BatchResult> {
+    const em = this.orm.em.fork({ schema });
+    const events = await em.find(
+      OutboxEvent,
+      { status: OutboxStatus.PENDING },
+      { orderBy: { createdAt: 'ASC' }, limit: batchSize }
+    );
+
+    const result: BatchResult = { processed: 0, failed: 0, skipped: 0 };
+
+    for (const event of events) {
+      const processResult = await this.processEvent(schema, event.id);
+      if (processResult.success) {
+        result.processed++;
+        if (processResult.skipped) {
+          result.skipped++;
+        }
+      } else {
+        result.failed++;
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Process events from all schemas (public + active tenants).
+   * Returns detailed results per schema and totals.
+   */
+  async processAllSchemas(batchSize: number): Promise<AllSchemasResult> {
+    const result: AllSchemasResult = {
+      public: { processed: 0, failed: 0, skipped: 0 },
+      tenants: new Map(),
+      totalProcessed: 0,
+      totalFailed: 0,
+    };
+
+    // 1. Process public schema (system events)
+    result.public = await this.processBatch('public', batchSize);
+    result.totalProcessed += result.public.processed;
+    result.totalFailed += result.public.failed;
+
+    // 2. Process all tenant schemas
+    const schemas = await this.getActiveSchemas();
+    for (const schema of schemas) {
+      try {
+        const tenantResult = await this.processBatch(schema, batchSize);
+        result.tenants.set(schema, tenantResult);
+        result.totalProcessed += tenantResult.processed;
+        result.totalFailed += tenantResult.failed;
+      } catch (error) {
+        console.error(`[OutboxProcessor] Error processing schema ${schema}:`, error);
+        result.tenants.set(schema, { processed: 0, failed: 1, skipped: 0 });
+        result.totalFailed++;
+      }
+    }
+
+    return result;
   }
 }

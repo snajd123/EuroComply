@@ -326,4 +326,96 @@ describe('OutboxProcessorService', () => {
       expect(updated.status).toBe(OutboxStatus.COMPLETED);
     });
   });
+
+  describe('processBatch', () => {
+    it('should process multiple pending events in a schema', async (context) => {
+      if (!(await isDatabaseAvailable())) {
+        context.skip();
+        return;
+      }
+
+      // Arrange - create 3 events
+      for (let i = 0; i < 3; i++) {
+        const event = em.create(OutboxEvent, {
+          id: createId(),
+          aggregateType: 'Organization',
+          aggregateId: `org_${i}`,
+          eventType: 'organization.provisioned',
+          payload: { organizationId: `org_${i}`, schemaName: `tenant_${i}`, name: `Test ${i}` },
+          status: OutboxStatus.PENDING,
+          retryCount: 0,
+          createdAt: new Date(Date.now() + i), // Ensure ordering
+          updatedAt: new Date(),
+        });
+        await em.persistAndFlush(event);
+      }
+
+      // Act
+      const results = await service.processBatch('public', 10);
+
+      // Assert
+      expect(results.processed).toBe(3);
+      expect(results.failed).toBe(0);
+
+      const remaining = await em.count(OutboxEvent, { status: OutboxStatus.PENDING });
+      expect(remaining).toBe(0);
+    });
+
+    it('should respect batch size limit', async (context) => {
+      if (!(await isDatabaseAvailable())) {
+        context.skip();
+        return;
+      }
+
+      // Arrange - create 5 events
+      for (let i = 0; i < 5; i++) {
+        const event = em.create(OutboxEvent, {
+          id: createId(),
+          aggregateType: 'Organization',
+          aggregateId: `org_${i}`,
+          eventType: 'organization.provisioned',
+          payload: { organizationId: `org_${i}`, schemaName: `tenant_${i}`, name: `Test ${i}` },
+          status: OutboxStatus.PENDING,
+          retryCount: 0,
+          createdAt: new Date(Date.now() + i),
+          updatedAt: new Date(),
+        });
+        await em.persistAndFlush(event);
+      }
+
+      // Act - process only 2
+      const results = await service.processBatch('public', 2);
+
+      // Assert
+      expect(results.processed).toBe(2);
+      const remaining = await em.count(OutboxEvent, { status: OutboxStatus.PENDING });
+      expect(remaining).toBe(3);
+    });
+  });
+
+  describe('processAllSchemas', () => {
+    it('should process public schema events', async (context) => {
+      if (!(await isDatabaseAvailable())) {
+        context.skip();
+        return;
+      }
+
+      const event = em.create(OutboxEvent, {
+        id: createId(),
+        aggregateType: 'Organization',
+        aggregateId: 'org_123',
+        eventType: 'organization.provisioned',
+        payload: { organizationId: 'org_123', schemaName: 'tenant_test', name: 'Test' },
+        status: OutboxStatus.PENDING,
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      await em.persistAndFlush(event);
+
+      const results = await service.processAllSchemas(10);
+
+      expect(results.public.processed).toBe(1);
+    });
+  });
 });
