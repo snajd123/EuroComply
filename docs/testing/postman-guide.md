@@ -712,53 +712,310 @@ compliance_authority: MANAGER
 
 ## 11. Simulating Webhooks Locally
 
-For local testing without real Clerk webhooks, you can simulate them:
+For local testing without real Clerk webhooks, you can simulate them using either:
+- **Postman Collection:** Import `eurocomply-webhooks.postman_collection.json` from this folder
+- **curl commands:** Use the examples below
 
-### Simulate Organization Created
+**Important:** Webhook simulation only works if `skipSignatureVerification: true` is set in test mode.
+
+### Postman Collection
+
+Import the collection file:
+```
+docs/testing/eurocomply-webhooks.postman_collection.json
+```
+
+**Collection Variables:**
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `baseUrl` | `http://localhost:3001` | API base URL |
+| `clerkOrgId` | `org_test123` | Simulated Clerk org ID |
+| `clerkUserId` | `user_test123` | First user's Clerk ID |
+| `clerkUserId2` | `user_test456` | Second user's Clerk ID |
+
+**Execution Order:**
+1. `organization.created` - Provisions tenant schema
+2. `organizationMembership.created (First User)` - Creates admin user
+3. `organizationMembership.created (Second User)` - Creates regular user
+4. `user.updated` - Sync profile changes
+5. `organizationMembership.deleted` - Remove user
+
+---
+
+### curl Examples
+
+#### 1. organization.created
+
+Creates an organization record and provisions the tenant schema.
 
 ```bash
 curl -X POST http://localhost:3001/webhooks/clerk \
   -H "Content-Type: application/json" \
-  -H "svix-id: test_123" \
+  -H "svix-id: msg_$(date +%s)" \
   -H "svix-timestamp: $(date +%s)" \
   -H "svix-signature: v1,test" \
   -d '{
     "type": "organization.created",
     "data": {
       "id": "org_test123",
-      "name": "Test Org",
-      "slug": "test-org",
+      "name": "Test Organization",
+      "slug": "test-organization",
       "created_at": 1706097600
     }
   }'
 ```
 
-**Note:** This only works if `skipSignatureVerification: true` is set in test mode.
+**Response (200):**
+```json
+{
+  "success": true,
+  "organizationId": "org_xxx",
+  "schemaName": "tenant_org_test123"
+}
+```
 
-### Simulate Membership Created
+---
+
+#### 2. organizationMembership.created (First User)
+
+Adds the first user to an organization. Gets MANAGER + isOrgAdmin.
 
 ```bash
 curl -X POST http://localhost:3001/webhooks/clerk \
   -H "Content-Type: application/json" \
-  -H "svix-id: test_456" \
+  -H "svix-id: msg_$(date +%s)" \
   -H "svix-timestamp: $(date +%s)" \
   -H "svix-signature: v1,test" \
   -d '{
     "type": "organizationMembership.created",
     "data": {
-      "id": "mem_test123",
+      "id": "mem_first123",
       "organization": {"id": "org_test123"},
       "public_user_data": {
         "user_id": "user_test123",
-        "identifier": "test@example.com",
-        "first_name": "Test",
-        "last_name": "User"
+        "identifier": "admin@example.com",
+        "first_name": "Admin",
+        "last_name": "User",
+        "image_url": "https://example.com/avatar.png"
+      },
+      "role": "org:admin",
+      "created_at": 1706097600
+    }
+  }'
+```
+
+**Response (200):**
+```json
+{
+  "status": "created",
+  "userId": "usr_xxx"
+}
+```
+
+**First user permissions:**
+```sql
+SELECT ou.is_org_admin, ou.design_authority
+FROM tenant_org_test123.organization_users ou
+JOIN tenant_org_test123.users u ON u.id = ou.user_id;
+-- is_org_admin: true, design_authority: MANAGER
+```
+
+---
+
+#### 3. organizationMembership.created (Second User)
+
+Adds a subsequent user. Gets NONE permissions by default.
+
+```bash
+curl -X POST http://localhost:3001/webhooks/clerk \
+  -H "Content-Type: application/json" \
+  -H "svix-id: msg_$(date +%s)" \
+  -H "svix-timestamp: $(date +%s)" \
+  -H "svix-signature: v1,test" \
+  -d '{
+    "type": "organizationMembership.created",
+    "data": {
+      "id": "mem_second456",
+      "organization": {"id": "org_test123"},
+      "public_user_data": {
+        "user_id": "user_test456",
+        "identifier": "member@example.com",
+        "first_name": "Regular",
+        "last_name": "Member",
+        "image_url": null
       },
       "role": "org:member",
       "created_at": 1706097600
     }
   }'
 ```
+
+**Response (200):**
+```json
+{
+  "status": "created",
+  "userId": "usr_xxx"
+}
+```
+
+**Second user permissions:**
+```sql
+SELECT ou.is_org_admin, ou.design_authority
+FROM tenant_org_test123.organization_users ou
+JOIN tenant_org_test123.users u ON u.id = ou.user_id
+WHERE u.clerk_id = 'user_test456';
+-- is_org_admin: false, design_authority: NONE
+```
+
+This user will get **403 Forbidden** on protected routes until granted access.
+
+---
+
+#### 4. user.updated
+
+Syncs user profile changes across all their organizations.
+
+```bash
+curl -X POST http://localhost:3001/webhooks/clerk \
+  -H "Content-Type: application/json" \
+  -H "svix-id: msg_$(date +%s)" \
+  -H "svix-timestamp: $(date +%s)" \
+  -H "svix-signature: v1,test" \
+  -d '{
+    "type": "user.updated",
+    "data": {
+      "id": "user_test123",
+      "email_addresses": [
+        {"email_address": "newemail@example.com", "id": "email_123"}
+      ],
+      "primary_email_address_id": "email_123",
+      "first_name": "Updated",
+      "last_name": "Name",
+      "image_url": "https://example.com/new-avatar.png",
+      "organization_memberships": [
+        {"organization": {"id": "org_test123"}}
+      ]
+    }
+  }'
+```
+
+**Response (200):**
+```json
+{
+  "status": "queued",
+  "count": 1
+}
+```
+
+Creates outbox events for async processing. `count` = number of orgs the user belongs to.
+
+---
+
+#### 5. organizationMembership.deleted
+
+Removes a user from an organization (soft delete for audit trail).
+
+```bash
+curl -X POST http://localhost:3001/webhooks/clerk \
+  -H "Content-Type: application/json" \
+  -H "svix-id: msg_$(date +%s)" \
+  -H "svix-timestamp: $(date +%s)" \
+  -H "svix-signature: v1,test" \
+  -d '{
+    "type": "organizationMembership.deleted",
+    "data": {
+      "id": "mem_deleted789",
+      "organization": {"id": "org_test123"},
+      "public_user_data": {
+        "user_id": "user_test456",
+        "identifier": "member@example.com",
+        "first_name": "Regular",
+        "last_name": "Member",
+        "image_url": null
+      },
+      "role": "org:member",
+      "created_at": 1706097600
+    }
+  }'
+```
+
+**Response (200):**
+```json
+{
+  "status": "soft_deleted"
+}
+```
+
+**Verify soft delete:**
+```sql
+SELECT id, email, deleted_at
+FROM tenant_org_test123.users
+WHERE clerk_id = 'user_test456';
+-- deleted_at should be set
+```
+
+**Possible responses:**
+| Response | Meaning |
+|----------|---------|
+| `{"status": "soft_deleted"}` | User was removed |
+| `{"status": "user_not_found"}` | User doesn't exist or already deleted |
+| `{"status": "org_not_found"}` | Organization doesn't exist |
+
+---
+
+#### 6. organization.deleted
+
+Drops the tenant schema and deletes the organization record.
+
+```bash
+curl -X POST http://localhost:3001/webhooks/clerk \
+  -H "Content-Type: application/json" \
+  -H "svix-id: msg_$(date +%s)" \
+  -H "svix-timestamp: $(date +%s)" \
+  -H "svix-signature: v1,test" \
+  -d '{
+    "type": "organization.deleted",
+    "data": {
+      "id": "org_test123",
+      "name": "Test Organization",
+      "slug": "test-organization",
+      "created_at": 1706097600
+    }
+  }'
+```
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "organizationId": "org_xxx",
+  "schemaName": "tenant_org_test123"
+}
+```
+
+**Verify deletion:**
+```sql
+-- Schema should be gone
+SELECT schema_name FROM information_schema.schemata
+WHERE schema_name = 'tenant_org_test123';
+-- Should return empty
+
+-- Organization should be gone
+SELECT * FROM public.organizations WHERE clerk_org_id = 'org_test123';
+-- Should return empty
+```
+
+---
+
+### Webhook Error Responses
+
+| Status | Response | Meaning |
+|--------|----------|---------|
+| 200 | `{"success": true, ...}` | Webhook processed |
+| 200 | `{"status": "created", ...}` | Resource created |
+| 200 | `{"status": "already_exists", ...}` | Idempotent duplicate |
+| 500 | `{"error": "MikroORM not configured..."}` | Server misconfiguration |
+| 503 | `{"error": "Organization not yet provisioned"}` | Retry later (Clerk will auto-retry) |
 
 ---
 

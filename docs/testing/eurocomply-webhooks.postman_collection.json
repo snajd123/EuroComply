@@ -1,0 +1,254 @@
+{
+  "info": {
+    "_postman_id": "eurocomply-webhooks",
+    "name": "EuroComply Webhooks",
+    "description": "Simulated Clerk webhook events for local testing.\n\nNote: These only work if the API is running with `skipSignatureVerification: true` in test mode.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3001",
+      "type": "string"
+    },
+    {
+      "key": "clerkOrgId",
+      "value": "org_test123",
+      "type": "string"
+    },
+    {
+      "key": "clerkUserId",
+      "value": "user_test123",
+      "type": "string"
+    },
+    {
+      "key": "clerkUserId2",
+      "value": "user_test456",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Organization Webhooks",
+      "item": [
+        {
+          "name": "1. organization.created",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "svix-id",
+                "value": "msg_org_created_{{$timestamp}}"
+              },
+              {
+                "key": "svix-timestamp",
+                "value": "{{$timestamp}}"
+              },
+              {
+                "key": "svix-signature",
+                "value": "v1,test"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"organization.created\",\n  \"data\": {\n    \"id\": \"{{clerkOrgId}}\",\n    \"name\": \"Test Organization\",\n    \"slug\": \"test-organization\",\n    \"created_at\": {{$timestamp}}\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhooks/clerk",
+              "host": ["{{baseUrl}}"],
+              "path": ["webhooks", "clerk"]
+            },
+            "description": "Creates an organization record and provisions the tenant schema.\n\n**Expected Response (200):**\n```json\n{\n  \"success\": true,\n  \"organizationId\": \"org_xxx\",\n  \"schemaName\": \"tenant_org_test123\"\n}\n```\n\n**Idempotent:** Sending again returns existing org."
+          },
+          "response": []
+        },
+        {
+          "name": "2. organization.deleted",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "svix-id",
+                "value": "msg_org_deleted_{{$timestamp}}"
+              },
+              {
+                "key": "svix-timestamp",
+                "value": "{{$timestamp}}"
+              },
+              {
+                "key": "svix-signature",
+                "value": "v1,test"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"organization.deleted\",\n  \"data\": {\n    \"id\": \"{{clerkOrgId}}\",\n    \"name\": \"Test Organization\",\n    \"slug\": \"test-organization\",\n    \"created_at\": {{$timestamp}}\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhooks/clerk",
+              "host": ["{{baseUrl}}"],
+              "path": ["webhooks", "clerk"]
+            },
+            "description": "Drops the tenant schema and deletes the organization record.\n\n**Expected Response (200):**\n```json\n{\n  \"success\": true,\n  \"organizationId\": \"org_xxx\",\n  \"schemaName\": \"tenant_org_test123\"\n}\n```\n\n**Idempotent:** If org doesn't exist, returns success."
+          },
+          "response": []
+        }
+      ],
+      "description": "Organization lifecycle webhooks from Clerk."
+    },
+    {
+      "name": "Membership Webhooks",
+      "item": [
+        {
+          "name": "1. organizationMembership.created (First User)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "svix-id",
+                "value": "msg_mem_created_{{$timestamp}}"
+              },
+              {
+                "key": "svix-timestamp",
+                "value": "{{$timestamp}}"
+              },
+              {
+                "key": "svix-signature",
+                "value": "v1,test"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"organizationMembership.created\",\n  \"data\": {\n    \"id\": \"mem_first_{{$timestamp}}\",\n    \"organization\": {\n      \"id\": \"{{clerkOrgId}}\"\n    },\n    \"public_user_data\": {\n      \"user_id\": \"{{clerkUserId}}\",\n      \"identifier\": \"admin@example.com\",\n      \"first_name\": \"Admin\",\n      \"last_name\": \"User\",\n      \"image_url\": \"https://example.com/avatar.png\"\n    },\n    \"role\": \"org:admin\",\n    \"created_at\": {{$timestamp}}\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhooks/clerk",
+              "host": ["{{baseUrl}}"],
+              "path": ["webhooks", "clerk"]
+            },
+            "description": "Adds the first user to an organization.\n\n**First user gets:**\n- `isOrgAdmin: true`\n- All workspace authorities: `MANAGER`\n\n**Expected Response (200):**\n```json\n{\n  \"status\": \"created\",\n  \"userId\": \"usr_xxx\"\n}\n```\n\n**Idempotent:** Sending again returns:\n```json\n{\n  \"status\": \"already_exists\",\n  \"userId\": \"usr_xxx\"\n}\n```"
+          },
+          "response": []
+        },
+        {
+          "name": "2. organizationMembership.created (Second User)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "svix-id",
+                "value": "msg_mem_created2_{{$timestamp}}"
+              },
+              {
+                "key": "svix-timestamp",
+                "value": "{{$timestamp}}"
+              },
+              {
+                "key": "svix-signature",
+                "value": "v1,test"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"organizationMembership.created\",\n  \"data\": {\n    \"id\": \"mem_second_{{$timestamp}}\",\n    \"organization\": {\n      \"id\": \"{{clerkOrgId}}\"\n    },\n    \"public_user_data\": {\n      \"user_id\": \"{{clerkUserId2}}\",\n      \"identifier\": \"member@example.com\",\n      \"first_name\": \"Regular\",\n      \"last_name\": \"Member\",\n      \"image_url\": null\n    },\n    \"role\": \"org:member\",\n    \"created_at\": {{$timestamp}}\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhooks/clerk",
+              "host": ["{{baseUrl}}"],
+              "path": ["webhooks", "clerk"]
+            },
+            "description": "Adds a subsequent user to an organization.\n\n**Subsequent users get:**\n- `isOrgAdmin: false` (unless role is `org:admin`)\n- All workspace authorities: `NONE`\n\n**Expected Response (200):**\n```json\n{\n  \"status\": \"created\",\n  \"userId\": \"usr_xxx\"\n}\n```\n\nThis user will get 403 Forbidden when accessing protected routes until an admin grants them workspace access."
+          },
+          "response": []
+        },
+        {
+          "name": "3. organizationMembership.deleted",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "svix-id",
+                "value": "msg_mem_deleted_{{$timestamp}}"
+              },
+              {
+                "key": "svix-timestamp",
+                "value": "{{$timestamp}}"
+              },
+              {
+                "key": "svix-signature",
+                "value": "v1,test"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"organizationMembership.deleted\",\n  \"data\": {\n    \"id\": \"mem_deleted_{{$timestamp}}\",\n    \"organization\": {\n      \"id\": \"{{clerkOrgId}}\"\n    },\n    \"public_user_data\": {\n      \"user_id\": \"{{clerkUserId2}}\",\n      \"identifier\": \"member@example.com\",\n      \"first_name\": \"Regular\",\n      \"last_name\": \"Member\",\n      \"image_url\": null\n    },\n    \"role\": \"org:member\",\n    \"created_at\": {{$timestamp}}\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhooks/clerk",
+              "host": ["{{baseUrl}}"],
+              "path": ["webhooks", "clerk"]
+            },
+            "description": "Removes a user from an organization (soft delete).\n\n**Expected Response (200):**\n```json\n{\n  \"status\": \"soft_deleted\"\n}\n```\n\n**User not found:**\n```json\n{\n  \"status\": \"user_not_found\"\n}\n```\n\n**Org not found:**\n```json\n{\n  \"status\": \"org_not_found\"\n}\n```\n\nThe user record is preserved with `deleted_at` set for audit trail."
+          },
+          "response": []
+        },
+        {
+          "name": "4. user.updated",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "svix-id",
+                "value": "msg_user_updated_{{$timestamp}}"
+              },
+              {
+                "key": "svix-timestamp",
+                "value": "{{$timestamp}}"
+              },
+              {
+                "key": "svix-signature",
+                "value": "v1,test"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"user.updated\",\n  \"data\": {\n    \"id\": \"{{clerkUserId}}\",\n    \"email_addresses\": [\n      {\n        \"email_address\": \"newemail@example.com\",\n        \"id\": \"email_123\"\n      }\n    ],\n    \"primary_email_address_id\": \"email_123\",\n    \"first_name\": \"Updated\",\n    \"last_name\": \"Name\",\n    \"image_url\": \"https://example.com/new-avatar.png\",\n    \"organization_memberships\": [\n      {\n        \"organization\": {\n          \"id\": \"{{clerkOrgId}}\"\n        }\n      }\n    ]\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhooks/clerk",
+              "host": ["{{baseUrl}}"],
+              "path": ["webhooks", "clerk"]
+            },
+            "description": "Updates user profile information across all their organizations.\n\n**Expected Response (200):**\n```json\n{\n  \"status\": \"queued\",\n  \"count\": 1\n}\n```\n\nThis creates outbox events for async processing. A worker will update the user's profile in each tenant schema.\n\n**Note:** `count` equals the number of organizations the user belongs to."
+          },
+          "response": []
+        }
+      ],
+      "description": "User membership webhooks from Clerk.\n\n**Execution Order:**\n1. First run `organization.created` to provision the tenant\n2. Then run `organizationMembership.created (First User)` - gets MANAGER\n3. Optionally run `organizationMembership.created (Second User)` - gets NONE\n4. Test `user.updated` to sync profile changes\n5. Test `organizationMembership.deleted` to remove user"
+    }
+  ]
+}
