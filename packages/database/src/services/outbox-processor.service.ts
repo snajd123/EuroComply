@@ -1,5 +1,6 @@
 import { MikroORM, LockMode } from '@mikro-orm/postgresql';
 import { OutboxEvent, OutboxStatus } from '../entities/OutboxEvent.js';
+import { Organization, ProvisioningStatus } from '../entities/Organization.js';
 
 export class OutboxProcessorService {
   constructor(private orm: MikroORM) {}
@@ -63,5 +64,14 @@ export class OutboxProcessorService {
     }
 
     await em.flush();
+  }
+
+  /**
+   * Get all active tenant schemas that need processing.
+   */
+  async getActiveSchemas(): Promise<string[]> {
+    const em = this.orm.em.fork({ schema: 'public' });
+    const orgs = await em.find(Organization, { provisioningStatus: ProvisioningStatus.READY });
+    return orgs.map((org) => org.schemaName);
   }
 }

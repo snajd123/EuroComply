@@ -209,4 +209,60 @@ describe('OutboxProcessorService', () => {
       expect(updated.retryCount).toBe(5);
     });
   });
+
+  describe('getActiveSchemas', () => {
+    it('should return schema names for READY organizations', async (context) => {
+      if (!(await isDatabaseAvailable())) {
+        context.skip();
+        return;
+      }
+
+      // Arrange - create an organization directly
+      const { Organization, ProvisioningStatus } = await import('../entities/Organization.js');
+      const org = em.create(Organization, {
+        id: createId(),
+        name: 'Test Org',
+        slug: 'test-org',
+        schemaName: 'tenant_test_org',
+        provisioningStatus: ProvisioningStatus.READY,
+        clerkOrgId: 'clerk_123',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      await em.persistAndFlush(org);
+
+      // Act
+      const schemas = await service.getActiveSchemas();
+
+      // Assert
+      expect(schemas).toContain('tenant_test_org');
+    });
+
+    it('should not return schemas for non-READY organizations', async (context) => {
+      if (!(await isDatabaseAvailable())) {
+        context.skip();
+        return;
+      }
+
+      // Arrange
+      const { Organization, ProvisioningStatus } = await import('../entities/Organization.js');
+      const org = em.create(Organization, {
+        id: createId(),
+        name: 'Pending Org',
+        slug: 'pending-org',
+        schemaName: 'tenant_pending_org',
+        provisioningStatus: ProvisioningStatus.PENDING,
+        clerkOrgId: 'clerk_456',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      await em.persistAndFlush(org);
+
+      // Act
+      const schemas = await service.getActiveSchemas();
+
+      // Assert
+      expect(schemas).not.toContain('tenant_pending_org');
+    });
+  });
 });
