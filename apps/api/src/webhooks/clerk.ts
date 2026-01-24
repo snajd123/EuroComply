@@ -8,6 +8,7 @@ import {
   WorkspaceAuthority,
 } from '@eurocomply/database';
 import type { MikroORM } from '@mikro-orm/postgresql';
+import type { Context } from 'hono';
 import { createId } from '@eurocomply/core';
 
 export interface ClerkOrganizationEvent {
@@ -526,4 +527,36 @@ export async function handleUserUpdated(
     const errorMessage = error instanceof Error ? error.message : String(error);
     return { status: 'failed', count: 0, error: errorMessage };
   }
+}
+
+/**
+ * Creates a route handler for Clerk membership and user webhook events.
+ */
+export function createMembershipWebhookHandler(orm: MikroORM) {
+  return async (c: Context) => {
+    const event = c.get('webhookPayload') as
+      | ClerkOrganizationMembershipEvent
+      | ClerkUserUpdatedEvent;
+
+    try {
+      switch (event.type) {
+        case 'organizationMembership.created':
+          return c.json(await handleMembershipCreated(orm, event as ClerkOrganizationMembershipEvent));
+
+        case 'organizationMembership.deleted':
+          return c.json(await handleMembershipDeleted(orm, event as ClerkOrganizationMembershipEvent));
+
+        case 'user.updated':
+          return c.json(await handleUserUpdated(orm, event as ClerkUserUpdatedEvent));
+
+        default:
+          return c.json({ status: 'ignored', type: (event as unknown as { type: string }).type });
+      }
+    } catch (error) {
+      if (error instanceof RetryableError) {
+        return c.json({ error: error.message }, 503);
+      }
+      throw error;
+    }
+  };
 }
