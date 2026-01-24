@@ -1,7 +1,7 @@
 # Architecture Design
 
 **Status:** Active
-**Last Updated:** 2026-01-23
+**Last Updated:** 2026-01-24
 
 ---
 
@@ -535,7 +535,9 @@ When product is ARCHIVED:
 
 ---
 
-## 7. Event System (Audit Trail)
+## 7. Event System
+
+EuroComply uses the **transactional outbox pattern** for reliable event-driven processing. Events are written atomically with domain changes, then processed asynchronously by dedicated workers.
 
 ### Architecture
 
@@ -560,7 +562,7 @@ APPLICATION
 |  +---------------+  |
 +---------+-----------+
           |
-          | 2. Outbox processor polls
+          | 2. Outbox workers poll
           v
 +---------------------+
 |      SQS            |  <- Async processing
@@ -577,58 +579,90 @@ APPLICATION
 +---------------------+
 ```
 
-### Outbox Table (Per-Tenant Schema)
+### 7.1 Dual-Schema Outbox Pattern
 
-```typescript
-@Entity({ tableName: 'outbox_events' })
-export class OutboxEvent {
-  @PrimaryKey()
-  id!: string;
+Events are stored in two locations based on their context:
 
-  @Property({ name: 'event_type' })
-  eventType!: string;       // 'product.created', 'dpp.issued'
+| Schema | Purpose | Events |
+|--------|---------|--------|
+| **Public** | System-level events that occur outside tenant context | `organization.provisioned`, `organization.deleted`, `organization.provisioning_retried`, `clerk.metadata_sync_requested` |
+| **Tenant** | Domain events within a tenant transaction | `user.joined_organization`, `user.left_organization`, `user.profile_sync_requested`, plus all future domain events (products, batches, DPPs) |
 
-  @Property({ name: 'aggregate_type' })
-  aggregateType!: string;   // 'Product', 'Batch', 'DPP'
+**Why two schemas?**
+- Organization provisioning happens *before* a tenant schema exists
+- System events need cross-tenant visibility for operational monitoring
+- Domain events benefit from tenant isolation (one tenant's backlog doesn't affect others)
+- Transactional safety: domain events commit atomically with the data they describe
 
-  @Property({ name: 'aggregate_id' })
-  aggregateId!: string;
+### 7.2 Outbox Workers
 
-  @Property({ type: 'jsonb' })
-  payload!: Record<string, unknown>;
+Two worker types process events from each schema:
 
-  @Property({ default: 'PENDING' })
-  status!: string;
-
-  @Property({ default: 0 })
-  attempts!: number;
-
-  @Property({ name: 'created_at' })
-  createdAt: Date = new Date();
-
-  @Property({ name: 'processed_at', nullable: true })
-  processedAt?: Date;
-}
+```
+┌──────────────────────────────────────────────────────────────┐
+│                      Outbox Processing                        │
+├──────────────────────────────────────────────────────────────┤
+│                                                               │
+│  ┌─────────────────────┐      ┌─────────────────────────┐    │
+│  │    System Worker    │      │    Tenant Worker(s)     │    │
+│  │    (single instance)│      │    (scalable pool)      │    │
+│  └──────────┬──────────┘      └───────────┬─────────────┘    │
+│             │                             │                   │
+│             ▼                             ▼                   │
+│    public.outbox_event           tenant_*.outbox_event       │
+│                                                               │
+└──────────────────────────────────────────────────────────────┘
+                            │
+                            ▼
+                          SQS
+                            │
+              ┌─────────────┼─────────────┐
+              ▼             ▼             ▼
+         Webhooks    Notifications   Analytics
 ```
 
-### Event Types
+**System Worker** (single instance):
+- Polls `public.outbox_event` for pending events
+- Handles organization lifecycle and external integrations
+- Critical path for onboarding - kept separate to avoid tenant queue delays
 
-**Design Workspace:**
-- `ProductCreated`, `ProductUpdated`, `ProductArchived`
-- `DesignVersionDraftCreated`, `DesignVersionReleased`
-- `BOMUpdated`
+**Tenant Worker** (horizontally scalable):
+- Iterates through active tenant schemas
+- Round-robin polling with configurable batch size
+- Scale instances as tenant count grows
 
-**Operations Workspace:**
-- `BatchCreated`, `BatchCommitted`, `BatchCompleted`
-- `ItemManufactured`, `ItemShipped`, `ItemReceived`, `ItemSold`
+**Processing guarantees:**
+- At-least-once delivery (consumers must be idempotent)
+- Exponential backoff on failure (max 5 retries)
+- Dead-letter queue for failed events after max retries
 
-**Marketing Workspace:**
-- `MarketingVersionDraftCreated`, `MarketingVersionReleased`
-- `ProductSyncedToShopify`
+### 7.3 Event Types
 
-**Compliance Workspace:**
-- `DPPRequested`, `DPPIssued`, `DPPRevoked`
-- `AttestationRequested`, `AttestationReceived`
+**Public Schema Events** (system-level):
+
+| Event Type | Aggregate | Description |
+|------------|-----------|-------------|
+| `organization.provisioned` | Organization | Tenant schema created and ready |
+| `organization.deleted` | Organization | Tenant schema dropped |
+| `organization.provisioning_retried` | Organization | Manual retry of failed provisioning |
+| `clerk.metadata_sync_requested` | Organization | Sync schema metadata back to ZITADEL |
+
+**Tenant Schema Events** (domain-level):
+
+| Event Type | Aggregate | Description |
+|------------|-----------|-------------|
+| `user.joined_organization` | User | User added to organization |
+| `user.left_organization` | User | User removed from organization |
+| `user.profile_sync_requested` | User | Profile update needs syncing |
+| `product.created` | Product | New product registered |
+| `product.updated` | Product | Product metadata changed |
+| `product.archived` | Product | Product soft-deleted |
+| `dpp.issued` | DigitalProductPassport | DPP credential generated |
+| `dpp.revoked` | DigitalProductPassport | DPP credential invalidated |
+| `batch.committed` | Batch | Batch finalized for production |
+| `attestation.requested` | Attestation | Compliance attestation initiated |
+
+*Note: Domain events (product, dpp, batch, attestation) are designed but not yet implemented.*
 
 ---
 
@@ -1068,6 +1102,7 @@ AWS KMS Master Key (per-cell)
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.4 | 2026-01-24 | Documented dual-schema outbox pattern (public for system events, tenant for domain events); added separate worker architecture |
 | 2.3 | 2026-01-23 | Migrated authentication from Clerk to ZITADEL Cloud EU |
 | 2.2 | 2026-01-21 | Added feature toggles to Regulatory Advisor section; noted optional nature with enable/silent/enforcing modes |
 | 2.1 | 2026-01-21 | Added Regulation Layer (Section 8); Regulatory Advisor cross-cutting layer; template ownership model; soft gate workflow |

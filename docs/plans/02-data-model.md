@@ -1,7 +1,7 @@
 # Data Model (MikroORM)
 
 **Status:** Active
-**Last Updated:** 2026-01-21
+**Last Updated:** 2026-01-24
 
 ---
 
@@ -1060,6 +1060,38 @@ export class OperationsEvent {
 
 ### OutboxEvent
 
+EuroComply uses a **dual-schema outbox pattern**. This entity exists in both the public schema (for system events) and tenant schemas (for domain events). See [Architecture - Event System](./01-architecture.md#7-event-system) for the full design.
+
+#### Schema Placement Rules
+
+When adding new outbox events, use these rules to determine the correct schema:
+
+**Use PUBLIC schema when:**
+- The event occurs before a tenant schema exists (e.g., provisioning)
+- The event affects the organization entity itself (create, delete, suspend)
+- The event is for external system integration that spans tenants
+- No tenant context is available in the request
+
+**Use TENANT schema when:**
+- The event occurs within a tenant transaction
+- The event describes a domain entity change (product, user, batch, DPP)
+- The event should be isolated from other tenants' event queues
+- Transactional consistency with domain data is required
+
+**Code pattern for public schema:**
+```typescript
+const em = orm.em.fork(); // No schema = public
+em.create(OutboxEvent, { ... });
+```
+
+**Code pattern for tenant schema:**
+```typescript
+const em = orm.em.fork({ schema: org.schemaName });
+em.create(OutboxEvent, { ... });
+```
+
+#### Entity Definition
+
 ```typescript
 // packages/db/src/entities/OutboxEvent.ts
 import { Entity, PrimaryKey, Property, Enum, Index } from '@mikro-orm/core';
@@ -1071,39 +1103,65 @@ export enum OutboxStatus {
   FAILED = 'FAILED',
 }
 
-@Entity({ tableName: 'outbox_events' })
-export class OutboxEvent {
-  @PrimaryKey()
-  id!: string;
+@Entity({ tableName: 'outbox_event' })
+export class OutboxEvent extends BaseEntity {
+  @Property({ type: 'text', name: 'aggregate_type' })
+  @Index()
+  aggregateType!: string;        // e.g., 'Organization', 'Product', 'User'
 
-  @Property({ name: 'event_type' })
-  eventType!: string;
+  @Property({ type: 'text', name: 'aggregate_id' })
+  @Index()
+  aggregateId!: string;          // ID of the entity this event describes
 
-  @Property({ name: 'aggregate_type' })
-  aggregateType!: string;
+  @Property({ type: 'text', name: 'event_type' })
+  @Index()
+  eventType!: string;            // e.g., 'organization.provisioned'
 
-  @Property({ name: 'aggregate_id' })
-  aggregateId!: string;
+  @Property({ type: 'json' })
+  payload!: Record<string, unknown>;  // Event-specific data
 
-  @Property({ type: 'jsonb' })
-  payload!: Record<string, unknown>;
-
-  @Enum(() => OutboxStatus)
+  @Enum({ items: () => OutboxStatus, default: OutboxStatus.PENDING })
+  @Index()
   status: OutboxStatus = OutboxStatus.PENDING;
 
-  @Property({ default: 0 })
-  attempts!: number;
+  @Property({ type: 'int', default: 0, name: 'retry_count' })
+  retryCount: number = 0;        // Number of failed processing attempts
 
-  @Property({ name: 'last_error', nullable: true, type: 'text' })
-  lastError?: string;
+  @Property({ nullable: true, name: 'processed_at' })
+  processedAt?: Date;            // When status changed to COMPLETED
 
-  @Property({ name: 'created_at' })
-  @Index()
-  createdAt: Date = new Date();
-
-  @Property({ name: 'processed_at', nullable: true })
-  processedAt?: Date;
+  @Property({ type: 'text', nullable: true, name: 'error_message' })
+  errorMessage?: string;         // Last error if FAILED
 }
+```
+
+#### Event Types
+
+**Public Schema Events** (system-level):
+
+| Event Type | Aggregate | Description |
+|------------|-----------|-------------|
+| `organization.provisioned` | Organization | Tenant schema created and ready |
+| `organization.deleted` | Organization | Tenant schema dropped |
+| `organization.provisioning_retried` | Organization | Manual retry of failed provisioning |
+| `clerk.metadata_sync_requested` | Organization | Sync schema metadata back to ZITADEL |
+
+**Tenant Schema Events** (domain-level):
+
+| Event Type | Aggregate | Description |
+|------------|-----------|-------------|
+| `user.joined_organization` | User | User added to organization |
+| `user.left_organization` | User | User removed from organization |
+| `user.profile_sync_requested` | User | Profile update needs syncing |
+| `product.created` | Product | New product registered |
+| `product.updated` | Product | Product metadata changed |
+| `product.archived` | Product | Product soft-deleted |
+| `dpp.issued` | DigitalProductPassport | DPP credential generated |
+| `dpp.revoked` | DigitalProductPassport | DPP credential invalidated |
+| `batch.committed` | Batch | Batch finalized for production |
+| `attestation.requested` | Attestation | Compliance attestation initiated |
+
+*Note: Domain events (product, dpp, batch, attestation) are designed but not yet implemented.*
 ```
 
 ### StatusList
@@ -2208,6 +2266,7 @@ const id = createId();
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.6 | 2026-01-24 | Updated OutboxEvent entity to match implementation; added dual-schema pattern documentation, schema placement rules, and event type catalog |
 | 3.5 | 2026-01-23 | Updated Clerk references to ZITADEL for auth provider migration |
 | 3.4 | 2026-01-21 | Added public.ingestion_jobs DDL to Public Schema section |
 | 3.3 | 2026-01-21 | Added Approval Gate Workflow: ComplianceStatus enum, ProductVersion compliance fields, RuleDeviation dual-link model (design-time + authorization), AuditResultSnapshot entity for frozen PreFlight results |
