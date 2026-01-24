@@ -475,3 +475,55 @@ export async function handleMembershipDeleted(
     return { status: 'soft_deleted' };
   });
 }
+
+/**
+ * Handles the user.updated webhook event.
+ * Queues profile sync requests for each organization the user belongs to.
+ *
+ * Note: This does NOT directly update user records - outbox events are
+ * processed by a worker to update users in their respective tenant schemas.
+ *
+ * Idempotency: Duplicate webhooks will create duplicate outbox events,
+ * which the worker should handle idempotently (upsert by clerkUserId).
+ */
+export async function handleUserUpdated(
+  orm: MikroORM,
+  event: ClerkUserUpdatedEvent
+): Promise<{ status: string; count: number; error?: string }> {
+  const em = orm.em.fork();
+
+  try {
+    const primaryEmail = event.data.email_addresses.find(
+      (e) => e.id === event.data.primary_email_address_id
+    )?.email_address;
+
+    const name = [event.data.first_name, event.data.last_name]
+      .filter(Boolean)
+      .join(' ') || undefined;
+
+    // Emit one outbox event per tenant (processed async by worker)
+    for (const membership of event.data.organization_memberships) {
+      const outboxEvent = em.create(OutboxEvent, {
+        id: createId(),
+        aggregateType: 'User',
+        aggregateId: event.data.id,
+        eventType: 'user.profile_sync_requested',
+        payload: {
+          clerkUserId: event.data.id,
+          clerkOrgId: membership.organization.id,
+          email: primaryEmail,
+          name,
+          avatarUrl: event.data.image_url,
+        },
+        status: OutboxStatus.PENDING,
+      });
+      em.persist(outboxEvent);
+    }
+    await em.flush();
+
+    return { status: 'queued', count: event.data.organization_memberships.length };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return { status: 'failed', count: 0, error: errorMessage };
+  }
+}

@@ -3,7 +3,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   handleMembershipCreated,
   handleMembershipDeleted,
+  handleUserUpdated,
   ClerkOrganizationMembershipEvent,
+  ClerkUserUpdatedEvent,
 } from './clerk.js';
 import { ProvisioningStatus, WorkspaceAuthority } from '@eurocomply/database';
 
@@ -272,5 +274,134 @@ describe('handleMembershipDeleted', () => {
       })
     );
     expect(mockTenantEm.persist).toHaveBeenCalled();
+  });
+});
+
+describe('handleUserUpdated', () => {
+  const mockEm = {
+    create: vi.fn(),
+    persist: vi.fn(),
+    flush: vi.fn(),
+  };
+
+  const mockOrm = {
+    em: {
+      fork: vi.fn(() => mockEm),
+    },
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockEm.create.mockImplementation((_, data) => data);
+    mockEm.flush.mockResolvedValue(undefined);
+  });
+
+  const createUserUpdatedEvent = (
+    orgMemberships: Array<{ organization: { id: string } }> = []
+  ): ClerkUserUpdatedEvent => ({
+    type: 'user.updated',
+    data: {
+      id: 'user_clerk123',
+      email_addresses: [
+        { id: 'email_1', email_address: 'old@example.com' },
+        { id: 'email_2', email_address: 'new@example.com' },
+      ],
+      primary_email_address_id: 'email_2',
+      first_name: 'Updated',
+      last_name: 'Name',
+      image_url: 'https://example.com/new-avatar.png',
+      organization_memberships: orgMemberships,
+    },
+  });
+
+  it('returns count 0 when user has no organization memberships', async () => {
+    const event = createUserUpdatedEvent([]);
+
+    const result = await handleUserUpdated(mockOrm as any, event);
+
+    expect(result.status).toBe('queued');
+    expect(result.count).toBe(0);
+    expect(mockEm.create).not.toHaveBeenCalled();
+    expect(mockEm.flush).toHaveBeenCalled();
+  });
+
+  it('creates one outbox event per organization membership', async () => {
+    const event = createUserUpdatedEvent([
+      { organization: { id: 'org_1' } },
+      { organization: { id: 'org_2' } },
+      { organization: { id: 'org_3' } },
+    ]);
+
+    const result = await handleUserUpdated(mockOrm as any, event);
+
+    expect(result.status).toBe('queued');
+    expect(result.count).toBe(3);
+    expect(mockEm.create).toHaveBeenCalledTimes(3);
+    expect(mockEm.persist).toHaveBeenCalledTimes(3);
+  });
+
+  it('uses primary email address from email_addresses array', async () => {
+    const event = createUserUpdatedEvent([{ organization: { id: 'org_1' } }]);
+
+    await handleUserUpdated(mockOrm as any, event);
+
+    expect(mockEm.create).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          email: 'new@example.com', // email_2 is primary
+        }),
+      })
+    );
+  });
+
+  it('includes correct payload fields in outbox event', async () => {
+    const event = createUserUpdatedEvent([{ organization: { id: 'org_abc' } }]);
+
+    await handleUserUpdated(mockOrm as any, event);
+
+    expect(mockEm.create).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        aggregateType: 'User',
+        aggregateId: 'user_clerk123',
+        eventType: 'user.profile_sync_requested',
+        payload: {
+          clerkUserId: 'user_clerk123',
+          clerkOrgId: 'org_abc',
+          email: 'new@example.com',
+          name: 'Updated Name',
+          avatarUrl: 'https://example.com/new-avatar.png',
+        },
+        status: 'PENDING',
+      })
+    );
+  });
+
+  it('handles missing name fields gracefully', async () => {
+    const event: ClerkUserUpdatedEvent = {
+      type: 'user.updated',
+      data: {
+        id: 'user_clerk123',
+        email_addresses: [{ id: 'email_1', email_address: 'test@example.com' }],
+        primary_email_address_id: 'email_1',
+        first_name: undefined,
+        last_name: undefined,
+        image_url: undefined,
+        organization_memberships: [{ organization: { id: 'org_1' } }],
+      },
+    };
+
+    await handleUserUpdated(mockOrm as any, event);
+
+    expect(mockEm.create).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          name: undefined,
+          avatarUrl: undefined,
+        }),
+      })
+    );
   });
 });
