@@ -265,4 +265,65 @@ describe('OutboxProcessorService', () => {
       expect(schemas).not.toContain('tenant_pending_org');
     });
   });
+
+  describe('processEvent', () => {
+    it('should process event and mark as COMPLETED when handler succeeds', async (context) => {
+      if (!(await isDatabaseAvailable())) {
+        context.skip();
+        return;
+      }
+
+      // Arrange
+      const event = em.create(OutboxEvent, {
+        id: createId(),
+        aggregateType: 'Organization',
+        aggregateId: 'org_123',
+        eventType: 'organization.provisioned',
+        payload: { organizationId: 'org_123', schemaName: 'tenant_test', name: 'Test' },
+        status: OutboxStatus.PENDING,
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      await em.persistAndFlush(event);
+
+      // Act
+      const result = await service.processEvent('public', event.id);
+
+      // Assert
+      expect(result.success).toBe(true);
+      const updated = await em.findOneOrFail(OutboxEvent, event.id);
+      expect(updated.status).toBe(OutboxStatus.COMPLETED);
+    });
+
+    it('should skip event with no registered handler and mark as COMPLETED', async (context) => {
+      if (!(await isDatabaseAvailable())) {
+        context.skip();
+        return;
+      }
+
+      // Arrange
+      const event = em.create(OutboxEvent, {
+        id: createId(),
+        aggregateType: 'Unknown',
+        aggregateId: 'unknown_123',
+        eventType: 'unknown.event.type',
+        payload: {},
+        status: OutboxStatus.PENDING,
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      await em.persistAndFlush(event);
+
+      // Act
+      const result = await service.processEvent('public', event.id);
+
+      // Assert
+      expect(result.success).toBe(true);
+      expect(result.skipped).toBe(true);
+      const updated = await em.findOneOrFail(OutboxEvent, event.id);
+      expect(updated.status).toBe(OutboxStatus.COMPLETED);
+    });
+  });
 });
