@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { secureHeaders } from 'hono/secure-headers';
+import { User, OrganizationUser } from '@eurocomply/database';
 import {
   organizationsRouter,
   createOrganizationsRouter,
@@ -18,6 +19,8 @@ export type Env = {
     tenantSchema?: string;
     userId?: string;
     webhookPayload?: unknown;
+    user?: User;
+    membership?: OrganizationUser;
   };
 };
 
