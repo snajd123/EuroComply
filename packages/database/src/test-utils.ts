@@ -1,7 +1,8 @@
 import { MikroORM, type EntityManager } from '@mikro-orm/postgresql';
-import config from './mikro-orm.config.js';
+import config, { publicConfig } from './mikro-orm.config.js';
 
 let testOrm: MikroORM | null = null;
+let publicOrm: MikroORM | null = null;
 let dbAvailable: boolean | null = null;
 
 export async function setupTestDb(): Promise<MikroORM> {
@@ -9,13 +10,16 @@ export async function setupTestDb(): Promise<MikroORM> {
     return testOrm;
   }
 
+  const dbName = process.env['TEST_DATABASE_NAME'] ?? 'eurocomply_test';
+
+  // Create ORM with ALL entities for runtime type safety
   testOrm = await MikroORM.init({
     ...config,
-    dbName: process.env['TEST_DATABASE_NAME'] ?? 'eurocomply_test',
+    dbName,
     allowGlobalContext: true,
   });
 
-  // Ensure schema and required extensions exist
+  // Ensure database exists
   const generator = testOrm.getSchemaGenerator();
   await generator.ensureDatabase();
 
@@ -32,13 +36,25 @@ export async function setupTestDb(): Promise<MikroORM> {
     }
   }
 
-  // Only update the public schema, not tenant schemas created by other tests
-  await generator.updateSchema({ schema: 'public' });
+  // Create a separate ORM with ONLY public entities for schema generation
+  // This ensures we don't create tenant tables (User, Product, etc.) in public schema
+  publicOrm = await MikroORM.init({
+    ...publicConfig,
+    dbName,
+    allowGlobalContext: true,
+  });
+
+  const publicGenerator = publicOrm.getSchemaGenerator();
+  await publicGenerator.updateSchema({ schema: 'public' });
 
   return testOrm;
 }
 
 export async function teardownTestDb(): Promise<void> {
+  if (publicOrm) {
+    await publicOrm.close();
+    publicOrm = null;
+  }
   if (testOrm) {
     await testOrm.close();
     testOrm = null;
@@ -47,9 +63,9 @@ export async function teardownTestDb(): Promise<void> {
 
 export async function clearTestDb(em: EntityManager): Promise<void> {
   const connection = em.getConnection();
-  // Only clear PUBLIC schema tables (Organization, OutboxEvent, WebhookEvent)
-  // Tenant tables are in tenant schemas, not public
-  const publicTables = ['outbox_event', 'organizations', 'webhook_events'];
+  // Only clear PUBLIC schema tables - these match publicEntities in entities/index.ts
+  // Tenant tables (User, Product, Category, etc.) only exist in tenant schemas
+  const publicTables = ['outbox_event', 'organizations', 'webhook_events', 'api_keys', 'unit_definition'];
 
   for (const table of publicTables) {
     try {

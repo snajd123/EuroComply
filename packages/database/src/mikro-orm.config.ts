@@ -20,12 +20,18 @@ const baseConfig = {
 const allEntities = [...publicEntities, ...tenantEntities];
 
 /**
- * Configuration for the API server.
- * Includes all entities so it can work with both public and tenant schemas.
+ * Configuration for the API server and migrations.
+ *
+ * IMPORTANT: Only PUBLIC schema entities are included here.
+ * Tenant entities (User, OrganizationUser, Product, etc.) are created
+ * by TenantProvisioner in each tenant schema - NOT in public.
+ *
+ * The API uses `allEntities` at runtime to understand all entity types,
+ * but schema generation ONLY creates public tables.
  */
 export default defineConfig({
   ...baseConfig,
-  entities: allEntities,
+  entities: allEntities,  // Runtime: knows all entities for type safety
   schema: 'public',
   migrations: {
     path: './src/migrations',
@@ -34,6 +40,16 @@ export default defineConfig({
     transactional: true,
     allOrNothing: true,
   },
+});
+
+/**
+ * Configuration for PUBLIC schema migrations only.
+ * Used by schema generator to create/update ONLY public schema tables.
+ */
+export const publicConfig: Options = defineConfig({
+  ...baseConfig,
+  entities: publicEntities,  // Only public entities for schema generation
+  schema: 'public',
 });
 
 /**

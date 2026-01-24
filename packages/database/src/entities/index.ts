@@ -44,12 +44,17 @@ import { OrganizationUser } from './OrganizationUser.js';
 /**
  * Entities that belong in the PUBLIC schema.
  * These are shared across all tenants.
+ *
+ * Note: OutboxEvent exists in BOTH public AND tenant schemas (dual-schema outbox pattern).
+ * - Public: system events (organization.provisioned, organization.deleted)
+ * - Tenant: domain events (user.joined, product.created)
  */
 export const publicEntities = [
   Organization,
   ApiKey,
   WebhookEvent,
   UnitDefinition,
+  OutboxEvent,  // System events outbox (dual-schema pattern)
 ];
 
 /**

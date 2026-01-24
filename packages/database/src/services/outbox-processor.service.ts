@@ -56,17 +56,17 @@ export class OutboxProcessorService {
     // Map raw result to entity (column names are snake_case)
     const row = rows[0]!;
     const event = new OutboxEvent();
-    event.id = row.id as string;
-    event.aggregateType = row.aggregate_type as string;
-    event.aggregateId = row.aggregate_id as string;
-    event.eventType = row.event_type as string;
-    event.payload = row.payload as Record<string, unknown>;
-    event.status = row.status as OutboxStatus;
-    event.retryCount = row.retry_count as number;
-    event.processedAt = row.processed_at as Date | undefined;
-    event.errorMessage = row.error_message as string | undefined;
-    event.createdAt = row.created_at as Date;
-    event.updatedAt = row.updated_at as Date;
+    event.id = row['id'] as string;
+    event.aggregateType = row['aggregate_type'] as string;
+    event.aggregateId = row['aggregate_id'] as string;
+    event.eventType = row['event_type'] as string;
+    event.payload = row['payload'] as Record<string, unknown>;
+    event.status = row['status'] as OutboxStatus;
+    event.retryCount = row['retry_count'] as number;
+    event.processedAt = row['processed_at'] as Date | undefined;
+    event.errorMessage = row['error_message'] as string | undefined;
+    event.createdAt = row['created_at'] as Date;
+    event.updatedAt = row['updated_at'] as Date;
 
     return event;
   }
