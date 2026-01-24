@@ -28,14 +28,18 @@ export function createUserMiddleware(options: UserMiddlewareOptions) {
       return;
     }
 
-    // Look up user in tenant schema
+    // Look up user in tenant schema with proper search_path for JOINs
     const em = orm.em.fork({ schema: tenantSchema });
 
-    const user = await em.findOne(
-      User,
-      { clerkId: clerkUserId, deletedAt: null },
-      { populate: ['membership'] }
-    );
+    // Use transaction to scope search_path and avoid connection pool leakage
+    const user = await em.transactional(async (txEm) => {
+      await txEm.execute(`SET search_path TO "${tenantSchema}", public`);
+      return txEm.findOne(
+        User,
+        { clerkId: clerkUserId, deletedAt: null },
+        { populate: ['membership'] }
+      );
+    });
 
     // Race condition: user has valid JWT but webhook hasn't synced yet
     if (!user) {

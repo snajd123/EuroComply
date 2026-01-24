@@ -11,22 +11,20 @@ import {
   type ClerkOrganizationMembershipEvent,
   type ClerkUserUpdatedEvent,
   type ClerkClient,
-  type OrmLike,
-  type TenantProvisionerLike,
 } from '../webhooks/clerk.js';
 import type { MikroORM } from '@eurocomply/database';
+import type { TenantProvisioner } from '@eurocomply/database';
 
 export interface WebhooksRouterOptions {
-  orm: OrmLike;
-  mikroOrm?: MikroORM;  // Full ORM for membership handlers
-  provisioner: TenantProvisionerLike;
+  orm: MikroORM;
+  provisioner: TenantProvisioner;
   webhookSecret?: string;
   clerk?: ClerkClient;
   skipSignatureVerification?: boolean; // For testing only
 }
 
 export function createWebhooksRouter(options: WebhooksRouterOptions) {
-  const { orm, mikroOrm, provisioner, webhookSecret, clerk, skipSignatureVerification } = options;
+  const { orm, provisioner, webhookSecret, clerk, skipSignatureVerification } = options;
   const router = new Hono();
 
   router.post('/clerk', async (c) => {
@@ -94,11 +92,11 @@ export function createWebhooksRouter(options: WebhooksRouterOptions) {
       }
 
       case 'organizationMembership.created': {
-        if (!mikroOrm) {
+        if (!orm) {
           return c.json({ error: 'MikroORM not configured for membership handlers' }, 500);
         }
         try {
-          const result = await handleMembershipCreated(mikroOrm, event as unknown as ClerkOrganizationMembershipEvent);
+          const result = await handleMembershipCreated(orm, event as unknown as ClerkOrganizationMembershipEvent);
           return c.json(result);
         } catch (error) {
           if (error instanceof RetryableError) {
@@ -109,18 +107,18 @@ export function createWebhooksRouter(options: WebhooksRouterOptions) {
       }
 
       case 'organizationMembership.deleted': {
-        if (!mikroOrm) {
+        if (!orm) {
           return c.json({ error: 'MikroORM not configured for membership handlers' }, 500);
         }
-        const result = await handleMembershipDeleted(mikroOrm, event as unknown as ClerkOrganizationMembershipEvent);
+        const result = await handleMembershipDeleted(orm, event as unknown as ClerkOrganizationMembershipEvent);
         return c.json(result);
       }
 
       case 'user.updated': {
-        if (!mikroOrm) {
+        if (!orm) {
           return c.json({ error: 'MikroORM not configured for membership handlers' }, 500);
         }
-        const result = await handleUserUpdated(mikroOrm, event as unknown as ClerkUserUpdatedEvent);
+        const result = await handleUserUpdated(orm, event as unknown as ClerkUserUpdatedEvent);
         return c.json(result);
       }
 

@@ -5,35 +5,13 @@ import { createId } from '@eurocomply/core';
 import {
   Organization,
   ProvisioningStatus,
+  EnforcementMode,
   OutboxEvent,
   OutboxStatus,
   generateSchemaName,
+  TenantProvisioner,
 } from '@eurocomply/database';
-
-// ============================================================================
-// Type Definitions
-// ============================================================================
-
-export interface EntityManagerLike {
-  findOne: <T>(entity: new () => T, where: Record<string, unknown>) => Promise<T | null>;
-  findAll: <T>(entity: new () => T) => Promise<T[]>;
-  find: <T>(entity: new () => T, where: Record<string, unknown>) => Promise<T[]>;
-  create: <T>(entity: new () => T, data: Record<string, unknown>) => T;
-  persist: (entity: unknown) => void;
-  remove: (entity: unknown) => void;
-  persistAndFlush: (entity: unknown) => Promise<void>;
-  flush: () => Promise<void>;
-  fork: (options?: { schema?: string }) => EntityManagerLike;
-}
-
-export interface OrmLike {
-  em: EntityManagerLike;
-}
-
-export interface TenantProvisionerLike {
-  provisionTenant: (schemaName: string) => Promise<{ success: boolean; schemaName: string; error?: string }>;
-  dropSchema: (schemaName: string) => Promise<void>;
-}
+import type { MikroORM } from '@eurocomply/database';
 
 // ============================================================================
 // Zod Schemas
@@ -44,12 +22,12 @@ const createOrganizationSchema = z.object({
   slug: z.string().min(1).max(255).regex(/^[a-z0-9-]+$/, 'Slug must be lowercase alphanumeric with hyphens'),
   clerkOrgId: z.string().optional(),
   regulatoryAdvisorEnabled: z.boolean().default(true),
-  enforcementMode: z.enum(['ENFORCING', 'SILENT']).default('SILENT'),
+  enforcementMode: z.nativeEnum(EnforcementMode).default(EnforcementMode.SILENT),
   captureComplianceInSilentMode: z.boolean().default(true),
 });
 
 export interface OrganizationsRouterOptions {
-  orm: OrmLike;
+  orm: MikroORM;
 }
 
 /**
@@ -169,8 +147,8 @@ export function clearOrganizationsStore(): void {
 // ============================================================================
 
 export interface OrganizationsAdminRouterOptions {
-  orm: OrmLike;
-  provisioner: TenantProvisionerLike;
+  orm: MikroORM;
+  provisioner: TenantProvisioner;
 }
 
 export function createOrganizationsAdminRouter(options: OrganizationsAdminRouterOptions) {
@@ -261,6 +239,7 @@ export function createOrganizationsAdminRouter(options: OrganizationsAdminRouter
       ? 'organization.provisioning_retried'
       : 'organization.provisioned';
 
+    const now = new Date();
     const outboxEvent = em.create(OutboxEvent, {
       id: createId(),
       aggregateType: 'Organization',
@@ -273,6 +252,9 @@ export function createOrganizationsAdminRouter(options: OrganizationsAdminRouter
         previousError,
       },
       status: OutboxStatus.PENDING,
+      retryCount: 0,
+      createdAt: now,
+      updatedAt: now,
     });
     em.persist(outboxEvent);
     await em.flush();
@@ -330,6 +312,7 @@ export function createOrganizationsAdminRouter(options: OrganizationsAdminRouter
     }
 
     // 2. Create outbox event before deleting
+    const deleteNow = new Date();
     const outboxEvent = em.create(OutboxEvent, {
       id: createId(),
       aggregateType: 'Organization',
@@ -342,6 +325,9 @@ export function createOrganizationsAdminRouter(options: OrganizationsAdminRouter
         deletedVia: 'admin_endpoint',
       },
       status: OutboxStatus.PENDING,
+      retryCount: 0,
+      createdAt: deleteNow,
+      updatedAt: deleteNow,
     });
     em.persist(outboxEvent);
 

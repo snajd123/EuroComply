@@ -155,7 +155,7 @@ describe('Products Authorization', () => {
         } as any);
         return next();
       });
-      app.route('/products', createProductsRouter({ orm: mockOrm }));
+      app.route('/products', createProductsRouter({ orm: mockOrm as any }));
 
       const res = await app.request('/products');
       expect(res.status).toBe(200);
@@ -170,7 +170,7 @@ describe('Products Authorization', () => {
         } as any);
         return next();
       });
-      app.route('/products', createProductsRouter({ orm: mockOrm }));
+      app.route('/products', createProductsRouter({ orm: mockOrm as any }));
 
       const res = await app.request('/products');
       expect(res.status).toBe(403);
@@ -187,7 +187,7 @@ describe('Products Authorization', () => {
         } as any);
         return next();
       });
-      app.route('/products', createProductsRouter({ orm: mockOrm }));
+      app.route('/products', createProductsRouter({ orm: mockOrm as any }));
 
       const res = await app.request('/products', {
         method: 'POST',
@@ -227,7 +227,7 @@ describe('Products Authorization', () => {
         } as any);
         return next();
       });
-      app.route('/products', createProductsRouter({ orm: mockOrmWithProduct }));
+      app.route('/products', createProductsRouter({ orm: mockOrmWithProduct as any }));
 
       const res = await app.request('/products/prod_123');
       expect(res.status).toBe(200);
@@ -242,7 +242,7 @@ describe('Products Authorization', () => {
         } as any);
         return next();
       });
-      app.route('/products', createProductsRouter({ orm: mockOrm }));
+      app.route('/products', createProductsRouter({ orm: mockOrm as any }));
 
       const res = await app.request('/products/prod_123');
       expect(res.status).toBe(403);

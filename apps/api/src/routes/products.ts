@@ -3,8 +3,8 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { createId } from '@eurocomply/core';
 import { Product, ProductStatus, Category } from '@eurocomply/database';
+import type { MikroORM } from '@eurocomply/database';
 import type { Env } from '../app.js';
-import type { EntityManagerLike, OrmLike } from './organizations.js';
 import { authorize } from '../middleware/authorize.js';
 
 // ============================================================================
@@ -25,7 +25,7 @@ const createProductSchema = z.object({
 // ============================================================================
 
 export interface ProductsRouterOptions {
-  orm: OrmLike;
+  orm: MikroORM;
 }
 
 /**
@@ -63,6 +63,7 @@ export function createProductsRouter(options: ProductsRouterOptions) {
         return c.json({ error: 'Bad Request', message: 'Category not found' }, 400);
       }
 
+      const now = new Date();
       const product = em.create(Product, {
         id: createId(),
         name: body.name,
@@ -72,6 +73,8 @@ export function createProductsRouter(options: ProductsRouterOptions) {
         category,
         status: ProductStatus.DRAFT,
         metadata: body.metadata,
+        createdAt: now,
+        updatedAt: now,
       });
 
       await em.persistAndFlush(product);

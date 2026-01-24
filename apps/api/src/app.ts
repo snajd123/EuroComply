@@ -3,10 +3,10 @@ import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { secureHeaders } from 'hono/secure-headers';
 import { User, OrganizationUser } from '@eurocomply/database';
+import type { MikroORM } from '@eurocomply/database';
 import {
   organizationsRouter,
   createOrganizationsRouter,
-  type OrmLike,
 } from './routes/organizations.js';
 import { productsRouter, createProductsRouter } from './routes/products.js';
 import { createApiKeysRouter } from './routes/api-keys.js';
@@ -27,7 +27,7 @@ export type Env = {
 
 export interface AppDependencies {
   /** MikroORM instance for database-backed routes */
-  orm?: OrmLike;
+  orm?: MikroORM;
   webhooksRouter?: Hono;
   organizationsAdminRouter?: Hono;
   unitsRepository?: UnitsRepository;

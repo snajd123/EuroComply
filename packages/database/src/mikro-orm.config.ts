@@ -14,12 +14,18 @@ const baseConfig = {
 };
 
 /**
- * Configuration for PUBLIC schema operations.
- * Contains only shared entities: Organization, OutboxEvent
+ * All entities - the ORM needs to know about all entities regardless of schema.
+ * The schema is determined at runtime when forking the EntityManager.
+ */
+const allEntities = [...publicEntities, ...tenantEntities];
+
+/**
+ * Configuration for the API server.
+ * Includes all entities so it can work with both public and tenant schemas.
  */
 export default defineConfig({
   ...baseConfig,
-  entities: publicEntities,
+  entities: allEntities,
   schema: 'public',
   migrations: {
     path: './src/migrations',

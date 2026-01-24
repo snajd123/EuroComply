@@ -23,7 +23,7 @@ describe('userMiddleware', () => {
     const res = await app.request('/test');
     expect(res.status).toBe(401);
 
-    const body = await res.json();
+    const body = await res.json() as { message: string };
     expect(body.message).toContain('tenant context');
   });
 
@@ -43,8 +43,12 @@ describe('userMiddleware', () => {
   });
 
   it('returns 202 when user not found (race condition)', async () => {
-    const mockEm = {
+    const mockTxEm = {
       findOne: vi.fn().mockResolvedValue(null),
+      execute: vi.fn(),
+    };
+    const mockEm = {
+      transactional: vi.fn(async (cb: any) => cb(mockTxEm)),
     };
     mockOrm.em.fork.mockReturnValue(mockEm);
 
@@ -61,7 +65,7 @@ describe('userMiddleware', () => {
     expect(res.status).toBe(202);
     expect(res.headers.get('Retry-After')).toBe('2');
 
-    const body = await res.json();
+    const body = await res.json() as { message: string };
     expect(body.message).toContain('Setting up your account');
   });
 
@@ -74,8 +78,12 @@ describe('userMiddleware', () => {
         designAuthority: WorkspaceAuthority.MANAGER,
       },
     };
-    const mockEm = {
+    const mockTxEm = {
       findOne: vi.fn().mockResolvedValue(mockUser),
+      execute: vi.fn(),
+    };
+    const mockEm = {
+      transactional: vi.fn(async (cb: any) => cb(mockTxEm)),
       nativeUpdate: vi.fn().mockResolvedValue(1),
     };
     mockOrm.em.fork.mockReturnValue(mockEm);
@@ -97,7 +105,7 @@ describe('userMiddleware', () => {
     const res = await app.request('/test');
     expect(res.status).toBe(200);
 
-    const body = await res.json();
+    const body = await res.json() as { userId: string; isAdmin: boolean };
     expect(body.userId).toBe('usr_123');
     expect(body.isAdmin).toBe(true);
   });
@@ -108,8 +116,12 @@ describe('userMiddleware', () => {
       clerkId: 'user_clerk123',
       membership: null,
     };
-    const mockEm = {
+    const mockTxEm = {
       findOne: vi.fn().mockResolvedValue(mockUser),
+      execute: vi.fn(),
+    };
+    const mockEm = {
+      transactional: vi.fn(async (cb: any) => cb(mockTxEm)),
     };
     mockOrm.em.fork.mockReturnValue(mockEm);
 
@@ -125,7 +137,7 @@ describe('userMiddleware', () => {
     const res = await app.request('/test');
     expect(res.status).toBe(403);
 
-    const body = await res.json();
+    const body = await res.json() as { message: string };
     expect(body.message).toContain('no longer a member');
   });
 });

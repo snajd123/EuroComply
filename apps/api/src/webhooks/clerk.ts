@@ -1,11 +1,15 @@
 import {
   Organization,
   ProvisioningStatus,
+  SubscriptionTier,
+  SubscriptionStatus,
+  EnforcementMode,
   OutboxEvent,
   OutboxStatus,
   User,
   OrganizationUser,
   WorkspaceAuthority,
+  TenantProvisioner,
 } from '@eurocomply/database';
 import type { MikroORM, EntityManager } from '@eurocomply/database';
 import type { Context } from 'hono';
@@ -71,36 +75,12 @@ export interface ClerkClient {
 }
 
 /**
- * Minimal interface for the ORM dependency.
- * This allows the handler to work with any ORM that provides these methods,
- * making it easier to test and avoiding tight coupling to MikroORM.
+ * Dependencies for webhook handlers.
+ * Uses real types from @eurocomply/database for proper type safety.
  */
-export interface OrmLike {
-  em: {
-    fork: () => EntityManagerLike;
-  };
-}
-
-export interface EntityManagerLike {
-  create<T>(entityClass: new () => T, data: Partial<T>): T;
-  persist(entity: object): void;
-  remove(entity: object): void;
-  flush(): Promise<void>;
-  findOne<T>(entityClass: new () => T, where: Record<string, unknown>): Promise<T | null>;
-}
-
-/**
- * Interface for the TenantProvisioner dependency.
- * Matches the public API of TenantProvisioner from @eurocomply/database.
- */
-export interface TenantProvisionerLike {
-  provisionTenant(schemaName: string): Promise<{ success: boolean; schemaName: string; error?: string }>;
-  dropSchema(schemaName: string): Promise<void>;
-}
-
 export interface HandlerDependencies {
-  orm: OrmLike;
-  provisioner: TenantProvisionerLike;
+  orm: MikroORM;
+  provisioner: TenantProvisioner;
   clerk?: ClerkClient;
 }
 
@@ -158,13 +138,22 @@ export async function handleOrganizationCreated(
     }
 
     // 2. Create Organization record with PROVISIONING status
+    const now = new Date();
     const org = em.create(Organization, {
       id: createId(),
       name,
       slug,
       schemaName,
       clerkOrgId,
+      cellId: 'cell_1',
+      subscriptionTier: SubscriptionTier.STARTER,
+      subscriptionStatus: SubscriptionStatus.TRIALING,
       provisioningStatus: ProvisioningStatus.PROVISIONING,
+      regulatoryAdvisorEnabled: true,
+      enforcementMode: EnforcementMode.SILENT,
+      captureComplianceInSilentMode: true,
+      createdAt: now,
+      updatedAt: now,
     });
     em.persist(org);
     await em.flush();
@@ -190,6 +179,7 @@ export async function handleOrganizationCreated(
     org.provisioningStatus = ProvisioningStatus.READY;
 
     // 5. Create outbox event
+    const eventNow = new Date();
     const outboxEvent = em.create(OutboxEvent, {
       id: createId(),
       aggregateType: 'Organization',
@@ -203,6 +193,9 @@ export async function handleOrganizationCreated(
         slug,
       },
       status: OutboxStatus.PENDING,
+      retryCount: 0,
+      createdAt: eventNow,
+      updatedAt: eventNow,
     });
     em.persist(outboxEvent);
     await em.flush();
@@ -296,6 +289,7 @@ export async function handleOrganizationDeleted(
     }
 
     // 2. Create outbox event before deleting the org
+    const deleteEventNow = new Date();
     const outboxEvent = em.create(OutboxEvent, {
       id: createId(),
       aggregateType: 'Organization',
@@ -308,6 +302,9 @@ export async function handleOrganizationDeleted(
         schemaDropped,
       },
       status: OutboxStatus.PENDING,
+      retryCount: 0,
+      createdAt: deleteEventNow,
+      updatedAt: deleteEventNow,
     });
     em.persist(outboxEvent);
 
@@ -363,6 +360,10 @@ export async function handleMembershipCreated(
   const em = orm.em.fork({ schema: org.schemaName });
 
   return em.transactional(async (txEm: EntityManager) => {
+    // Set search_path INSIDE transaction to ensure JOINs resolve correctly
+    // Using execute() ensures it runs on the transaction's connection
+    await txEm.execute(`SET search_path TO "${org.schemaName}", public`);
+
     // Check if user already exists (idempotency)
     const existingUser = await txEm.findOne(User, {
       clerkId: public_user_data.user_id,
@@ -376,42 +377,54 @@ export async function handleMembershipCreated(
     const userCount = await txEm.count(User, {});
     const isFirstUser = userCount === 0;
 
-    // Create User
-    const user = new User();
-    user.id = createId();
-    user.clerkId = public_user_data.user_id;
-    user.email = public_user_data.identifier;
-    user.name = [public_user_data.first_name, public_user_data.last_name]
-      .filter(Boolean)
-      .join(' ') || undefined;
-    user.avatarUrl = public_user_data.image_url;
+    // Create User using em.create() for proper EntityManager association
+    const userId = createId();
+    const now = new Date();
+    const user = txEm.create(User, {
+      id: userId,
+      clerkId: public_user_data.user_id,
+      email: public_user_data.identifier,
+      name: [public_user_data.first_name, public_user_data.last_name]
+        .filter(Boolean)
+        .join(' ') || undefined,
+      avatarUrl: public_user_data.image_url,
+      createdAt: now,
+      updatedAt: now,
+    });
 
     // Create OrganizationUser with authorities
     const isClerkAdmin = role === 'org:admin';
 
-    const orgUser = new OrganizationUser();
-    orgUser.id = createId();
-    orgUser.user = user;
-    orgUser.isOrgAdmin = isFirstUser || isClerkAdmin;
-    orgUser.designAuthority = isFirstUser ? WorkspaceAuthority.MANAGER : WorkspaceAuthority.NONE;
-    orgUser.operationsAuthority = isFirstUser ? WorkspaceAuthority.MANAGER : WorkspaceAuthority.NONE;
-    orgUser.marketingAuthority = isFirstUser ? WorkspaceAuthority.MANAGER : WorkspaceAuthority.NONE;
-    orgUser.complianceAuthority = isFirstUser ? WorkspaceAuthority.MANAGER : WorkspaceAuthority.NONE;
+    const orgUser = txEm.create(OrganizationUser, {
+      id: createId(),
+      user,
+      isOrgAdmin: isFirstUser || isClerkAdmin,
+      designAuthority: isFirstUser ? WorkspaceAuthority.MANAGER : WorkspaceAuthority.NONE,
+      operationsAuthority: isFirstUser ? WorkspaceAuthority.MANAGER : WorkspaceAuthority.NONE,
+      marketingAuthority: isFirstUser ? WorkspaceAuthority.MANAGER : WorkspaceAuthority.NONE,
+      complianceAuthority: isFirstUser ? WorkspaceAuthority.MANAGER : WorkspaceAuthority.NONE,
+      createdAt: now,
+      updatedAt: now,
+    });
 
-    // Emit outbox event
-    const outboxEvent = new OutboxEvent();
-    outboxEvent.id = createId();
-    outboxEvent.aggregateType = 'User';
-    outboxEvent.aggregateId = user.id;
-    outboxEvent.eventType = 'user.joined_organization';
-    outboxEvent.payload = {
-      userId: user.id,
-      clerkUserId: public_user_data.user_id,
-      organizationId: org.id,
-      isOrgAdmin: orgUser.isOrgAdmin,
-      isFirstUser,
-    };
-    outboxEvent.status = OutboxStatus.PENDING;
+    // Emit outbox event to tenant schema
+    const outboxEvent = txEm.create(OutboxEvent, {
+      id: createId(),
+      aggregateType: 'User',
+      aggregateId: userId,
+      eventType: 'user.joined_organization',
+      payload: {
+        userId,
+        clerkUserId: public_user_data.user_id,
+        organizationId: org.id,
+        isOrgAdmin: orgUser.isOrgAdmin,
+        isFirstUser,
+      },
+      status: OutboxStatus.PENDING,
+      retryCount: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
 
     txEm.persist([user, orgUser, outboxEvent]);
     // Transaction will flush on commit
@@ -444,6 +457,9 @@ export async function handleMembershipDeleted(
   const em = orm.em.fork({ schema: org.schemaName });
 
   return em.transactional(async (txEm: EntityManager) => {
+    // Set search_path INSIDE transaction to avoid connection pool leakage
+    await txEm.execute(`SET search_path TO "${org.schemaName}", public`);
+
     // Soft delete - preserves audit trail references
     const updated = await txEm.nativeUpdate(
       User,
@@ -456,17 +472,22 @@ export async function handleMembershipDeleted(
     }
 
     // Emit outbox event for event-driven consistency
-    const outboxEvent = new OutboxEvent();
-    outboxEvent.id = createId();
-    outboxEvent.aggregateType = 'User';
-    outboxEvent.aggregateId = public_user_data.user_id;  // Use Clerk user ID as we don't have internal ID
-    outboxEvent.eventType = 'user.left_organization';
-    outboxEvent.payload = {
-      clerkUserId: public_user_data.user_id,
-      organizationId: org.id,
-      clerkOrgId: organization.id,
-    };
-    outboxEvent.status = OutboxStatus.PENDING;
+    const now = new Date();
+    const outboxEvent = txEm.create(OutboxEvent, {
+      id: createId(),
+      aggregateType: 'User',
+      aggregateId: public_user_data.user_id,  // Use Clerk user ID as we don't have internal ID
+      eventType: 'user.left_organization',
+      payload: {
+        clerkUserId: public_user_data.user_id,
+        organizationId: org.id,
+        clerkOrgId: organization.id,
+      },
+      status: OutboxStatus.PENDING,
+      retryCount: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
     txEm.persist(outboxEvent);
 
     return { status: 'soft_deleted' };
@@ -477,8 +498,8 @@ export async function handleMembershipDeleted(
  * Handles the user.updated webhook event.
  * Queues profile sync requests for each organization the user belongs to.
  *
- * Note: This does NOT directly update user records - outbox events are
- * processed by a worker to update users in their respective tenant schemas.
+ * Each outbox event is written to the respective TENANT schema to maintain
+ * isolation and transactional integrity per the architecture design.
  *
  * Idempotency: Duplicate webhooks will create duplicate outbox events,
  * which the worker should handle idempotently (upsert by clerkUserId).
@@ -487,7 +508,7 @@ export async function handleUserUpdated(
   orm: MikroORM,
   event: ClerkUserUpdatedEvent
 ): Promise<{ status: string; count: number; error?: string }> {
-  const em = orm.em.fork();
+  const sharedEm = orm.em.fork();
 
   try {
     const primaryEmail = event.data.email_addresses.find(
@@ -498,26 +519,51 @@ export async function handleUserUpdated(
       .filter(Boolean)
       .join(' ') || undefined;
 
-    // Emit one outbox event per tenant (processed async by worker)
-    for (const membership of event.data.organization_memberships) {
-      const outboxEvent = new OutboxEvent();
-      outboxEvent.id = createId();
-      outboxEvent.aggregateType = 'User';
-      outboxEvent.aggregateId = event.data.id;
-      outboxEvent.eventType = 'user.profile_sync_requested';
-      outboxEvent.payload = {
-        clerkUserId: event.data.id,
-        clerkOrgId: membership.organization.id,
-        email: primaryEmail,
-        name,
-        avatarUrl: event.data.image_url,
-      };
-      outboxEvent.status = OutboxStatus.PENDING;
-      em.persist(outboxEvent);
-    }
-    await em.flush();
+    let successCount = 0;
 
-    return { status: 'queued', count: event.data.organization_memberships.length };
+    // Emit one outbox event per tenant (in each tenant's schema)
+    for (const membership of event.data.organization_memberships) {
+      // Find the organization to get its schema name
+      const org = await sharedEm.findOne(Organization, {
+        clerkOrgId: membership.organization.id,
+      });
+
+      if (!org || org.provisioningStatus !== ProvisioningStatus.READY) {
+        // Skip orgs that don't exist or aren't ready
+        continue;
+      }
+
+      // Write outbox event to tenant schema
+      const tenantEm = orm.em.fork({ schema: org.schemaName });
+
+      await tenantEm.transactional(async (txEm) => {
+        await txEm.execute(`SET search_path TO "${org.schemaName}", public`);
+
+        const now = new Date();
+        const outboxEvent = txEm.create(OutboxEvent, {
+          id: createId(),
+          aggregateType: 'User',
+          aggregateId: event.data.id,
+          eventType: 'user.profile_sync_requested',
+          payload: {
+            clerkUserId: event.data.id,
+            clerkOrgId: membership.organization.id,
+            email: primaryEmail,
+            name,
+            avatarUrl: event.data.image_url,
+          },
+          status: OutboxStatus.PENDING,
+          retryCount: 0,
+          createdAt: now,
+          updatedAt: now,
+        });
+        txEm.persist(outboxEvent);
+      });
+
+      successCount++;
+    }
+
+    return { status: 'queued', count: successCount };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     return { status: 'failed', count: 0, error: errorMessage };

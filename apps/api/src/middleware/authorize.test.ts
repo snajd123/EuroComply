@@ -37,7 +37,7 @@ describe('authorize middleware', () => {
       const res = await app.request('/test', { method: 'POST' });
       expect(res.status).toBe(403);
 
-      const body = await res.json();
+      const body = await res.json() as { yourAuthority: string; requiredAuthority: string };
       expect(body.yourAuthority).toBe('VIEWER');
       expect(body.requiredAuthority).toBe('CONTRIBUTOR');
     });
@@ -166,7 +166,7 @@ describe('requireOrgAdmin middleware', () => {
     const res = await app.request('/test');
     expect(res.status).toBe(403);
 
-    const body = await res.json();
+    const body = await res.json() as { message: string };
     expect(body.message).toContain('Organization Admin');
   });
 

@@ -48,7 +48,6 @@ import { OrganizationUser } from './OrganizationUser.js';
 export const publicEntities = [
   Organization,
   ApiKey,
-  OutboxEvent,
   WebhookEvent,
   UnitDefinition,
 ];
@@ -64,6 +63,7 @@ export const tenantEntities = [
   Product,
   ProductVersion,
   AuditLog,
+  OutboxEvent,  // Per-tenant transactional outbox
   User,
   OrganizationUser,
 ];

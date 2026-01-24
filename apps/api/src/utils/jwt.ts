@@ -46,21 +46,25 @@ export async function verifyAndExtractTenant(
     });
 
     // verifyToken returns { data, errors } discriminated union
-    if (result.errors) {
+    if ('errors' in result && result['errors']) {
       return null;
     }
 
-    const payload = result.data;
+    // At this point we know result has data
+    const payload = 'data' in result ? result['data'] : null;
+    if (!payload) {
+      return null;
+    }
 
     // Extract user ID from 'sub' claim
-    const userId = payload.sub;
+    const userId = (payload as { sub?: string }).sub;
     if (!userId) {
       return null;
     }
 
     // Extract schema_name from org_metadata (custom claim configured in Clerk)
     // Clerk allows adding custom claims to JWTs via session token customization
-    const orgMetadata = payload.org_metadata as ClerkOrgMetadata | undefined;
+    const orgMetadata = (payload as { org_metadata?: ClerkOrgMetadata }).org_metadata;
     const schemaName = orgMetadata?.schema_name;
 
     if (!schemaName || typeof schemaName !== 'string') {
