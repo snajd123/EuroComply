@@ -8,6 +8,8 @@
     "lint": "turbo run lint",
     "dev": "turbo run dev",
     "dev:local": "./scripts/dev-local.sh",
+    "worker": "turbo run dev --filter=@eurocomply/worker",
+    "worker:once": "cd apps/worker && node --env-file=../../.env --import tsx src/index.ts outbox --once",
     "dev:tunnel": "./scripts/dev-local.sh --with-tunnel",
     "db:start": "docker-compose up -d postgres-test",
     "db:stop": "docker-compose stop postgres-test",
