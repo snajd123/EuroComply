@@ -14,3 +14,4 @@ export {
   type UnitInfo,
   type ConversionResult,
 } from './unit-conversion.service.js';
+export { OutboxProcessorService } from './outbox-processor.service.js';
