@@ -178,9 +178,11 @@ export async function handleOrganizationCreated(
     // 4. Update organization status to ready
     org.provisioningStatus = ProvisioningStatus.READY;
 
-    // 5. Create outbox event
+    // 5. Create outbox events for downstream processing
     const eventNow = new Date();
-    const outboxEvent = em.create(OutboxEvent, {
+
+    // 5a. Organization provisioned event (for internal systems)
+    const provisionedEvent = em.create(OutboxEvent, {
       id: createId(),
       aggregateType: 'Organization',
       aggregateId: org.id,
@@ -197,23 +199,58 @@ export async function handleOrganizationCreated(
       createdAt: eventNow,
       updatedAt: eventNow,
     });
-    em.persist(outboxEvent);
+
+    // 5b. Clerk metadata sync event (for identity redundancy)
+    // This ensures the schema_name is written back to Clerk's publicMetadata.
+    // If the direct API call fails, the outbox worker will retry automatically.
+    // This provides redundancy - tenant resolution works via both our DB and Clerk.
+    const metadataSyncEvent = em.create(OutboxEvent, {
+      id: createId(),
+      aggregateType: 'Organization',
+      aggregateId: org.id,
+      eventType: 'clerk.metadata_sync_requested',
+      payload: {
+        clerkOrgId,
+        metadata: {
+          schema_name: schemaName,
+          tier: 'starter',
+          cell_id: org.cellId,
+          organization_id: org.id,
+        },
+      },
+      status: OutboxStatus.PENDING,
+      retryCount: 0,
+      createdAt: eventNow,
+      updatedAt: eventNow,
+    });
+
+    em.persist([provisionedEvent, metadataSyncEvent]);
     await em.flush();
 
-    // 6. Update Clerk metadata (if clerk client provided)
-    // Note: This is non-critical - if it fails, org is still provisioned
+    // 6. Attempt immediate Clerk metadata sync (best effort)
+    // Even if this fails, the outbox event ensures eventual consistency
     if (clerk) {
       try {
         await clerk.organizations.updateOrganizationMetadata(clerkOrgId, {
           publicMetadata: {
             schema_name: schemaName,
             tier: 'starter',
-            cell_id: 'cell_1',
+            cell_id: org.cellId,
+            organization_id: org.id,
           },
         });
+
+        // Mark the sync event as completed if immediate sync succeeded
+        metadataSyncEvent.status = OutboxStatus.COMPLETED;
+        metadataSyncEvent.processedAt = new Date();
+        await em.flush();
       } catch (clerkError) {
-        // Log but don't fail - org is already provisioned
-        console.error('Failed to update Clerk metadata:', clerkError);
+        // Log but don't fail - outbox worker will retry
+        console.warn(
+          '[handleOrganizationCreated] Immediate Clerk metadata sync failed, ' +
+          'outbox worker will retry:',
+          clerkError instanceof Error ? clerkError.message : clerkError
+        );
       }
     }
 

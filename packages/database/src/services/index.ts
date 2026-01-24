@@ -1,4 +1,4 @@
-export { TenantProvisioner, type ProvisioningResult } from './tenant-provisioner.js';
+export { TenantProvisioner, type ProvisioningResult, type SchemaStatus } from './tenant-provisioner.js';
 export {
   ApiKeyService,
   generateRawApiKey,

@@ -2,11 +2,34 @@ import { MikroORM, type EntityManager } from '@mikro-orm/postgresql';
 import { tenantConfig } from '../mikro-orm.config.js';
 import { assertValidSchemaName } from '../utils/schema-validation.js';
 
+/**
+ * Expected tenant tables - must match tenantEntities in entities/index.ts
+ */
+const EXPECTED_TENANT_TABLES = [
+  'category',
+  'category_adoption',
+  'attribute_template',
+  'product',
+  'product_version',
+  'audit_log',
+  'outbox_event',
+  'users',
+  'organization_users',
+] as const;
+
 export interface ProvisioningResult {
   success: boolean;
   schemaName: string;
   error?: string;
   alreadyProvisioned?: boolean;
+}
+
+export interface SchemaStatus {
+  exists: boolean;
+  tableCount: number;
+  expectedTableCount: number;
+  missingTables: string[];
+  isComplete: boolean;
 }
 
 export class TenantProvisioner {
@@ -38,33 +61,53 @@ export class TenantProvisioner {
    * Resets the search_path to public schema.
    * This is a safety mechanism to ensure we never leave a connection
    * in a tenant-specific search_path context.
+   *
+   * SECURITY: If reset fails, throws to prevent connection pool ghosting.
    */
   private async resetSearchPath(em: EntityManager): Promise<void> {
     try {
       await em.execute('SET search_path TO "public"');
     } catch (error) {
-      // Log but don't throw - this is a safety reset
+      // CRITICAL: If we can't reset, we must not return this connection to the pool
       console.error('[TenantProvisioner] Failed to reset search_path:', error);
+      throw new Error('Failed to reset search_path - connection may be compromised');
     }
   }
 
   /**
    * Verifies and ensures the search_path is set to public.
    * Call this defensively after any operation that modifies search_path.
+   *
+   * SECURITY: Connection Pool Ghosting Prevention
+   * If we cannot verify the search_path is reset to public, we throw an error
+   * rather than allowing a potentially tenant-scoped connection back into the pool.
+   * This prevents cross-tenant data access in edge cases.
    */
   private async ensurePublicSearchPath(em: EntityManager): Promise<void> {
-    try {
-      const result = await em.execute<{ search_path: string }[]>('SHOW search_path');
-      const currentPath = result[0]?.search_path;
+    const result = await em.execute<{ search_path: string }[]>('SHOW search_path');
+    const currentPath = result[0]?.search_path;
 
-      // If search_path is not public (or "$user", public which is default), reset it
-      if (currentPath && !currentPath.includes('"$user"') && currentPath !== 'public' && currentPath !== '"public"') {
-        console.warn(`[TenantProvisioner] Unexpected search_path: ${currentPath}. Resetting to public.`);
-        await this.resetSearchPath(em);
-      }
-    } catch (error) {
-      // If we can't verify, try to reset anyway
+    // Check if search_path is safe (public or default "$user", public)
+    const isSafePath = !currentPath ||
+      currentPath === 'public' ||
+      currentPath === '"public"' ||
+      currentPath.includes('"$user"');
+
+    if (!isSafePath) {
+      console.warn(`[TenantProvisioner] Unexpected search_path: ${currentPath}. Attempting reset.`);
       await this.resetSearchPath(em);
+
+      // Verify reset was successful
+      const verifyResult = await em.execute<{ search_path: string }[]>('SHOW search_path');
+      const verifiedPath = verifyResult[0]?.search_path;
+
+      if (verifiedPath && !verifiedPath.includes('public') && !verifiedPath.includes('"$user"')) {
+        // CRITICAL: Reset failed - do not return this connection to the pool
+        throw new Error(
+          `Connection pool safety violation: search_path stuck at "${verifiedPath}". ` +
+          'Connection should not be reused.'
+        );
+      }
     }
   }
 
@@ -159,40 +202,107 @@ export class TenantProvisioner {
   }
 
   /**
-   * Checks if a tenant schema has already been provisioned.
-   * Returns true if the schema contains the expected core tables.
+   * Gets detailed status of a tenant schema's provisioning state.
+   * Used for idempotency checks and repair operations.
    */
-  async isSchemaProvisioned(schemaName: string): Promise<boolean> {
-    // Validate schema name first (throws if invalid)
+  async getSchemaStatus(schemaName: string): Promise<SchemaStatus> {
     assertValidSchemaName(schemaName);
 
-    const result = await this.orm.em.execute<{ count: string }[]>(`
-      SELECT COUNT(*) as count
+    // Check if schema exists
+    const schemaResult = await this.orm.em.execute<{ exists: boolean }[]>(`
+      SELECT EXISTS(
+        SELECT 1 FROM information_schema.schemata WHERE schema_name = '${schemaName}'
+      ) as exists
+    `);
+    const exists = schemaResult[0]?.exists ?? false;
+
+    if (!exists) {
+      return {
+        exists: false,
+        tableCount: 0,
+        expectedTableCount: EXPECTED_TENANT_TABLES.length,
+        missingTables: [...EXPECTED_TENANT_TABLES],
+        isComplete: false,
+      };
+    }
+
+    // Get list of existing tables
+    const tablesResult = await this.orm.em.execute<{ table_name: string }[]>(`
+      SELECT table_name
       FROM information_schema.tables
       WHERE table_schema = '${schemaName}'
-        AND table_name IN ('category', 'product', 'product_version', 'users', 'organization_users')
+        AND table_name IN (${EXPECTED_TENANT_TABLES.map(t => `'${t}'`).join(', ')})
     `);
-    return parseInt(result[0]?.count ?? '0', 10) >= 5;
+
+    const existingTables = new Set(tablesResult.map(r => r.table_name));
+    const missingTables = EXPECTED_TENANT_TABLES.filter(t => !existingTables.has(t));
+
+    return {
+      exists: true,
+      tableCount: existingTables.size,
+      expectedTableCount: EXPECTED_TENANT_TABLES.length,
+      missingTables,
+      isComplete: missingTables.length === 0,
+    };
+  }
+
+  /**
+   * Checks if a tenant schema has already been FULLY provisioned.
+   * Returns true only if ALL expected tenant tables exist.
+   *
+   * IDEMPOTENCY: This uses exact matching, not minimum count.
+   * A partially provisioned schema (e.g., 6 of 9 tables) returns false,
+   * triggering a repair via runMigrations.
+   */
+  async isSchemaProvisioned(schemaName: string): Promise<boolean> {
+    const status = await this.getSchemaStatus(schemaName);
+    return status.isComplete;
   }
 
   /**
    * Provisions a complete tenant: creates schema, runs migrations, grants permissions.
    * This method is idempotent - calling it multiple times on the same schema is safe.
+   *
+   * IDEMPOTENCY & REPAIR:
+   * - If schema exists but is incomplete (partial provisioning failure), migrations will re-run
+   * - MikroORM's schema generator uses IF NOT EXISTS, so existing tables are preserved
+   * - This effectively "repairs" partially provisioned schemas
    */
   async provisionTenant(schemaName: string): Promise<ProvisioningResult> {
     try {
       // 1. Create the schema (IF NOT EXISTS - idempotent)
       await this.createSchema(schemaName);
 
-      // 2. Check if already provisioned to skip migrations
-      const alreadyProvisioned = await this.isSchemaProvisioned(schemaName);
+      // 2. Check detailed provisioning status
+      const status = await this.getSchemaStatus(schemaName);
+
+      let alreadyProvisioned = status.isComplete;
 
       if (!alreadyProvisioned) {
-        // 3. Run migrations to create tables
+        // Log if we're repairing a partial provisioning
+        if (status.tableCount > 0) {
+          console.log(
+            `[TenantProvisioner] Repairing partial schema "${schemaName}": ` +
+            `${status.tableCount}/${status.expectedTableCount} tables exist. ` +
+            `Missing: ${status.missingTables.join(', ')}`
+          );
+        }
+
+        // 3. Run migrations to create tables (idempotent - uses IF NOT EXISTS)
         await this.runMigrations(schemaName);
+
+        // 4. Verify provisioning completed successfully
+        const verifyStatus = await this.getSchemaStatus(schemaName);
+        if (!verifyStatus.isComplete) {
+          return {
+            success: false,
+            schemaName,
+            error: `Provisioning incomplete: missing tables [${verifyStatus.missingTables.join(', ')}]`,
+          };
+        }
       }
 
-      // 4. Grant permissions (idempotent - best effort in dev)
+      // 5. Grant permissions (idempotent - best effort in dev)
       await this.grantPermissions(schemaName);
 
       return {
