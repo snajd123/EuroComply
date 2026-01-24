@@ -3,7 +3,11 @@ import {
   ProvisioningStatus,
   OutboxEvent,
   OutboxStatus,
+  User,
+  OrganizationUser,
+  WorkspaceAuthority,
 } from '@eurocomply/database';
+import type { MikroORM } from '@mikro-orm/postgresql';
 import { createId } from '@eurocomply/core';
 
 export interface ClerkOrganizationEvent {
@@ -322,4 +326,98 @@ export async function handleOrganizationDeleted(
       error: errorMessage,
     };
   }
+}
+
+/**
+ * Handles the organizationMembership.created webhook event.
+ * Creates a User and OrganizationUser in the tenant schema.
+ *
+ * Idempotency: If user with clerkId already exists, returns already_exists.
+ * Retry: If org not yet provisioned, throws RetryableError.
+ */
+export async function handleMembershipCreated(
+  orm: MikroORM,
+  event: ClerkOrganizationMembershipEvent
+): Promise<{ status: string; userId?: string }> {
+  const { organization, public_user_data, role } = event.data;
+
+  // Use forked em for shared schema lookup
+  const sharedEm = orm.em.fork();
+
+  // 1. Find our organization by Clerk org ID
+  const org = await sharedEm.findOne(Organization, {
+    clerkOrgId: organization.id,
+  });
+
+  if (!org) {
+    throw new Error(`Organization not found for Clerk org: ${organization.id}`);
+  }
+
+  // 2. Check if org is provisioned
+  if (org.provisioningStatus !== ProvisioningStatus.READY) {
+    throw new RetryableError('Organization not yet provisioned');
+  }
+
+  // 3. Create user in tenant schema within a transaction
+  const em = orm.em.fork({ schema: org.schemaName });
+
+  return em.transactional(async (txEm) => {
+    // Check if user already exists (idempotency)
+    const existingUser = await txEm.findOne(User, {
+      clerkId: public_user_data.user_id,
+    });
+
+    if (existingUser) {
+      return { status: 'already_exists', userId: existingUser.id };
+    }
+
+    // Determine if first user - within transaction to prevent race
+    const userCount = await txEm.count(User, {});
+    const isFirstUser = userCount === 0;
+
+    // Create User
+    const user = txEm.create(User, {
+      id: createId(),
+      clerkId: public_user_data.user_id,
+      email: public_user_data.identifier,
+      name: [public_user_data.first_name, public_user_data.last_name]
+        .filter(Boolean)
+        .join(' ') || undefined,
+      avatarUrl: public_user_data.image_url,
+    });
+
+    // Create OrganizationUser with authorities
+    const isClerkAdmin = role === 'org:admin';
+
+    const orgUser = txEm.create(OrganizationUser, {
+      id: createId(),
+      user,
+      isOrgAdmin: isFirstUser || isClerkAdmin,
+      designAuthority: isFirstUser ? WorkspaceAuthority.MANAGER : WorkspaceAuthority.NONE,
+      operationsAuthority: isFirstUser ? WorkspaceAuthority.MANAGER : WorkspaceAuthority.NONE,
+      marketingAuthority: isFirstUser ? WorkspaceAuthority.MANAGER : WorkspaceAuthority.NONE,
+      complianceAuthority: isFirstUser ? WorkspaceAuthority.MANAGER : WorkspaceAuthority.NONE,
+    });
+
+    // Emit outbox event
+    const outboxEvent = txEm.create(OutboxEvent, {
+      id: createId(),
+      aggregateType: 'User',
+      aggregateId: user.id,
+      eventType: 'user.joined_organization',
+      payload: {
+        userId: user.id,
+        clerkUserId: public_user_data.user_id,
+        organizationId: org.id,
+        isOrgAdmin: orgUser.isOrgAdmin,
+        isFirstUser,
+      },
+      status: OutboxStatus.PENDING,
+    });
+
+    txEm.persist([user, orgUser, outboxEvent]);
+    // Transaction will flush on commit
+
+    return { status: 'created', userId: user.id };
+  });
 }
