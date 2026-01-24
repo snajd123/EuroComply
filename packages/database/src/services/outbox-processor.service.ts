@@ -1,7 +1,7 @@
 import { MikroORM, LockMode } from '@mikro-orm/postgresql';
 import { OutboxEvent, OutboxStatus } from '../entities/OutboxEvent.js';
 import { Organization, ProvisioningStatus } from '../entities/Organization.js';
-import { getHandler } from './outbox-handlers/index.js';
+import { getHandler, validatePayload } from './outbox-handlers/index.js';
 
 export interface ProcessEventResult {
   success: boolean;
@@ -122,7 +122,9 @@ export class OutboxProcessorService {
     }
 
     try {
-      await handler.handle(event, { orm: this.orm, schema });
+      // Validate payload against handler's schema (throws if invalid)
+      const validatedPayload = validatePayload(handler, event.payload);
+      await handler.handle(event, validatedPayload, { orm: this.orm, schema });
       await this.markCompleted(schema, eventId);
       return { success: true };
     } catch (error) {
