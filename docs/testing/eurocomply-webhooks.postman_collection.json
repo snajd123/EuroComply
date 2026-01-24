@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "eurocomply-webhooks",
     "name": "EuroComply Webhooks",
-    "description": "Simulated Clerk webhook events for local testing.\n\nNote: These only work if the API is running with `skipSignatureVerification: true` in test mode.\n\n**Execution Order:**\n1. organization.created\n2. organizationMembership.created (First User)\n3. organizationMembership.created (Second User)\n4. user.updated\n5. organizationMembership.deleted\n6. organization.deleted",
+    "description": "Simulated Clerk webhook events for local testing.\n\n**SETUP REQUIRED:**\n1. Set `webhookSecret` variable to your CLERK_WEBHOOK_SECRET (starts with `whsec_`)\n2. Get it from Clerk Dashboard → Webhooks → Signing Secret\n\n**Execution Order:**\n1. organization.created\n2. organizationMembership.created (First User)\n3. organizationMembership.created (Second User)\n4. user.updated\n5. organizationMembership.deleted\n6. organization.deleted",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -10,6 +10,12 @@
       "key": "baseUrl",
       "value": "http://localhost:3001",
       "type": "string"
+    },
+    {
+      "key": "webhookSecret",
+      "value": "",
+      "type": "string",
+      "description": "REQUIRED: Your CLERK_WEBHOOK_SECRET (starts with whsec_)"
     },
     {
       "key": "clerkOrgId",
@@ -52,6 +58,24 @@
       "value": "",
       "type": "string",
       "description": "Internal user ID of second user"
+    },
+    {
+      "key": "_svixId",
+      "value": "",
+      "type": "string",
+      "description": "Internal: generated message ID"
+    },
+    {
+      "key": "_svixTimestamp",
+      "value": "",
+      "type": "string",
+      "description": "Internal: generated timestamp"
+    },
+    {
+      "key": "_svixSignature",
+      "value": "",
+      "type": "string",
+      "description": "Internal: generated HMAC signature"
     }
   ],
   "event": [
@@ -60,9 +84,58 @@
       "script": {
         "type": "text/javascript",
         "exec": [
-          "// Helper function to generate random ID suffix",
-          "pm.variables.set('randomSuffix', Math.random().toString(36).substring(2, 10));",
-          "pm.variables.set('timestamp', Math.floor(Date.now() / 1000).toString());"
+          "// ===========================================",
+          "// SVIX SIGNATURE GENERATION",
+          "// ===========================================",
+          "",
+          "const webhookSecret = pm.collectionVariables.get('webhookSecret');",
+          "if (!webhookSecret || !webhookSecret.startsWith('whsec_')) {",
+          "    console.error('ERROR: webhookSecret not set or invalid!');",
+          "    console.error('Set the webhookSecret variable to your CLERK_WEBHOOK_SECRET');",
+          "    console.error('Get it from: Clerk Dashboard → Webhooks → Signing Secret');",
+          "    throw new Error('webhookSecret must be set and start with whsec_');",
+          "}",
+          "",
+          "// Generate message ID and timestamp",
+          "const msgId = 'msg_' + Math.random().toString(36).substring(2, 15);",
+          "const timestamp = Math.floor(Date.now() / 1000).toString();",
+          "",
+          "// Store for use in headers",
+          "pm.collectionVariables.set('_svixId', msgId);",
+          "pm.collectionVariables.set('_svixTimestamp', timestamp);",
+          "",
+          "// Decode the secret (remove whsec_ prefix and base64 decode)",
+          "const secretBase64 = webhookSecret.replace('whsec_', '');",
+          "const secretBytes = CryptoJS.enc.Base64.parse(secretBase64);",
+          "",
+          "// Get the request body - need to resolve variables first",
+          "let body = pm.request.body.raw;",
+          "",
+          "// Resolve Postman variables in the body",
+          "const clerkOrgId = pm.collectionVariables.get('clerkOrgId');",
+          "const clerkUserId = pm.collectionVariables.get('clerkUserId');",
+          "const clerkUserId2 = pm.collectionVariables.get('clerkUserId2');",
+          "",
+          "body = body.replace(/\\{\\{clerkOrgId\\}\\}/g, clerkOrgId || '');",
+          "body = body.replace(/\\{\\{clerkUserId\\}\\}/g, clerkUserId || '');",
+          "body = body.replace(/\\{\\{clerkUserId2\\}\\}/g, clerkUserId2 || '');",
+          "body = body.replace(/\\{\\{\\$timestamp\\}\\}/g, timestamp);",
+          "",
+          "// Create the signature payload: msgId.timestamp.body",
+          "const signaturePayload = msgId + '.' + timestamp + '.' + body;",
+          "",
+          "// Generate HMAC-SHA256 signature",
+          "const signature = CryptoJS.HmacSHA256(signaturePayload, secretBytes);",
+          "const signatureBase64 = CryptoJS.enc.Base64.stringify(signature);",
+          "",
+          "// Format as Svix signature",
+          "const svixSignature = 'v1,' + signatureBase64;",
+          "pm.collectionVariables.set('_svixSignature', svixSignature);",
+          "",
+          "console.log('Generated Svix headers:');",
+          "console.log('  svix-id:', msgId);",
+          "console.log('  svix-timestamp:', timestamp);",
+          "console.log('  svix-signature:', svixSignature.substring(0, 30) + '...');"
         ]
       }
     }
@@ -122,15 +195,15 @@
               },
               {
                 "key": "svix-id",
-                "value": "msg_org_created_{{$timestamp}}"
+                "value": "{{_svixId}}"
               },
               {
                 "key": "svix-timestamp",
-                "value": "{{$timestamp}}"
+                "value": "{{_svixTimestamp}}"
               },
               {
                 "key": "svix-signature",
-                "value": "v1,test"
+                "value": "{{_svixSignature}}"
               }
             ],
             "body": {
@@ -149,6 +222,21 @@
         {
           "name": "6. organization.deleted",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Verify org exists",
+                  "const orgId = pm.collectionVariables.get('clerkOrgId');",
+                  "if (!orgId) {",
+                  "    console.error('ERROR: No organization to delete!');",
+                  "    throw new Error('clerkOrgId not set. Run organization.created first.');",
+                  "}",
+                  "console.log('Deleting organization:', orgId);"
+                ],
+                "type": "text/javascript"
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -187,15 +275,15 @@
               },
               {
                 "key": "svix-id",
-                "value": "msg_org_deleted_{{$timestamp}}"
+                "value": "{{_svixId}}"
               },
               {
                 "key": "svix-timestamp",
-                "value": "{{$timestamp}}"
+                "value": "{{_svixTimestamp}}"
               },
               {
                 "key": "svix-signature",
-                "value": "v1,test"
+                "value": "{{_svixSignature}}"
               }
             ],
             "body": {
@@ -274,15 +362,15 @@
               },
               {
                 "key": "svix-id",
-                "value": "msg_mem_created_{{$timestamp}}"
+                "value": "{{_svixId}}"
               },
               {
                 "key": "svix-timestamp",
-                "value": "{{$timestamp}}"
+                "value": "{{_svixTimestamp}}"
               },
               {
                 "key": "svix-signature",
-                "value": "v1,test"
+                "value": "{{_svixSignature}}"
               }
             ],
             "body": {
@@ -355,15 +443,15 @@
               },
               {
                 "key": "svix-id",
-                "value": "msg_mem_created2_{{$timestamp}}"
+                "value": "{{_svixId}}"
               },
               {
                 "key": "svix-timestamp",
-                "value": "{{$timestamp}}"
+                "value": "{{_svixTimestamp}}"
               },
               {
                 "key": "svix-signature",
-                "value": "v1,test"
+                "value": "{{_svixSignature}}"
               }
             ],
             "body": {
@@ -430,15 +518,15 @@
               },
               {
                 "key": "svix-id",
-                "value": "msg_user_updated_{{$timestamp}}"
+                "value": "{{_svixId}}"
               },
               {
                 "key": "svix-timestamp",
-                "value": "{{$timestamp}}"
+                "value": "{{_svixTimestamp}}"
               },
               {
                 "key": "svix-signature",
-                "value": "v1,test"
+                "value": "{{_svixSignature}}"
               }
             ],
             "body": {
@@ -505,15 +593,15 @@
               },
               {
                 "key": "svix-id",
-                "value": "msg_mem_deleted_{{$timestamp}}"
+                "value": "{{_svixId}}"
               },
               {
                 "key": "svix-timestamp",
-                "value": "{{$timestamp}}"
+                "value": "{{_svixTimestamp}}"
               },
               {
                 "key": "svix-signature",
-                "value": "v1,test"
+                "value": "{{_svixSignature}}"
               }
             ],
             "body": {
