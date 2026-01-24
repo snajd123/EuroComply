@@ -1,4 +1,4 @@
-import { MikroORM, LockMode } from '@mikro-orm/postgresql';
+import { MikroORM } from '@mikro-orm/postgresql';
 import { OutboxEvent, OutboxStatus } from '../entities/OutboxEvent.js';
 import { Organization, ProvisioningStatus } from '../entities/Organization.js';
 import { getHandler, validatePayload } from './outbox-handlers/index.js';
@@ -28,28 +28,52 @@ export class OutboxProcessorService {
   /**
    * Claim the next pending event from a schema.
    * Uses SELECT FOR UPDATE SKIP LOCKED for safe concurrent access.
+   *
+   * SKIP LOCKED ensures multiple workers can process events concurrently
+   * without blocking each other - if a row is locked, it's skipped and
+   * the next available row is claimed instead.
    */
   async claimNextEvent(schema: string): Promise<OutboxEvent | null> {
     const em = this.orm.em.fork({ schema });
 
-    return await em.transactional(async (txEm) => {
-      const event = await txEm.findOne(
-        OutboxEvent,
-        { status: OutboxStatus.PENDING },
-        {
-          orderBy: { createdAt: 'ASC' },
-          lockMode: LockMode.PESSIMISTIC_WRITE_OR_FAIL,
-        }
-      );
+    // Use raw SQL with SKIP LOCKED for proper concurrent worker safety
+    // MikroORM's PESSIMISTIC_WRITE_OR_FAIL uses NOWAIT which throws errors
+    const result = await em.transactional(async (txEm) => {
+      // Claim and update in one atomic operation
+      const rows = await txEm.execute<OutboxEvent[]>(`
+        UPDATE "${schema}".outbox_event
+        SET status = '${OutboxStatus.PROCESSING}', updated_at = NOW()
+        WHERE id = (
+          SELECT id FROM "${schema}".outbox_event
+          WHERE status = '${OutboxStatus.PENDING}'
+          ORDER BY created_at ASC
+          LIMIT 1
+          FOR UPDATE SKIP LOCKED
+        )
+        RETURNING *
+      `);
 
-      if (!event) return null;
+      if (!rows || rows.length === 0) return null;
 
-      event.status = OutboxStatus.PROCESSING;
-      event.updatedAt = new Date();
-      await txEm.flush();
+      // Map raw result to entity (column names are snake_case)
+      const row = rows[0]!;
+      const event = new OutboxEvent();
+      event.id = row.id;
+      event.aggregateType = (row as Record<string, unknown>).aggregate_type as string;
+      event.aggregateId = (row as Record<string, unknown>).aggregate_id as string;
+      event.eventType = (row as Record<string, unknown>).event_type as string;
+      event.payload = row.payload;
+      event.status = row.status;
+      event.retryCount = (row as Record<string, unknown>).retry_count as number;
+      event.processedAt = (row as Record<string, unknown>).processed_at as Date | undefined;
+      event.errorMessage = (row as Record<string, unknown>).error_message as string | undefined;
+      event.createdAt = (row as Record<string, unknown>).created_at as Date;
+      event.updatedAt = (row as Record<string, unknown>).updated_at as Date;
 
       return event;
     });
+
+    return result;
   }
 
   /**
