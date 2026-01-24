@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "eurocomply-webhooks",
     "name": "EuroComply Webhooks",
-    "description": "Simulated Clerk webhook events for local testing.\n\nNote: These only work if the API is running with `skipSignatureVerification: true` in test mode.",
+    "description": "Simulated Clerk webhook events for local testing.\n\nNote: These only work if the API is running with `skipSignatureVerification: true` in test mode.\n\n**Execution Order:**\n1. organization.created\n2. organizationMembership.created (First User)\n3. organizationMembership.created (Second User)\n4. user.updated\n5. organizationMembership.deleted\n6. organization.deleted",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -13,18 +13,58 @@
     },
     {
       "key": "clerkOrgId",
-      "value": "org_test123",
-      "type": "string"
+      "value": "",
+      "type": "string",
+      "description": "Auto-generated on organization.created"
     },
     {
       "key": "clerkUserId",
-      "value": "user_test123",
-      "type": "string"
+      "value": "",
+      "type": "string",
+      "description": "Auto-generated on first membership.created"
     },
     {
       "key": "clerkUserId2",
-      "value": "user_test456",
-      "type": "string"
+      "value": "",
+      "type": "string",
+      "description": "Auto-generated on second membership.created"
+    },
+    {
+      "key": "schemaName",
+      "value": "",
+      "type": "string",
+      "description": "Returned from organization.created"
+    },
+    {
+      "key": "internalOrgId",
+      "value": "",
+      "type": "string",
+      "description": "Internal org ID from response"
+    },
+    {
+      "key": "firstUserId",
+      "value": "",
+      "type": "string",
+      "description": "Internal user ID of first user"
+    },
+    {
+      "key": "secondUserId",
+      "value": "",
+      "type": "string",
+      "description": "Internal user ID of second user"
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Helper function to generate random ID suffix",
+          "pm.variables.set('randomSuffix', Math.random().toString(36).substring(2, 10));",
+          "pm.variables.set('timestamp', Math.floor(Date.now() / 1000).toString());"
+        ]
+      }
     }
   ],
   "item": [
@@ -33,6 +73,46 @@
       "item": [
         {
           "name": "1. organization.created",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Generate a unique org ID for this test run",
+                  "const orgId = 'org_test_' + Math.random().toString(36).substring(2, 10);",
+                  "pm.collectionVariables.set('clerkOrgId', orgId);",
+                  "",
+                  "console.log('Generated clerkOrgId:', orgId);"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Organization created successfully', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.success).to.be.true;",
+                  "    pm.expect(response.schemaName).to.exist;",
+                  "    pm.expect(response.organizationId).to.exist;",
+                  "",
+                  "    // Save for later requests",
+                  "    pm.collectionVariables.set('schemaName', response.schemaName);",
+                  "    pm.collectionVariables.set('internalOrgId', response.organizationId);",
+                  "",
+                  "    console.log('Schema created:', response.schemaName);",
+                  "    console.log('Internal org ID:', response.organizationId);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "request": {
             "method": "POST",
             "header": [
@@ -62,12 +142,42 @@
               "host": ["{{baseUrl}}"],
               "path": ["webhooks", "clerk"]
             },
-            "description": "Creates an organization record and provisions the tenant schema.\n\n**Expected Response (200):**\n```json\n{\n  \"success\": true,\n  \"organizationId\": \"org_xxx\",\n  \"schemaName\": \"tenant_org_test123\"\n}\n```\n\n**Idempotent:** Sending again returns existing org."
+            "description": "Creates an organization record and provisions the tenant schema.\n\n**Auto-generates:** `clerkOrgId`\n**Saves:** `schemaName`, `internalOrgId`\n\n**Expected Response (200):**\n```json\n{\n  \"success\": true,\n  \"organizationId\": \"org_xxx\",\n  \"schemaName\": \"tenant_org_xxx\"\n}\n```"
           },
           "response": []
         },
         {
-          "name": "2. organization.deleted",
+          "name": "6. organization.deleted",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Organization deleted successfully', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.success).to.be.true;",
+                  "",
+                  "    console.log('Organization deleted:', response.organizationId);",
+                  "    console.log('Schema dropped:', response.schemaName);",
+                  "",
+                  "    // Clear variables",
+                  "    pm.collectionVariables.unset('clerkOrgId');",
+                  "    pm.collectionVariables.unset('schemaName');",
+                  "    pm.collectionVariables.unset('internalOrgId');",
+                  "    pm.collectionVariables.unset('clerkUserId');",
+                  "    pm.collectionVariables.unset('clerkUserId2');",
+                  "    pm.collectionVariables.unset('firstUserId');",
+                  "    pm.collectionVariables.unset('secondUserId');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "request": {
             "method": "POST",
             "header": [
@@ -97,7 +207,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["webhooks", "clerk"]
             },
-            "description": "Drops the tenant schema and deletes the organization record.\n\n**Expected Response (200):**\n```json\n{\n  \"success\": true,\n  \"organizationId\": \"org_xxx\",\n  \"schemaName\": \"tenant_org_test123\"\n}\n```\n\n**Idempotent:** If org doesn't exist, returns success."
+            "description": "Drops the tenant schema and deletes the organization record.\n\n**Requires:** `clerkOrgId` (from step 1)\n**Clears:** All collection variables\n\n**Expected Response (200):**\n```json\n{\n  \"success\": true,\n  \"organizationId\": \"org_xxx\",\n  \"schemaName\": \"tenant_org_xxx\"\n}\n```"
           },
           "response": []
         }
@@ -108,7 +218,53 @@
       "name": "Membership Webhooks",
       "item": [
         {
-          "name": "1. organizationMembership.created (First User)",
+          "name": "2. organizationMembership.created (First User)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Generate a unique user ID for first user",
+                  "const userId = 'user_admin_' + Math.random().toString(36).substring(2, 10);",
+                  "pm.collectionVariables.set('clerkUserId', userId);",
+                  "",
+                  "// Verify org exists",
+                  "const orgId = pm.collectionVariables.get('clerkOrgId');",
+                  "if (!orgId) {",
+                  "    console.error('ERROR: Run organization.created first!');",
+                  "    throw new Error('clerkOrgId not set. Run organization.created first.');",
+                  "}",
+                  "",
+                  "console.log('Generated clerkUserId (admin):', userId);",
+                  "console.log('Using clerkOrgId:', orgId);"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('First user created with admin rights', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.status).to.equal('created');",
+                  "    pm.expect(response.userId).to.exist;",
+                  "",
+                  "    // Save internal user ID",
+                  "    pm.collectionVariables.set('firstUserId', response.userId);",
+                  "",
+                  "    console.log('First user created:', response.userId);",
+                  "    console.log('This user has MANAGER + isOrgAdmin privileges');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "request": {
             "method": "POST",
             "header": [
@@ -138,12 +294,58 @@
               "host": ["{{baseUrl}}"],
               "path": ["webhooks", "clerk"]
             },
-            "description": "Adds the first user to an organization.\n\n**First user gets:**\n- `isOrgAdmin: true`\n- All workspace authorities: `MANAGER`\n\n**Expected Response (200):**\n```json\n{\n  \"status\": \"created\",\n  \"userId\": \"usr_xxx\"\n}\n```\n\n**Idempotent:** Sending again returns:\n```json\n{\n  \"status\": \"already_exists\",\n  \"userId\": \"usr_xxx\"\n}\n```"
+            "description": "Adds the first user to an organization.\n\n**Auto-generates:** `clerkUserId`\n**Requires:** `clerkOrgId` (from step 1)\n**Saves:** `firstUserId`\n\n**First user gets:**\n- `isOrgAdmin: true`\n- All workspace authorities: `MANAGER`\n\n**Expected Response (200):**\n```json\n{\n  \"status\": \"created\",\n  \"userId\": \"usr_xxx\"\n}\n```"
           },
           "response": []
         },
         {
-          "name": "2. organizationMembership.created (Second User)",
+          "name": "3. organizationMembership.created (Second User)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Generate a unique user ID for second user",
+                  "const userId = 'user_member_' + Math.random().toString(36).substring(2, 10);",
+                  "pm.collectionVariables.set('clerkUserId2', userId);",
+                  "",
+                  "// Verify org exists",
+                  "const orgId = pm.collectionVariables.get('clerkOrgId');",
+                  "if (!orgId) {",
+                  "    console.error('ERROR: Run organization.created first!');",
+                  "    throw new Error('clerkOrgId not set. Run organization.created first.');",
+                  "}",
+                  "",
+                  "console.log('Generated clerkUserId2 (member):', userId);",
+                  "console.log('Using clerkOrgId:', orgId);"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Second user created with no permissions', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.status).to.equal('created');",
+                  "    pm.expect(response.userId).to.exist;",
+                  "",
+                  "    // Save internal user ID",
+                  "    pm.collectionVariables.set('secondUserId', response.userId);",
+                  "",
+                  "    console.log('Second user created:', response.userId);",
+                  "    console.log('This user has NONE permissions - will get 403 on protected routes');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "request": {
             "method": "POST",
             "header": [
@@ -173,12 +375,127 @@
               "host": ["{{baseUrl}}"],
               "path": ["webhooks", "clerk"]
             },
-            "description": "Adds a subsequent user to an organization.\n\n**Subsequent users get:**\n- `isOrgAdmin: false` (unless role is `org:admin`)\n- All workspace authorities: `NONE`\n\n**Expected Response (200):**\n```json\n{\n  \"status\": \"created\",\n  \"userId\": \"usr_xxx\"\n}\n```\n\nThis user will get 403 Forbidden when accessing protected routes until an admin grants them workspace access."
+            "description": "Adds a subsequent user to an organization.\n\n**Auto-generates:** `clerkUserId2`\n**Requires:** `clerkOrgId` (from step 1)\n**Saves:** `secondUserId`\n\n**Subsequent users get:**\n- `isOrgAdmin: false`\n- All workspace authorities: `NONE`\n\n**Expected Response (200):**\n```json\n{\n  \"status\": \"created\",\n  \"userId\": \"usr_xxx\"\n}\n```\n\nThis user will get 403 Forbidden on protected routes."
           },
           "response": []
         },
         {
-          "name": "3. organizationMembership.deleted",
+          "name": "4. user.updated",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Verify dependencies",
+                  "const orgId = pm.collectionVariables.get('clerkOrgId');",
+                  "const userId = pm.collectionVariables.get('clerkUserId');",
+                  "",
+                  "if (!orgId || !userId) {",
+                  "    console.error('ERROR: Run organization.created and membership.created first!');",
+                  "    throw new Error('Missing clerkOrgId or clerkUserId');",
+                  "}",
+                  "",
+                  "console.log('Updating user:', userId);",
+                  "console.log('In organization:', orgId);"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('User update queued', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.status).to.equal('queued');",
+                  "    pm.expect(response.count).to.be.at.least(1);",
+                  "",
+                  "    console.log('Profile sync queued for', response.count, 'organization(s)');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "svix-id",
+                "value": "msg_user_updated_{{$timestamp}}"
+              },
+              {
+                "key": "svix-timestamp",
+                "value": "{{$timestamp}}"
+              },
+              {
+                "key": "svix-signature",
+                "value": "v1,test"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"user.updated\",\n  \"data\": {\n    \"id\": \"{{clerkUserId}}\",\n    \"email_addresses\": [\n      {\n        \"email_address\": \"updated-admin@example.com\",\n        \"id\": \"email_123\"\n      }\n    ],\n    \"primary_email_address_id\": \"email_123\",\n    \"first_name\": \"Updated\",\n    \"last_name\": \"Admin\",\n    \"image_url\": \"https://example.com/new-avatar.png\",\n    \"organization_memberships\": [\n      {\n        \"organization\": {\n          \"id\": \"{{clerkOrgId}}\"\n        }\n      }\n    ]\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhooks/clerk",
+              "host": ["{{baseUrl}}"],
+              "path": ["webhooks", "clerk"]
+            },
+            "description": "Updates user profile information.\n\n**Requires:** `clerkUserId`, `clerkOrgId`\n\n**Expected Response (200):**\n```json\n{\n  \"status\": \"queued\",\n  \"count\": 1\n}\n```\n\nCreates outbox events for async processing."
+          },
+          "response": []
+        },
+        {
+          "name": "5. organizationMembership.deleted",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Verify dependencies",
+                  "const orgId = pm.collectionVariables.get('clerkOrgId');",
+                  "const userId = pm.collectionVariables.get('clerkUserId2');",
+                  "",
+                  "if (!orgId || !userId) {",
+                  "    console.error('ERROR: Run organization.created and second membership.created first!');",
+                  "    throw new Error('Missing clerkOrgId or clerkUserId2');",
+                  "}",
+                  "",
+                  "console.log('Removing user:', userId);",
+                  "console.log('From organization:', orgId);"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('User soft deleted', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.status).to.equal('soft_deleted');",
+                  "",
+                  "    console.log('User removed (soft deleted)');",
+                  "    console.log('User record preserved with deleted_at timestamp');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "request": {
             "method": "POST",
             "header": [
@@ -208,47 +525,61 @@
               "host": ["{{baseUrl}}"],
               "path": ["webhooks", "clerk"]
             },
-            "description": "Removes a user from an organization (soft delete).\n\n**Expected Response (200):**\n```json\n{\n  \"status\": \"soft_deleted\"\n}\n```\n\n**User not found:**\n```json\n{\n  \"status\": \"user_not_found\"\n}\n```\n\n**Org not found:**\n```json\n{\n  \"status\": \"org_not_found\"\n}\n```\n\nThe user record is preserved with `deleted_at` set for audit trail."
-          },
-          "response": []
-        },
-        {
-          "name": "4. user.updated",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "svix-id",
-                "value": "msg_user_updated_{{$timestamp}}"
-              },
-              {
-                "key": "svix-timestamp",
-                "value": "{{$timestamp}}"
-              },
-              {
-                "key": "svix-signature",
-                "value": "v1,test"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"type\": \"user.updated\",\n  \"data\": {\n    \"id\": \"{{clerkUserId}}\",\n    \"email_addresses\": [\n      {\n        \"email_address\": \"newemail@example.com\",\n        \"id\": \"email_123\"\n      }\n    ],\n    \"primary_email_address_id\": \"email_123\",\n    \"first_name\": \"Updated\",\n    \"last_name\": \"Name\",\n    \"image_url\": \"https://example.com/new-avatar.png\",\n    \"organization_memberships\": [\n      {\n        \"organization\": {\n          \"id\": \"{{clerkOrgId}}\"\n        }\n      }\n    ]\n  }\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/webhooks/clerk",
-              "host": ["{{baseUrl}}"],
-              "path": ["webhooks", "clerk"]
-            },
-            "description": "Updates user profile information across all their organizations.\n\n**Expected Response (200):**\n```json\n{\n  \"status\": \"queued\",\n  \"count\": 1\n}\n```\n\nThis creates outbox events for async processing. A worker will update the user's profile in each tenant schema.\n\n**Note:** `count` equals the number of organizations the user belongs to."
+            "description": "Removes a user from an organization (soft delete).\n\n**Requires:** `clerkUserId2`, `clerkOrgId`\n\n**Expected Response (200):**\n```json\n{\n  \"status\": \"soft_deleted\"\n}\n```\n\nUser record is preserved with `deleted_at` set."
           },
           "response": []
         }
       ],
-      "description": "User membership webhooks from Clerk.\n\n**Execution Order:**\n1. First run `organization.created` to provision the tenant\n2. Then run `organizationMembership.created (First User)` - gets MANAGER\n3. Optionally run `organizationMembership.created (Second User)` - gets NONE\n4. Test `user.updated` to sync profile changes\n5. Test `organizationMembership.deleted` to remove user"
+      "description": "User membership webhooks from Clerk.\n\n**Execution Order:**\n1. First run `organization.created` to provision the tenant\n2. Then run `organizationMembership.created (First User)` - gets MANAGER\n3. Optionally run `organizationMembership.created (Second User)` - gets NONE\n4. Test `user.updated` to sync profile changes\n5. Test `organizationMembership.deleted` to remove second user\n6. Finally `organization.deleted` to clean up"
+    },
+    {
+      "name": "Database Verification",
+      "item": [
+        {
+          "name": "Check Schema Exists",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// This is a placeholder - run in Adminer or psql",
+                  "console.log('=== Run this SQL in Adminer (http://localhost:8080) ===');",
+                  "console.log('');",
+                  "const schemaName = pm.collectionVariables.get('schemaName');",
+                  "console.log('Schema name:', schemaName);",
+                  "console.log('');",
+                  "console.log('-- Check schema exists');",
+                  "console.log(`SELECT schema_name FROM information_schema.schemata WHERE schema_name = '${schemaName}';`);",
+                  "console.log('');",
+                  "console.log('-- List tables');",
+                  "console.log(`SELECT table_name FROM information_schema.tables WHERE table_schema = '${schemaName}';`);",
+                  "console.log('');",
+                  "console.log('-- Check users');",
+                  "console.log(`SELECT id, clerk_id, email, name, deleted_at FROM ${schemaName}.users;`);",
+                  "console.log('');",
+                  "console.log('-- Check permissions');",
+                  "console.log(`SELECT ou.id, u.email, ou.is_org_admin, ou.design_authority`);",
+                  "console.log(`FROM ${schemaName}.organization_users ou`);",
+                  "console.log(`JOIN ${schemaName}.users u ON u.id = ou.user_id;`);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            },
+            "description": "Not a real request - just prints SQL queries to run in Adminer.\n\nCheck the Postman Console (View > Show Postman Console) for the SQL."
+          },
+          "response": []
+        }
+      ],
+      "description": "Helper requests that print SQL queries for database verification.\n\nOpen Postman Console (View > Show Postman Console) to see the generated SQL."
     }
   ]
 }
