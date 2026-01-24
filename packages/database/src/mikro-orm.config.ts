@@ -1,5 +1,11 @@
 import { defineConfig, type Options } from '@mikro-orm/postgresql';
-import { publicEntities, tenantEntities } from './entities/index.js';
+import {
+  publicOnlyEntities,
+  tenantOnlyEntities,
+  sharedEntities,
+  publicEntities,
+  tenantEntities,
+} from './entities/index.js';
 
 /**
  * Base configuration shared between public and tenant configs.
@@ -14,10 +20,11 @@ const baseConfig = {
 };
 
 /**
- * All entities - the ORM needs to know about all entities regardless of schema.
+ * All unique entities - the ORM needs to know about all entities regardless of schema.
  * The schema is determined at runtime when forking the EntityManager.
+ * Uses separate arrays to avoid duplicates (sharedEntities exist in both schemas).
  */
-const allEntities = [...publicEntities, ...tenantEntities];
+const allEntities = [...publicOnlyEntities, ...tenantOnlyEntities, ...sharedEntities];
 
 /**
  * Configuration for the API server and migrations.

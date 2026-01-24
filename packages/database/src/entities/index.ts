@@ -42,33 +42,46 @@ import { User } from './User.js';
 import { OrganizationUser } from './OrganizationUser.js';
 
 /**
- * Entities that belong in the PUBLIC schema.
+ * Entities that belong ONLY in the PUBLIC schema.
  * These are shared across all tenants.
- *
- * Note: OutboxEvent exists in BOTH public AND tenant schemas (dual-schema outbox pattern).
- * - Public: system events (organization.provisioned, organization.deleted)
- * - Tenant: domain events (user.joined, product.created)
  */
-export const publicEntities = [
+export const publicOnlyEntities = [
   Organization,
   ApiKey,
   WebhookEvent,
   UnitDefinition,
-  OutboxEvent,  // System events outbox (dual-schema pattern)
 ];
 
 /**
- * Entities that belong in TENANT schemas.
+ * Entities that belong ONLY in TENANT schemas.
  * Each tenant gets their own copy of these tables.
  */
-export const tenantEntities = [
+export const tenantOnlyEntities = [
   Category,
   CategoryAdoption,
   AttributeTemplate,
   Product,
   ProductVersion,
   AuditLog,
-  OutboxEvent,  // Per-tenant transactional outbox
   User,
   OrganizationUser,
 ];
+
+/**
+ * Entities that exist in BOTH public AND tenant schemas (dual-schema pattern).
+ * - Public: system events (organization.provisioned, organization.deleted)
+ * - Tenant: domain events (user.joined, product.created)
+ */
+export const sharedEntities = [
+  OutboxEvent,
+];
+
+/**
+ * Entities for PUBLIC schema generation (migrations, test setup).
+ */
+export const publicEntities = [...publicOnlyEntities, ...sharedEntities];
+
+/**
+ * Entities for TENANT schema generation (TenantProvisioner).
+ */
+export const tenantEntities = [...tenantOnlyEntities, ...sharedEntities];
