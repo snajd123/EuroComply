@@ -218,7 +218,7 @@ describe('OutboxProcessorService', () => {
       }
 
       // Arrange - create an organization directly
-      const { Organization, ProvisioningStatus } = await import('../entities/Organization.js');
+      const { Organization, ProvisioningStatus, SubscriptionTier, SubscriptionStatus, EnforcementMode } = await import('../entities/Organization.js');
       const org = em.create(Organization, {
         id: createId(),
         name: 'Test Org',
@@ -226,6 +226,12 @@ describe('OutboxProcessorService', () => {
         schemaName: 'tenant_test_org',
         provisioningStatus: ProvisioningStatus.READY,
         clerkOrgId: 'clerk_123',
+        cellId: 'cell_1',
+        subscriptionTier: SubscriptionTier.STARTER,
+        subscriptionStatus: SubscriptionStatus.TRIALING,
+        regulatoryAdvisorEnabled: true,
+        enforcementMode: EnforcementMode.SILENT,
+        captureComplianceInSilentMode: true,
         createdAt: new Date(),
         updatedAt: new Date(),
       });
@@ -245,7 +251,7 @@ describe('OutboxProcessorService', () => {
       }
 
       // Arrange
-      const { Organization, ProvisioningStatus } = await import('../entities/Organization.js');
+      const { Organization, ProvisioningStatus, SubscriptionTier, SubscriptionStatus, EnforcementMode } = await import('../entities/Organization.js');
       const org = em.create(Organization, {
         id: createId(),
         name: 'Pending Org',
@@ -253,6 +259,12 @@ describe('OutboxProcessorService', () => {
         schemaName: 'tenant_pending_org',
         provisioningStatus: ProvisioningStatus.PENDING,
         clerkOrgId: 'clerk_456',
+        cellId: 'cell_1',
+        subscriptionTier: SubscriptionTier.STARTER,
+        subscriptionStatus: SubscriptionStatus.TRIALING,
+        regulatoryAdvisorEnabled: true,
+        enforcementMode: EnforcementMode.SILENT,
+        captureComplianceInSilentMode: true,
         createdAt: new Date(),
         updatedAt: new Date(),
       });

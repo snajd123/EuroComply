@@ -18,6 +18,7 @@ export {
   type UnitLookup,
   type UnitInfo,
   type ConversionResult,
+  OutboxProcessorService,
 } from './services/index.js';
 
 // Re-export common MikroORM types for convenience
