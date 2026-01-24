@@ -47,6 +47,38 @@ describe('ComponentName', () => {
 });
 ```
 
+### No Mocks Policy
+
+**Mocks are NOT allowed in this codebase.** Use integration tests with real database instead.
+
+**Why no mocks?**
+- Mocks drift from reality and give false confidence
+- Mocks test implementation details, not behavior
+- Mocks hide real integration issues
+- Mocks make refactoring painful
+
+**What to use instead:**
+- **Integration tests** with real database (`setupTestDb()`, `teardownTestDb()`)
+- **E2E tests** for full request/response cycles
+- **Real dependencies** isolated per test (fork entity managers, use unique test data)
+
+**Exceptions (rare):**
+- **Pure function unit tests** - Functions with no side effects (e.g., `clerkOrgIdToSchemaName`)
+- **Middleware edge cases** - Testing middleware behavior with specific context values
+
+```typescript
+// ❌ BAD: Mock-based test
+vi.mock('@eurocomply/database', () => ({
+  Organization: { findOne: vi.fn() }
+}));
+
+// ✅ GOOD: Integration test with real database
+const orm = await setupTestDb();
+const em = orm.em.fork();
+const org = em.create(Organization, { ... });
+await em.persistAndFlush(org);
+```
+
 ---
 
 ## 2. Code Before Commit Checklist
@@ -430,7 +462,7 @@ These rules are enforced through:
 
 ---
 
-**Last Updated**: 2026-01-14
-**Version**: 1.1
+**Last Updated**: 2026-01-24
+**Version**: 1.2
 
 > Note: For Claude-specific workflow instructions, see [CLAUDE.md](./CLAUDE.md)

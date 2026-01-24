@@ -1,30 +1,13 @@
 import { Hono } from 'hono';
-import { zValidator } from '@hono/zod-validator';
-import { z } from 'zod';
 import { createId } from '@eurocomply/core';
 import {
   Organization,
   ProvisioningStatus,
-  EnforcementMode,
   OutboxEvent,
   OutboxStatus,
-  generateSchemaName,
   TenantProvisioner,
 } from '@eurocomply/database';
 import type { MikroORM } from '@eurocomply/database';
-
-// ============================================================================
-// Zod Schemas
-// ============================================================================
-
-const createOrganizationSchema = z.object({
-  name: z.string().min(1).max(255),
-  slug: z.string().min(1).max(255).regex(/^[a-z0-9-]+$/, 'Slug must be lowercase alphanumeric with hyphens'),
-  clerkOrgId: z.string().optional(),
-  regulatoryAdvisorEnabled: z.boolean().default(true),
-  enforcementMode: z.nativeEnum(EnforcementMode).default(EnforcementMode.SILENT),
-  captureComplianceInSilentMode: z.boolean().default(true),
-});
 
 export interface OrganizationsRouterOptions {
   orm: MikroORM;
@@ -84,62 +67,6 @@ function serializeOrganization(org: Organization) {
     createdAt: org.createdAt.toISOString(),
     updatedAt: org.updatedAt.toISOString(),
   };
-}
-
-/**
- * @deprecated Use createOrganizationsRouter with ORM injection instead.
- * This is kept for backwards compatibility with tests that don't have database.
- */
-export const organizationsRouter = new Hono();
-
-// In-memory fallback for tests without database
-const inMemoryOrgs: Map<string, ReturnType<typeof serializeOrganization>> = new Map();
-
-organizationsRouter.get('/', (c) => {
-  const orgs = Array.from(inMemoryOrgs.values());
-  return c.json({ data: orgs, meta: { total: orgs.length } });
-});
-
-organizationsRouter.post(
-  '/',
-  zValidator('json', createOrganizationSchema),
-  (c) => {
-    const body = c.req.valid('json');
-    const now = new Date().toISOString();
-    const schemaName = generateSchemaName(body.slug);
-
-    const org = {
-      id: createId(),
-      name: body.name,
-      slug: body.slug,
-      schemaName,
-      clerkOrgId: body.clerkOrgId,
-      regulatoryAdvisorEnabled: body.regulatoryAdvisorEnabled,
-      enforcementMode: body.enforcementMode,
-      captureComplianceInSilentMode: body.captureComplianceInSilentMode,
-      provisioningStatus: ProvisioningStatus.PENDING as const,
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    inMemoryOrgs.set(org.id, org);
-    return c.json({ data: org }, 201);
-  }
-);
-
-organizationsRouter.get('/:id', (c) => {
-  const id = c.req.param('id');
-  const org = inMemoryOrgs.get(id);
-
-  if (!org) {
-    return c.json({ error: 'Not Found', message: 'Organization not found' }, 404);
-  }
-
-  return c.json({ data: org });
-});
-
-export function clearOrganizationsStore(): void {
-  inMemoryOrgs.clear();
 }
 
 // ============================================================================

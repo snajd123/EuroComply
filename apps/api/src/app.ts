@@ -4,10 +4,7 @@ import { logger } from 'hono/logger';
 import { secureHeaders } from 'hono/secure-headers';
 import { User, OrganizationUser } from '@eurocomply/database';
 import type { MikroORM } from '@eurocomply/database';
-import {
-  organizationsRouter,
-  createOrganizationsRouter,
-} from './routes/organizations.js';
+import { createOrganizationsRouter } from './routes/organizations.js';
 import { createProductsRouter } from './routes/products.js';
 import { createApiKeysRouter } from './routes/api-keys.js';
 import { createUnitsRouter, type UnitsRepository } from './routes/taxonomy/index.js';
@@ -73,11 +70,9 @@ export function createApp(deps?: AppDependencies): Hono<Env> {
   // All organization management requires admin authentication
   v1.use('/admin/*', adminAuthMiddleware());
 
+  // Organizations list/get - admin only (requires ORM)
   if (deps?.orm) {
-    // Organizations list/get - admin only
     v1.route('/admin/organizations', createOrganizationsRouter({ orm: deps.orm }));
-  } else {
-    v1.route('/admin/organizations', organizationsRouter);
   }
 
   // Additional admin operations (status, provision, delete)
