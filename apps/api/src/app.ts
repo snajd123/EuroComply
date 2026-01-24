@@ -13,6 +13,7 @@ import { createApiKeysRouter } from './routes/api-keys.js';
 import { createUnitsRouter, type UnitsRepository } from './routes/taxonomy/index.js';
 import { tenantMiddleware, createTenantMiddlewareWithApiKeys } from './middleware/tenant.js';
 import { adminAuthMiddleware } from './middleware/admin-auth.js';
+import { createUserMiddleware } from './middleware/user.js';
 
 export type Env = {
   Variables: {
@@ -45,6 +46,11 @@ export function createApp(deps?: AppDependencies): Hono<Env> {
       credentials: true,
     })
   );
+
+  // Create user middleware if orm is available
+  const userMiddleware = deps?.orm
+    ? createUserMiddleware({ orm: deps.orm as any })
+    : undefined;
 
   // Health check
   app.get('/health', (c) => {
@@ -83,6 +89,9 @@ export function createApp(deps?: AppDependencies): Hono<Env> {
   // These routes allow tenants to create, list, and revoke their API keys
   if (deps?.orm) {
     v1.use('/api-keys/*', tenantMiddleware); // JWT only for key management
+    if (userMiddleware) {
+      v1.use('/api-keys/*', userMiddleware);
+    }
     v1.route('/api-keys', createApiKeysRouter({ em: deps.orm.em as any }));
   }
 
@@ -97,8 +106,11 @@ export function createApp(deps?: AppDependencies): Hono<Env> {
   // Apply tenant middleware explicitly to each protected route
   // This avoids catch-all patterns that would interfere with admin routes
   if (deps?.orm) {
-    // With ORM: Support both JWT and API key authentication
+    // Products: Apply tenant + user middleware
     v1.use('/products/*', createTenantMiddlewareWithApiKeys(deps.orm.em as any));
+    if (userMiddleware) {
+      v1.use('/products/*', userMiddleware);
+    }
     v1.route('/products', createProductsRouter({ orm: deps.orm }));
   } else {
     // Without ORM: JWT-only authentication (for testing)
