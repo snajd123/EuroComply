@@ -17,6 +17,45 @@ export interface ClerkOrganizationEvent {
   };
 }
 
+// Membership webhook event types
+export interface ClerkOrganizationMembershipEvent {
+  type: 'organizationMembership.created' | 'organizationMembership.deleted';
+  data: {
+    id: string;
+    organization: { id: string };
+    public_user_data: {
+      user_id: string;
+      identifier: string;      // email
+      first_name?: string;
+      last_name?: string;
+      image_url?: string;
+    };
+    role: 'org:admin' | 'org:member';
+    created_at: number;
+  };
+}
+
+export interface ClerkUserUpdatedEvent {
+  type: 'user.updated';
+  data: {
+    id: string;
+    email_addresses: Array<{ email_address: string; id: string }>;
+    primary_email_address_id: string;
+    first_name?: string;
+    last_name?: string;
+    image_url?: string;
+    organization_memberships: Array<{ organization: { id: string } }>;
+  };
+}
+
+// Custom error for retryable webhook failures
+export class RetryableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RetryableError';
+  }
+}
+
 export interface ClerkClient {
   organizations: {
     updateOrganizationMetadata: (
