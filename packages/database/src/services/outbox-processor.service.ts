@@ -115,6 +115,22 @@ export class OutboxProcessorService {
   }
 
   /**
+   * Check if the outbox_event table exists in a schema.
+   * Used to skip orphaned/incomplete tenant schemas gracefully.
+   */
+  async schemaHasOutboxTable(schema: string): Promise<boolean> {
+    const em = this.orm.em.fork();
+    const result = await em.getConnection().execute<{ exists: boolean }[]>(`
+      SELECT EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = '${schema}'
+        AND table_name = 'outbox_event'
+      ) as exists
+    `);
+    return result[0]?.exists ?? false;
+  }
+
+  /**
    * Process a single event by ID.
    * Claims the event, runs the handler, and updates status.
    */
@@ -202,6 +218,13 @@ export class OutboxProcessorService {
     // 2. Process all tenant schemas
     const schemas = await this.getActiveSchemas();
     for (const schema of schemas) {
+      // Check if schema has outbox table (skip orphaned/incomplete tenants)
+      const hasTable = await this.schemaHasOutboxTable(schema);
+      if (!hasTable) {
+        console.warn(`[OutboxProcessor] Schema ${schema} missing outbox_event table, skipping (orphaned tenant data?)`);
+        continue;
+      }
+
       try {
         const tenantResult = await this.processBatch(schema, batchSize, maxRetries);
         result.tenants.set(schema, tenantResult);
