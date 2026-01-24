@@ -6,17 +6,27 @@ This guide covers testing the EuroComply API with Postman. The API runs on `http
 
 ## Prerequisites
 
-1. Start the API server:
+1. Start infrastructure (PostgreSQL + Redis):
    ```bash
-   pnpm dev
+   docker-compose up -d postgres redis adminer
    ```
 
-2. Ensure PostgreSQL is running (Docker):
+2. Run database migrations:
+   ```bash
+   pnpm db:migrate
+   ```
+
+3. Start the API server:
+   ```bash
+   pnpm --filter @eurocomply/api dev
+   ```
+
+4. Verify PostgreSQL is running:
    ```bash
    docker ps | grep postgres
    ```
 
-3. Import this guide's requests into Postman as a collection.
+5. (Optional) Access database admin UI at http://localhost:8080 (Adminer)
 
 ---
 
@@ -27,11 +37,42 @@ Create a Postman environment with these variables:
 | Variable | Initial Value | Description |
 |----------|---------------|-------------|
 | `baseUrl` | `http://localhost:3001` | API base URL |
-| `adminApiKey` | `your-admin-key` | Admin API key from env |
+| `adminApiKey` | `your-admin-key` | Admin API key from ADMIN_API_KEY env |
 | `clerkJwt` | `<your-clerk-jwt>` | JWT from Clerk (for tenant routes) |
+| `clerkJwtSecondUser` | `<second-user-jwt>` | JWT for second user (to test authorization) |
 | `tenantApiKey` | `<generated>` | API key created via /api-keys |
 | `orgId` | `<auto>` | Organization ID |
 | `schemaName` | `<auto>` | Tenant schema name |
+| `clerkOrgId` | `<from-clerk>` | Clerk organization ID |
+
+---
+
+## Authentication Overview
+
+The API uses multiple authentication methods:
+
+| Route | Auth Method | Who Can Access |
+|-------|-------------|----------------|
+| `/health`, `/api/v1` | None | Everyone |
+| `/api/v1/taxonomy/*` | None | Everyone |
+| `/api/v1/admin/*` | Admin API Key | System admins only |
+| `/api/v1/products/*` | JWT or API Key | Users with Design workspace access |
+| `/api/v1/api-keys/*` | JWT or API Key | Org admins only |
+| `/webhooks/clerk` | Svix signature | Clerk webhooks |
+
+### User Authorization Levels
+
+Users have workspace-specific authority levels:
+
+| Level | Can View | Can Edit | Can Manage |
+|-------|----------|----------|------------|
+| `NONE` | No | No | No |
+| `VIEWER` | Yes | No | No |
+| `CONTRIBUTOR` | Yes | Yes | No |
+| `EDITOR` | Yes | Yes | No |
+| `MANAGER` | Yes | Yes | Yes |
+
+**First user in an organization automatically gets MANAGER + isOrgAdmin.**
 
 ---
 
@@ -95,7 +136,7 @@ GET {{baseUrl}}/api/v1/admin/organizations
       "id": "org_abc123",
       "name": "Acme Corp",
       "slug": "acme-corp",
-      "schemaName": "tenant_org_x_abc123",
+      "schemaName": "tenant_org_abc123",
       "clerkOrgId": "org_clerk_xyz",
       "provisioningStatus": "READY",
       "createdAt": "2026-01-24T10:00:00.000Z",
@@ -123,7 +164,7 @@ GET {{baseUrl}}/api/v1/admin/organizations/{{orgId}}/status
 {
   "id": "org_abc123",
   "name": "Acme Corp",
-  "schemaName": "tenant_org_x_abc123",
+  "schemaName": "tenant_org_abc123",
   "clerkOrgId": "org_clerk_xyz",
   "provisioningStatus": "READY",
   "provisioningError": null
@@ -143,7 +184,7 @@ POST {{baseUrl}}/api/v1/admin/organizations/{{orgId}}/provision
 {
   "success": true,
   "organizationId": "org_abc123",
-  "schemaName": "tenant_org_x_abc123",
+  "schemaName": "tenant_org_abc123",
   "provisioningStatus": "READY"
 }
 ```
@@ -160,7 +201,7 @@ DELETE {{baseUrl}}/api/v1/admin/organizations/{{orgId}}
   "success": true,
   "organizationId": "org_abc123",
   "clerkOrgId": "org_clerk_xyz",
-  "schemaName": "tenant_org_x_abc123",
+  "schemaName": "tenant_org_abc123",
   "message": "Organization and tenant schema deleted"
 }
 ```
@@ -197,9 +238,9 @@ GET {{baseUrl}}/api/v1/taxonomy/units
 
 ---
 
-## 5. Tenant Routes
+## 5. Tenant Routes (Products)
 
-**Requires either Clerk JWT or Tenant API Key.**
+**Requires Clerk JWT or Tenant API Key + Design workspace access.**
 
 ### Authentication Options
 
@@ -208,18 +249,27 @@ GET {{baseUrl}}/api/v1/taxonomy/units
 Authorization: Bearer {{clerkJwt}}
 ```
 
-**Option B: API Key**
+**Option B: API Key (org-level access)**
 ```
 X-API-Key: {{tenantApiKey}}
 ```
+
+### Authorization Requirements
+
+| Endpoint | Method | Required Authority |
+|----------|--------|-------------------|
+| `/products` | GET | Design VIEWER+ |
+| `/products` | POST | Design CONTRIBUTOR+ (edit) |
+| `/products/:id` | GET | Design VIEWER+ |
 
 ### 5.1 List Products
 
 ```
 GET {{baseUrl}}/api/v1/products
+Authorization: Bearer {{clerkJwt}}
 ```
 
-**Response (200)**
+**Response (200)** - User has Design VIEWER+ access
 ```json
 {
   "data": [],
@@ -227,10 +277,28 @@ GET {{baseUrl}}/api/v1/products
 }
 ```
 
+**Response (403)** - User has NONE authority
+```json
+{
+  "error": "Forbidden",
+  "message": "Insufficient authority for design workspace"
+}
+```
+
+**Response (202)** - User exists in Clerk but not yet synced
+```json
+{
+  "error": "Provisioning",
+  "message": "Setting up your account. Please retry in a moment.",
+  "retryAfter": 2
+}
+```
+
 ### 5.2 Create Product
 
 ```
 POST {{baseUrl}}/api/v1/products
+Authorization: Bearer {{clerkJwt}}
 Content-Type: application/json
 
 {
@@ -241,7 +309,7 @@ Content-Type: application/json
 }
 ```
 
-**Note:** You need a valid `categoryId` from the tenant's categories table.
+**Note:** Requires Design CONTRIBUTOR+ authority. You need a valid `categoryId` from the tenant's categories table.
 
 **Response (201)**
 ```json
@@ -259,17 +327,30 @@ Content-Type: application/json
 }
 ```
 
+**Response (403)** - User only has VIEWER authority
+```json
+{
+  "error": "Forbidden",
+  "message": "Insufficient authority for design workspace"
+}
+```
+
 ### 5.3 Get Product by ID
 
 ```
 GET {{baseUrl}}/api/v1/products/{{productId}}
+Authorization: Bearer {{clerkJwt}}
 ```
 
 ---
 
 ## 6. API Key Management
 
-**Requires Clerk JWT (not API Key).**
+**Requires Clerk JWT with Org Admin status, or existing API Key.**
+
+### Authorization
+- Only **Org Admins** (first user or Clerk org:admin role) can manage API keys
+- API keys themselves can also manage keys (org-level credential)
 
 ### 6.1 Create API Key
 
@@ -299,6 +380,14 @@ Content-Type: application/json
 ```
 
 **Important:** The full `key` is only returned once. Save it immediately!
+
+**Response (403)** - User is not Org Admin
+```json
+{
+  "error": "Forbidden",
+  "message": "Organization admin access required"
+}
+```
 
 ### 6.2 List API Keys
 
@@ -337,48 +426,120 @@ Content-Type: application/json
 
 | Event Type | Description |
 |------------|-------------|
-| `organization.created` | Creates org record, triggers provisioning |
+| `organization.created` | Creates org record, provisions tenant schema |
 | `organization.updated` | Updates org name/slug |
 | `organization.deleted` | Drops schema, deletes org record |
+| `organizationMembership.created` | Creates User + OrganizationUser in tenant |
+| `organizationMembership.deleted` | Soft-deletes user (sets deletedAt) |
+| `user.updated` | Queues profile sync via outbox |
+
+### Membership Created Response
+```json
+{
+  "status": "created",
+  "userId": "usr_abc123"
+}
+```
+
+### Membership Created - First User
+First user in an organization gets:
+- `isOrgAdmin: true`
+- All workspace authorities: `MANAGER`
+
+### Membership Created - Subsequent Users
+- `isOrgAdmin: false` (unless Clerk role is `org:admin`)
+- All workspace authorities: `NONE`
+
+### Membership Deleted Response
+```json
+{
+  "status": "soft_deleted"
+}
+```
+
+### Retryable Error (503)
+If org is not yet provisioned when membership webhook arrives:
+```json
+{
+  "error": "Organization not yet provisioned"
+}
+```
+Clerk will retry automatically.
 
 ---
 
-## 8. Verify New User Tables
+## 8. Database Verification
 
-After provisioning an organization, verify the new `users` and `organization_users` tables exist:
+### 8.1 Connect to Database
 
-### Via psql
+**Via Adminer (UI):**
+- URL: http://localhost:8080
+- System: PostgreSQL
+- Server: postgres
+- Username: postgres
+- Password: postgres
+- Database: eurocomply
+
+**Via psql:**
 ```bash
-PGPASSWORD=eurocomply psql -h localhost -p 5432 -U eurocomply -d eurocomply -c "
-SELECT table_name
-FROM information_schema.tables
-WHERE table_schema = 'tenant_org_x_abc123'
-ORDER BY table_name;
-"
+PGPASSWORD=postgres psql -h localhost -p 5432 -U postgres -d eurocomply
 ```
 
-### Expected Tables
+### 8.2 List Tenant Tables
+
+```sql
+SELECT table_name
+FROM information_schema.tables
+WHERE table_schema = 'tenant_org_abc123'
+ORDER BY table_name;
+```
+
+**Expected Tables:**
 ```
  table_name
 --------------------
  attribute_template
  audit_log
  category
- organization_users   <-- NEW
+ category_adoption
+ organization_users
  product
  product_version
  unit_definition
- users                <-- NEW
+ users
 ```
 
-### Inspect User Table Schema
+### 8.3 Inspect Users Table
+
 ```sql
-\d tenant_org_x_abc123.users
+SELECT id, clerk_id, email, name, deleted_at
+FROM tenant_org_abc123.users;
 ```
 
-### Inspect OrganizationUser Table Schema
+### 8.4 Inspect Organization Users Table
+
 ```sql
-\d tenant_org_x_abc123.organization_users
+SELECT
+  ou.id,
+  u.email,
+  ou.is_org_admin,
+  ou.design_authority,
+  ou.operations_authority,
+  ou.marketing_authority,
+  ou.compliance_authority
+FROM tenant_org_abc123.organization_users ou
+JOIN tenant_org_abc123.users u ON u.id = ou.user_id;
+```
+
+### 8.5 Verify First User Permissions
+
+First user should have:
+```
+is_org_admin: true
+design_authority: MANAGER
+operations_authority: MANAGER
+marketing_authority: MANAGER
+compliance_authority: MANAGER
 ```
 
 ---
@@ -388,10 +549,16 @@ ORDER BY table_name;
 ### 401 Unauthorized
 - Missing or invalid Authorization header
 - Expired JWT or API key
+- Invalid JWT signature
 
 ### 403 Forbidden
-- API key doesn't have access to this tenant
-- JWT org doesn't match requested tenant
+- User doesn't have required workspace authority
+- User is not Org Admin (for API key management)
+- User was soft-deleted from organization
+
+### 202 Accepted (Provisioning)
+- User exists in Clerk JWT but hasn't been synced yet
+- Retry after a moment (webhook will create user)
 
 ### 404 Not Found
 - Organization/Product/Resource doesn't exist
@@ -405,54 +572,239 @@ ORDER BY table_name;
 - Database connection issue
 - Provisioning failure (check logs)
 
+### 503 Service Unavailable
+- Organization not yet provisioned (webhook will retry)
+
 ---
 
-## 10. Testing Workflow
+## 10. Full Integration Testing Workflow
 
-### Full Integration Test
+### Phase 1: Setup Clerk
+
+1. **Create Clerk Application**
+   - Go to https://dashboard.clerk.com
+   - Create a new application
+   - Enable Organizations feature
+   - Get your API keys
+
+2. **Configure Webhooks in Clerk**
+   - Go to Webhooks section
+   - Add endpoint: `https://your-api-url/webhooks/clerk`
+   - Select events:
+     - `organization.created`
+     - `organization.updated`
+     - `organization.deleted`
+     - `organizationMembership.created`
+     - `organizationMembership.deleted`
+     - `user.updated`
+   - Copy the signing secret
+
+3. **Set Environment Variables**
+   ```bash
+   export CLERK_WEBHOOK_SECRET=whsec_xxx
+   export CLERK_SECRET_KEY=sk_test_xxx
+   export CLERK_PUBLISHABLE_KEY=pk_test_xxx
+   ```
+
+### Phase 2: Test Organization Flow
 
 1. **Check Health**
    ```
    GET /health → 200
    ```
 
-2. **List Organizations (empty initially)**
-   ```
-   GET /api/v1/admin/organizations → 200, []
-   ```
+2. **Create Organization in Clerk Dashboard**
+   - Go to Clerk Dashboard → Organizations
+   - Create new organization
+   - Wait for webhook to fire
 
-3. **Trigger Clerk Webhook** (or wait for real Clerk event)
-   - Organization created via Clerk → webhook provisions tenant
-
-4. **Verify Organization Provisioned**
+3. **Verify Organization Created**
    ```
-   GET /api/v1/admin/organizations/{{orgId}}/status → provisioningStatus: "READY"
+   GET /api/v1/admin/organizations → 200
    ```
+   Should show your new organization with `provisioningStatus: "READY"`
 
-5. **Verify Tables Created**
+4. **Verify Tenant Schema**
    ```sql
    SELECT table_name FROM information_schema.tables
-   WHERE table_schema = '{{schemaName}}';
-   -- Should include: users, organization_users
+   WHERE table_schema LIKE 'tenant_org_%';
    ```
 
-6. **Create API Key**
+### Phase 3: Test User Flow
+
+5. **Add Yourself to Organization in Clerk**
+   - You'll be the first user → MANAGER + isOrgAdmin
+
+6. **Verify User Created in Database**
+   ```sql
+   SELECT * FROM tenant_org_xxx.users;
+   SELECT * FROM tenant_org_xxx.organization_users;
    ```
-   POST /api/v1/api-keys → 201, save the key
+   Should show your user with full MANAGER access.
+
+7. **Get JWT from Clerk**
+   - Use Clerk's frontend SDK or API to get a session token
+   - Or use Clerk Dashboard → Users → Get session token
+
+8. **Test Products Access (First User)**
+   ```
+   GET /api/v1/products
+   Authorization: Bearer {{clerkJwt}}
+   → 200 (you have MANAGER access)
    ```
 
-7. **Use API Key for Tenant Operations**
-   ```
-   GET /api/v1/products (X-API-Key header) → 200
-   ```
+### Phase 4: Test Authorization
+
+9. **Add Second User to Organization in Clerk**
+   - New user gets NONE permissions by default
+
+10. **Get Second User's JWT**
+
+11. **Test Products Access (Second User)**
+    ```
+    GET /api/v1/products
+    Authorization: Bearer {{clerkJwtSecondUser}}
+    → 403 Forbidden (they have NONE authority)
+    ```
+
+12. **Test API Key Management (Second User)**
+    ```
+    GET /api/v1/api-keys
+    Authorization: Bearer {{clerkJwtSecondUser}}
+    → 403 Forbidden (not Org Admin)
+    ```
+
+### Phase 5: Test API Keys
+
+13. **Create API Key (First User - Org Admin)**
+    ```
+    POST /api/v1/api-keys
+    Authorization: Bearer {{clerkJwt}}
+    {"name": "Test Key"}
+    → 201, save the key!
+    ```
+
+14. **Test API Key Access**
+    ```
+    GET /api/v1/products
+    X-API-Key: {{tenantApiKey}}
+    → 200 (API keys have org-level access)
+    ```
+
+### Phase 6: Test User Removal
+
+15. **Remove Second User from Org in Clerk**
+
+16. **Verify Soft Delete**
+    ```sql
+    SELECT id, email, deleted_at FROM tenant_org_xxx.users;
+    ```
+    Second user should have `deleted_at` set.
+
+17. **Test Removed User Access**
+    ```
+    GET /api/v1/products
+    Authorization: Bearer {{clerkJwtSecondUser}}
+    → 403 Forbidden (no longer a member)
+    ```
 
 ---
 
-## Notes
+## 11. Simulating Webhooks Locally
 
-- **User/OrganizationUser entities** are created in the database but don't have API endpoints yet
-- User sync happens via Clerk webhooks (Plan C - not yet implemented)
-- User middleware and authorization (Plan B, D - not yet implemented)
+For local testing without real Clerk webhooks, you can simulate them:
+
+### Simulate Organization Created
+
+```bash
+curl -X POST http://localhost:3001/webhooks/clerk \
+  -H "Content-Type: application/json" \
+  -H "svix-id: test_123" \
+  -H "svix-timestamp: $(date +%s)" \
+  -H "svix-signature: v1,test" \
+  -d '{
+    "type": "organization.created",
+    "data": {
+      "id": "org_test123",
+      "name": "Test Org",
+      "slug": "test-org",
+      "created_at": 1706097600
+    }
+  }'
+```
+
+**Note:** This only works if `skipSignatureVerification: true` is set in test mode.
+
+### Simulate Membership Created
+
+```bash
+curl -X POST http://localhost:3001/webhooks/clerk \
+  -H "Content-Type: application/json" \
+  -H "svix-id: test_456" \
+  -H "svix-timestamp: $(date +%s)" \
+  -H "svix-signature: v1,test" \
+  -d '{
+    "type": "organizationMembership.created",
+    "data": {
+      "id": "mem_test123",
+      "organization": {"id": "org_test123"},
+      "public_user_data": {
+        "user_id": "user_test123",
+        "identifier": "test@example.com",
+        "first_name": "Test",
+        "last_name": "User"
+      },
+      "role": "org:member",
+      "created_at": 1706097600
+    }
+  }'
+```
+
+---
+
+## 12. Troubleshooting
+
+### User gets 202 "Provisioning" on every request
+
+**Cause:** User exists in Clerk JWT but the `organizationMembership.created` webhook hasn't fired/processed yet.
+
+**Solutions:**
+1. Check Clerk webhook logs for errors
+2. Verify webhook endpoint is accessible
+3. Manually check if user exists in database:
+   ```sql
+   SELECT * FROM tenant_org_xxx.users WHERE clerk_id = 'user_xxx';
+   ```
+
+### User gets 403 but should have access
+
+**Cause:** User's workspace authority is NONE.
+
+**Check authority:**
+```sql
+SELECT ou.*, u.email
+FROM tenant_org_xxx.organization_users ou
+JOIN tenant_org_xxx.users u ON u.id = ou.user_id
+WHERE u.clerk_id = 'user_xxx';
+```
+
+**Solution:** Have an Org Admin update their permissions (API endpoint TBD).
+
+### Webhook returns 503 "Organization not yet provisioned"
+
+**Cause:** Membership webhook arrived before organization webhook finished.
+
+**Solution:** Clerk will automatically retry. Check that organization provisioning completed:
+```sql
+SELECT id, schema_name, provisioning_status FROM public.organizations;
+```
+
+### API Key rejected with 401
+
+**Check:**
+1. Is key expired? Check `expires_at` in database
+2. Is key revoked? Check `revoked_at` in database
+3. Is the X-API-Key header correct format?
 
 ---
 
