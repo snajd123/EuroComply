@@ -19,6 +19,9 @@ export default defineConfig({
   test: {
     globals: false,
     environment: 'node',
+    // Run test files serially to avoid database isolation issues
+    // when multiple tests truncate/modify shared tables concurrently
+    fileParallelism: false,
     testTimeout: 30000,
     hookTimeout: 30000,
     reporters: ['default', 'html'],
