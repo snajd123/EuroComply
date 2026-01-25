@@ -384,28 +384,46 @@ Accepts internal ID or Clerk org ID.
 
 ---
 
-## 6. API Key Management (JWT-only)
+## 6. API Key Management
 
-Tenants can create and manage API keys for programmatic access. These endpoints **require JWT authentication** - you cannot manage API keys using an API key.
+Tenants can create and manage API keys for programmatic access. API keys now support **workspace-level authorization** - each key can have different access levels for different workspaces, just like human users.
 
 ### Authentication
 ```
 Authorization: Bearer <JWT_TOKEN>
 ```
+or
+```
+X-API-Key: ek_live_xxxxxxxx...
+```
 
-> **Note:** API key management is restricted to JWT auth only. If you try to access these endpoints with an API key, you'll get a 403 Forbidden error.
+> **Note:** API key management requires **Org Admin** privileges. Both JWT users with `isOrgAdmin: true` and API keys with `isOrgAdmin: true` can manage API keys.
 
 ---
 
 ### POST /api/v1/api-keys
-Create a new API key.
+Create a new API key with workspace-scoped permissions.
 
 **Request Body:**
 ```json
 {
-  "name": "Production Key"
+  "name": "Production Key",
+  "designAuthority": "EDITOR",
+  "operationsAuthority": "VIEWER",
+  "marketingAuthority": "NONE",
+  "complianceAuthority": "NONE",
+  "isOrgAdmin": false
 }
 ```
+
+**Workspace Authority Levels:**
+| Level | Can View | Can Edit | Can Manage |
+|-------|----------|----------|------------|
+| `NONE` | No | No | No |
+| `VIEWER` | Yes | No | No |
+| `CONTRIBUTOR` | Yes | Yes | No |
+| `EDITOR` | Yes | Yes | No |
+| `MANAGER` | Yes | Yes | Yes |
 
 **Success Response (201):**
 ```json
@@ -414,6 +432,11 @@ Create a new API key.
     "id": "key_abc123xyz",
     "keyPrefix": "ek_live_7fHj2kL",
     "name": "Production Key",
+    "designAuthority": "EDITOR",
+    "operationsAuthority": "VIEWER",
+    "marketingAuthority": "NONE",
+    "complianceAuthority": "NONE",
+    "isOrgAdmin": false,
     "createdAt": "2026-01-23T12:00:00.000Z"
   },
   "rawKey": "ek_live_7fHj2kLm9pQr5tUv8wXy1zAaBbCcDdEeFfGgHhIi",
@@ -423,10 +446,18 @@ Create a new API key.
 
 > **Important:** The `rawKey` is only returned once at creation time. Store it securely.
 
+**Validation Error (400):**
+```json
+{
+  "error": "Bad Request",
+  "message": "Invalid designAuthority: must be one of NONE, VIEWER, CONTRIBUTOR, EDITOR, MANAGER"
+}
+```
+
 ---
 
 ### GET /api/v1/api-keys
-List all API keys for the tenant.
+List all API keys for the tenant, including their workspace authorities.
 
 **Success Response (200):**
 ```json
@@ -436,6 +467,11 @@ List all API keys for the tenant.
       "id": "key_abc123xyz",
       "keyPrefix": "ek_live_7fHj2kL",
       "name": "Production Key",
+      "designAuthority": "EDITOR",
+      "operationsAuthority": "VIEWER",
+      "marketingAuthority": "NONE",
+      "complianceAuthority": "NONE",
+      "isOrgAdmin": false,
       "createdAt": "2026-01-23T12:00:00.000Z",
       "lastUsedAt": "2026-01-23T14:30:00.000Z",
       "isActive": true
@@ -633,36 +669,65 @@ Create a new product.
 ### API Key Test Flow
 
 ```
-1. Authenticate with JWT token
+1. Authenticate with JWT token (Org Admin)
    Authorization: Bearer <JWT_TOKEN>
 
-2. Create API key
+2. Create API key with Design EDITOR access
    POST /api/v1/api-keys
-   Body: { "name": "Test Key" }
+   Body: {
+     "name": "Design Editor Key",
+     "designAuthority": "EDITOR",
+     "operationsAuthority": "NONE",
+     "marketingAuthority": "NONE",
+     "complianceAuthority": "NONE",
+     "isOrgAdmin": false
+   }
    → Save the rawKey (only shown once!)
 
 3. List API keys
    GET /api/v1/api-keys
-   → Should show the new key
+   → Should show the new key with authorities
 
-4. Test programmatic access with API key
+4. Test Design workspace access (should work)
    GET /api/v1/products
    Headers: X-API-Key: ek_live_xxx...
-   → Should work
+   → 200 OK (Design EDITOR can view products)
 
-5. Verify API key can't manage keys
+5. Test Compliance workspace access (should fail)
+   GET /api/v1/compliance/reports
+   Headers: X-API-Key: ek_live_xxx...
+   → 403 Forbidden (key has NONE on compliance)
+   Response includes: { "yourAuthority": "NONE", "workspace": "compliance" }
+
+6. Verify non-admin API key can't manage keys
    POST /api/v1/api-keys
    Headers: X-API-Key: ek_live_xxx...
-   → Should return 403 Forbidden
+   → 403 Forbidden (isOrgAdmin: false)
 
-6. Revoke API key
+7. Create API key with Org Admin access
+   POST /api/v1/api-keys
+   Body: {
+     "name": "Admin Key",
+     "designAuthority": "MANAGER",
+     "operationsAuthority": "MANAGER",
+     "marketingAuthority": "MANAGER",
+     "complianceAuthority": "MANAGER",
+     "isOrgAdmin": true
+   }
+
+8. Verify admin API key CAN manage keys
+   GET /api/v1/api-keys
+   Headers: X-API-Key: <admin_key>
+   → 200 OK (isOrgAdmin: true allows key management)
+
+9. Revoke API key
    DELETE /api/v1/api-keys/{keyId}
    → success: true
 
-7. Verify revoked key doesn't work
-   GET /api/v1/products
-   Headers: X-API-Key: <revoked_key>
-   → Should return 401
+10. Verify revoked key doesn't work
+    GET /api/v1/products
+    Headers: X-API-Key: <revoked_key>
+    → 401 Unauthorized
 ```
 
 ---
@@ -689,4 +754,5 @@ Create a new product.
 - **Signature verification**: All webhooks must have valid Svix signatures
 - **API key security**: Keys are hashed (SHA-256), never stored raw. Only shown once at creation.
 - **Admin vs Tenant auth**: Admin uses `X-Admin-Key`, tenants use `X-API-Key` or JWT Bearer token
-- **API key management**: Requires JWT auth (not API key) to prevent unauthorized key creation
+- **API key workspace scoping**: API keys have per-workspace authority levels (NONE, VIEWER, CONTRIBUTOR, EDITOR, MANAGER), just like human users
+- **API key management**: Requires Org Admin privileges (JWT user with `isOrgAdmin: true` OR API key with `isOrgAdmin: true`)

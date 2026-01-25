@@ -37,10 +37,11 @@ Create a Postman environment with these variables:
 | Variable | Initial Value | Description |
 |----------|---------------|-------------|
 | `baseUrl` | `http://localhost:3001` | API base URL |
-| `adminApiKey` | `your-admin-key` | Admin API key from ADMIN_API_KEY env |
+| `adminApiKey` | `your-admin-key` | Admin API key from ADMIN_API_KEY env (for /admin routes) |
 | `clerkJwt` | `<your-clerk-jwt>` | JWT from Clerk (for tenant routes) |
 | `clerkJwtSecondUser` | `<second-user-jwt>` | JWT for second user (to test authorization) |
-| `tenantApiKey` | `<generated>` | API key created via /api-keys |
+| `tenantApiKey` | `<generated>` | Tenant API key with workspace-scoped access |
+| `tenantAdminApiKey` | `<generated>` | Tenant API key with isOrgAdmin: true |
 | `orgId` | `<auto>` | Organization ID |
 | `schemaName` | `<auto>` | Tenant schema name |
 | `clerkOrgId` | `<from-clerk>` | Clerk organization ID |
@@ -277,11 +278,15 @@ Authorization: Bearer {{clerkJwt}}
 }
 ```
 
-**Response (403)** - User has NONE authority
+**Response (403)** - User/API key has insufficient authority
 ```json
 {
   "error": "Forbidden",
-  "message": "Insufficient authority for design workspace"
+  "message": "This action requires VIEWER access to the design workspace",
+  "workspace": "design",
+  "action": "view",
+  "yourAuthority": "NONE",
+  "requiredAuthority": "VIEWER"
 }
 ```
 
@@ -327,11 +332,15 @@ Content-Type: application/json
 }
 ```
 
-**Response (403)** - User only has VIEWER authority
+**Response (403)** - User/API key only has VIEWER authority
 ```json
 {
   "error": "Forbidden",
-  "message": "Insufficient authority for design workspace"
+  "message": "This action requires EDITOR access to the design workspace",
+  "workspace": "design",
+  "action": "edit",
+  "yourAuthority": "VIEWER",
+  "requiredAuthority": "EDITOR"
 }
 ```
 
@@ -346,13 +355,15 @@ Authorization: Bearer {{clerkJwt}}
 
 ## 6. API Key Management
 
-**Requires Clerk JWT with Org Admin status, or existing API Key.**
+**Requires Org Admin status (JWT user or API key with `isOrgAdmin: true`).**
 
 ### Authorization
-- Only **Org Admins** (first user or Clerk org:admin role) can manage API keys
-- API keys themselves can also manage keys (org-level credential)
+- Only **Org Admins** can manage API keys
+- Both JWT users with `isOrgAdmin: true` AND API keys with `isOrgAdmin: true` can manage keys
 
 ### 6.1 Create API Key
+
+API keys now support **workspace-level authorization**. Each key can have different access levels for different workspaces, just like human users.
 
 ```
 POST {{baseUrl}}/api/v1/api-keys
@@ -360,32 +371,58 @@ Authorization: Bearer {{clerkJwt}}
 Content-Type: application/json
 
 {
-  "name": "My Integration Key",
-  "expiresAt": "2027-01-24T00:00:00.000Z"
+  "name": "Design Integration Key",
+  "designAuthority": "EDITOR",
+  "operationsAuthority": "VIEWER",
+  "marketingAuthority": "NONE",
+  "complianceAuthority": "NONE",
+  "isOrgAdmin": false
 }
 ```
+
+**Workspace Authority Levels:**
+| Level | Can View | Can Edit | Can Manage |
+|-------|----------|----------|------------|
+| `NONE` | No | No | No |
+| `VIEWER` | Yes | No | No |
+| `CONTRIBUTOR` | Yes | Yes | No |
+| `EDITOR` | Yes | Yes | No |
+| `MANAGER` | Yes | Yes | Yes |
 
 **Response (201)**
 ```json
 {
   "data": {
     "id": "key_abc123",
-    "name": "My Integration Key",
-    "keyPreview": "ec_...xyz",
-    "key": "ec_full_api_key_here",
-    "expiresAt": "2027-01-24T00:00:00.000Z",
+    "name": "Design Integration Key",
+    "keyPrefix": "ek_live_7fHj2kL",
+    "designAuthority": "EDITOR",
+    "operationsAuthority": "VIEWER",
+    "marketingAuthority": "NONE",
+    "complianceAuthority": "NONE",
+    "isOrgAdmin": false,
     "createdAt": "2026-01-24T10:00:00.000Z"
-  }
+  },
+  "rawKey": "ek_live_7fHj2kLm9pQr5tUv8wXy1zAaBbCcDdEeFfGgHhIi",
+  "message": "API key created. Save the rawKey - it will not be shown again."
 }
 ```
 
-**Important:** The full `key` is only returned once. Save it immediately!
+**Important:** The `rawKey` is only returned once. Save it immediately!
+
+**Response (400)** - Invalid authority value
+```json
+{
+  "error": "Bad Request",
+  "message": "Invalid designAuthority: must be one of NONE, VIEWER, CONTRIBUTOR, EDITOR, MANAGER"
+}
+```
 
 **Response (403)** - User is not Org Admin
 ```json
 {
   "error": "Forbidden",
-  "message": "Organization admin access required"
+  "message": "This action requires Organization Admin privileges"
 }
 ```
 
@@ -394,6 +431,28 @@ Content-Type: application/json
 ```
 GET {{baseUrl}}/api/v1/api-keys
 Authorization: Bearer {{clerkJwt}}
+```
+
+**Response (200)**
+```json
+{
+  "data": [
+    {
+      "id": "key_abc123",
+      "keyPrefix": "ek_live_7fHj2kL",
+      "name": "Design Integration Key",
+      "designAuthority": "EDITOR",
+      "operationsAuthority": "VIEWER",
+      "marketingAuthority": "NONE",
+      "complianceAuthority": "NONE",
+      "isOrgAdmin": false,
+      "createdAt": "2026-01-24T10:00:00.000Z",
+      "lastUsedAt": "2026-01-24T14:30:00.000Z",
+      "isActive": true
+    }
+  ],
+  "meta": { "total": 1 }
+}
 ```
 
 ### 6.3 Revoke API Key
@@ -676,32 +735,76 @@ compliance_authority: MANAGER
 
 ### Phase 5: Test API Keys
 
-13. **Create API Key (First User - Org Admin)**
+13. **Create API Key with Design EDITOR access (First User - Org Admin)**
     ```
     POST /api/v1/api-keys
     Authorization: Bearer {{clerkJwt}}
-    {"name": "Test Key"}
-    → 201, save the key!
+    {
+      "name": "Design Editor Key",
+      "designAuthority": "EDITOR",
+      "operationsAuthority": "NONE",
+      "marketingAuthority": "NONE",
+      "complianceAuthority": "NONE",
+      "isOrgAdmin": false
+    }
+    → 201, save the rawKey!
     ```
 
-14. **Test API Key Access**
+14. **Test API Key Access to Design workspace (should work)**
     ```
     GET /api/v1/products
     X-API-Key: {{tenantApiKey}}
-    → 200 (API keys have org-level access)
+    → 200 (API key has EDITOR access to Design workspace)
+    ```
+
+15. **Test API Key Cross-Workspace Isolation**
+    ```
+    GET /api/v1/compliance/reports
+    X-API-Key: {{tenantApiKey}}
+    → 403 (API key has NONE on Compliance workspace)
+    Response: {"yourAuthority": "NONE", "workspace": "compliance"}
+    ```
+
+16. **Test Non-Admin API Key Cannot Manage Keys**
+    ```
+    POST /api/v1/api-keys
+    X-API-Key: {{tenantApiKey}}
+    → 403 (isOrgAdmin: false)
+    ```
+
+17. **Create Admin API Key**
+    ```
+    POST /api/v1/api-keys
+    Authorization: Bearer {{clerkJwt}}
+    {
+      "name": "Admin Key",
+      "designAuthority": "MANAGER",
+      "operationsAuthority": "MANAGER",
+      "marketingAuthority": "MANAGER",
+      "complianceAuthority": "MANAGER",
+      "isOrgAdmin": true
+    }
+    → 201
+    ```
+
+18. **Verify Admin API Key CAN Manage Keys**
+    ```
+    GET /api/v1/api-keys
+    X-API-Key: {{adminApiKey}}
+    → 200 (isOrgAdmin: true allows key management)
     ```
 
 ### Phase 6: Test User Removal
 
-15. **Remove Second User from Org in Clerk**
+19. **Remove Second User from Org in Clerk**
 
-16. **Verify Soft Delete**
+20. **Verify Soft Delete**
     ```sql
     SELECT id, email, deleted_at FROM tenant_org_xxx.users;
     ```
     Second user should have `deleted_at` set.
 
-17. **Test Removed User Access**
+21. **Test Removed User Access**
     ```
     GET /api/v1/products
     Authorization: Bearer {{clerkJwtSecondUser}}
@@ -1063,6 +1166,48 @@ SELECT id, schema_name, provisioning_status FROM public.organizations;
 2. Is key revoked? Check `revoked_at` in database
 3. Is the X-API-Key header correct format?
 
+### API Key gets 403 on workspace route
+
+**Cause:** The API key doesn't have sufficient authority for the requested workspace.
+
+**Check authority:**
+```sql
+SELECT
+  name,
+  design_authority,
+  operations_authority,
+  marketing_authority,
+  compliance_authority,
+  is_org_admin
+FROM public.api_keys
+WHERE key_prefix = 'ek_live_xxx';
+```
+
+**The 403 response tells you exactly what's wrong:**
+```json
+{
+  "error": "Forbidden",
+  "message": "This action requires VIEWER access to the design workspace",
+  "workspace": "design",
+  "action": "view",
+  "yourAuthority": "NONE",
+  "requiredAuthority": "VIEWER"
+}
+```
+
+**Solution:** Create a new API key with the appropriate workspace authorities, or use an existing key that has sufficient access.
+
+### API Key can't manage other API keys
+
+**Cause:** The API key has `isOrgAdmin: false`.
+
+**Check:**
+```sql
+SELECT name, is_org_admin FROM public.api_keys WHERE key_prefix = 'ek_live_xxx';
+```
+
+**Solution:** Only API keys with `isOrgAdmin: true` can manage other API keys. Create a new key with org admin privileges, or use a JWT from an org admin user.
+
 ---
 
-*Last Updated: 2026-01-24*
+*Last Updated: 2026-01-25*

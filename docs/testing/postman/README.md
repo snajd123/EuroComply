@@ -1,6 +1,6 @@
-# Postman Webhook Tests
+# Postman Webhook & API Tests
 
-Individual Postman collections for testing Clerk webhooks.
+Individual Postman collections for testing Clerk webhooks and API functionality.
 
 ## Setup
 
@@ -10,6 +10,8 @@ Individual Postman collections for testing Clerk webhooks.
 
 ## Files
 
+### Webhook Tests (1-6)
+
 | File | Description |
 |------|-------------|
 | `1-organization-created.json` | Creates org + provisions tenant schema |
@@ -18,6 +20,14 @@ Individual Postman collections for testing Clerk webhooks.
 | `4-user-updated.json` | Updates user profile |
 | `5-membership-deleted.json` | Removes second user (soft delete) |
 | `6-organization-deleted.json` | Deletes org + drops schema |
+
+### API Key Tests (7+)
+
+| File | Description |
+|------|-------------|
+| `7-api-key-workspace-authorization.json` | Tests API key workspace scoping |
+
+**Prerequisite:** Run `1-organization-created` and `2-membership-created-first-user` first to set up the tenant.
 
 ## Variable Passing
 
