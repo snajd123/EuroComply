@@ -1,6 +1,5 @@
 import { randomBytes, createHash, timingSafeEqual } from 'crypto';
 import { ApiKey, Organization } from '../entities/index.js';
-import { WorkspaceAuthority } from '../entities/WorkspaceAuthority.js';
 import type { EntityManager } from '@mikro-orm/postgresql';
 
 /**
@@ -20,16 +19,6 @@ export interface ValidateApiKeyResult {
   organizationId?: string;
   schemaName?: string;
   error?: string;
-
-  // API key ID for audit traceability (used in userId: `api-key:${apiKeyId}`)
-  apiKeyId?: string;
-
-  // Workspace authorities for authorization
-  designAuthority?: WorkspaceAuthority;
-  operationsAuthority?: WorkspaceAuthority;
-  marketingAuthority?: WorkspaceAuthority;
-  complianceAuthority?: WorkspaceAuthority;
-  isOrgAdmin?: boolean;
 }
 
 /**
@@ -75,31 +64,25 @@ export class ApiKeyService {
   async createKey(organizationId: string, name: string): Promise<CreateApiKeyResult> {
     const em = this.em.fork();
 
-    // Generate the key material before transaction
+    // Find the organization
+    const org = await em.findOne(Organization, { id: organizationId });
+    if (!org) {
+      throw new Error(`Organization not found: ${organizationId}`);
+    }
+
+    // Generate the key
     const rawKey = generateRawApiKey();
     const keyHash = hashApiKey(rawKey);
     const keyPrefix = extractKeyPrefix(rawKey);
 
-    // All DML inside transactional block with explicit search_path
-    const apiKey = await em.transactional(async (txEm) => {
-      await txEm.execute('SET search_path TO public');
+    // Create the entity
+    const apiKey = new ApiKey();
+    apiKey.organization = org;
+    apiKey.keyHash = keyHash;
+    apiKey.keyPrefix = keyPrefix;
+    apiKey.name = name;
 
-      const org = await txEm.findOne(Organization, { id: organizationId });
-      if (!org) {
-        throw new Error(`Organization not found: ${organizationId}`);
-      }
-
-      const key = new ApiKey();
-      key.organization = org;
-      key.keyHash = keyHash;
-      key.keyPrefix = keyPrefix;
-      key.name = name;
-
-      txEm.persist(key);
-      await txEm.flush();
-
-      return key;
-    });
+    await em.persistAndFlush(apiKey);
 
     return { apiKey, rawKey };
   }
@@ -118,43 +101,30 @@ export class ApiKeyService {
     const keyHash = hashApiKey(rawKey);
     const em = this.em.fork();
 
-    // All operations inside transactional block with explicit search_path
-    // Prevents cross-talk if connection was left in tenant schema
-    return em.transactional(async (txEm) => {
-      await txEm.execute('SET search_path TO public');
+    // Find the key and load organization
+    const apiKey = await em.findOne(
+      ApiKey,
+      { keyHash },
+      { populate: ['organization'] }
+    );
 
-      const apiKey = await txEm.findOne(
-        ApiKey,
-        { keyHash },
-        { populate: ['organization'] }
-      );
+    if (!apiKey) {
+      return { valid: false, error: 'API key not found' };
+    }
 
-      if (!apiKey) {
-        return { valid: false, error: 'API key not found' };
-      }
+    if (!apiKey.isActive) {
+      return { valid: false, error: 'API key has been revoked' };
+    }
 
-      if (!apiKey.isActive) {
-        return { valid: false, error: 'API key has been revoked' };
-      }
+    // Update last used timestamp (fire and forget)
+    apiKey.lastUsedAt = new Date();
+    em.flush().catch(() => {}); // Non-blocking update
 
-      // Update last used timestamp (inside transaction)
-      apiKey.lastUsedAt = new Date();
-      await txEm.flush();
-
-      return {
-        valid: true,
-        organizationId: apiKey.organization.id,
-        schemaName: apiKey.organization.schemaName,
-        // API key ID for audit traceability
-        apiKeyId: apiKey.id,
-        // Pass through authority fields
-        designAuthority: apiKey.designAuthority,
-        operationsAuthority: apiKey.operationsAuthority,
-        marketingAuthority: apiKey.marketingAuthority,
-        complianceAuthority: apiKey.complianceAuthority,
-        isOrgAdmin: apiKey.isOrgAdmin,
-      };
-    });
+    return {
+      valid: true,
+      organizationId: apiKey.organization.id,
+      schemaName: apiKey.organization.schemaName,
+    };
   }
 
   /**
@@ -162,12 +132,7 @@ export class ApiKeyService {
    */
   async listKeys(organizationId: string): Promise<ApiKey[]> {
     const em = this.em.fork();
-
-    // Explicitly set search_path to public
-    return em.transactional(async (txEm) => {
-      await txEm.execute('SET search_path TO public');
-      return txEm.find(ApiKey, { organization: { id: organizationId } });
-    });
+    return em.find(ApiKey, { organization: { id: organizationId } });
   }
 
   /**
@@ -176,23 +141,18 @@ export class ApiKeyService {
   async revokeKey(keyId: string, organizationId: string): Promise<boolean> {
     const em = this.em.fork();
 
-    // All operations inside transactional block
-    return em.transactional(async (txEm) => {
-      await txEm.execute('SET search_path TO public');
-
-      const apiKey = await txEm.findOne(ApiKey, {
-        id: keyId,
-        organization: { id: organizationId },
-      });
-
-      if (!apiKey) {
-        return false;
-      }
-
-      apiKey.revokedAt = new Date();
-      await txEm.flush();
-
-      return true;
+    const apiKey = await em.findOne(ApiKey, {
+      id: keyId,
+      organization: { id: organizationId },
     });
+
+    if (!apiKey) {
+      return false;
+    }
+
+    apiKey.revokedAt = new Date();
+    await em.flush();
+
+    return true;
   }
 }

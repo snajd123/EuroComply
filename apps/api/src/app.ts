@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { secureHeaders } from 'hono/secure-headers';
-import { User, OrganizationUser } from '@eurocomply/database';
+import { User, OrganizationUser, WorkspaceAuthority } from '@eurocomply/database';
 import type { MikroORM } from '@eurocomply/database';
 import { createOrganizationsRouter } from './routes/organizations.js';
 import { createProductsRouter } from './routes/products.js';
@@ -12,6 +12,14 @@ import { tenantMiddleware, createTenantMiddlewareWithApiKeys } from './middlewar
 import { adminAuthMiddleware } from './middleware/admin-auth.js';
 import { createUserMiddleware } from './middleware/user.js';
 
+export interface ApiKeyAuthorities {
+  designAuthority: WorkspaceAuthority;
+  operationsAuthority: WorkspaceAuthority;
+  marketingAuthority: WorkspaceAuthority;
+  complianceAuthority: WorkspaceAuthority;
+  isOrgAdmin: boolean;
+}
+
 export type Env = {
   Variables: {
     tenantSchema?: string;
@@ -19,6 +27,7 @@ export type Env = {
     webhookPayload?: unknown;
     user?: User;
     membership?: OrganizationUser;
+    apiKeyAuthorities?: ApiKeyAuthorities;
   };
 };
 
