@@ -379,4 +379,27 @@ authorizeWorkspaces(['design', 'operations'], 'view')
 
 ---
 
+## Implementation Status
+
+**✅ COMPLETE - 2026-01-25**
+
+All components have been implemented and tested:
+
+| Component | Status | Commit |
+|-----------|--------|--------|
+| ApiKey entity fields | ✅ Complete | `4b7ad0e` |
+| ValidateApiKeyResult interface | ✅ Complete | `ec08ca2` |
+| ApiKeyService hardening | ✅ Complete | `d579037` |
+| Env type update | ✅ Complete | `94e08df` |
+| Tenant middleware propagation | ✅ Complete | `7ed5efd` |
+| authorize() middleware refactor | ✅ Complete | `059263e` |
+| requireOrgAdmin() refactor | ✅ Complete | `059263e` |
+| authorizeAnyWorkspace() deleted | ✅ Complete | `c557312` |
+| API keys router with scopes | ✅ Complete | `95fb78e` |
+
+**Tests:** All 148 source tests pass.
+
+---
+
 *Design validated: 2026-01-25*
+*Implementation complete: 2026-01-25*
