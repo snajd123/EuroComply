@@ -1,6 +1,7 @@
-import { Entity, Property, ManyToOne, type Rel } from '@mikro-orm/core';
+import { Entity, Property, ManyToOne, Enum, type Rel } from '@mikro-orm/core';
 import { BaseEntity } from './BaseEntity.js';
 import { Organization } from './Organization.js';
+import { WorkspaceAuthority } from './WorkspaceAuthority.js';
 
 /**
  * API Key entity for programmatic tenant access.
@@ -49,6 +50,36 @@ export class ApiKey extends BaseEntity {
    */
   @Property({ type: 'datetime', nullable: true })
   revokedAt?: Date;
+
+  /**
+   * Design workspace authority level for this API key.
+   */
+  @Enum({ items: () => WorkspaceAuthority, default: WorkspaceAuthority.NONE })
+  designAuthority: WorkspaceAuthority = WorkspaceAuthority.NONE;
+
+  /**
+   * Operations workspace authority level for this API key.
+   */
+  @Enum({ items: () => WorkspaceAuthority, default: WorkspaceAuthority.NONE })
+  operationsAuthority: WorkspaceAuthority = WorkspaceAuthority.NONE;
+
+  /**
+   * Marketing workspace authority level for this API key.
+   */
+  @Enum({ items: () => WorkspaceAuthority, default: WorkspaceAuthority.NONE })
+  marketingAuthority: WorkspaceAuthority = WorkspaceAuthority.NONE;
+
+  /**
+   * Compliance workspace authority level for this API key.
+   */
+  @Enum({ items: () => WorkspaceAuthority, default: WorkspaceAuthority.NONE })
+  complianceAuthority: WorkspaceAuthority = WorkspaceAuthority.NONE;
+
+  /**
+   * Whether this API key has organization admin privileges.
+   */
+  @Property({ type: 'boolean', default: false })
+  isOrgAdmin: boolean = false;
 
   /**
    * Check if the key is active (not revoked).
