@@ -8,11 +8,22 @@
 eurocomply-complete.postman_collection.json
 ```
 
+### Required Variables
+
+Set these in the **Variables** tab after importing:
+
+| Variable | Value | Required |
+|----------|-------|----------|
+| `webhookSecret` | `whsec_Wx4vOyadXO+o3wbuEGcm4wLlsKGfkbmO` | Yes - for webhook tests |
+| `adminApiKey` | `6fRoO4fpVQkVMsO39_9wvaZzPz1lF4ZSxCH3YPA3v_Q` | Optional - for admin tests |
+
+### Run Order
+
 1. Import `eurocomply-complete.postman_collection.json` into Postman
-2. Set `adminApiKey` variable (optional, for admin/cleanup tests)
+2. Go to **Variables** tab and set `webhookSecret` (and optionally `adminApiKey`)
 3. Run folders in order: Setup → Public API → Admin API → API Keys → Products → Cleanup
 
-All variables are shared automatically between requests.
+All other variables are auto-generated and shared between requests.
 
 ---
 

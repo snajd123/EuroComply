@@ -2,11 +2,12 @@
   "info": {
     "name": "EuroComply API Complete",
     "_postman_id": "eurocomply-complete-collection",
-    "description": "Complete EuroComply API test suite. Run folders in order: Setup → Public API → Admin API → Tenant API → Cleanup",
+    "description": "Complete EuroComply API test suite. Run folders in order: Setup → Public API → Admin API → Tenant API → Cleanup\n\nREQUIRED: Set webhookSecret variable to your CLERK_WEBHOOK_SECRET (whsec_...)",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
     { "key": "baseUrl", "value": "http://localhost:3001", "type": "string" },
+    { "key": "webhookSecret", "value": "", "type": "string", "description": "REQUIRED: CLERK_WEBHOOK_SECRET (whsec_...)" },
     { "key": "adminApiKey", "value": "", "type": "string", "description": "ADMIN_API_KEY from .env" },
     { "key": "clerkOrgId", "value": "", "type": "string" },
     { "key": "orgId", "value": "", "type": "string" },
@@ -20,12 +21,15 @@
     { "key": "categoryId", "value": "", "type": "string" },
     { "key": "productId", "value": "", "type": "string" },
     { "key": "_jwtToken", "value": "", "type": "string" },
-    { "key": "_timestamp", "value": "", "type": "string" }
+    { "key": "_timestamp", "value": "", "type": "string" },
+    { "key": "_svixId", "value": "", "type": "string" },
+    { "key": "_svixSignature", "value": "", "type": "string" },
+    { "key": "_requestBody", "value": "", "type": "string" }
   ],
   "item": [
     {
       "name": "1. Setup (Webhooks)",
-      "description": "Run these first to create organization and users",
+      "description": "Run these first to create organization and users. Requires webhookSecret to be set.",
       "item": [
         {
           "name": "1.1 Create Organization",
@@ -34,10 +38,41 @@
               "listen": "prerequest",
               "script": {
                 "exec": [
+                  "// Check webhook secret",
+                  "const webhookSecret = pm.collectionVariables.get('webhookSecret');",
+                  "if (!webhookSecret || !webhookSecret.startsWith('whsec_')) {",
+                  "    throw new Error('Set webhookSecret variable to your CLERK_WEBHOOK_SECRET (whsec_...)');",
+                  "}",
+                  "",
+                  "// Generate unique IDs",
                   "const suffix = Math.random().toString(36).substring(2, 8);",
                   "const orgId = 'org_test_' + suffix;",
+                  "const timestamp = Math.floor(Date.now() / 1000).toString();",
+                  "const svixId = 'msg_' + suffix;",
+                  "",
                   "pm.collectionVariables.set('clerkOrgId', orgId);",
-                  "pm.collectionVariables.set('_timestamp', Math.floor(Date.now() / 1000).toString());",
+                  "pm.collectionVariables.set('_timestamp', timestamp);",
+                  "pm.collectionVariables.set('_svixId', svixId);",
+                  "",
+                  "// Build request body",
+                  "const body = JSON.stringify({",
+                  "    type: 'organization.created',",
+                  "    data: {",
+                  "        id: orgId,",
+                  "        name: 'Test Company ' + suffix,",
+                  "        slug: 'test-company-' + suffix,",
+                  "        created_at: parseInt(timestamp)",
+                  "    }",
+                  "});",
+                  "pm.collectionVariables.set('_requestBody', body);",
+                  "",
+                  "// Sign the webhook (Svix signature format)",
+                  "const secretBytes = CryptoJS.enc.Base64.parse(webhookSecret.replace('whsec_', ''));",
+                  "const toSign = svixId + '.' + timestamp + '.' + body;",
+                  "const signature = CryptoJS.HmacSHA256(toSign, secretBytes);",
+                  "const signatureBase64 = CryptoJS.enc.Base64.stringify(signature);",
+                  "pm.collectionVariables.set('_svixSignature', 'v1,' + signatureBase64);",
+                  "",
                   "console.log('Creating org:', orgId);"
                 ],
                 "type": "text/javascript"
@@ -69,13 +104,13 @@
             "method": "POST",
             "header": [
               { "key": "Content-Type", "value": "application/json" },
-              { "key": "svix-id", "value": "msg_test_{{$timestamp}}" },
+              { "key": "svix-id", "value": "{{_svixId}}" },
               { "key": "svix-timestamp", "value": "{{_timestamp}}" },
-              { "key": "svix-signature", "value": "v1,test" }
+              { "key": "svix-signature", "value": "{{_svixSignature}}" }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"type\": \"organization.created\",\n  \"data\": {\n    \"id\": \"{{clerkOrgId}}\",\n    \"name\": \"Test Company {{$randomInt}}\",\n    \"slug\": \"test-company-{{$timestamp}}\",\n    \"created_at\": {{_timestamp}}\n  }\n}"
+              "raw": "{{_requestBody}}"
             },
             "url": {
               "raw": "{{baseUrl}}/webhooks/clerk",
@@ -91,10 +126,47 @@
               "listen": "prerequest",
               "script": {
                 "exec": [
+                  "const webhookSecret = pm.collectionVariables.get('webhookSecret');",
+                  "if (!webhookSecret || !webhookSecret.startsWith('whsec_')) {",
+                  "    throw new Error('Set webhookSecret variable');",
+                  "}",
+                  "",
+                  "const clerkOrgId = pm.collectionVariables.get('clerkOrgId');",
+                  "if (!clerkOrgId) {",
+                  "    throw new Error('Run 1.1 Create Organization first');",
+                  "}",
+                  "",
                   "const suffix = Math.random().toString(36).substring(2, 8);",
                   "const userId = 'user_admin_' + suffix;",
+                  "const timestamp = Math.floor(Date.now() / 1000).toString();",
+                  "const svixId = 'msg_mem_' + suffix;",
+                  "",
                   "pm.collectionVariables.set('clerkUserId', userId);",
-                  "pm.collectionVariables.set('_timestamp', Math.floor(Date.now() / 1000).toString());",
+                  "pm.collectionVariables.set('_timestamp', timestamp);",
+                  "pm.collectionVariables.set('_svixId', svixId);",
+                  "",
+                  "const body = JSON.stringify({",
+                  "    type: 'organizationMembership.created',",
+                  "    data: {",
+                  "        id: 'mem_' + suffix,",
+                  "        organization: { id: clerkOrgId },",
+                  "        public_user_data: {",
+                  "            user_id: userId,",
+                  "            first_name: 'Admin',",
+                  "            last_name: 'User',",
+                  "            image_url: 'https://example.com/avatar.png'",
+                  "        },",
+                  "        role: 'org:admin',",
+                  "        created_at: parseInt(timestamp)",
+                  "    }",
+                  "});",
+                  "pm.collectionVariables.set('_requestBody', body);",
+                  "",
+                  "const secretBytes = CryptoJS.enc.Base64.parse(webhookSecret.replace('whsec_', ''));",
+                  "const toSign = svixId + '.' + timestamp + '.' + body;",
+                  "const signature = CryptoJS.HmacSHA256(toSign, secretBytes);",
+                  "pm.collectionVariables.set('_svixSignature', 'v1,' + CryptoJS.enc.Base64.stringify(signature));",
+                  "",
                   "console.log('Creating admin user:', userId);"
                 ],
                 "type": "text/javascript"
@@ -125,13 +197,13 @@
             "method": "POST",
             "header": [
               { "key": "Content-Type", "value": "application/json" },
-              { "key": "svix-id", "value": "msg_member_{{$timestamp}}" },
+              { "key": "svix-id", "value": "{{_svixId}}" },
               { "key": "svix-timestamp", "value": "{{_timestamp}}" },
-              { "key": "svix-signature", "value": "v1,test" }
+              { "key": "svix-signature", "value": "{{_svixSignature}}" }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"type\": \"organizationMembership.created\",\n  \"data\": {\n    \"id\": \"mem_{{$timestamp}}\",\n    \"organization\": { \"id\": \"{{clerkOrgId}}\" },\n    \"public_user_data\": {\n      \"user_id\": \"{{clerkUserId}}\",\n      \"first_name\": \"Admin\",\n      \"last_name\": \"User\",\n      \"image_url\": \"https://example.com/avatar.png\"\n    },\n    \"role\": \"org:admin\",\n    \"created_at\": {{_timestamp}}\n  }\n}"
+              "raw": "{{_requestBody}}"
             },
             "url": {
               "raw": "{{baseUrl}}/webhooks/clerk",
@@ -147,10 +219,46 @@
               "listen": "prerequest",
               "script": {
                 "exec": [
+                  "const webhookSecret = pm.collectionVariables.get('webhookSecret');",
+                  "if (!webhookSecret || !webhookSecret.startsWith('whsec_')) {",
+                  "    throw new Error('Set webhookSecret variable');",
+                  "}",
+                  "",
+                  "const clerkOrgId = pm.collectionVariables.get('clerkOrgId');",
+                  "if (!clerkOrgId) {",
+                  "    throw new Error('Run 1.1 Create Organization first');",
+                  "}",
+                  "",
                   "const suffix = Math.random().toString(36).substring(2, 8);",
                   "const userId = 'user_member_' + suffix;",
+                  "const timestamp = Math.floor(Date.now() / 1000).toString();",
+                  "const svixId = 'msg_mem2_' + suffix;",
+                  "",
                   "pm.collectionVariables.set('clerkUserId2', userId);",
-                  "pm.collectionVariables.set('_timestamp', Math.floor(Date.now() / 1000).toString());",
+                  "pm.collectionVariables.set('_timestamp', timestamp);",
+                  "pm.collectionVariables.set('_svixId', svixId);",
+                  "",
+                  "const body = JSON.stringify({",
+                  "    type: 'organizationMembership.created',",
+                  "    data: {",
+                  "        id: 'mem2_' + suffix,",
+                  "        organization: { id: clerkOrgId },",
+                  "        public_user_data: {",
+                  "            user_id: userId,",
+                  "            first_name: 'Regular',",
+                  "            last_name: 'Member'",
+                  "        },",
+                  "        role: 'org:member',",
+                  "        created_at: parseInt(timestamp)",
+                  "    }",
+                  "});",
+                  "pm.collectionVariables.set('_requestBody', body);",
+                  "",
+                  "const secretBytes = CryptoJS.enc.Base64.parse(webhookSecret.replace('whsec_', ''));",
+                  "const toSign = svixId + '.' + timestamp + '.' + body;",
+                  "const signature = CryptoJS.HmacSHA256(toSign, secretBytes);",
+                  "pm.collectionVariables.set('_svixSignature', 'v1,' + CryptoJS.enc.Base64.stringify(signature));",
+                  "",
                   "console.log('Creating limited user:', userId);"
                 ],
                 "type": "text/javascript"
@@ -179,13 +287,13 @@
             "method": "POST",
             "header": [
               { "key": "Content-Type", "value": "application/json" },
-              { "key": "svix-id", "value": "msg_member2_{{$timestamp}}" },
+              { "key": "svix-id", "value": "{{_svixId}}" },
               { "key": "svix-timestamp", "value": "{{_timestamp}}" },
-              { "key": "svix-signature", "value": "v1,test" }
+              { "key": "svix-signature", "value": "{{_svixSignature}}" }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"type\": \"organizationMembership.created\",\n  \"data\": {\n    \"id\": \"mem2_{{$timestamp}}\",\n    \"organization\": { \"id\": \"{{clerkOrgId}}\" },\n    \"public_user_data\": {\n      \"user_id\": \"{{clerkUserId2}}\",\n      \"first_name\": \"Regular\",\n      \"last_name\": \"Member\"\n    },\n    \"role\": \"org:member\",\n    \"created_at\": {{_timestamp}}\n  }\n}"
+              "raw": "{{_requestBody}}"
             },
             "url": {
               "raw": "{{baseUrl}}/webhooks/clerk",
@@ -1024,7 +1132,35 @@
               "listen": "prerequest",
               "script": {
                 "exec": [
-                  "pm.collectionVariables.set('_timestamp', Math.floor(Date.now() / 1000).toString());"
+                  "const webhookSecret = pm.collectionVariables.get('webhookSecret');",
+                  "if (!webhookSecret || !webhookSecret.startsWith('whsec_')) {",
+                  "    throw new Error('Set webhookSecret variable');",
+                  "}",
+                  "",
+                  "const clerkOrgId = pm.collectionVariables.get('clerkOrgId');",
+                  "const clerkUserId2 = pm.collectionVariables.get('clerkUserId2');",
+                  "",
+                  "const suffix = Math.random().toString(36).substring(2, 8);",
+                  "const timestamp = Math.floor(Date.now() / 1000).toString();",
+                  "const svixId = 'msg_del_' + suffix;",
+                  "",
+                  "pm.collectionVariables.set('_timestamp', timestamp);",
+                  "pm.collectionVariables.set('_svixId', svixId);",
+                  "",
+                  "const body = JSON.stringify({",
+                  "    type: 'organizationMembership.deleted',",
+                  "    data: {",
+                  "        id: 'mem_delete',",
+                  "        organization: { id: clerkOrgId },",
+                  "        public_user_data: { user_id: clerkUserId2 }",
+                  "    }",
+                  "});",
+                  "pm.collectionVariables.set('_requestBody', body);",
+                  "",
+                  "const secretBytes = CryptoJS.enc.Base64.parse(webhookSecret.replace('whsec_', ''));",
+                  "const toSign = svixId + '.' + timestamp + '.' + body;",
+                  "const signature = CryptoJS.HmacSHA256(toSign, secretBytes);",
+                  "pm.collectionVariables.set('_svixSignature', 'v1,' + CryptoJS.enc.Base64.stringify(signature));"
                 ],
                 "type": "text/javascript"
               }
@@ -1045,13 +1181,13 @@
             "method": "POST",
             "header": [
               { "key": "Content-Type", "value": "application/json" },
-              { "key": "svix-id", "value": "msg_delete_{{$timestamp}}" },
+              { "key": "svix-id", "value": "{{_svixId}}" },
               { "key": "svix-timestamp", "value": "{{_timestamp}}" },
-              { "key": "svix-signature", "value": "v1,test" }
+              { "key": "svix-signature", "value": "{{_svixSignature}}" }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"type\": \"organizationMembership.deleted\",\n  \"data\": {\n    \"id\": \"mem_delete\",\n    \"organization\": { \"id\": \"{{clerkOrgId}}\" },\n    \"public_user_data\": { \"user_id\": \"{{clerkUserId2}}\" }\n  }\n}"
+              "raw": "{{_requestBody}}"
             },
             "url": {
               "raw": "{{baseUrl}}/webhooks/clerk",
