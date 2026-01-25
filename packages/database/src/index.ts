@@ -11,6 +11,7 @@ export {
   generateRawApiKey,
   hashApiKey,
   extractKeyPrefix,
+  type CreateApiKeyOptions,
   type CreateApiKeyResult,
   type ValidateApiKeyResult,
   UnitConversionService,

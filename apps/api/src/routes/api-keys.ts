@@ -1,7 +1,13 @@
 import { Hono } from 'hono';
 import type { Env } from '../app.js';
-import { ApiKeyService, Organization, type EntityManager } from '@eurocomply/database';
+import { ApiKeyService, Organization, WorkspaceAuthority, type EntityManager } from '@eurocomply/database';
 import { requireOrgAdmin } from '../middleware/authorize.js';
+
+const VALID_AUTHORITIES = Object.values(WorkspaceAuthority);
+
+function isValidAuthority(value: unknown): value is WorkspaceAuthority {
+  return typeof value === 'string' && VALID_AUTHORITIES.includes(value as WorkspaceAuthority);
+}
 
 export interface ApiKeysRouterDeps {
   /** EntityManager for database operations */
@@ -25,8 +31,15 @@ export function createApiKeysRouter(deps: ApiKeysRouterDeps) {
    * POST /api/v1/api-keys
    * Create a new API key for the tenant.
    *
-   * Request body: { name: string }
-   * Response: { data: { id, keyPrefix, name, createdAt }, rawKey: string }
+   * Request body: {
+   *   name: string,
+   *   designAuthority?: WorkspaceAuthority,
+   *   operationsAuthority?: WorkspaceAuthority,
+   *   marketingAuthority?: WorkspaceAuthority,
+   *   complianceAuthority?: WorkspaceAuthority,
+   *   isOrgAdmin?: boolean
+   * }
+   * Response: { data: { id, keyPrefix, name, createdAt, authorities }, rawKey: string }
    *
    * IMPORTANT: The rawKey is only returned once at creation time.
    */
@@ -38,9 +51,33 @@ export function createApiKeysRouter(deps: ApiKeysRouterDeps) {
       return c.json({ error: 'Unauthorized', message: 'Missing tenant context' }, 401);
     }
 
-    const body = await c.req.json<{ name?: string }>();
+    interface CreateApiKeyBody {
+      name?: string;
+      designAuthority?: unknown;
+      operationsAuthority?: unknown;
+      marketingAuthority?: unknown;
+      complianceAuthority?: unknown;
+      isOrgAdmin?: boolean;
+    }
+
+    const body = await c.req.json<CreateApiKeyBody>();
     if (!body.name || typeof body.name !== 'string') {
       return c.json({ error: 'Bad Request', message: 'name is required' }, 400);
+    }
+
+    // Validate authorities if provided
+    const authorityFields = ['designAuthority', 'operationsAuthority', 'marketingAuthority', 'complianceAuthority'] as const;
+    for (const field of authorityFields) {
+      const value = body[field];
+      if (value !== undefined && !isValidAuthority(value)) {
+        return c.json(
+          {
+            error: 'Bad Request',
+            message: `Invalid ${field}: must be one of ${VALID_AUTHORITIES.join(', ')}`,
+          },
+          400
+        );
+      }
     }
 
     const em = deps.em.fork();
@@ -52,7 +89,14 @@ export function createApiKeysRouter(deps: ApiKeysRouterDeps) {
     }
 
     const apiKeyService = new ApiKeyService(em);
-    const { apiKey, rawKey } = await apiKeyService.createKey(org.id, body.name);
+    const { apiKey, rawKey } = await apiKeyService.createKey(org.id, {
+      name: body.name,
+      designAuthority: body.designAuthority as WorkspaceAuthority | undefined,
+      operationsAuthority: body.operationsAuthority as WorkspaceAuthority | undefined,
+      marketingAuthority: body.marketingAuthority as WorkspaceAuthority | undefined,
+      complianceAuthority: body.complianceAuthority as WorkspaceAuthority | undefined,
+      isOrgAdmin: body.isOrgAdmin,
+    });
 
     return c.json(
       {
@@ -61,6 +105,11 @@ export function createApiKeysRouter(deps: ApiKeysRouterDeps) {
           keyPrefix: apiKey.keyPrefix,
           name: apiKey.name,
           createdAt: apiKey.createdAt,
+          designAuthority: apiKey.designAuthority,
+          operationsAuthority: apiKey.operationsAuthority,
+          marketingAuthority: apiKey.marketingAuthority,
+          complianceAuthority: apiKey.complianceAuthority,
+          isOrgAdmin: apiKey.isOrgAdmin,
         },
         rawKey,
         message: 'API key created. Save the rawKey - it will not be shown again.',
@@ -102,6 +151,11 @@ export function createApiKeysRouter(deps: ApiKeysRouterDeps) {
         createdAt: key.createdAt,
         lastUsedAt: key.lastUsedAt,
         isActive: key.isActive,
+        designAuthority: key.designAuthority,
+        operationsAuthority: key.operationsAuthority,
+        marketingAuthority: key.marketingAuthority,
+        complianceAuthority: key.complianceAuthority,
+        isOrgAdmin: key.isOrgAdmin,
       })),
       meta: { total: keys.length },
     });

@@ -4,6 +4,7 @@ export {
   generateRawApiKey,
   hashApiKey,
   extractKeyPrefix,
+  type CreateApiKeyOptions,
   type CreateApiKeyResult,
   type ValidateApiKeyResult,
 } from './api-key.service.js';

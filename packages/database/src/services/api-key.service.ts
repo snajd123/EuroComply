@@ -13,6 +13,18 @@ export interface CreateApiKeyResult {
 }
 
 /**
+ * Options for creating a new API key.
+ */
+export interface CreateApiKeyOptions {
+  name: string;
+  designAuthority?: WorkspaceAuthority;
+  operationsAuthority?: WorkspaceAuthority;
+  marketingAuthority?: WorkspaceAuthority;
+  complianceAuthority?: WorkspaceAuthority;
+  isOrgAdmin?: boolean;
+}
+
+/**
  * Result of validating an API key.
  */
 export interface ValidateApiKeyResult {
@@ -69,10 +81,10 @@ export class ApiKeyService {
    * Creates a new API key for an organization.
    *
    * @param organizationId - The organization ID
-   * @param name - Human-readable name for the key
+   * @param options - Key creation options including name and optional authorities
    * @returns The created key entity AND the raw key (only time it's available)
    */
-  async createKey(organizationId: string, name: string): Promise<CreateApiKeyResult> {
+  async createKey(organizationId: string, options: CreateApiKeyOptions): Promise<CreateApiKeyResult> {
     const em = this.em.fork();
 
     // Generate the key material before transaction
@@ -93,7 +105,14 @@ export class ApiKeyService {
       key.organization = org;
       key.keyHash = keyHash;
       key.keyPrefix = keyPrefix;
-      key.name = name;
+      key.name = options.name;
+
+      // Set authorities if provided
+      if (options.designAuthority) key.designAuthority = options.designAuthority;
+      if (options.operationsAuthority) key.operationsAuthority = options.operationsAuthority;
+      if (options.marketingAuthority) key.marketingAuthority = options.marketingAuthority;
+      if (options.complianceAuthority) key.complianceAuthority = options.complianceAuthority;
+      if (options.isOrgAdmin !== undefined) key.isOrgAdmin = options.isOrgAdmin;
 
       txEm.persist(key);
       await txEm.flush();

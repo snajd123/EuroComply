@@ -202,6 +202,47 @@ describe('API Keys Management Integration', () => {
       expect(data.data).toBeInstanceOf(Array);
     });
 
+    it('includes authorities in list response', async (context) => {
+      if (!(await isDatabaseAvailable())) {
+        context.skip();
+        return;
+      }
+
+      const app = createTestApp(adminUserId, true);
+
+      // First create a key with authorities
+      await app.request('/api-keys', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Key With Authorities',
+          designAuthority: WorkspaceAuthority.MANAGER,
+          operationsAuthority: WorkspaceAuthority.EDITOR,
+          isOrgAdmin: true,
+        }),
+      });
+
+      // Then list and verify authorities are included
+      const res = await app.request('/api-keys');
+      expect(res.status).toBe(200);
+      const data = await res.json() as {
+        data: Array<{
+          name: string;
+          designAuthority?: string;
+          operationsAuthority?: string;
+          isOrgAdmin?: boolean;
+        }>;
+      };
+
+      const keyWithAuthorities = data.data.find(
+        (k) => k.name === 'Key With Authorities'
+      );
+      expect(keyWithAuthorities).toBeDefined();
+      expect(keyWithAuthorities!.designAuthority).toBe(WorkspaceAuthority.MANAGER);
+      expect(keyWithAuthorities!.operationsAuthority).toBe(WorkspaceAuthority.EDITOR);
+      expect(keyWithAuthorities!.isOrgAdmin).toBe(true);
+    });
+
     it('denies non-admin from listing keys', async (context) => {
       if (!(await isDatabaseAvailable())) {
         context.skip();
@@ -234,6 +275,71 @@ describe('API Keys Management Integration', () => {
       expect(data.data.name).toBe('Test Key');
       expect(data.rawKey).toBeDefined();
       expect(data.rawKey).toMatch(/^ek_/); // API key prefix
+    });
+
+    it('allows org admin to create keys with workspace authorities', async (context) => {
+      if (!(await isDatabaseAvailable())) {
+        context.skip();
+        return;
+      }
+
+      const app = createTestApp(adminUserId, true);
+      const res = await app.request('/api-keys', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Scoped Key',
+          designAuthority: WorkspaceAuthority.EDITOR,
+          operationsAuthority: WorkspaceAuthority.VIEWER,
+          marketingAuthority: WorkspaceAuthority.NONE,
+          complianceAuthority: WorkspaceAuthority.CONTRIBUTOR,
+          isOrgAdmin: false,
+        }),
+      });
+
+      expect(res.status).toBe(201);
+      const data = await res.json() as {
+        data: {
+          name: string;
+          designAuthority?: string;
+          operationsAuthority?: string;
+          marketingAuthority?: string;
+          complianceAuthority?: string;
+          isOrgAdmin?: boolean;
+        };
+        rawKey: string;
+      };
+      expect(data.data.name).toBe('Scoped Key');
+      expect(data.data.designAuthority).toBe(WorkspaceAuthority.EDITOR);
+      expect(data.data.operationsAuthority).toBe(WorkspaceAuthority.VIEWER);
+      expect(data.data.marketingAuthority).toBe(WorkspaceAuthority.NONE);
+      expect(data.data.complianceAuthority).toBe(WorkspaceAuthority.CONTRIBUTOR);
+      expect(data.data.isOrgAdmin).toBe(false);
+      expect(data.rawKey).toBeDefined();
+    });
+
+    it('returns 400 for invalid workspace authority', async (context) => {
+      if (!(await isDatabaseAvailable())) {
+        context.skip();
+        return;
+      }
+
+      const app = createTestApp(adminUserId, true);
+      const res = await app.request('/api-keys', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Invalid Authority Key',
+          designAuthority: 'INVALID_VALUE',
+        }),
+      });
+
+      expect(res.status).toBe(400);
+      const data = await res.json() as { error: string; message: string };
+      expect(data.error).toBe('Bad Request');
+      expect(data.message).toContain('designAuthority');
+      expect(data.message).toContain('NONE');
+      expect(data.message).toContain('VIEWER');
     });
 
     it('denies non-admin from creating keys', async (context) => {
