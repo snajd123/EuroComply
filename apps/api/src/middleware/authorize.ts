@@ -24,42 +24,41 @@ const ACTION_REQUIREMENTS: Record<Action, number> = {
 export function authorize(workspace: Workspace, action: Action) {
   return createMiddleware<Env>(async (c, next) => {
     const userId = c.get('userId');
+    const apiKeyAuthorities = c.get('apiKeyAuthorities');
     const membership = c.get('membership');
 
-    // API key auth: allow org-level access
-    if (userId?.startsWith('api-key:')) {
-      await next();
-      return;
-    }
+    const requiredLevel = ACTION_REQUIREMENTS[action];
+    let userLevel: number;
+    let userAuthority: WorkspaceAuthority;
 
-    if (!membership) {
+    // Determine authority source: API key or human membership
+    if (userId?.startsWith('api-key:') && apiKeyAuthorities) {
+      const authorityKey = `${workspace}Authority` as keyof typeof apiKeyAuthorities;
+      userAuthority = apiKeyAuthorities[authorityKey] as WorkspaceAuthority;
+      userLevel = AUTHORITY_LEVELS[userAuthority];
+    } else if (membership) {
+      const authorityKey = `${workspace}Authority` as keyof typeof membership;
+      userAuthority = membership[authorityKey] as WorkspaceAuthority;
+      userLevel = AUTHORITY_LEVELS[userAuthority];
+    } else {
       return c.json(
-        { error: 'Unauthorized', message: 'User context not found' },
+        { error: 'Unauthorized', message: 'No authorization context found' },
         401
       );
     }
-
-    // Get user's authority for this workspace
-    const authorityKey = `${workspace}Authority` as keyof typeof membership;
-    const userAuthority = membership[authorityKey] as WorkspaceAuthority;
-    const userLevel = AUTHORITY_LEVELS[userAuthority];
-    const requiredLevel = ACTION_REQUIREMENTS[action];
 
     if (userLevel < requiredLevel) {
       const authorityNeeded = Object.entries(AUTHORITY_LEVELS)
         .find(([_, level]) => level === requiredLevel)?.[0];
 
-      return c.json(
-        {
-          error: 'Forbidden',
-          message: `This action requires ${authorityNeeded} access to the ${workspace} workspace`,
-          workspace,
-          action,
-          yourAuthority: userAuthority,
-          requiredAuthority: authorityNeeded,
-        },
-        403
-      );
+      return c.json({
+        error: 'Forbidden',
+        message: `This action requires ${authorityNeeded} access to the ${workspace} workspace`,
+        workspace,
+        action,
+        yourAuthority: userAuthority,
+        requiredAuthority: authorityNeeded,
+      }, 403);
     }
 
     await next();
@@ -69,22 +68,24 @@ export function authorize(workspace: Workspace, action: Action) {
 export function requireOrgAdmin() {
   return createMiddleware<Env>(async (c, next) => {
     const userId = c.get('userId');
+    const apiKeyAuthorities = c.get('apiKeyAuthorities');
     const membership = c.get('membership');
 
-    // API key auth: allow (API keys are org-level credentials)
-    if (userId?.startsWith('api-key:')) {
-      await next();
-      return;
-    }
+    let isOrgAdmin: boolean;
 
-    if (!membership) {
+    // Determine authority source: API key or human membership
+    if (userId?.startsWith('api-key:') && apiKeyAuthorities) {
+      isOrgAdmin = apiKeyAuthorities.isOrgAdmin;
+    } else if (membership) {
+      isOrgAdmin = membership.isOrgAdmin;
+    } else {
       return c.json(
-        { error: 'Unauthorized', message: 'User context not found' },
+        { error: 'Unauthorized', message: 'No authorization context found' },
         401
       );
     }
 
-    if (!membership.isOrgAdmin) {
+    if (!isOrgAdmin) {
       return c.json(
         {
           error: 'Forbidden',
@@ -101,26 +102,30 @@ export function requireOrgAdmin() {
 export function authorizeAnyWorkspace(action: Action) {
   return createMiddleware<Env>(async (c, next) => {
     const userId = c.get('userId');
+    const apiKeyAuthorities = c.get('apiKeyAuthorities');
     const membership = c.get('membership');
 
-    if (userId?.startsWith('api-key:')) {
-      await next();
-      return;
-    }
-
-    if (!membership) {
-      return c.json({ error: 'Unauthorized', message: 'User context not found' }, 401);
-    }
-
     const requiredLevel = ACTION_REQUIREMENTS[action];
+    let hasAccess: boolean;
 
-    // Check if user has required level in ANY workspace
-    const hasAccess = (
-      AUTHORITY_LEVELS[membership.designAuthority] >= requiredLevel ||
-      AUTHORITY_LEVELS[membership.operationsAuthority] >= requiredLevel ||
-      AUTHORITY_LEVELS[membership.marketingAuthority] >= requiredLevel ||
-      AUTHORITY_LEVELS[membership.complianceAuthority] >= requiredLevel
-    );
+    // Determine authority source: API key or human membership
+    if (userId?.startsWith('api-key:') && apiKeyAuthorities) {
+      hasAccess = (
+        AUTHORITY_LEVELS[apiKeyAuthorities.designAuthority] >= requiredLevel ||
+        AUTHORITY_LEVELS[apiKeyAuthorities.operationsAuthority] >= requiredLevel ||
+        AUTHORITY_LEVELS[apiKeyAuthorities.marketingAuthority] >= requiredLevel ||
+        AUTHORITY_LEVELS[apiKeyAuthorities.complianceAuthority] >= requiredLevel
+      );
+    } else if (membership) {
+      hasAccess = (
+        AUTHORITY_LEVELS[membership.designAuthority] >= requiredLevel ||
+        AUTHORITY_LEVELS[membership.operationsAuthority] >= requiredLevel ||
+        AUTHORITY_LEVELS[membership.marketingAuthority] >= requiredLevel ||
+        AUTHORITY_LEVELS[membership.complianceAuthority] >= requiredLevel
+      );
+    } else {
+      return c.json({ error: 'Unauthorized', message: 'No authorization context found' }, 401);
+    }
 
     if (!hasAccess) {
       return c.json({

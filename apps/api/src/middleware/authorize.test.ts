@@ -109,17 +109,80 @@ describe('authorize middleware', () => {
     });
   });
 
-  describe('API key bypass', () => {
-    it('allows API key to skip authority check', async () => {
+  describe('API key authorization', () => {
+    it('allows API key with sufficient authority', async () => {
       app.use('*', (c, next) => {
         c.set('userId', 'api-key:org_123');
-        c.set('membership', undefined);
+        c.set('apiKeyAuthorities', {
+          designAuthority: WorkspaceAuthority.MANAGER,
+          operationsAuthority: WorkspaceAuthority.NONE,
+          marketingAuthority: WorkspaceAuthority.NONE,
+          complianceAuthority: WorkspaceAuthority.NONE,
+          isOrgAdmin: false,
+        });
         return next();
       });
       app.post('/test', authorize('design', 'manage'), (c) => c.json({ ok: true }));
 
       const res = await app.request('/test', { method: 'POST' });
       expect(res.status).toBe(200);
+    });
+
+    it('denies API key with insufficient authority (403)', async () => {
+      app.use('*', (c, next) => {
+        c.set('userId', 'api-key:org_123');
+        c.set('apiKeyAuthorities', {
+          designAuthority: WorkspaceAuthority.VIEWER,
+          operationsAuthority: WorkspaceAuthority.NONE,
+          marketingAuthority: WorkspaceAuthority.NONE,
+          complianceAuthority: WorkspaceAuthority.NONE,
+          isOrgAdmin: false,
+        });
+        return next();
+      });
+      app.post('/test', authorize('design', 'manage'), (c) => c.json({ ok: true }));
+
+      const res = await app.request('/test', { method: 'POST' });
+      expect(res.status).toBe(403);
+
+      const body = await res.json() as { yourAuthority: string; requiredAuthority: string };
+      expect(body.yourAuthority).toBe('VIEWER');
+      expect(body.requiredAuthority).toBe('MANAGER');
+    });
+
+    it('denies API key with NONE authority (403)', async () => {
+      app.use('*', (c, next) => {
+        c.set('userId', 'api-key:org_123');
+        c.set('apiKeyAuthorities', {
+          designAuthority: WorkspaceAuthority.NONE,
+          operationsAuthority: WorkspaceAuthority.NONE,
+          marketingAuthority: WorkspaceAuthority.NONE,
+          complianceAuthority: WorkspaceAuthority.NONE,
+          isOrgAdmin: false,
+        });
+        return next();
+      });
+      app.get('/test', authorize('design', 'view'), (c) => c.json({ ok: true }));
+
+      const res = await app.request('/test');
+      expect(res.status).toBe(403);
+
+      const body = await res.json() as { yourAuthority: string; requiredAuthority: string };
+      expect(body.yourAuthority).toBe('NONE');
+      expect(body.requiredAuthority).toBe('VIEWER');
+    });
+
+    it('returns 401 when API key has no apiKeyAuthorities set', async () => {
+      app.use('*', (c, next) => {
+        c.set('userId', 'api-key:org_123');
+        c.set('apiKeyAuthorities', undefined);
+        c.set('membership', undefined);
+        return next();
+      });
+      app.get('/test', authorize('design', 'view'), (c) => c.json({ ok: true }));
+
+      const res = await app.request('/test');
+      expect(res.status).toBe(401);
     });
   });
 
@@ -170,16 +233,53 @@ describe('requireOrgAdmin middleware', () => {
     expect(body.message).toContain('Organization Admin');
   });
 
-  it('allows API key to bypass', async () => {
+  it('allows API key with isOrgAdmin true', async () => {
     app.use('*', (c, next) => {
       c.set('userId', 'api-key:org_123');
-      c.set('membership', undefined);
+      c.set('apiKeyAuthorities', {
+        designAuthority: WorkspaceAuthority.NONE,
+        operationsAuthority: WorkspaceAuthority.NONE,
+        marketingAuthority: WorkspaceAuthority.NONE,
+        complianceAuthority: WorkspaceAuthority.NONE,
+        isOrgAdmin: true,
+      });
       return next();
     });
     app.get('/test', requireOrgAdmin(), (c) => c.json({ ok: true }));
 
     const res = await app.request('/test');
     expect(res.status).toBe(200);
+  });
+
+  it('denies API key with isOrgAdmin false', async () => {
+    app.use('*', (c, next) => {
+      c.set('userId', 'api-key:org_123');
+      c.set('apiKeyAuthorities', {
+        designAuthority: WorkspaceAuthority.MANAGER,
+        operationsAuthority: WorkspaceAuthority.MANAGER,
+        marketingAuthority: WorkspaceAuthority.MANAGER,
+        complianceAuthority: WorkspaceAuthority.MANAGER,
+        isOrgAdmin: false,
+      });
+      return next();
+    });
+    app.get('/test', requireOrgAdmin(), (c) => c.json({ ok: true }));
+
+    const res = await app.request('/test');
+    expect(res.status).toBe(403);
+  });
+
+  it('returns 401 when API key has no apiKeyAuthorities set', async () => {
+    app.use('*', (c, next) => {
+      c.set('userId', 'api-key:org_123');
+      c.set('apiKeyAuthorities', undefined);
+      c.set('membership', undefined);
+      return next();
+    });
+    app.get('/test', requireOrgAdmin(), (c) => c.json({ ok: true }));
+
+    const res = await app.request('/test');
+    expect(res.status).toBe(401);
   });
 });
 
@@ -220,5 +320,54 @@ describe('authorizeAnyWorkspace middleware', () => {
 
     const res = await app.request('/test');
     expect(res.status).toBe(403);
+  });
+
+  it('allows API key with access to any workspace', async () => {
+    app.use('*', (c, next) => {
+      c.set('userId', 'api-key:org_123');
+      c.set('apiKeyAuthorities', {
+        designAuthority: WorkspaceAuthority.NONE,
+        operationsAuthority: WorkspaceAuthority.NONE,
+        marketingAuthority: WorkspaceAuthority.VIEWER,
+        complianceAuthority: WorkspaceAuthority.NONE,
+        isOrgAdmin: false,
+      });
+      return next();
+    });
+    app.get('/test', authorizeAnyWorkspace('view'), (c) => c.json({ ok: true }));
+
+    const res = await app.request('/test');
+    expect(res.status).toBe(200);
+  });
+
+  it('denies API key with NONE in all workspaces', async () => {
+    app.use('*', (c, next) => {
+      c.set('userId', 'api-key:org_123');
+      c.set('apiKeyAuthorities', {
+        designAuthority: WorkspaceAuthority.NONE,
+        operationsAuthority: WorkspaceAuthority.NONE,
+        marketingAuthority: WorkspaceAuthority.NONE,
+        complianceAuthority: WorkspaceAuthority.NONE,
+        isOrgAdmin: false,
+      });
+      return next();
+    });
+    app.get('/test', authorizeAnyWorkspace('view'), (c) => c.json({ ok: true }));
+
+    const res = await app.request('/test');
+    expect(res.status).toBe(403);
+  });
+
+  it('returns 401 when API key has no apiKeyAuthorities set', async () => {
+    app.use('*', (c, next) => {
+      c.set('userId', 'api-key:org_123');
+      c.set('apiKeyAuthorities', undefined);
+      c.set('membership', undefined);
+      return next();
+    });
+    app.get('/test', authorizeAnyWorkspace('view'), (c) => c.json({ ok: true }));
+
+    const res = await app.request('/test');
+    expect(res.status).toBe(401);
   });
 });
