@@ -1,8 +1,26 @@
 # Postman Webhook & API Tests
 
-Individual Postman collections for testing Clerk webhooks and API functionality.
+## Quick Start (Recommended)
 
-## Setup
+**Import the complete collection for a seamless experience:**
+
+```
+eurocomply-complete.postman_collection.json
+```
+
+1. Import `eurocomply-complete.postman_collection.json` into Postman
+2. Set `adminApiKey` variable (optional, for admin/cleanup tests)
+3. Run folders in order: Setup → Public API → Admin API → API Keys → Products → Cleanup
+
+All variables are shared automatically between requests.
+
+---
+
+## Individual Collections
+
+For targeted testing, individual collections are also available.
+
+### Setup
 
 1. Import any file into Postman
 2. Set `webhookSecret` in collection variables (your `CLERK_WEBHOOK_SECRET`)
