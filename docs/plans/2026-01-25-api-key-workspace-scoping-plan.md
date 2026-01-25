@@ -12,6 +12,16 @@
 
 ---
 
+## Architectural Refinements (Applied)
+
+1. **Hardened Service Layer**: All DML operations (persist, flush) must be inside `em.transactional` blocks where `search_path` is set
+2. **Audit Traceability**: Use `api-key:${apiKey.id}` (not organizationId) for userId to trace actions to specific keys
+3. **Input Validation**: Validate WorkspaceAuthority strings against enum before assignment
+4. **Middleware Protection**: `/api-keys` routes already use `requireOrgAdmin()` (api-keys.ts:22)
+5. **No Migration**: Early development - schema sync handles new columns
+
+---
+
 ## Task 1: Add Workspace Authority Fields to ApiKey Entity
 
 **Files:**
@@ -233,6 +243,9 @@ export interface ValidateApiKeyResult {
   schemaName?: string;
   error?: string;
 
+  // API key ID for audit traceability (used in userId: `api-key:${apiKeyId}`)
+  apiKeyId?: string;
+
   // Workspace authorities for authorization
   designAuthority?: WorkspaceAuthority;
   operationsAuthority?: WorkspaceAuthority;
@@ -315,40 +328,43 @@ async validateKey(rawKey: string): Promise<ValidateApiKeyResult> {
   const keyHash = hashApiKey(rawKey);
   const em = this.em.fork();
 
-  // Explicitly set search_path to public for this auth query
+  // All operations inside transactional block with explicit search_path
   // Prevents cross-talk if connection was left in tenant schema
-  const apiKey = await em.transactional(async (txEm) => {
+  return em.transactional(async (txEm) => {
     await txEm.execute('SET search_path TO public');
-    return txEm.findOne(
+
+    const apiKey = await txEm.findOne(
       ApiKey,
       { keyHash },
       { populate: ['organization'] }
     );
+
+    if (!apiKey) {
+      return { valid: false, error: 'API key not found' };
+    }
+
+    if (!apiKey.isActive) {
+      return { valid: false, error: 'API key has been revoked' };
+    }
+
+    // Update last used timestamp (inside transaction)
+    apiKey.lastUsedAt = new Date();
+    await txEm.flush();
+
+    return {
+      valid: true,
+      organizationId: apiKey.organization.id,
+      schemaName: apiKey.organization.schemaName,
+      // API key ID for audit traceability
+      apiKeyId: apiKey.id,
+      // Pass through authority fields
+      designAuthority: apiKey.designAuthority,
+      operationsAuthority: apiKey.operationsAuthority,
+      marketingAuthority: apiKey.marketingAuthority,
+      complianceAuthority: apiKey.complianceAuthority,
+      isOrgAdmin: apiKey.isOrgAdmin,
+    };
   });
-
-  if (!apiKey) {
-    return { valid: false, error: 'API key not found' };
-  }
-
-  if (!apiKey.isActive) {
-    return { valid: false, error: 'API key has been revoked' };
-  }
-
-  // Update last used timestamp (fire and forget)
-  apiKey.lastUsedAt = new Date();
-  em.flush().catch(() => {}); // Non-blocking update
-
-  return {
-    valid: true,
-    organizationId: apiKey.organization.id,
-    schemaName: apiKey.organization.schemaName,
-    // Pass through authority fields
-    designAuthority: apiKey.designAuthority,
-    operationsAuthority: apiKey.operationsAuthority,
-    marketingAuthority: apiKey.marketingAuthority,
-    complianceAuthority: apiKey.complianceAuthority,
-    isOrgAdmin: apiKey.isOrgAdmin,
-  };
 }
 ```
 
@@ -360,29 +376,31 @@ Replace `createKey` method (around line 64-88):
 async createKey(organizationId: string, name: string): Promise<CreateApiKeyResult> {
   const em = this.em.fork();
 
-  // Explicitly set search_path to public
-  const org = await em.transactional(async (txEm) => {
-    await txEm.execute('SET search_path TO public');
-    return txEm.findOne(Organization, { id: organizationId });
-  });
-
-  if (!org) {
-    throw new Error(`Organization not found: ${organizationId}`);
-  }
-
-  // Generate the key
+  // Generate the key material before transaction
   const rawKey = generateRawApiKey();
   const keyHash = hashApiKey(rawKey);
   const keyPrefix = extractKeyPrefix(rawKey);
 
-  // Create the entity
-  const apiKey = new ApiKey();
-  apiKey.organization = org;
-  apiKey.keyHash = keyHash;
-  apiKey.keyPrefix = keyPrefix;
-  apiKey.name = name;
+  // All DML inside transactional block with explicit search_path
+  const apiKey = await em.transactional(async (txEm) => {
+    await txEm.execute('SET search_path TO public');
 
-  await em.persistAndFlush(apiKey);
+    const org = await txEm.findOne(Organization, { id: organizationId });
+    if (!org) {
+      throw new Error(`Organization not found: ${organizationId}`);
+    }
+
+    const key = new ApiKey();
+    key.organization = org;
+    key.keyHash = keyHash;
+    key.keyPrefix = keyPrefix;
+    key.name = name;
+
+    txEm.persist(key);
+    await txEm.flush();
+
+    return key;
+  });
 
   return { apiKey, rawKey };
 }
@@ -599,7 +617,7 @@ if (apiKey) {
 
   tenant = {
     schemaName: result.schemaName!,
-    userId: `api-key:${result.organizationId}`, // Mark as API key access
+    userId: `api-key:${result.apiKeyId}`, // Use key ID for audit traceability
   };
 
   // Store API key authorities in context for authorization middleware
@@ -947,73 +965,7 @@ Routes should explicitly declare which workspace they belong to."
 
 ---
 
-## Task 9: Create Database Migration
-
-**Files:**
-- Create: `packages/database/src/migrations/Migration_AddApiKeyAuthorities.ts`
-
-**Step 1: Create the migration file**
-
-Create `packages/database/src/migrations/Migration_AddApiKeyAuthorities.ts`:
-
-```typescript
-import { Migration } from '@mikro-orm/migrations';
-
-export class Migration_AddApiKeyAuthorities extends Migration {
-  async up(): Promise<void> {
-    // Add workspace authority columns with safe defaults
-    this.addSql(`
-      ALTER TABLE public.api_keys
-        ADD COLUMN IF NOT EXISTS design_authority VARCHAR(20) DEFAULT 'NONE' NOT NULL,
-        ADD COLUMN IF NOT EXISTS operations_authority VARCHAR(20) DEFAULT 'NONE' NOT NULL,
-        ADD COLUMN IF NOT EXISTS marketing_authority VARCHAR(20) DEFAULT 'NONE' NOT NULL,
-        ADD COLUMN IF NOT EXISTS compliance_authority VARCHAR(20) DEFAULT 'NONE' NOT NULL,
-        ADD COLUMN IF NOT EXISTS is_org_admin BOOLEAN DEFAULT false NOT NULL;
-    `);
-
-    // SECURITY: Elevate existing keys to preserve current behavior
-    // This maintains backwards compatibility - existing keys work as before
-    // Operators should review and restrict keys as needed
-    this.addSql(`
-      UPDATE public.api_keys SET
-        design_authority = 'MANAGER',
-        operations_authority = 'MANAGER',
-        marketing_authority = 'MANAGER',
-        compliance_authority = 'MANAGER',
-        is_org_admin = true
-      WHERE design_authority = 'NONE';
-    `);
-  }
-
-  async down(): Promise<void> {
-    this.addSql(`
-      ALTER TABLE public.api_keys
-        DROP COLUMN IF EXISTS design_authority,
-        DROP COLUMN IF EXISTS operations_authority,
-        DROP COLUMN IF EXISTS marketing_authority,
-        DROP COLUMN IF EXISTS compliance_authority,
-        DROP COLUMN IF EXISTS is_org_admin;
-    `);
-  }
-}
-```
-
-**Step 2: Run migration**
-
-Run: `cd /root/Documents/EuroComply && npm run db:migrate -w @eurocomply/database`
-
-Expected: Migration runs successfully
-
-**Step 3: Commit**
-
-```bash
-git add packages/database/src/migrations/Migration_AddApiKeyAuthorities.ts
-git commit -m "feat(database): add migration for API key workspace authorities"
-```
-
----
-
-## Task 10: Update API Keys Router to Accept Scopes
+## Task 9: Update API Keys Router to Accept Scopes
 
 **Files:**
 - Modify: `apps/api/src/routes/api-keys.ts`
@@ -1121,11 +1073,33 @@ router.post('/', async (c) => {
   const apiKeyService = new ApiKeyService(em);
   const { apiKey, rawKey } = await apiKeyService.createKey(org.id, body.name);
 
-  // Set workspace authorities if provided
-  if (body.designAuthority) apiKey.designAuthority = body.designAuthority as WorkspaceAuthority;
-  if (body.operationsAuthority) apiKey.operationsAuthority = body.operationsAuthority as WorkspaceAuthority;
-  if (body.marketingAuthority) apiKey.marketingAuthority = body.marketingAuthority as WorkspaceAuthority;
-  if (body.complianceAuthority) apiKey.complianceAuthority = body.complianceAuthority as WorkspaceAuthority;
+  // Validate and set workspace authorities
+  const validAuthorities = Object.values(WorkspaceAuthority);
+
+  if (body.designAuthority) {
+    if (!validAuthorities.includes(body.designAuthority as WorkspaceAuthority)) {
+      return c.json({ error: 'Bad Request', message: `Invalid designAuthority: ${body.designAuthority}` }, 400);
+    }
+    apiKey.designAuthority = body.designAuthority as WorkspaceAuthority;
+  }
+  if (body.operationsAuthority) {
+    if (!validAuthorities.includes(body.operationsAuthority as WorkspaceAuthority)) {
+      return c.json({ error: 'Bad Request', message: `Invalid operationsAuthority: ${body.operationsAuthority}` }, 400);
+    }
+    apiKey.operationsAuthority = body.operationsAuthority as WorkspaceAuthority;
+  }
+  if (body.marketingAuthority) {
+    if (!validAuthorities.includes(body.marketingAuthority as WorkspaceAuthority)) {
+      return c.json({ error: 'Bad Request', message: `Invalid marketingAuthority: ${body.marketingAuthority}` }, 400);
+    }
+    apiKey.marketingAuthority = body.marketingAuthority as WorkspaceAuthority;
+  }
+  if (body.complianceAuthority) {
+    if (!validAuthorities.includes(body.complianceAuthority as WorkspaceAuthority)) {
+      return c.json({ error: 'Bad Request', message: `Invalid complianceAuthority: ${body.complianceAuthority}` }, 400);
+    }
+    apiKey.complianceAuthority = body.complianceAuthority as WorkspaceAuthority;
+  }
   if (typeof body.isOrgAdmin === 'boolean') apiKey.isOrgAdmin = body.isOrgAdmin;
 
   await em.flush();
@@ -1192,7 +1166,7 @@ git commit -m "feat(api): support workspace authorities when creating API keys"
 
 ---
 
-## Task 11: Run Full Test Suite
+## Task 10: Run Full Test Suite
 
 **Step 1: Run all tests**
 
@@ -1213,7 +1187,7 @@ git commit -m "fix: resolve test failures from API key scoping changes"
 
 ---
 
-## Task 12: Final Verification and Documentation
+## Task 11: Final Verification and Documentation
 
 **Step 1: Verify the security fix**
 
@@ -1268,11 +1242,10 @@ git commit -m "docs: mark API key workspace scoping implementation complete"
 | 6 | Refactor authorize() | `authorize.ts`, `authorize.test.ts` |
 | 7 | Refactor requireOrgAdmin() | `authorize.ts`, `authorize.test.ts` |
 | 8 | Delete authorizeAnyWorkspace | `authorize.ts`, `authorize.test.ts` |
-| 9 | Database migration | `Migration_AddApiKeyAuthorities.ts` |
-| 10 | Update API keys router | `api-keys.ts`, `api-keys.integration.test.ts` |
-| 11 | Full test suite | All |
-| 12 | Final verification | Design doc |
+| 9 | Update API keys router | `api-keys.ts`, `api-keys.integration.test.ts` |
+| 10 | Full test suite | All |
+| 11 | Final verification | Design doc |
 
-**Total: 12 tasks**
+**Total: 11 tasks** (no migration needed - early development)
 
 Each task follows TDD: write failing test → implement → verify → commit.
