@@ -1,5 +1,5 @@
 import { createMiddleware } from 'hono/factory';
-import type { Env } from '../app.js';
+import type { Env, ApiKeyAuthorities } from '../app.js';
 import {
   verifyAndExtractTenant,
   extractTenantFromJwtUnsafe,
@@ -69,8 +69,17 @@ export function createTenantMiddleware(options?: TenantMiddlewareOptions) {
 
       tenant = {
         schemaName: result.schemaName!,
-        userId: `api-key:${result.organizationId}`, // Mark as API key access
+        userId: `api-key:${result.apiKeyId}`, // Use apiKeyId for audit traceability
       };
+
+      // Set API key authorities in context for authorize middleware
+      c.set('apiKeyAuthorities', {
+        designAuthority: result.designAuthority!,
+        operationsAuthority: result.operationsAuthority!,
+        marketingAuthority: result.marketingAuthority!,
+        complianceAuthority: result.complianceAuthority!,
+        isOrgAdmin: result.isOrgAdmin!,
+      } satisfies ApiKeyAuthorities);
     }
     // Fall back to JWT authentication
     else if (authHeader?.startsWith('Bearer ')) {

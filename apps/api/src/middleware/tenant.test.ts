@@ -1,16 +1,30 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Hono } from 'hono';
 import { tenantMiddleware, extractTenantFromJwt, createTenantMiddleware } from './tenant.js';
-import type { Env } from '../app.js';
+import type { Env, ApiKeyAuthorities } from '../app.js';
+import { WorkspaceAuthority } from '@eurocomply/database';
 
 // Mock @clerk/backend for middleware tests
 vi.mock('@clerk/backend', () => ({
   verifyToken: vi.fn(),
 }));
 
+// Mock @eurocomply/database for ApiKeyService
+vi.mock('@eurocomply/database', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@eurocomply/database')>();
+  return {
+    ...original,
+    ApiKeyService: vi.fn().mockImplementation(() => ({
+      validateKey: vi.fn(),
+    })),
+  };
+});
+
 import { verifyToken } from '@clerk/backend';
+import { ApiKeyService } from '@eurocomply/database';
 
 const mockVerifyToken = vi.mocked(verifyToken);
+const MockApiKeyService = vi.mocked(ApiKeyService);
 
 describe('tenant middleware', () => {
   beforeEach(() => {
@@ -205,6 +219,139 @@ describe('tenant middleware', () => {
         jwtKey: undefined,
         authorizedParties: ['https://app.example.com', 'https://admin.example.com'],
       });
+    });
+  });
+
+  describe('createTenantMiddleware (with API key)', () => {
+    it('sets apiKeyAuthorities in context when API key auth succeeds', async () => {
+      const mockValidateKey = vi.fn().mockResolvedValue({
+        valid: true,
+        organizationId: 'org_123',
+        schemaName: 'tenant_acme',
+        apiKeyId: 'apikey_456',
+        designAuthority: WorkspaceAuthority.EDITOR,
+        operationsAuthority: WorkspaceAuthority.VIEWER,
+        marketingAuthority: WorkspaceAuthority.NONE,
+        complianceAuthority: WorkspaceAuthority.CONTRIBUTOR,
+        isOrgAdmin: false,
+      });
+
+      MockApiKeyService.mockImplementation(
+        () =>
+          ({
+            validateKey: mockValidateKey,
+            createKey: vi.fn(),
+            listKeys: vi.fn(),
+            revokeKey: vi.fn(),
+          }) as any
+      );
+
+      const mockEm = {} as any;
+      const middleware = createTenantMiddleware({ em: mockEm });
+      const app = new Hono<Env>();
+      app.use('*', middleware);
+      app.get('/test', (c) => {
+        const authorities = c.get('apiKeyAuthorities');
+        return c.json({
+          schema: c.get('tenantSchema'),
+          user: c.get('userId'),
+          authorities,
+        });
+      });
+
+      const res = await app.request('/test', {
+        headers: { 'X-API-Key': 'ek_live_test123' },
+      });
+
+      expect(res.status).toBe(200);
+      const data = (await res.json()) as {
+        schema: string;
+        user: string;
+        authorities: ApiKeyAuthorities;
+      };
+      expect(data.schema).toBe('tenant_acme');
+      expect(data.authorities).toEqual({
+        designAuthority: WorkspaceAuthority.EDITOR,
+        operationsAuthority: WorkspaceAuthority.VIEWER,
+        marketingAuthority: WorkspaceAuthority.NONE,
+        complianceAuthority: WorkspaceAuthority.CONTRIBUTOR,
+        isOrgAdmin: false,
+      });
+    });
+
+    it('uses apiKeyId in userId for audit traceability', async () => {
+      const mockValidateKey = vi.fn().mockResolvedValue({
+        valid: true,
+        organizationId: 'org_123',
+        schemaName: 'tenant_acme',
+        apiKeyId: 'apikey_789',
+        designAuthority: WorkspaceAuthority.NONE,
+        operationsAuthority: WorkspaceAuthority.NONE,
+        marketingAuthority: WorkspaceAuthority.NONE,
+        complianceAuthority: WorkspaceAuthority.NONE,
+        isOrgAdmin: true,
+      });
+
+      MockApiKeyService.mockImplementation(
+        () =>
+          ({
+            validateKey: mockValidateKey,
+            createKey: vi.fn(),
+            listKeys: vi.fn(),
+            revokeKey: vi.fn(),
+          }) as any
+      );
+
+      const mockEm = {} as any;
+      const middleware = createTenantMiddleware({ em: mockEm });
+      const app = new Hono<Env>();
+      app.use('*', middleware);
+      app.get('/test', (c) => {
+        return c.json({
+          userId: c.get('userId'),
+        });
+      });
+
+      const res = await app.request('/test', {
+        headers: { 'X-API-Key': 'ek_live_test456' },
+      });
+
+      expect(res.status).toBe(200);
+      const data = (await res.json()) as { userId: string };
+      // Should use apiKeyId, not organizationId
+      expect(data.userId).toBe('api-key:apikey_789');
+    });
+
+    it('returns 401 when API key validation fails', async () => {
+      const mockValidateKey = vi.fn().mockResolvedValue({
+        valid: false,
+        error: 'API key has been revoked',
+      });
+
+      MockApiKeyService.mockImplementation(
+        () =>
+          ({
+            validateKey: mockValidateKey,
+            createKey: vi.fn(),
+            listKeys: vi.fn(),
+            revokeKey: vi.fn(),
+          }) as any
+      );
+
+      const mockEm = {} as any;
+      const middleware = createTenantMiddleware({ em: mockEm });
+      const app = new Hono<Env>();
+      app.use('*', middleware);
+      app.get('/test', (c) => c.json({ ok: true }));
+
+      const res = await app.request('/test', {
+        headers: { 'X-API-Key': 'ek_live_invalid' },
+      });
+
+      expect(res.status).toBe(401);
+      const data = (await res.json()) as { error: string; message: string };
+      expect(data.error).toBe('Unauthorized');
+      expect(data.message).toBe('API key has been revoked');
     });
   });
 });
