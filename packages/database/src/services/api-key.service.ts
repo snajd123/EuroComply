@@ -1,5 +1,6 @@
 import { randomBytes, createHash, timingSafeEqual } from 'crypto';
 import { ApiKey, Organization } from '../entities/index.js';
+import { WorkspaceAuthority } from '../entities/WorkspaceAuthority.js';
 import type { EntityManager } from '@mikro-orm/postgresql';
 
 /**
@@ -19,6 +20,16 @@ export interface ValidateApiKeyResult {
   organizationId?: string;
   schemaName?: string;
   error?: string;
+
+  // API key ID for audit traceability (used in userId: `api-key:${apiKeyId}`)
+  apiKeyId?: string;
+
+  // Workspace authorities for authorization
+  designAuthority?: WorkspaceAuthority;
+  operationsAuthority?: WorkspaceAuthority;
+  marketingAuthority?: WorkspaceAuthority;
+  complianceAuthority?: WorkspaceAuthority;
+  isOrgAdmin?: boolean;
 }
 
 /**
