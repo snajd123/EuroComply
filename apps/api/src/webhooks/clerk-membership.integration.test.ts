@@ -83,7 +83,7 @@ describe('Membership Webhooks Integration', () => {
    * Helper to provision a test organization
    */
   async function ensureTestOrganization(): Promise<Organization> {
-    const em = orm.em.fork();
+    let em = orm.em.fork();
     let org = await em.findOne(Organization, { clerkOrgId: testClerkOrgId });
 
     if (!org) {
@@ -106,7 +106,8 @@ describe('Membership Webhooks Integration', () => {
       const data = await res.json() as { success: boolean };
       expect(data.success).toBe(true);
 
-      // Refetch the org
+      // Fork a fresh EntityManager to see the committed changes
+      em = orm.em.fork();
       org = await em.findOne(Organization, { clerkOrgId: testClerkOrgId });
     }
 
@@ -185,6 +186,7 @@ describe('Membership Webhooks Integration', () => {
 
       // Ensure first user exists
       const em = orm.em.fork({ schema: testSchemaName });
+      await em.execute(`SET search_path TO "${testSchemaName}", public`);
       const existingUser = await em.findOne(User, { clerkId: 'user_test_first' });
       if (!existingUser) {
         // Create first user if not exists
