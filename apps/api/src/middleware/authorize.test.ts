@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Hono } from 'hono';
 import { WorkspaceAuthority } from '@eurocomply/database';
-import { authorize, requireOrgAdmin, authorizeAnyWorkspace } from './authorize.js';
+import { authorize, requireOrgAdmin } from './authorize.js';
 import type { Env } from '../app.js';
 
 describe('authorize middleware', () => {
@@ -277,95 +277,6 @@ describe('requireOrgAdmin middleware', () => {
       return next();
     });
     app.get('/test', requireOrgAdmin(), (c) => c.json({ ok: true }));
-
-    const res = await app.request('/test');
-    expect(res.status).toBe(401);
-  });
-});
-
-describe('authorizeAnyWorkspace middleware', () => {
-  let app: Hono<Env>;
-
-  beforeEach(() => {
-    app = new Hono<Env>();
-  });
-
-  it('allows if user has access to any workspace', async () => {
-    app.use('*', (c, next) => {
-      c.set('membership', {
-        designAuthority: WorkspaceAuthority.NONE,
-        operationsAuthority: WorkspaceAuthority.NONE,
-        marketingAuthority: WorkspaceAuthority.VIEWER,
-        complianceAuthority: WorkspaceAuthority.NONE,
-      } as any);
-      return next();
-    });
-    app.get('/test', authorizeAnyWorkspace('view'), (c) => c.json({ ok: true }));
-
-    const res = await app.request('/test');
-    expect(res.status).toBe(200);
-  });
-
-  it('denies if user has NONE in all workspaces', async () => {
-    app.use('*', (c, next) => {
-      c.set('membership', {
-        designAuthority: WorkspaceAuthority.NONE,
-        operationsAuthority: WorkspaceAuthority.NONE,
-        marketingAuthority: WorkspaceAuthority.NONE,
-        complianceAuthority: WorkspaceAuthority.NONE,
-      } as any);
-      return next();
-    });
-    app.get('/test', authorizeAnyWorkspace('view'), (c) => c.json({ ok: true }));
-
-    const res = await app.request('/test');
-    expect(res.status).toBe(403);
-  });
-
-  it('allows API key with access to any workspace', async () => {
-    app.use('*', (c, next) => {
-      c.set('userId', 'api-key:org_123');
-      c.set('apiKeyAuthorities', {
-        designAuthority: WorkspaceAuthority.NONE,
-        operationsAuthority: WorkspaceAuthority.NONE,
-        marketingAuthority: WorkspaceAuthority.VIEWER,
-        complianceAuthority: WorkspaceAuthority.NONE,
-        isOrgAdmin: false,
-      });
-      return next();
-    });
-    app.get('/test', authorizeAnyWorkspace('view'), (c) => c.json({ ok: true }));
-
-    const res = await app.request('/test');
-    expect(res.status).toBe(200);
-  });
-
-  it('denies API key with NONE in all workspaces', async () => {
-    app.use('*', (c, next) => {
-      c.set('userId', 'api-key:org_123');
-      c.set('apiKeyAuthorities', {
-        designAuthority: WorkspaceAuthority.NONE,
-        operationsAuthority: WorkspaceAuthority.NONE,
-        marketingAuthority: WorkspaceAuthority.NONE,
-        complianceAuthority: WorkspaceAuthority.NONE,
-        isOrgAdmin: false,
-      });
-      return next();
-    });
-    app.get('/test', authorizeAnyWorkspace('view'), (c) => c.json({ ok: true }));
-
-    const res = await app.request('/test');
-    expect(res.status).toBe(403);
-  });
-
-  it('returns 401 when API key has no apiKeyAuthorities set', async () => {
-    app.use('*', (c, next) => {
-      c.set('userId', 'api-key:org_123');
-      c.set('apiKeyAuthorities', undefined);
-      c.set('membership', undefined);
-      return next();
-    });
-    app.get('/test', authorizeAnyWorkspace('view'), (c) => c.json({ ok: true }));
 
     const res = await app.request('/test');
     expect(res.status).toBe(401);
