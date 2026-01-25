@@ -26,6 +26,28 @@ import { setupTestDb, teardownTestDb, isDatabaseAvailable } from '@eurocomply/da
 import { createId } from '@eurocomply/core';
 import type { Env } from '../app.js';
 
+// Response types for type-safe test assertions
+interface ProductData {
+  id: string;
+  name: string;
+  categoryId: string;
+  status?: string;
+}
+
+interface ProductResponse {
+  data: ProductData;
+}
+
+interface ProductListResponse {
+  data: ProductData[];
+  meta?: { total?: number; count?: number };
+}
+
+interface ErrorResponse {
+  error: string;
+  message: string;
+}
+
 describe('Products API Integration', () => {
   let orm: MikroORM;
   let provisioner: TenantProvisioner;
@@ -126,10 +148,11 @@ describe('Products API Integration', () => {
     const viewerMembership = tenantEm.create(OrganizationUser, {
       id: createId(),
       user: viewerUser,
-      clerkMembershipId: `mem_viewer_${uniqueSuffix}`,
       isOrgAdmin: false,
       designAuthority: WorkspaceAuthority.VIEWER,
       operationsAuthority: WorkspaceAuthority.NONE,
+      marketingAuthority: WorkspaceAuthority.NONE,
+      complianceAuthority: WorkspaceAuthority.NONE,
       createdAt: now,
       updatedAt: now,
     });
@@ -137,10 +160,11 @@ describe('Products API Integration', () => {
     const editorMembership = tenantEm.create(OrganizationUser, {
       id: createId(),
       user: editorUser,
-      clerkMembershipId: `mem_editor_${uniqueSuffix}`,
       isOrgAdmin: false,
       designAuthority: WorkspaceAuthority.EDITOR,
       operationsAuthority: WorkspaceAuthority.NONE,
+      marketingAuthority: WorkspaceAuthority.NONE,
+      complianceAuthority: WorkspaceAuthority.NONE,
       createdAt: now,
       updatedAt: now,
     });
@@ -148,26 +172,25 @@ describe('Products API Integration', () => {
     const noneMembership = tenantEm.create(OrganizationUser, {
       id: createId(),
       user: noneUser,
-      clerkMembershipId: `mem_none_${uniqueSuffix}`,
       isOrgAdmin: false,
       designAuthority: WorkspaceAuthority.NONE,
       operationsAuthority: WorkspaceAuthority.NONE,
+      marketingAuthority: WorkspaceAuthority.NONE,
+      complianceAuthority: WorkspaceAuthority.NONE,
       createdAt: now,
       updatedAt: now,
     });
 
     tenantEm.persist([viewerMembership, editorMembership, noneMembership]);
 
-    // Create a test category
+    // Create a test category - import CategoryType and TargetType
     testCategoryId = createId();
-    const category = tenantEm.create(Category, {
-      id: testCategoryId,
-      name: 'Test Category',
-      slug: 'test-category',
-      path: 'test_category',
-      createdAt: now,
-      updatedAt: now,
-    });
+    const category = new Category();
+    category.id = testCategoryId;
+    category.name = 'Test Category';
+    category.path = 'test_category';
+    category.createdAt = now;
+    category.updatedAt = now;
     tenantEm.persist(category);
 
     await tenantEm.flush();
@@ -243,9 +266,9 @@ describe('Products API Integration', () => {
       const res = await testApp.request('/products');
 
       expect(res.status).toBe(200);
-      const data = await res.json();
+      const data = (await res.json()) as ProductListResponse;
       expect(data.data).toBeInstanceOf(Array);
-      expect(data.meta.total).toBe(0);
+      expect(data.meta?.total).toBe(0);
     });
 
     it('allows user with EDITOR authority', async (context) => {
@@ -297,9 +320,9 @@ describe('Products API Integration', () => {
       const res = await testApp.request('/products');
 
       expect(res.status).toBe(200);
-      const data = await res.json();
+      const data = (await res.json()) as ProductListResponse;
       expect(data.data.length).toBe(1);
-      expect(data.data[0].name).toBe('Test Product');
+      expect(data.data[0]?.name).toBe('Test Product');
     });
   });
 
@@ -321,7 +344,7 @@ describe('Products API Integration', () => {
       });
 
       expect(res.status).toBe(201);
-      const data = await res.json();
+      const data = (await res.json()) as ProductResponse;
       expect(data.data.name).toBe('New Product');
       expect(data.data.categoryId).toBe(testCategoryId);
     });
@@ -381,7 +404,7 @@ describe('Products API Integration', () => {
       });
 
       expect(res.status).toBe(400);
-      const data = await res.json();
+      const data = (await res.json()) as ErrorResponse;
       expect(data.message).toBe('Category not found');
     });
   });
@@ -413,7 +436,7 @@ describe('Products API Integration', () => {
       const res = await testApp.request(`/products/${testProductId}`);
 
       expect(res.status).toBe(200);
-      const data = await res.json();
+      const data = (await res.json()) as ProductResponse;
       expect(data.data.id).toBe(testProductId);
       expect(data.data.name).toBe('Get Test Product');
     });
@@ -470,9 +493,9 @@ describe('Products API Integration', () => {
       const res = await testApp.request('/products');
 
       expect(res.status).toBe(200);
-      const data = await res.json();
+      const data = (await res.json()) as ProductListResponse;
       expect(data.data.length).toBe(1);
-      expect(data.data[0].name).toBe('Isolated Product');
+      expect(data.data[0]?.name).toBe('Isolated Product');
 
       // Verify the product does NOT exist in the public schema
       const publicEm = orm.em.fork({ schema: 'public' });
@@ -480,7 +503,7 @@ describe('Products API Integration', () => {
         `SELECT COUNT(*) as count FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'product'`
       );
       // Products table should not exist in public schema
-      expect(publicProducts[0].count).toBe('0');
+      expect((publicProducts[0] as { count: string }).count).toBe('0');
     });
   });
 });

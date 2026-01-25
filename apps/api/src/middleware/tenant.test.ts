@@ -9,22 +9,32 @@ vi.mock('@clerk/backend', () => ({
   verifyToken: vi.fn(),
 }));
 
+// Mock for ApiKeyService validateKey - hoisted-safe variable
+let mockValidateKeyFn = vi.fn();
+
 // Mock @eurocomply/database for ApiKeyService
 vi.mock('@eurocomply/database', async (importOriginal) => {
   const original = await importOriginal<typeof import('@eurocomply/database')>();
+
+  // Define class inside factory to avoid hoisting issues
+  class MockApiKeyServiceClass {
+    validateKey(...args: unknown[]) {
+      return mockValidateKeyFn(...args);
+    }
+    createKey = vi.fn();
+    listKeys = vi.fn();
+    revokeKey = vi.fn();
+  }
+
   return {
     ...original,
-    ApiKeyService: vi.fn().mockImplementation(() => ({
-      validateKey: vi.fn(),
-    })),
+    ApiKeyService: MockApiKeyServiceClass,
   };
 });
 
 import { verifyToken } from '@clerk/backend';
-import { ApiKeyService } from '@eurocomply/database';
 
 const mockVerifyToken = vi.mocked(verifyToken);
-const MockApiKeyService = vi.mocked(ApiKeyService);
 
 describe('tenant middleware', () => {
   beforeEach(() => {
@@ -224,7 +234,7 @@ describe('tenant middleware', () => {
 
   describe('createTenantMiddleware (with API key)', () => {
     it('sets apiKeyAuthorities in context when API key auth succeeds', async () => {
-      const mockValidateKey = vi.fn().mockResolvedValue({
+      mockValidateKeyFn.mockResolvedValue({
         valid: true,
         organizationId: 'org_123',
         schemaName: 'tenant_acme',
@@ -235,16 +245,6 @@ describe('tenant middleware', () => {
         complianceAuthority: WorkspaceAuthority.CONTRIBUTOR,
         isOrgAdmin: false,
       });
-
-      MockApiKeyService.mockImplementation(
-        () =>
-          ({
-            validateKey: mockValidateKey,
-            createKey: vi.fn(),
-            listKeys: vi.fn(),
-            revokeKey: vi.fn(),
-          }) as any
-      );
 
       const mockEm = {} as any;
       const middleware = createTenantMiddleware({ em: mockEm });
@@ -280,7 +280,7 @@ describe('tenant middleware', () => {
     });
 
     it('uses apiKeyId in userId for audit traceability', async () => {
-      const mockValidateKey = vi.fn().mockResolvedValue({
+      mockValidateKeyFn.mockResolvedValue({
         valid: true,
         organizationId: 'org_123',
         schemaName: 'tenant_acme',
@@ -291,16 +291,6 @@ describe('tenant middleware', () => {
         complianceAuthority: WorkspaceAuthority.NONE,
         isOrgAdmin: true,
       });
-
-      MockApiKeyService.mockImplementation(
-        () =>
-          ({
-            validateKey: mockValidateKey,
-            createKey: vi.fn(),
-            listKeys: vi.fn(),
-            revokeKey: vi.fn(),
-          }) as any
-      );
 
       const mockEm = {} as any;
       const middleware = createTenantMiddleware({ em: mockEm });
@@ -323,20 +313,10 @@ describe('tenant middleware', () => {
     });
 
     it('returns 401 when API key validation fails', async () => {
-      const mockValidateKey = vi.fn().mockResolvedValue({
+      mockValidateKeyFn.mockResolvedValue({
         valid: false,
         error: 'API key has been revoked',
       });
-
-      MockApiKeyService.mockImplementation(
-        () =>
-          ({
-            validateKey: mockValidateKey,
-            createKey: vi.fn(),
-            listKeys: vi.fn(),
-            revokeKey: vi.fn(),
-          }) as any
-      );
 
       const mockEm = {} as any;
       const middleware = createTenantMiddleware({ em: mockEm });
