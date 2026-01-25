@@ -1,4 +1,4 @@
-import { randomBytes, createHash, timingSafeEqual } from 'crypto';
+import { randomBytes, createHash } from 'crypto';
 import { ApiKey, Organization } from '../entities/index.js';
 import { WorkspaceAuthority } from '../entities/WorkspaceAuthority.js';
 import type { EntityManager } from '@mikro-orm/postgresql';
