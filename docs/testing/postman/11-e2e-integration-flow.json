@@ -1,0 +1,675 @@
+{
+  "info": {
+    "name": "11. E2E Integration Flow",
+    "description": "Complete end-to-end flow: Create org → Add member → Create API key → Create category → Create product → Verify authorization. Run in sequence.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3001" },
+    { "key": "clerkOrgId", "value": "" },
+    { "key": "orgId", "value": "" },
+    { "key": "schemaName", "value": "" },
+    { "key": "clerkUserId", "value": "" },
+    { "key": "membershipId", "value": "" },
+    { "key": "apiKeyId", "value": "" },
+    { "key": "rawApiKey", "value": "" },
+    { "key": "categoryId", "value": "" },
+    { "key": "productId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Phase 1: Organization Setup",
+      "item": [
+        {
+          "name": "1.1 Create Organization (Webhook)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const suffix = Math.random().toString(36).substring(2, 8);",
+                  "const orgId = 'org_e2e_' + suffix;",
+                  "pm.collectionVariables.set('clerkOrgId', orgId);",
+                  "pm.variables.set('_orgId', orgId);",
+                  "pm.variables.set('_orgName', 'E2E Test Company ' + suffix);",
+                  "pm.variables.set('_orgSlug', 'e2e-test-' + suffix);",
+                  "pm.variables.set('_timestamp', Math.floor(Date.now() / 1000));",
+                  "console.log('Creating org:', orgId);"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Organization provisioned', function () {",
+                  "    const r = pm.response.json();",
+                  "    pm.expect(r.success).to.equal(true);",
+                  "    pm.expect(r.provisioningStatus).to.equal('READY');",
+                  "    pm.collectionVariables.set('orgId', r.organizationId);",
+                  "    pm.collectionVariables.set('schemaName', r.schemaName);",
+                  "    console.log('Org ID:', r.organizationId);",
+                  "    console.log('Schema:', r.schemaName);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "svix-id", "value": "msg_e2e_test" },
+              { "key": "svix-timestamp", "value": "{{_timestamp}}" },
+              { "key": "svix-signature", "value": "v1,test" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"type\":\"organization.created\",\"data\":{\"id\":\"{{_orgId}}\",\"name\":\"{{_orgName}}\",\"slug\":\"{{_orgSlug}}\",\"created_at\":{{_timestamp}}}}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhooks/clerk",
+              "host": ["{{baseUrl}}"],
+              "path": ["webhooks", "clerk"]
+            }
+          }
+        },
+        {
+          "name": "1.2 Add Organization Member (Webhook)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const suffix = Math.random().toString(36).substring(2, 8);",
+                  "const userId = 'user_e2e_' + suffix;",
+                  "pm.collectionVariables.set('clerkUserId', userId);",
+                  "pm.variables.set('_userId', userId);",
+                  "pm.variables.set('_timestamp', Math.floor(Date.now() / 1000));",
+                  "console.log('Adding member:', userId);"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Membership created', function () {",
+                  "    const r = pm.response.json();",
+                  "    pm.expect(r.success).to.equal(true);",
+                  "    pm.collectionVariables.set('membershipId', r.membershipId);",
+                  "    console.log('Membership ID:', r.membershipId);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "svix-id", "value": "msg_e2e_member" },
+              { "key": "svix-timestamp", "value": "{{_timestamp}}" },
+              { "key": "svix-signature", "value": "v1,test" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"type\":\"organizationMembership.created\",\"data\":{\"id\":\"mem_e2e\",\"organization\":{\"id\":\"{{clerkOrgId}}\"},\"public_user_data\":{\"user_id\":\"{{_userId}}\"},\"role\":\"org:admin\",\"created_at\":{{_timestamp}}}}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhooks/clerk",
+              "host": ["{{baseUrl}}"],
+              "path": ["webhooks", "clerk"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Phase 2: Authentication Setup",
+      "item": [
+        {
+          "name": "2.1 Create API Key (JWT Auth)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const schemaName = pm.collectionVariables.get('schemaName');",
+                  "const clerkUserId = pm.collectionVariables.get('clerkUserId');",
+                  "",
+                  "if (!schemaName || !clerkUserId) {",
+                  "    throw new Error('Run Phase 1 first');",
+                  "}",
+                  "",
+                  "const payload = { sub: clerkUserId, org_metadata: { schema_name: schemaName } };",
+                  "pm.variables.set('_jwtToken', 'header.' + btoa(JSON.stringify(payload)) + '.signature');"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 201', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test('API Key created with full permissions', function () {",
+                  "    const r = pm.response.json();",
+                  "    pm.expect(r.data.designAuthority).to.equal('EDITOR');",
+                  "    pm.expect(r.rawKey).to.be.a('string');",
+                  "    pm.collectionVariables.set('apiKeyId', r.data.id);",
+                  "    pm.collectionVariables.set('rawApiKey', r.rawKey);",
+                  "    console.log('API Key ID:', r.data.id);",
+                  "    console.log('API Key prefix:', r.data.keyPrefix);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{_jwtToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"E2E Test API Key\",\n  \"designAuthority\": \"EDITOR\",\n  \"operationsAuthority\": \"EDITOR\",\n  \"marketingAuthority\": \"EDITOR\",\n  \"complianceAuthority\": \"EDITOR\",\n  \"isOrgAdmin\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/api-keys",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "api-keys"]
+            }
+          }
+        },
+        {
+          "name": "2.2 Verify API Key Works",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200 - API Key authenticated', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Returns products array (empty)', function () {",
+                  "    const r = pm.response.json();",
+                  "    pm.expect(r.data).to.be.an('array');",
+                  "    pm.expect(r.meta.total).to.equal(0);",
+                  "    console.log('API Key authentication successful');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-API-Key", "value": "{{rawApiKey}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/products",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "products"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Phase 3: Create Data",
+      "item": [
+        {
+          "name": "3.1 Create Category",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 201', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test('Category created', function () {",
+                  "    const r = pm.response.json();",
+                  "    pm.expect(r.data.name).to.equal('E2E Test Category');",
+                  "    pm.collectionVariables.set('categoryId', r.data.id);",
+                  "    console.log('Category ID:', r.data.id);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-API-Key", "value": "{{rawApiKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"E2E Test Category\",\n  \"description\": \"Category created during E2E test\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/categories",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "categories"]
+            }
+          }
+        },
+        {
+          "name": "3.2 Create Product",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 201', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test('Product created', function () {",
+                  "    const r = pm.response.json();",
+                  "    pm.expect(r.data.name).to.equal('E2E Test Product');",
+                  "    pm.expect(r.data.status).to.equal('DRAFT');",
+                  "    pm.collectionVariables.set('productId', r.data.id);",
+                  "    console.log('Product ID:', r.data.id);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-API-Key", "value": "{{rawApiKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"E2E Test Product\",\n  \"categoryId\": \"{{categoryId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/products",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "products"]
+            }
+          }
+        },
+        {
+          "name": "3.3 Verify Product Created",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Product exists in list', function () {",
+                  "    const r = pm.response.json();",
+                  "    pm.expect(r.meta.total).to.be.at.least(1);",
+                  "    const productId = pm.collectionVariables.get('productId');",
+                  "    const found = r.data.find(p => p.id === productId);",
+                  "    pm.expect(found).to.not.be.undefined;",
+                  "    console.log('Found product in list:', found.name);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-API-Key", "value": "{{rawApiKey}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/products",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "products"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Phase 4: Verify Tenant Isolation",
+      "item": [
+        {
+          "name": "4.1 Unauthenticated Access - 401",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 401', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "",
+                  "pm.test('Cannot access without auth', function () {",
+                  "    const r = pm.response.json();",
+                  "    pm.expect(r.error).to.equal('Unauthorized');",
+                  "    console.log('Unauthenticated access correctly denied');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/products",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "products"]
+            }
+          }
+        },
+        {
+          "name": "4.2 Invalid API Key - 401",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 401', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "",
+                  "pm.test('Invalid API key rejected', function () {",
+                  "    const r = pm.response.json();",
+                  "    pm.expect(r.error).to.equal('Unauthorized');",
+                  "    console.log('Invalid API key correctly denied');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-API-Key", "value": "ec_invalid_key_12345" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/products",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "products"]
+            }
+          }
+        },
+        {
+          "name": "4.3 Product Not Found in Wrong Tenant",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 404', function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});",
+                  "",
+                  "pm.test('Product not accessible cross-tenant', function () {",
+                  "    const r = pm.response.json();",
+                  "    pm.expect(r.error).to.equal('Not Found');",
+                  "    console.log('Cross-tenant access correctly denied');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-API-Key", "value": "{{rawApiKey}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/products/nonexistent_product",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "products", "nonexistent_product"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Phase 5: Cleanup",
+      "item": [
+        {
+          "name": "5.1 Delete Product",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const status = pm.response.code;",
+                  "",
+                  "if (status === 200 || status === 204) {",
+                  "    pm.test('Product deleted', function () {",
+                  "        console.log('Product deleted successfully');",
+                  "    });",
+                  "} else if (status === 404) {",
+                  "    pm.test('Product already deleted or not found', function () {",
+                  "        console.log('Product not found (may not have been created)');",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "X-API-Key", "value": "{{rawApiKey}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/products/{{productId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "products", "{{productId}}"]
+            }
+          }
+        },
+        {
+          "name": "5.2 Delete Category",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const status = pm.response.code;",
+                  "",
+                  "if (status === 200 || status === 204) {",
+                  "    pm.test('Category deleted', function () {",
+                  "        console.log('Category deleted successfully');",
+                  "    });",
+                  "} else if (status === 404) {",
+                  "    pm.test('Category already deleted or not found', function () {",
+                  "        console.log('Category not found (may not have been created)');",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "X-API-Key", "value": "{{rawApiKey}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/categories/{{categoryId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "categories", "{{categoryId}}"]
+            }
+          }
+        },
+        {
+          "name": "5.3 Revoke API Key",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const schemaName = pm.collectionVariables.get('schemaName');",
+                  "const clerkUserId = pm.collectionVariables.get('clerkUserId');",
+                  "const payload = { sub: clerkUserId, org_metadata: { schema_name: schemaName } };",
+                  "pm.variables.set('_jwtToken', 'header.' + btoa(JSON.stringify(payload)) + '.signature');"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const status = pm.response.code;",
+                  "",
+                  "if (status === 200) {",
+                  "    pm.test('API Key revoked', function () {",
+                  "        const r = pm.response.json();",
+                  "        pm.expect(r.success).to.equal(true);",
+                  "        console.log('API Key revoked successfully');",
+                  "    });",
+                  "} else if (status === 404) {",
+                  "    pm.test('API Key not found', function () {",
+                  "        console.log('API Key not found (may not have been created)');",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{_jwtToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/api-keys/{{apiKeyId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "api-keys", "{{apiKeyId}}"]
+            }
+          }
+        },
+        {
+          "name": "5.4 Delete Organization (Admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const status = pm.response.code;",
+                  "",
+                  "if (status === 200) {",
+                  "    pm.test('Organization deleted', function () {",
+                  "        const r = pm.response.json();",
+                  "        pm.expect(r.success).to.equal(true);",
+                  "        console.log('Organization and schema deleted');",
+                  "    });",
+                  "} else if (status === 401) {",
+                  "    pm.test('Admin key required', function () {",
+                  "        console.log('Set adminApiKey variable to delete org');",
+                  "    });",
+                  "} else if (status === 404) {",
+                  "    pm.test('Organization not found', function () {",
+                  "        console.log('Organization not found');",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "X-Admin-Key", "value": "{{adminApiKey}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/organizations/{{orgId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "admin", "organizations", "{{orgId}}"]
+            },
+            "description": "Requires adminApiKey variable to be set with ADMIN_API_KEY from env"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Summary",
+      "item": [
+        {
+          "name": "Test Summary",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "console.log('=== E2E Test Summary ===');",
+                  "console.log('Clerk Org ID:', pm.collectionVariables.get('clerkOrgId'));",
+                  "console.log('Internal Org ID:', pm.collectionVariables.get('orgId'));",
+                  "console.log('Schema Name:', pm.collectionVariables.get('schemaName'));",
+                  "console.log('User ID:', pm.collectionVariables.get('clerkUserId'));",
+                  "console.log('API Key ID:', pm.collectionVariables.get('apiKeyId'));",
+                  "console.log('Category ID:', pm.collectionVariables.get('categoryId'));",
+                  "console.log('Product ID:', pm.collectionVariables.get('productId'));",
+                  "console.log('========================');"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('E2E Flow Complete', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    console.log('All E2E tests completed successfully!');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

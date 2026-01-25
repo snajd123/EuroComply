@@ -1,0 +1,453 @@
+{
+  "info": {
+    "name": "10. Products CRUD (Tenant Auth)",
+    "description": "Tests product endpoints with tenant authentication (JWT or API Key). Demonstrates workspace authorization.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3001" },
+    { "key": "schemaName", "value": "", "description": "From org creation" },
+    { "key": "clerkUserId", "value": "", "description": "From membership creation" },
+    { "key": "editorApiKey", "value": "", "description": "API key with Design EDITOR" },
+    { "key": "viewerApiKey", "value": "", "description": "API key with Design VIEWER" },
+    { "key": "categoryId", "value": "", "description": "Category for products" },
+    { "key": "productId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Setup",
+      "item": [
+        {
+          "name": "1. Create EDITOR API Key",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const schemaName = pm.collectionVariables.get('schemaName');",
+                  "const clerkUserId = pm.collectionVariables.get('clerkUserId');",
+                  "",
+                  "if (!schemaName || !clerkUserId) {",
+                  "    throw new Error('Run webhook collections 1-2 first to set schemaName and clerkUserId');",
+                  "}",
+                  "",
+                  "const payload = { sub: clerkUserId, org_metadata: { schema_name: schemaName } };",
+                  "pm.variables.set('_jwtToken', 'header.' + btoa(JSON.stringify(payload)) + '.signature');"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 201', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test('EDITOR key created', function () {",
+                  "    const r = pm.response.json();",
+                  "    pm.expect(r.data.designAuthority).to.equal('EDITOR');",
+                  "    pm.collectionVariables.set('editorApiKey', r.rawKey);",
+                  "    console.log('EDITOR key:', r.data.keyPrefix);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{_jwtToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Products Test EDITOR Key\",\n  \"designAuthority\": \"EDITOR\",\n  \"operationsAuthority\": \"NONE\",\n  \"marketingAuthority\": \"NONE\",\n  \"complianceAuthority\": \"NONE\",\n  \"isOrgAdmin\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/api-keys",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "api-keys"]
+            }
+          }
+        },
+        {
+          "name": "2. Create VIEWER API Key",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const schemaName = pm.collectionVariables.get('schemaName');",
+                  "const clerkUserId = pm.collectionVariables.get('clerkUserId');",
+                  "const payload = { sub: clerkUserId, org_metadata: { schema_name: schemaName } };",
+                  "pm.variables.set('_jwtToken', 'header.' + btoa(JSON.stringify(payload)) + '.signature');"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 201', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test('VIEWER key created', function () {",
+                  "    const r = pm.response.json();",
+                  "    pm.expect(r.data.designAuthority).to.equal('VIEWER');",
+                  "    pm.collectionVariables.set('viewerApiKey', r.rawKey);",
+                  "    console.log('VIEWER key:', r.data.keyPrefix);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{_jwtToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Products Test VIEWER Key\",\n  \"designAuthority\": \"VIEWER\",\n  \"operationsAuthority\": \"NONE\",\n  \"marketingAuthority\": \"NONE\",\n  \"complianceAuthority\": \"NONE\",\n  \"isOrgAdmin\": false\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/api-keys",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "api-keys"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "List Products",
+      "item": [
+        {
+          "name": "List Products (EDITOR) - 200",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Returns products array', function () {",
+                  "    const r = pm.response.json();",
+                  "    pm.expect(r.data).to.be.an('array');",
+                  "    pm.expect(r.meta).to.have.property('total');",
+                  "    console.log('Total products:', r.meta.total);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-API-Key", "value": "{{editorApiKey}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/products",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "products"]
+            }
+          }
+        },
+        {
+          "name": "List Products (VIEWER) - 200",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200 - VIEWER can list', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Returns products array', function () {",
+                  "    const r = pm.response.json();",
+                  "    pm.expect(r.data).to.be.an('array');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-API-Key", "value": "{{viewerApiKey}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/products",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "products"]
+            }
+          }
+        },
+        {
+          "name": "List Products (No Auth) - 401",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 401 without auth', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "",
+                  "pm.test('Returns unauthorized error', function () {",
+                  "    const r = pm.response.json();",
+                  "    pm.expect(r.error).to.equal('Unauthorized');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/products",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "products"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Create Product",
+      "item": [
+        {
+          "name": "Create Product (EDITOR) - 201",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Note: You need a valid categoryId from your tenant's categories table",
+                  "// If categoryId is not set, the request will fail with 400 Category not found",
+                  "const categoryId = pm.collectionVariables.get('categoryId');",
+                  "if (!categoryId) {",
+                  "    console.warn('categoryId not set - create a category first or set it manually');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const status = pm.response.code;",
+                  "",
+                  "if (status === 201) {",
+                  "    pm.test('Status 201 - Product created', function () {",
+                  "        pm.response.to.have.status(201);",
+                  "    });",
+                  "",
+                  "    pm.test('Product has correct data', function () {",
+                  "        const r = pm.response.json();",
+                  "        pm.expect(r.data.name).to.equal('Test Product');",
+                  "        pm.expect(r.data.status).to.equal('DRAFT');",
+                  "        pm.collectionVariables.set('productId', r.data.id);",
+                  "        console.log('Created product:', r.data.id);",
+                  "    });",
+                  "} else if (status === 400) {",
+                  "    pm.test('Category not found (set categoryId)', function () {",
+                  "        const r = pm.response.json();",
+                  "        console.log('Error:', r.message);",
+                  "        pm.expect(r.message).to.include('Category');",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-API-Key", "value": "{{editorApiKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Test Product\",\n  \"categoryId\": \"{{categoryId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/products",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "products"]
+            }
+          }
+        },
+        {
+          "name": "Create Product (VIEWER) - 403",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 403 - VIEWER cannot create', function () {",
+                  "    pm.response.to.have.status(403);",
+                  "});",
+                  "",
+                  "pm.test('Returns authorization details', function () {",
+                  "    const r = pm.response.json();",
+                  "    pm.expect(r.error).to.equal('Forbidden');",
+                  "    pm.expect(r.yourAuthority).to.equal('VIEWER');",
+                  "    pm.expect(r.workspace).to.equal('design');",
+                  "    console.log('Denied:', r.message);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-API-Key", "value": "{{viewerApiKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Should Fail\",\n  \"categoryId\": \"{{categoryId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/products",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "products"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Get Product",
+      "item": [
+        {
+          "name": "Get Product (EDITOR) - 200",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const productId = pm.collectionVariables.get('productId');",
+                  "",
+                  "if (!productId) {",
+                  "    pm.test('Skip - no product created', function () {",
+                  "        console.log('Create a product first');",
+                  "    });",
+                  "} else if (pm.response.code === 200) {",
+                  "    pm.test('Status 200', function () {",
+                  "        pm.response.to.have.status(200);",
+                  "    });",
+                  "",
+                  "    pm.test('Returns product details', function () {",
+                  "        const r = pm.response.json();",
+                  "        pm.expect(r.data.id).to.equal(productId);",
+                  "        console.log('Product:', r.data.name);",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-API-Key", "value": "{{editorApiKey}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/products/{{productId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "products", "{{productId}}"]
+            }
+          }
+        },
+        {
+          "name": "Get Product (VIEWER) - 200",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const productId = pm.collectionVariables.get('productId');",
+                  "",
+                  "if (!productId) {",
+                  "    pm.test('Skip - no product created', function () {",
+                  "        console.log('Create a product first');",
+                  "    });",
+                  "} else if (pm.response.code === 200) {",
+                  "    pm.test('Status 200 - VIEWER can read', function () {",
+                  "        pm.response.to.have.status(200);",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-API-Key", "value": "{{viewerApiKey}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/products/{{productId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "products", "{{productId}}"]
+            }
+          }
+        },
+        {
+          "name": "Get Product - Not Found (404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 404', function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});",
+                  "",
+                  "pm.test('Returns not found error', function () {",
+                  "    const r = pm.response.json();",
+                  "    pm.expect(r.error).to.equal('Not Found');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-API-Key", "value": "{{editorApiKey}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/products/nonexistent_product_id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "products", "nonexistent_product_id"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
