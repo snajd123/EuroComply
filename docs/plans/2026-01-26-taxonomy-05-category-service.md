@@ -1630,12 +1630,8 @@ export interface CategoriesRepository {
   findRoots(targetType?: string): Promise<CategoryData[]>;
   findChildren(parentId: string): Promise<CategoryData[]>;
   findAncestors(id: string): Promise<CategoryData[]>;
-
-  // Category Adoption (Tenant Customization)
-  getAdoptedCategories(tenantSchema: string): Promise<CategoryData[]>;
-  getAvailableForAdoption(tenantSchema: string, targetType?: string): Promise<CategoryData[]>;
-  adoptCategory(tenantSchema: string, categoryId: string): Promise<{ id: string; tenantSchema: string; categoryId: string }>;
-  unadoptCategory(tenantSchema: string, categoryId: string): Promise<void>;
+  // NOTE: Adoption methods are NOT in this interface.
+  // Adoption is handled by separate CategoryAdoptionRouter using CategoryService directly.
 }
 
 const querySchema = z.object({
@@ -1712,7 +1708,7 @@ export function createCategoriesRouter(repo: CategoriesRepository): Hono<Env> {
     const category = await repo.findById(id);
 
     if (!category) {
-      return c.json({ error: 'Category not found' }, 404);
+      return c.json({ error: 'Not Found', message: 'Category not found' }, 404);
     }
 
     const ancestors = await repo.findAncestors(id);
@@ -1723,85 +1719,6 @@ export function createCategoriesRouter(repo: CategoriesRepository): Hono<Env> {
     });
   });
 
-  // ==========================================================================
-  // Category Adoption Routes (Tenant Customization)
-  // REQUIRES: Tenant middleware + user middleware applied in app.ts
-  // ==========================================================================
-
-  // GET /categories/adoption - Get adopted categories for current tenant
-  // NOTE: This route requires tenant middleware to be applied at /categories/adoption/* in app.ts
-  router.get('/adoption', authorize('design', 'view'), async (c) => {
-    const tenantSchema = c.get('tenantSchema');
-    if (!tenantSchema) {
-      return c.json({ error: 'Unauthorized', message: 'Tenant context required' }, 401);
-    }
-
-    const adopted = await repo.getAdoptedCategories(tenantSchema);
-
-    return c.json({
-      data: adopted,
-      meta: { total: adopted.length, tenantSchema },
-    });
-  });
-
-  // GET /categories/adoption/available - Get categories available for adoption
-  router.get('/adoption/available', authorize('design', 'view'), zValidator('query', z.object({
-    targetType: z.enum(['PRODUCT', 'MATERIAL', 'FACILITY', 'BATCH']).optional(),
-  })), async (c) => {
-    const tenantSchema = c.get('tenantSchema');
-    if (!tenantSchema) {
-      return c.json({ error: 'Unauthorized', message: 'Tenant context required' }, 401);
-    }
-
-    const query = c.req.valid('query');
-    const available = await repo.getAvailableForAdoption(tenantSchema, query.targetType);
-
-    return c.json({
-      data: available,
-      meta: { total: available.length, tenantSchema },
-    });
-  });
-
-  // POST /categories/:id/adopt - Adopt a system category
-  router.post('/:id/adopt', authorize('design', 'edit'), async (c) => {
-    const tenantSchema = c.get('tenantSchema');
-    if (!tenantSchema) {
-      return c.json({ error: 'Unauthorized', message: 'Tenant context required' }, 401);
-    }
-
-    const categoryId = c.req.param('id');
-
-    try {
-      const adoption = await repo.adoptCategory(tenantSchema, categoryId);
-      return c.json({ data: adoption }, 201);
-    } catch (error) {
-      if (error instanceof Error && error.message.includes('already adopted')) {
-        return c.json({ error: 'Conflict', message: error.message }, 409);
-      }
-      throw error;
-    }
-  });
-
-  // DELETE /categories/:id/adopt - Remove category adoption
-  router.delete('/:id/adopt', authorize('design', 'edit'), async (c) => {
-    const tenantSchema = c.get('tenantSchema');
-    if (!tenantSchema) {
-      return c.json({ error: 'Unauthorized', message: 'Tenant context required' }, 401);
-    }
-
-    const categoryId = c.req.param('id');
-
-    try {
-      await repo.unadoptCategory(tenantSchema, categoryId);
-      return c.json({ data: { success: true } }, 200);
-    } catch (error) {
-      if (error instanceof Error && error.message.includes('not adopted')) {
-        return c.json({ error: 'Not Found', message: error.message }, 404);
-      }
-      throw error;
-    }
-  });
-
   return router;
 }
 ```
@@ -1809,7 +1726,7 @@ export function createCategoriesRouter(repo: CategoriesRepository): Hono<Env> {
 **Step 4: Run test to verify it passes**
 
 ```bash
-cd apps/api && pnpm test categories.test.ts
+cd apps/api && pnpm test categories.e2e.test.ts
 ```
 
 Expected: PASS
@@ -1817,8 +1734,187 @@ Expected: PASS
 **Step 5: Commit**
 
 ```bash
-git add apps/api/src/routes/taxonomy/categories.ts apps/api/src/routes/taxonomy/categories.test.ts
+git add apps/api/src/routes/taxonomy/categories.ts apps/api/src/routes/taxonomy/categories.e2e.test.ts
 git commit -m "feat(api): add categories API routes (list, roots, children, ancestors)"
+```
+
+---
+
+## Task 3b: Create Category Adoption Router (Tenant-Scoped)
+
+> **IMPORTANT:** Adoption routes are separated into their own router for clean middleware application.
+> This allows applying `tenantMiddleware` and `userMiddleware` at the router level in `app.ts`.
+
+**Files:**
+- Create: `apps/api/src/routes/category-adoption.ts`
+- Test: `apps/api/src/routes/category-adoption.e2e.test.ts`
+
+**Step 1: Create the adoption router**
+
+```typescript
+// apps/api/src/routes/category-adoption.ts
+import { Hono } from 'hono';
+import { z } from 'zod';
+import { zValidator } from '@hono/zod-validator';
+import type { MikroORM } from '@mikro-orm/core';
+import { Category, CategoryAdoption } from '@eurocomply/database';
+import { CategoryService } from '@eurocomply/database/services';
+import type { Env } from '../app.js';
+import { authorize } from '../middleware/authorize.js';
+
+export interface CategoryAdoptionRouterOptions {
+  orm: MikroORM;
+}
+
+export function createCategoryAdoptionRouter(options: CategoryAdoptionRouterOptions): Hono<Env> {
+  const { orm } = options;
+  const router = new Hono<Env>();
+
+  // GET / - Get adopted categories for current tenant
+  router.get('/', authorize('design', 'view'), async (c) => {
+    const schema = c.get('tenantSchema')!;
+    const em = orm.em.fork({ schema });
+
+    const adopted = await em.transactional(async (txEm) => {
+      await txEm.execute(`SET search_path TO "${schema}", public`);
+      const service = new CategoryService(txEm);
+      return service.getAdoptedCategories(schema);
+    });
+
+    return c.json({
+      data: adopted.map(cat => ({
+        id: cat.id,
+        name: cat.name,
+        path: cat.path,
+        type: cat.type,
+        targetType: cat.targetType,
+        depth: cat.depth,
+      })),
+      meta: { total: adopted.length },
+    });
+  });
+
+  // GET /available - Get categories available for adoption
+  router.get('/available', authorize('design', 'view'), zValidator('query', z.object({
+    targetType: z.enum(['PRODUCT', 'MATERIAL', 'FACILITY', 'BATCH']).optional(),
+  })), async (c) => {
+    const schema = c.get('tenantSchema')!;
+    const em = orm.em.fork({ schema });
+    const query = c.req.valid('query');
+
+    const available = await em.transactional(async (txEm) => {
+      await txEm.execute(`SET search_path TO "${schema}", public`);
+      const service = new CategoryService(txEm);
+      return service.getAvailableForAdoption(schema, query.targetType);
+    });
+
+    return c.json({
+      data: available.map(cat => ({
+        id: cat.id,
+        name: cat.name,
+        path: cat.path,
+        type: cat.type,
+        targetType: cat.targetType,
+        depth: cat.depth,
+      })),
+      meta: { total: available.length },
+    });
+  });
+
+  // POST /:categoryId - Adopt a system category
+  router.post('/:categoryId', authorize('design', 'edit'), async (c) => {
+    const schema = c.get('tenantSchema')!;
+    const em = orm.em.fork({ schema });
+    const categoryId = c.req.param('categoryId');
+
+    const result = await em.transactional(async (txEm) => {
+      await txEm.execute(`SET search_path TO "${schema}", public`);
+      const service = new CategoryService(txEm);
+
+      try {
+        const adoption = await service.adoptCategory(schema, categoryId);
+        return { adoption };
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('already adopted')) {
+          return { error: error.message, status: 409 as const };
+        }
+        throw error;
+      }
+    });
+
+    if ('error' in result) {
+      return c.json({ error: 'Conflict', message: result.error }, result.status);
+    }
+
+    return c.json({
+      data: {
+        id: result.adoption.id,
+        categoryId: result.adoption.category.id,
+        categoryName: result.adoption.category.name,
+        adoptedAt: result.adoption.adoptedAt,
+      },
+    }, 201);
+  });
+
+  // DELETE /:categoryId - Remove category adoption
+  router.delete('/:categoryId', authorize('design', 'edit'), async (c) => {
+    const schema = c.get('tenantSchema')!;
+    const em = orm.em.fork({ schema });
+    const categoryId = c.req.param('categoryId');
+
+    const result = await em.transactional(async (txEm) => {
+      await txEm.execute(`SET search_path TO "${schema}", public`);
+      const service = new CategoryService(txEm);
+
+      try {
+        await service.unadoptCategory(schema, categoryId);
+        return { success: true };
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('not adopted')) {
+          return { error: error.message, status: 404 as const };
+        }
+        throw error;
+      }
+    });
+
+    if ('error' in result) {
+      return c.json({ error: 'Not Found', message: result.error }, result.status);
+    }
+
+    return c.json({ data: { success: true } });
+  });
+
+  return router;
+}
+```
+
+**Step 2: Register in app.ts**
+
+```typescript
+// apps/api/src/app.ts - add to createApp function
+
+import { createCategoryAdoptionRouter } from './routes/category-adoption.js';
+
+// Public taxonomy routes (no auth required)
+const taxonomy = new Hono<Env>();
+taxonomy.route('/units', createUnitsRouter(deps.unitsRepository));
+taxonomy.route('/classifications', createClassificationsRouter(deps.classificationsRepository));
+taxonomy.route('/categories', createCategoriesRouter(deps.categoriesRepository));
+v1.route('/taxonomy', taxonomy);
+
+// Tenant-scoped category adoption routes (REQUIRES full auth stack)
+v1.use('/category-adoption/*', createTenantMiddlewareWithApiKeys(deps.orm.em as any));
+if (userMiddleware) {
+  v1.use('/category-adoption/*', userMiddleware);
+}
+v1.route('/category-adoption', createCategoryAdoptionRouter({ orm: deps.orm }));
+```
+
+**Step 3: Write e2e tests and commit**
+
+```bash
+git add apps/api/src/routes/category-adoption.ts apps/api/src/routes/category-adoption.e2e.test.ts apps/api/src/app.ts
+git commit -m "feat(api): add category adoption router with tenant isolation"
 ```
 
 ---
