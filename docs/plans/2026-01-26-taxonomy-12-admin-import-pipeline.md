@@ -385,6 +385,15 @@ export interface RegulatoryListEntryImport {
   ecNumber?: string;
   restrictionType: 'PROHIBITED' | 'THRESHOLD' | 'RESTRICTED_WITH_CONDITIONS';
   thresholdPct?: string;
+  /**
+   * Stoichiometric factor for element-based regulations (e.g., CRM Act).
+   *
+   * Used when the regulation restricts a pure element but the declared
+   * substance is a compound. Example: Cobalt Sulfate → Cobalt factor ~0.38
+   *
+   * The Rollup Service (Plan 8) multiplies: concentration × factor = effective element %
+   */
+  stoichiometricFactor?: string;
   conditions?: Record<string, string>;
   legalReference?: string;
   notes?: string;
@@ -411,7 +420,15 @@ export interface CSVMetadata {
 
 /**
  * Parse CSV content into RegulatoryListImport structure.
- * Expected columns: cas_number, ec_number, restriction_type, threshold_pct, legal_reference, notes
+ *
+ * Expected columns:
+ * - cas_number (required): CAS registry number
+ * - ec_number (optional): EINECS/ELINCS number
+ * - restriction_type (required): PROHIBITED, THRESHOLD, or RESTRICTED_WITH_CONDITIONS
+ * - threshold_pct (optional): Maximum concentration (e.g., "0.1" for 0.1%)
+ * - stoichiometric_factor (optional): For element-based regs (e.g., "0.38" for Cobalt in CoSO₄)
+ * - legal_reference (optional): Entry number in regulation
+ * - notes (optional): Additional context
  */
 export async function parseCSV(
   content: string,
@@ -428,6 +445,7 @@ export async function parseCSV(
     ecNumber: row.ec_number?.trim() || undefined,
     restrictionType: row.restriction_type?.trim() as RegulatoryListEntryImport['restrictionType'],
     thresholdPct: row.threshold_pct?.trim() || undefined,
+    stoichiometricFactor: row.stoichiometric_factor?.trim() || undefined,
     legalReference: row.legal_reference?.trim() || undefined,
     notes: row.notes?.trim() || undefined,
   }));
@@ -468,6 +486,7 @@ export function parseJSON(content: string): RegulatoryListImport {
       ecNumber: e.ecNumber as string | undefined,
       restrictionType: e.restrictionType as RegulatoryListEntryImport['restrictionType'],
       thresholdPct: e.thresholdPct as string | undefined,
+      stoichiometricFactor: e.stoichiometricFactor as string | undefined,
       conditions: e.conditions as Record<string, string> | undefined,
       legalReference: e.legalReference as string | undefined,
       notes: e.notes as string | undefined,
@@ -1196,6 +1215,7 @@ export class RegulatoryImportService {
           substanceNameSnapshot: entry.primaryName,
           restrictionType: entry.restrictionType,
           thresholdPct: entry.thresholdPct,
+          stoichiometricFactor: entry.stoichiometricFactor,
           conditions: entry.conditions,
           legalReference: entry.legalReference,
           notes: entry.notes,

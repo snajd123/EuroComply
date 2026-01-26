@@ -851,6 +851,9 @@ export class RegulatoryListEntry extends BaseEntity {
   @Property({ type: 'decimal', precision: 7, scale: 4, nullable: true, name: 'threshold_pct' })
   thresholdPct?: string;      // e.g., "0.1000" for 0.1%
 
+  @Property({ type: 'decimal', precision: 5, scale: 4, nullable: true, name: 'stoichiometric_factor' })
+  stoichiometricFactor?: string;  // For element-based regs (e.g., Cobalt in CoSO₄ = 0.38)
+
   @Property({ type: 'jsonb', nullable: true })
   conditions?: Record<string, string>;  // { application_area: 'spray products' }
 
@@ -873,6 +876,7 @@ CREATE TABLE public.regulatory_list_entry (
     substance_name_snapshot VARCHAR(500) NOT NULL,
     restriction_type VARCHAR(30) NOT NULL,  -- PROHIBITED, THRESHOLD, RESTRICTED_WITH_CONDITIONS
     threshold_pct DECIMAL(7, 4),
+    stoichiometric_factor DECIMAL(5, 4),    -- For element-based regs (e.g., Cobalt in CoSO₄)
     conditions JSONB,
     legal_reference VARCHAR(100),
     notes TEXT,

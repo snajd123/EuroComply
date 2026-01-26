@@ -683,6 +683,21 @@ export class RegulatoryListEntry extends BaseEntity {
   thresholdPct?: string;
 
   /**
+   * Stoichiometric factor for element-based regulations.
+   *
+   * Used when the regulation restricts a pure element (e.g., Cobalt)
+   * but the substance in the product is a compound (e.g., Cobalt Sulfate).
+   *
+   * Example: Cobalt Sulfate (CoSO₄) has factor ~0.38 for pure Cobalt content.
+   * If product contains 1% Cobalt Sulfate, effective Cobalt = 1% × 0.38 = 0.38%
+   *
+   * Used by: SubstanceRollupService (Plan 8), CRM compliance (Plan 9)
+   * NULL if not applicable (most entries).
+   */
+  @Property({ type: 'decimal', precision: 5, scale: 4, nullable: true, name: 'stoichiometric_factor' })
+  stoichiometricFactor?: string;
+
+  /**
    * Conditional restrictions (JSONB).
    * Example: { application_area: 'spray_products', max_concentration: '0.05%' }
    */

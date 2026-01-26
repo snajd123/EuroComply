@@ -1668,4 +1668,19 @@ git commit -m "feat(database): export substance rollup services"
 - `ROHS_RESTRICTED_SUBSTANCES` - RoHS substance limits
 - `REACH_RESTRICTED_SUBSTANCES` - Annex XVII restrictions
 
+**Future Enhancement - Stoichiometric Factors:**
+
+For element-based regulations (e.g., Critical Raw Materials Act), the rollup calculation should apply stoichiometric factors when present:
+
+```typescript
+// If entry has stoichiometricFactor, adjust effective concentration
+const effectiveConcentration = entry.stoichiometricFactor
+  ? substance.concentration * parseFloat(entry.stoichiometricFactor)
+  : substance.concentration;
+```
+
+Example: Cobalt Sulfate (CoSO₄) at 1% in product with factor 0.38 → effective Cobalt = 0.38%
+
+See: Plan 10 (`RegulatoryListEntry.stoichiometricFactor`) and Plan 12 (CSV import support)
+
 **Next Plan:** Plan 9 (DPP & Reporting) includes substance declarations in Digital Product Passport.
