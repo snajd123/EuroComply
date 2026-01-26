@@ -1260,6 +1260,14 @@ git commit -m "feat(database): add MetricThresholdEvaluator for supply risk chec
 - Evaluators query lists from Plan 10 (RegulatoryListService)
 - Category inheritance from Plan 11 (CategoryRegulatoryListService)
 
+**Threshold Resolution Hierarchy:**
+
+When evaluating THRESHOLD checks, the evaluator uses this fallback order:
+1. `CategoryRegulatoryList.thresholdOverridePct` (category-specific stricter threshold from Plan 11)
+2. `RegulatoryListEntry.thresholdPct` (default list entry threshold from Plan 10)
+
+This allows categories (e.g., cosmetics.baby-products) to enforce stricter thresholds than the base regulatory list requires, while inheriting the list's substance restrictions.
+
 **Next Plan:**
 - **Plan 15:** Regulatory Seeders (initial data for REACH, RoHS, CosIng, CRM)
 

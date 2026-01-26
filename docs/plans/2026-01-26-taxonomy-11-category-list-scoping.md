@@ -1008,9 +1008,37 @@ git commit -m "feat(api): add category regulatory lists route with LTREE inherit
 - Priority: ordering when multiple lists at same depth
 - Threshold override: category-specific stricter thresholds
 
+**Implementation Refinements (for hardening):**
+
+1. **Stoichiometry & Threshold Fallback (Plan 14):**
+   - Plan 9/10 discussed adding a `stoichiometric_factor` to `RegulatoryListEntry`
+   - The Evaluation Service (Plan 14) should implement this resolution hierarchy:
+     ```
+     1. CategoryRegulatoryList.thresholdOverridePct (if non-null)
+     2. RegulatoryListEntry.thresholdPct (default list entry threshold)
+     ```
+   - This allows category-specific stricter thresholds to override the default list entry values
+
+2. **Temporal Scoping (Future Enhancement):**
+   - Current implementation filters `rl.is_current_version = true` (correct for 99% of use cases)
+   - Future enhancement: Add optional `atDate?: Date` parameter to `getListsForCategory()`
+   - This enables forensic auditing: "Which lists were scoped to this category on the day this product was manufactured 2 years ago?"
+   - Implementation sketch:
+     ```typescript
+     async getListsForCategory(
+       categoryPath: string,
+       options?: { atDate?: Date }
+     ): Promise<CategoryRegulatoryList[]> {
+       const dateFilter = options?.atDate
+         ? `AND rl.effective_date <= ? AND (rl.superseded_date IS NULL OR rl.superseded_date > ?)`
+         : `AND rl.is_current_version = true`;
+       // ... rest of query
+     }
+     ```
+
 **Next Plans:**
 - **Plan 12:** RegulatoryImportService (admin import pipeline)
-- **Plan 14:** Vertical rule evaluators
+- **Plan 14:** Vertical rule evaluators (implement threshold fallback hierarchy)
 - **Plan 15:** Initial list seeders
 
 ---
