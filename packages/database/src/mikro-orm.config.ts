@@ -45,7 +45,7 @@ export default defineConfig({
   migrations: {
     path: './dist/migrations',
     pathTs: './src/migrations',
-    glob: '!(*.d).{js,ts}',
+    glob: 'Migration*.js',
     transactional: true,
     allOrNothing: true,
   },

@@ -1,12 +1,22 @@
 #!/usr/bin/env node
 /**
  * Database setup CLI - runs migrations and seeds reference data.
- * Usage: node --env-file=.env dist/cli/setup.js
+ * Usage: node --env-file=.env packages/database/dist/cli/setup.js
  */
-import { initOrm, closeOrm } from '../orm.js';
-import { SubstancesSeeder } from '../seeders/substances.seeder.js';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const PACKAGE_ROOT = join(__dirname, '..', '..');
 
 async function main() {
+  // Change to package directory BEFORE loading ORM so migration paths resolve correctly
+  process.chdir(PACKAGE_ROOT);
+
+  // Dynamic imports after chdir so relative paths resolve correctly
+  const { initOrm, closeOrm } = await import('../orm.js');
+  const { SubstancesSeeder } = await import('../seeders/substances.seeder.js');
+
   console.log('🚀 EuroComply Database Setup');
   console.log('============================\n');
 

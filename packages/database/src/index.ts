@@ -4,7 +4,7 @@ export * from './seeds/index.js';
 export * from './seeders/index.js';
 export { initOrm, getOrm, closeOrm, createTenantEm } from './orm.js';
 export { default as mikroOrmConfig, tenantConfig, publicConfig } from './mikro-orm.config.js';
-export { ParallelMigrator, type ParallelMigratorOptions, type MigrationResults } from './migrations/parallel-migrator.js';
+export { ParallelMigrator, type ParallelMigratorOptions, type MigrationResults } from './utils/parallel-migrator.js';
 export {
   TenantProvisioner,
   type ProvisioningResult,
