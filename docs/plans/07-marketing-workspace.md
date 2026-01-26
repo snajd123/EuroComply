@@ -1,7 +1,7 @@
 # Marketing Workspace (PIM)
 
 **Status:** Active
-**Last Updated:** 2026-01-21
+**Last Updated:** 2026-01-26
 
 ---
 
@@ -1107,6 +1107,8 @@ GET    /api/v1/marketing/versions/:id/sync-history   # Get sync history
 | [Security](./03-security.md) | RBAC model |
 | [Compliance Workspace](./08-compliance-workspace.md) | DPP snapshots marketing data |
 | [Integrations](./10-integrations.md) | Shopify, Amazon sync |
+| [Taxonomy Plan 5 - Category Service](./2026-01-26-taxonomy-05-category-service.md) | Category LTREE hierarchy (shared with Design) |
+| [Taxonomy Plan 6 - Attribute Service](./2026-01-26-taxonomy-06-attribute-service.md) | Marketing AttributeTemplates |
 
 ---
 

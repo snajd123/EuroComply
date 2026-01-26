@@ -2301,6 +2301,10 @@ GET    /api/v1/marketplace/adoptions                 # List org adoptions
 | [Design Workspace](./05-design-workspace.md) | AttributeTemplate → RuleTemplate linking |
 | [Compliance Workspace](./08-compliance-workspace.md) | PreFlightAuditService, ForensicSealView |
 | [Billing](./12-billing.md) | Marketplace revenue model |
+| [Taxonomy Plan 8 - Substance Rollup](./2026-01-26-taxonomy-08-substance-rollup.md) | SubstanceRollupService for BOM aggregation |
+| [Taxonomy Plan 10 - Regulatory List Registry](./2026-01-26-taxonomy-10-regulatory-list-registry.md) | RegulatoryList, RegulatoryListEntry entities |
+| [Taxonomy Plan 11 - Category-List Scoping](./2026-01-26-taxonomy-11-category-list-scoping.md) | CategoryRegulatoryList LTREE mapping |
+| [Taxonomy Plan 14 - Vertical Rule Evaluation](./2026-01-26-taxonomy-14-vertical-rule-evaluation.md) | RegulatoryListCheckEvaluator service |
 
 ---
 

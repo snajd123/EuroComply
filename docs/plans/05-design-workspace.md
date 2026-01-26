@@ -2090,13 +2090,17 @@ GET    /api/v1/regulations/documents/:id/viewer-url    # Get signed viewer URL
 
 | Document | Relationship |
 |----------|--------------|
-| [Data Model](./02-data-model.md) | Core entities |
+| [Data Model](./02-data-model.md) | Core entities including MaterialSubstance |
 | [Security](./03-security.md) | RBAC model |
 | [Operations Workspace](./06-operations-workspace.md) | Facilities, suppliers |
 | [Marketing Workspace](./07-marketing-workspace.md) | Content enrichment |
 | [Compliance Workspace](./08-compliance-workspace.md) | DPP issuance |
 | [Verifiable Credentials](./09-verifiable-credentials.md) | Signing |
 | [Regulatory Advisor](./13-regulatory-advisor.md) | Rule templates, PreFlight validation |
+| [Taxonomy Plan 5 - Category Service](./2026-01-26-taxonomy-05-category-service.md) | Category LTREE hierarchy |
+| [Taxonomy Plan 6 - Attribute Service](./2026-01-26-taxonomy-06-attribute-service.md) | AttributeTemplate inheritance |
+| [Taxonomy Plan 7 - Material Substances](./2026-01-26-taxonomy-07-material-substances.md) | Substance declarations on materials |
+| [Taxonomy Plan 8 - Substance Rollup](./2026-01-26-taxonomy-08-substance-rollup.md) | BOM substance aggregation |
 
 ---
 
