@@ -560,7 +560,10 @@ import { RegulatoryListEntry } from '../../entities/RegulatoryListEntry.js';
 import { Substance } from '../../entities/Substance.js';
 import { Category, CategoryType } from '../../entities/Category.js';
 import { CategoryRegulatoryList } from '../../entities/CategoryRegulatoryList.js';
-import { RegulatoryListCheckEvaluator } from './RegulatoryListCheckEvaluator.js';
+import {
+  RegulatoryListCheckEvaluator,
+  EvaluatorInput,
+} from './RegulatoryListCheckEvaluator.js';
 import { RestrictionType, ListRequirement } from '../../entities/enums/index.js';
 import { RegulatoryListCheckConfig } from '../../types/validation-logic.js';
 import { setupTestDb, teardownTestDb, isDatabaseAvailable } from '../../test-utils.js';
@@ -640,7 +643,7 @@ describe('RegulatoryListCheckEvaluator', () => {
     await em.flush();
   });
 
-  describe('evaluate with PROHIBITED check', () => {
+  describe('evaluate with PROHIBITED check (ARTICLE scope)', () => {
     it('fails when prohibited substance is present', async (context) => {
       if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
@@ -652,18 +655,21 @@ describe('RegulatoryListCheckEvaluator', () => {
         scope: 'ARTICLE',
       };
 
-      const rolledUpSubstances = [
-        {
-          casNumber: '50-00-0',
-          primaryName: 'Formaldehyde',
-          effectiveConcentrationPct: '0.05',
-          traceability: [
-            { materialName: 'Preservative', materialVersionId: 'abc', concentrationInMaterial: '0.5', contributionToProduct: '0.05' },
-          ],
-        },
-      ];
+      const input: EvaluatorInput = {
+        scope: 'ARTICLE',
+        substances: [
+          {
+            casNumber: '50-00-0',
+            primaryName: 'Formaldehyde',
+            effectiveConcentrationPct: '0.05',
+            traceability: [
+              { materialName: 'Preservative', materialVersionId: 'abc', concentrationInMaterial: '0.5', contributionToProduct: '0.05' },
+            ],
+          },
+        ],
+      };
 
-      const findings = await evaluator.evaluate(config, rolledUpSubstances, 'products.cosmetics');
+      const findings = await evaluator.evaluate(config, input, 'products.cosmetics');
 
       expect(findings).toHaveLength(1);
       expect(findings[0].status).toBe('FAILED');
@@ -682,22 +688,25 @@ describe('RegulatoryListCheckEvaluator', () => {
         scope: 'ARTICLE',
       };
 
-      const rolledUpSubstances = [
-        {
-          casNumber: '7440-66-6',  // Zinc - not in list
-          primaryName: 'Zinc',
-          effectiveConcentrationPct: '1.0',
-          traceability: [],
-        },
-      ];
+      const input: EvaluatorInput = {
+        scope: 'ARTICLE',
+        substances: [
+          {
+            casNumber: '7440-66-6',  // Zinc - not in list
+            primaryName: 'Zinc',
+            effectiveConcentrationPct: '1.0',
+            traceability: [],
+          },
+        ],
+      };
 
-      const findings = await evaluator.evaluate(config, rolledUpSubstances, 'products.cosmetics');
+      const findings = await evaluator.evaluate(config, input, 'products.cosmetics');
 
       expect(findings).toHaveLength(0);  // No violations
     });
   });
 
-  describe('evaluate with THRESHOLD check', () => {
+  describe('evaluate with THRESHOLD check (ARTICLE scope)', () => {
     it('fails when concentration exceeds threshold', async (context) => {
       if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
@@ -709,16 +718,19 @@ describe('RegulatoryListCheckEvaluator', () => {
         scope: 'ARTICLE',
       };
 
-      const rolledUpSubstances = [
-        {
-          casNumber: '7439-92-1',  // Lead - threshold 0.001%
-          primaryName: 'Lead',
-          effectiveConcentrationPct: '0.01',  // Above threshold
-          traceability: [],
-        },
-      ];
+      const input: EvaluatorInput = {
+        scope: 'ARTICLE',
+        substances: [
+          {
+            casNumber: '7439-92-1',  // Lead - threshold 0.001%
+            primaryName: 'Lead',
+            effectiveConcentrationPct: '0.01',  // Above threshold
+            traceability: [],
+          },
+        ],
+      };
 
-      const findings = await evaluator.evaluate(config, rolledUpSubstances, 'products.cosmetics');
+      const findings = await evaluator.evaluate(config, input, 'products.cosmetics');
 
       expect(findings).toHaveLength(1);
       expect(findings[0].status).toBe('FAILED');
@@ -736,16 +748,19 @@ describe('RegulatoryListCheckEvaluator', () => {
         scope: 'ARTICLE',
       };
 
-      const rolledUpSubstances = [
-        {
-          casNumber: '7439-92-1',  // Lead - threshold 0.001%
-          primaryName: 'Lead',
-          effectiveConcentrationPct: '0.0005',  // Below threshold
-          traceability: [],
-        },
-      ];
+      const input: EvaluatorInput = {
+        scope: 'ARTICLE',
+        substances: [
+          {
+            casNumber: '7439-92-1',  // Lead - threshold 0.001%
+            primaryName: 'Lead',
+            effectiveConcentrationPct: '0.0005',  // Below threshold
+            traceability: [],
+          },
+        ],
+      };
 
-      const findings = await evaluator.evaluate(config, rolledUpSubstances, 'products.cosmetics');
+      const findings = await evaluator.evaluate(config, input, 'products.cosmetics');
 
       expect(findings).toHaveLength(0);
     });
@@ -763,19 +778,157 @@ describe('RegulatoryListCheckEvaluator', () => {
         scope: 'ARTICLE',
       };
 
-      const rolledUpSubstances = [
-        {
-          casNumber: '50-00-0',
-          primaryName: 'Formaldehyde',
-          effectiveConcentrationPct: '0.05',
-          traceability: [],
-        },
-      ];
+      const input: EvaluatorInput = {
+        scope: 'ARTICLE',
+        substances: [
+          {
+            casNumber: '50-00-0',
+            primaryName: 'Formaldehyde',
+            effectiveConcentrationPct: '0.05',
+            traceability: [],
+          },
+        ],
+      };
 
-      const findings = await evaluator.evaluate(config, rolledUpSubstances, 'products.cosmetics');
+      const findings = await evaluator.evaluate(config, input, 'products.cosmetics');
 
       expect(findings).toHaveLength(1);
       expect(findings[0].evaluationContext.appliedList.code).toBe('COSING_ANNEX_II');
+    });
+  });
+
+  describe('evaluate with HOMOGENEOUS_MATERIAL scope', () => {
+    it('fails when ANY individual material exceeds threshold (RoHS pattern)', async (context) => {
+      if (!orm) { context.skip(); return; }
+      const em = orm.em.fork();
+      const evaluator = new RegulatoryListCheckEvaluator(em);
+
+      const config: RegulatoryListCheckConfig = {
+        listCodes: ['COSING_ANNEX_II'],
+        checkType: 'THRESHOLD',
+        scope: 'HOMOGENEOUS_MATERIAL',
+      };
+
+      // Laptop with 500 components: only the M3 screw has high Lead
+      const input: EvaluatorInput = {
+        scope: 'HOMOGENEOUS_MATERIAL',
+        materials: [
+          {
+            materialName: 'Main PCB',
+            materialVersionId: 'pcb-001',
+            supplier: 'PCB Corp',
+            substances: [
+              { casNumber: '7439-92-1', primaryName: 'Lead', concentrationPct: '0.0001' },  // Below threshold
+            ],
+          },
+          {
+            materialName: 'M3 Screw',
+            materialVersionId: 'screw-abc-123',
+            supplier: 'Fastener Co',
+            substances: [
+              { casNumber: '7439-92-1', primaryName: 'Lead', concentrationPct: '0.2' },  // 0.2% - ABOVE 0.001% threshold!
+            ],
+          },
+          {
+            materialName: 'Housing',
+            materialVersionId: 'housing-001',
+            supplier: 'Plastics Inc',
+            substances: [
+              { casNumber: '7440-66-6', primaryName: 'Zinc', concentrationPct: '0.5' },  // Not in list
+            ],
+          },
+        ],
+      };
+
+      const findings = await evaluator.evaluate(config, input, 'products.electronics');
+
+      // Only the M3 Screw should fail (0.2% > 0.001% threshold)
+      expect(findings).toHaveLength(1);
+      expect(findings[0].status).toBe('FAILED');
+      expect(findings[0].issueType).toBe('CHEMICAL_LIMIT_EXCEEDED');
+      expect(findings[0].evaluationContext.traceability[0].materialName).toBe('M3 Screw');
+      expect(findings[0].evaluationContext.traceability[0].supplier).toBe('Fastener Co');
+      expect(findings[0].evaluationContext.reason).toContain('M3 Screw');
+      expect(findings[0].evaluationContext.reason).toContain('Fastener Co');
+    });
+
+    it('passes when all individual materials are below threshold', async (context) => {
+      if (!orm) { context.skip(); return; }
+      const em = orm.em.fork();
+      const evaluator = new RegulatoryListCheckEvaluator(em);
+
+      const config: RegulatoryListCheckConfig = {
+        listCodes: ['COSING_ANNEX_II'],
+        checkType: 'THRESHOLD',
+        scope: 'HOMOGENEOUS_MATERIAL',
+      };
+
+      const input: EvaluatorInput = {
+        scope: 'HOMOGENEOUS_MATERIAL',
+        materials: [
+          {
+            materialName: 'Main PCB',
+            materialVersionId: 'pcb-001',
+            supplier: 'PCB Corp',
+            substances: [
+              { casNumber: '7439-92-1', primaryName: 'Lead', concentrationPct: '0.0005' },  // Below 0.001%
+            ],
+          },
+          {
+            materialName: 'M3 Screw',
+            materialVersionId: 'screw-abc-123',
+            supplier: 'Fastener Co',
+            substances: [
+              { casNumber: '7439-92-1', primaryName: 'Lead', concentrationPct: '0.0008' },  // Below 0.001%
+            ],
+          },
+        ],
+      };
+
+      const findings = await evaluator.evaluate(config, input, 'products.electronics');
+
+      expect(findings).toHaveLength(0);
+    });
+
+    it('returns multiple findings when multiple materials violate', async (context) => {
+      if (!orm) { context.skip(); return; }
+      const em = orm.em.fork();
+      const evaluator = new RegulatoryListCheckEvaluator(em);
+
+      const config: RegulatoryListCheckConfig = {
+        listCodes: ['COSING_ANNEX_II'],
+        checkType: 'PROHIBITED',
+        scope: 'HOMOGENEOUS_MATERIAL',
+      };
+
+      const input: EvaluatorInput = {
+        scope: 'HOMOGENEOUS_MATERIAL',
+        materials: [
+          {
+            materialName: 'Preservative A',
+            materialVersionId: 'pres-001',
+            supplier: 'ChemCo',
+            substances: [
+              { casNumber: '50-00-0', primaryName: 'Formaldehyde', concentrationPct: '0.1' },
+            ],
+          },
+          {
+            materialName: 'Preservative B',
+            materialVersionId: 'pres-002',
+            supplier: 'ChemCo',
+            substances: [
+              { casNumber: '50-00-0', primaryName: 'Formaldehyde', concentrationPct: '0.2' },
+            ],
+          },
+        ],
+      };
+
+      const findings = await evaluator.evaluate(config, input, 'products.cosmetics');
+
+      // Both materials contain prohibited Formaldehyde
+      expect(findings).toHaveLength(2);
+      expect(findings[0].evaluationContext.traceability[0].materialName).toBe('Preservative A');
+      expect(findings[1].evaluationContext.traceability[0].materialName).toBe('Preservative B');
     });
   });
 });
@@ -803,6 +956,9 @@ import { RegulatoryListCheckConfig } from '../../types/validation-logic.js';
 import { SubstanceFinding, IssueType, SubstanceTraceability } from '../../types/audit-finding.js';
 import { RestrictionType } from '../../entities/enums/index.js';
 
+/**
+ * For ARTICLE scope: pre-rolled substance totals for the whole product
+ */
 export interface RolledUpSubstance {
   casNumber: string;
   primaryName: string;
@@ -816,6 +972,28 @@ export interface RolledUpSubstance {
   }>;
 }
 
+/**
+ * For HOMOGENEOUS_MATERIAL scope: individual material with its substances
+ * Each material is evaluated independently (RoHS requirement)
+ */
+export interface MaterialSubstanceData {
+  materialName: string;
+  materialVersionId: string;
+  supplier?: string;
+  substances: Array<{
+    casNumber: string;
+    primaryName: string;
+    concentrationPct: string;  // Concentration within THIS material
+  }>;
+}
+
+/**
+ * Union input type - caller provides appropriate structure based on scope
+ */
+export type EvaluatorInput =
+  | { scope: 'ARTICLE'; substances: RolledUpSubstance[] }
+  | { scope: 'HOMOGENEOUS_MATERIAL'; materials: MaterialSubstanceData[] };
+
 export class RegulatoryListCheckEvaluator {
   private readonly categoryListService: CategoryRegulatoryListService;
   private readonly listService: RegulatoryListService;
@@ -826,12 +1004,18 @@ export class RegulatoryListCheckEvaluator {
   }
 
   /**
-   * Evaluate rolled-up substances against regulatory lists.
-   * Returns array of findings for violations.
+   * Evaluate substances against regulatory lists.
+   *
+   * For ARTICLE scope: receives pre-rolled totals, checks product-level concentrations
+   * For HOMOGENEOUS_MATERIAL scope: receives flattened materials list, checks EACH material independently
+   *
+   * @param config - Validation configuration including scope
+   * @param input - Either rolled-up substances (ARTICLE) or individual materials (HOMOGENEOUS_MATERIAL)
+   * @param categoryPath - Product category for list inheritance
    */
   async evaluate(
     config: RegulatoryListCheckConfig,
-    rolledUpSubstances: RolledUpSubstance[],
+    input: EvaluatorInput,
     categoryPath: string
   ): Promise<SubstanceFinding[]> {
     // Step 1: Resolve which lists to check
@@ -850,18 +1034,73 @@ export class RegulatoryListCheckEvaluator {
       }
     }
 
-    // Step 4: Check each substance
+    // Step 4: Evaluate based on scope
+    if (input.scope === 'ARTICLE') {
+      return this.evaluateArticleScope(input.substances, entryByCas, config);
+    } else {
+      return this.evaluateHomogeneousMaterialScope(input.materials, entryByCas, config);
+    }
+  }
+
+  /**
+   * ARTICLE scope: Check rolled-up totals (whole product concentration)
+   */
+  private evaluateArticleScope(
+    substances: RolledUpSubstance[],
+    entryByCas: Map<string, { entry: RegulatoryListEntry; list: RegulatoryList }>,
+    config: RegulatoryListCheckConfig
+  ): SubstanceFinding[] {
     const findings: SubstanceFinding[] = [];
 
-    for (const substance of rolledUpSubstances) {
+    for (const substance of substances) {
       const match = entryByCas.get(substance.casNumber);
       if (!match) continue;
 
       const { entry, list } = match;
-      const violation = this.checkViolation(substance, entry, config);
+      const violation = this.checkViolation(substance.effectiveConcentrationPct, entry, config);
 
       if (violation) {
         findings.push(this.buildFinding(substance, entry, list, config, violation));
+      }
+    }
+
+    return findings;
+  }
+
+  /**
+   * HOMOGENEOUS_MATERIAL scope: Check EACH material independently
+   *
+   * Critical for RoHS: A laptop with 500 components where 1 screw has 0.2% Lead
+   * is a violation, even if total laptop concentration is 0.000001% Lead.
+   */
+  private evaluateHomogeneousMaterialScope(
+    materials: MaterialSubstanceData[],
+    entryByCas: Map<string, { entry: RegulatoryListEntry; list: RegulatoryList }>,
+    config: RegulatoryListCheckConfig
+  ): SubstanceFinding[] {
+    const findings: SubstanceFinding[] = [];
+
+    // Check EVERY material independently
+    for (const material of materials) {
+      for (const substance of material.substances) {
+        const match = entryByCas.get(substance.casNumber);
+        if (!match) continue;
+
+        const { entry, list } = match;
+        // Check concentration WITHIN THIS MATERIAL, not product total
+        const violation = this.checkViolation(substance.concentrationPct, entry, config);
+
+        if (violation) {
+          // Build finding with material-specific traceability
+          findings.push(this.buildHomogeneousMaterialFinding(
+            substance,
+            material,
+            entry,
+            list,
+            config,
+            violation
+          ));
+        }
       }
     }
 
@@ -881,12 +1120,19 @@ export class RegulatoryListCheckEvaluator {
     return mappings.map(m => m.regulatoryList);
   }
 
+  /**
+   * Check if a concentration violates the regulatory entry.
+   *
+   * @param concentrationPct - The concentration to check (string for precision)
+   * @param entry - The regulatory list entry with thresholds
+   * @param config - Validation config with checkType
+   */
   private checkViolation(
-    substance: RolledUpSubstance,
+    concentrationPct: string,
     entry: RegulatoryListEntry,
     config: RegulatoryListCheckConfig
   ): IssueType | null {
-    const rawConcentration = new Decimal(substance.effectiveConcentrationPct);
+    const rawConcentration = new Decimal(concentrationPct);
 
     // Apply stoichiometric factor if present (element-based regulations)
     // Example: If law limits Cobalt but user declared Cobalt Sulfate,
@@ -967,8 +1213,63 @@ export class RegulatoryListCheckEvaluator {
         })),
       },
       remediation: {
-        suggestion: this.buildSuggestion(issueType, substance),
-        alternativeCas: [],
+        suggestion: this.buildSuggestion(issueType, substance.primaryName),
+        alternativeCas: entry.alternativeCas || [],
+      },
+    };
+  }
+
+  /**
+   * Build finding for HOMOGENEOUS_MATERIAL scope violations.
+   * The traceability pinpoints the EXACT material causing the violation.
+   */
+  private buildHomogeneousMaterialFinding(
+    substance: { casNumber: string; primaryName: string; concentrationPct: string },
+    material: MaterialSubstanceData,
+    entry: RegulatoryListEntry,
+    list: RegulatoryList,
+    config: RegulatoryListCheckConfig,
+    issueType: IssueType
+  ): SubstanceFinding {
+    return {
+      ruleCode: `VERTICAL_${config.checkType}_CHECK`,
+      ruleName: `${list.name} Compliance Check`,
+      severity: issueType === 'PROHIBITED_SUBSTANCE' ? 'BLOCKER' : 'WARNING',
+      status: 'FAILED',
+      effectiveMode: 'ENFORCING',
+      issueType,
+      substance: {
+        casNumber: substance.casNumber,
+        primaryName: substance.primaryName,
+        effectiveConcentrationPct: substance.concentrationPct,
+        scope: 'HOMOGENEOUS_MATERIAL',
+      },
+      evaluationContext: {
+        appliedList: {
+          code: list.code,
+          name: list.name,
+          version: list.version,
+          sourceUrl: list.sourceUrl || '',
+        },
+        legalReference: entry.legalReference || '',
+        categoryTrigger: '',
+        // Pinpoint the EXACT material causing the violation
+        reason: `Product blocked because ${substance.primaryName} in '${material.materialName}' from '${material.supplier || 'Unknown Supplier'}' ${
+          issueType === 'PROHIBITED_SUBSTANCE'
+            ? 'is prohibited'
+            : `exceeds ${entry.thresholdPct}% threshold (found ${substance.concentrationPct}%)`
+        }.`,
+        traceability: [{
+          materialName: material.materialName,
+          materialVersionId: material.materialVersionId,
+          supplier: material.supplier,
+          concentrationInMaterial: substance.concentrationPct,
+          contributionToProduct: substance.concentrationPct,  // Same for homogeneous material
+        }],
+      },
+      remediation: {
+        suggestion: `Replace or remove '${material.materialName}' from ${material.supplier || 'supplier'}, or request reformulation without ${substance.primaryName}.`,
+        alternativeCas: entry.alternativeCas || [],
       },
     };
   }
@@ -986,12 +1287,12 @@ export class RegulatoryListCheckEvaluator {
     }
   }
 
-  private buildSuggestion(issueType: IssueType, substance: RolledUpSubstance): string {
+  private buildSuggestion(issueType: IssueType, substanceName: string): string {
     switch (issueType) {
       case 'PROHIBITED_SUBSTANCE':
-        return `Remove ${substance.primaryName} or use an approved alternative.`;
+        return `Remove ${substanceName} or use an approved alternative.`;
       case 'CHEMICAL_LIMIT_EXCEEDED':
-        return `Reduce concentration of ${substance.primaryName} below threshold.`;
+        return `Reduce concentration of ${substanceName} below threshold.`;
       default:
         return 'Review compliance requirements.';
     }
@@ -1253,111 +1554,39 @@ git commit -m "feat(database): add MetricThresholdEvaluator for supply risk chec
 
 ---
 
-## Implementation Refinements
-
-### 1. Homogeneous Material Branch (Critical)
-
-In Task 3, Step 3, the evaluator handles both `ARTICLE` and `HOMOGENEOUS_MATERIAL` scopes differently:
-
-| Scope | Evaluation Strategy |
-|-------|---------------------|
-| `ARTICLE` | Check rolled-up concentration (summed totals for the whole product) |
-| `HOMOGENEOUS_MATERIAL` | Check **every individual material** in the BOM separately |
-
-**Example:** A laptop with 500 components where one tiny M3 screw contains 0.2% Lead is a RoHS violation—even if the total laptop concentration is 0.000001% Lead.
-
-**Caller Contract:** The `PreFlightAuditService` (Plan 8 integration) must send a **flattened list of materials** to the evaluator when scope is `HOMOGENEOUS_MATERIAL`. The evaluator then iterates each material independently.
-
-### 2. Traceability Array Value
-
-The `SubstanceTraceability` array becomes critical for remediation value:
-
-```typescript
-// Finding tells the user EXACTLY where the violation originates
-evaluationContext: {
-  traceability: [{
-    materialName: 'M3 Screw',
-    materialVersionId: 'screw-abc-123',
-    supplier: 'Supplier X',
-    concentrationInMaterial: '0.2',
-    contributionToProduct: '0.000001',
-  }],
-  reason: 'The laptop is blocked because Lead in M3 Screw from Supplier X exceeds 0.1% threshold.',
-}
-```
-
-This transforms the tool from "Police Officer" (finding problems) to "Engineer" (pinpointing the fix).
-
-### 3. Stoichiometry in checkViolation (Hardening)
-
-When a `RegulatoryListEntry` (from Plan 10) contains a `stoichiometric_factor`, the evaluator must apply it before threshold comparison:
-
-```typescript
-private checkViolation(
-  substance: RolledUpSubstance,
-  entry: RegulatoryListEntry,
-  config: RegulatoryListCheckConfig
-): IssueType | null {
-  // Apply stoichiometric factor if present (element-based regulations)
-  // Example: If law limits Cobalt but user declared Cobalt Sulfate,
-  // multiply concentration by factor (e.g., 0.38) before comparison
-  const rawConcentration = new Decimal(substance.effectiveConcentrationPct);
-  const effectiveConcentration = entry.stoichiometricFactor
-    ? rawConcentration.mul(entry.stoichiometricFactor)
-    : rawConcentration;
-
-  switch (config.checkType) {
-    case 'THRESHOLD':
-      if (entry.restrictionType === RestrictionType.THRESHOLD && entry.thresholdPct) {
-        const threshold = config.thresholdOverridePct
-          ? new Decimal(config.thresholdOverridePct)
-          : new Decimal(entry.thresholdPct);
-
-        if (effectiveConcentration.gt(threshold)) {
-          return 'CHEMICAL_LIMIT_EXCEEDED';
-        }
-      }
-      break;
-    // ... other cases
-  }
-}
-```
-
-### 4. Audit Defensibility (Data Contract Rationale)
-
-The `evaluationContext.appliedList` fields enable enterprise-grade compliance:
-
-| Field | Value |
-|-------|-------|
-| `version` | Allows report to state "Evaluated against REACH Annex XVII v2024-06" |
-| `sourceUrl` | Links directly to EU Official Journal for auditor verification |
-| `legalReference` | Cites specific entry (e.g., "Entry 23, Restriction 4b") |
-
-The `alternativeCas` field in remediation moves from compliance to solution engineering.
-
----
-
 ## Summary
 
 **Plan 14 delivers:**
 - Extended `ValidationLogic` types with `regulatory_list_check` and `aggregate_metric_threshold`
 - `SubstanceFinding` and `MetricFinding` interfaces with traceability
-- `RegulatoryListCheckEvaluator` for vertical compliance checks
+- `RegulatoryListCheckEvaluator` for vertical compliance checks with dual-scope support
 - `MetricThresholdEvaluator` for supply risk threshold checks
-- Full test coverage
+- Full test coverage including HOMOGENEOUS_MATERIAL scenarios
 
-**Integration Points:**
-- Evaluators receive rolled-up substances from Plan 8 (SubstanceRollupService)
-- Evaluators query lists from Plan 10 (RegulatoryListService)
-- Category inheritance from Plan 11 (CategoryRegulatoryListService)
+**Scope-Aware Evaluation:**
+
+| Scope | Evaluation Strategy | Input Type |
+|-------|---------------------|------------|
+| `ARTICLE` | Check rolled-up totals (whole product) | `RolledUpSubstance[]` |
+| `HOMOGENEOUS_MATERIAL` | Check **each material independently** | `MaterialSubstanceData[]` |
+
+**RoHS Example:** A laptop with 500 components where one M3 screw has 0.2% Lead is a violation, even if total laptop is 0.000001% Lead. The traceability array pinpoints the exact violating component.
+
+**Stoichiometry Support:**
+When `RegulatoryListEntry.stoichiometricFactor` is present (from Plan 10), the evaluator applies it before threshold comparison. Example: Cobalt Sulfate at 1% with factor 0.38 → effective 0.38% Cobalt.
 
 **Threshold Resolution Hierarchy:**
-
-When evaluating THRESHOLD checks, the evaluator uses this fallback order:
 1. `CategoryRegulatoryList.thresholdOverridePct` (category-specific stricter threshold from Plan 11)
 2. `RegulatoryListEntry.thresholdPct` (default list entry threshold from Plan 10)
 
-This allows categories (e.g., cosmetics.baby-products) to enforce stricter thresholds than the base regulatory list requires, while inheriting the list's substance restrictions.
+**Integration Points:**
+- Evaluators receive input from Plan 8 (SubstanceRollupService) - caller decides scope
+- Evaluators query lists from Plan 10 (RegulatoryListService)
+- Category inheritance from Plan 11 (CategoryRegulatoryListService)
+
+**Audit Defensibility:**
+- `appliedList.version` and `sourceUrl` enable reports linking to EU Official Journal
+- `alternativeCas` moves tool from "Police Officer" to "Engineer" (suggesting fixes)
 
 **Next Plan:**
 - **Plan 15:** Regulatory Seeders (initial data for REACH, RoHS, CosIng, CRM)
