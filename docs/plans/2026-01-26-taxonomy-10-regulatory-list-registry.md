@@ -93,32 +93,57 @@ c.json({ error: 'Bad Request', message: 'Invalid list code format' }, 400)
 
 ---
 
-## Task 1: Create RestrictionType Enum
+## Task 1: Create Evaluation Enums (Agnostic Model)
 
 **Files:**
-- Create: `packages/database/src/entities/enums/RestrictionType.ts`
+- Create: `packages/database/src/entities/enums/ComparisonOperator.ts`
+- Create: `packages/database/src/entities/enums/Severity.ts`
 - Modify: `packages/database/src/entities/enums/index.ts`
 
-**Step 1: Create the enum file**
+**Step 1: Create the operator enum**
 
 ```typescript
-// packages/database/src/entities/enums/RestrictionType.ts
-export enum RestrictionType {
-  PROHIBITED = 'PROHIBITED',                         // Substance banned entirely
-  THRESHOLD = 'THRESHOLD',                           // Allowed below threshold
-  RESTRICTED_WITH_CONDITIONS = 'RESTRICTED_WITH_CONDITIONS',  // Conditional use
+// packages/database/src/entities/enums/ComparisonOperator.ts
+/**
+ * Data-driven comparison operators for agnostic evaluation.
+ * The evaluator uses these to compare substance concentrations against thresholds.
+ */
+export enum ComparisonOperator {
+  GT = 'GT',           // Greater than (concentration > threshold)
+  GTE = 'GTE',         // Greater than or equal
+  LT = 'LT',           // Less than
+  LTE = 'LTE',         // Less than or equal
+  EQ = 'EQ',           // Equals
+  PRESENT = 'PRESENT', // Any concentration > 0 (for prohibited substances)
+  ABSENT = 'ABSENT',   // Must be 0 (for mandatory absence)
 }
 ```
 
-**Step 2: Export from index**
+**Step 2: Create the severity enum**
+
+```typescript
+// packages/database/src/entities/enums/Severity.ts
+/**
+ * Severity levels for compliance findings.
+ * Stored in RegulatoryListEntry, used by evaluator.
+ */
+export enum Severity {
+  BLOCKER = 'BLOCKER',  // Blocks release/approval
+  WARNING = 'WARNING',  // Requires attention
+  INFO = 'INFO',        // Informational only
+}
+```
+
+**Step 3: Export from index**
 
 ```typescript
 // packages/database/src/entities/enums/index.ts
 // Add to existing exports:
-export { RestrictionType } from './RestrictionType.js';
+export { ComparisonOperator } from './ComparisonOperator.js';
+export { Severity } from './Severity.js';
 ```
 
-**Step 3: Verify build**
+**Step 4: Verify build**
 
 ```bash
 cd packages/database && pnpm build
@@ -126,11 +151,11 @@ cd packages/database && pnpm build
 
 Expected: Build succeeds
 
-**Step 4: Commit**
+**Step 5: Commit**
 
 ```bash
-git add packages/database/src/entities/enums/RestrictionType.ts packages/database/src/entities/enums/index.ts
-git commit -m "feat(database): add RestrictionType enum (PROHIBITED, THRESHOLD, RESTRICTED_WITH_CONDITIONS)"
+git add packages/database/src/entities/enums/ComparisonOperator.ts packages/database/src/entities/enums/Severity.ts packages/database/src/entities/enums/index.ts
+git commit -m "feat(database): add ComparisonOperator and Severity enums for agnostic evaluation"
 ```
 
 ---
@@ -417,7 +442,7 @@ import type { MikroORM } from '@mikro-orm/postgresql';
 import { RegulatoryList } from './RegulatoryList.js';
 import { RegulatoryListEntry } from './RegulatoryListEntry.js';
 import { Substance } from './Substance.js';
-import { RestrictionType } from './enums/index.js';
+import { ComparisonOperator, Severity } from './enums/index.js';
 import { setupTestDb, teardownTestDb, isDatabaseAvailable } from '../test-utils.js';
 
 describe('RegulatoryListEntry Entity', () => {
@@ -461,7 +486,7 @@ describe('RegulatoryListEntry Entity', () => {
     substanceId = substance.id;
   });
 
-  it('creates entry with prohibition restriction', async (context) => {
+  it('creates entry with PRESENT operator (prohibited substance)', async (context) => {
     if (!orm) { context.skip(); return; }
     const em = orm.em.fork();
 
@@ -473,7 +498,10 @@ describe('RegulatoryListEntry Entity', () => {
       substance: substanceRef,
       casNumberSnapshot: '50-00-0',
       substanceNameSnapshot: 'Formaldehyde',
-      restrictionType: RestrictionType.PROHIBITED,
+      operator: ComparisonOperator.PRESENT,
+      compareValue: null,  // No threshold - any presence is violation
+      issueType: 'PROHIBITED_SUBSTANCE',
+      severity: Severity.BLOCKER,
       legalReference: 'Entry 1577',
     });
 
@@ -484,13 +512,15 @@ describe('RegulatoryListEntry Entity', () => {
       substance: substanceRef,
     });
 
-    expect(found.restrictionType).toBe(RestrictionType.PROHIBITED);
+    expect(found.operator).toBe(ComparisonOperator.PRESENT);
+    expect(found.compareValue).toBeNull();
+    expect(found.issueType).toBe('PROHIBITED_SUBSTANCE');
+    expect(found.severity).toBe(Severity.BLOCKER);
     expect(found.casNumberSnapshot).toBe('50-00-0');
-    expect(found.substanceNameSnapshot).toBe('Formaldehyde');
     expect(found.legalReference).toBe('Entry 1577');
   });
 
-  it('creates entry with threshold restriction', async (context) => {
+  it('creates entry with GT operator (threshold restriction)', async (context) => {
     if (!orm) { context.skip(); return; }
     const em = orm.em.fork();
 
@@ -502,19 +532,23 @@ describe('RegulatoryListEntry Entity', () => {
       substance: substanceRef,
       casNumberSnapshot: '50-00-0',
       substanceNameSnapshot: 'Formaldehyde',
-      restrictionType: RestrictionType.THRESHOLD,
-      thresholdPct: '0.1',  // 0.1% max
+      operator: ComparisonOperator.GT,
+      compareValue: '0.1',  // Violates if > 0.1%
+      issueType: 'CHEMICAL_LIMIT_EXCEEDED',
+      severity: Severity.WARNING,
       legalReference: 'Annex XVII Entry 28',
     });
 
     await em.persistAndFlush(entry);
 
     const found = await em.findOneOrFail(RegulatoryListEntry, { list: listRef });
-    expect(found.restrictionType).toBe(RestrictionType.THRESHOLD);
-    expect(found.thresholdPct).toBe('0.1');
+    expect(found.operator).toBe(ComparisonOperator.GT);
+    expect(found.compareValue).toBe('0.1');
+    expect(found.issueType).toBe('CHEMICAL_LIMIT_EXCEEDED');
+    expect(found.severity).toBe(Severity.WARNING);
   });
 
-  it('creates entry with conditional restriction', async (context) => {
+  it('creates entry with conditional restriction and conditions JSONB', async (context) => {
     if (!orm) { context.skip(); return; }
     const em = orm.em.fork();
 
@@ -526,8 +560,10 @@ describe('RegulatoryListEntry Entity', () => {
       substance: substanceRef,
       casNumberSnapshot: '50-00-0',
       substanceNameSnapshot: 'Formaldehyde',
-      restrictionType: RestrictionType.RESTRICTED_WITH_CONDITIONS,
-      thresholdPct: '0.05',
+      operator: ComparisonOperator.GT,
+      compareValue: '0.05',
+      issueType: 'RESTRICTED_CONDITIONS',
+      severity: Severity.WARNING,
       conditions: {
         application_area: 'spray_products',
         max_concentration: '0.05%',
@@ -538,7 +574,7 @@ describe('RegulatoryListEntry Entity', () => {
     await em.persistAndFlush(entry);
 
     const found = await em.findOneOrFail(RegulatoryListEntry, { list: listRef });
-    expect(found.restrictionType).toBe(RestrictionType.RESTRICTED_WITH_CONDITIONS);
+    expect(found.operator).toBe(ComparisonOperator.GT);
     expect(found.conditions).toEqual({
       application_area: 'spray_products',
       max_concentration: '0.05%',
@@ -557,7 +593,9 @@ describe('RegulatoryListEntry Entity', () => {
       substance: substanceRef,
       casNumberSnapshot: '50-00-0',
       substanceNameSnapshot: 'Formaldehyde',
-      restrictionType: RestrictionType.PROHIBITED,
+      operator: ComparisonOperator.PRESENT,
+      issueType: 'PROHIBITED_SUBSTANCE',
+      severity: Severity.BLOCKER,
     });
     await em.persistAndFlush(entry1);
 
@@ -570,8 +608,10 @@ describe('RegulatoryListEntry Entity', () => {
       substance: substanceRef2,  // Same list + substance - should fail
       casNumberSnapshot: '50-00-0',
       substanceNameSnapshot: 'Formaldehyde',
-      restrictionType: RestrictionType.THRESHOLD,
-      thresholdPct: '0.1',
+      operator: ComparisonOperator.GT,
+      compareValue: '0.1',
+      issueType: 'CHEMICAL_LIMIT_EXCEEDED',
+      severity: Severity.WARNING,
     });
 
     await expect(em2.persistAndFlush(entry2)).rejects.toThrow();
@@ -589,7 +629,9 @@ describe('RegulatoryListEntry Entity', () => {
       substance: substanceRef,
       casNumberSnapshot: '50-00-0',
       substanceNameSnapshot: 'Formaldehyde',  // Snapshot at creation time
-      restrictionType: RestrictionType.PROHIBITED,
+      operator: ComparisonOperator.PRESENT,
+      issueType: 'PROHIBITED_SUBSTANCE',
+      severity: Severity.BLOCKER,
     });
     await em.persistAndFlush(entry);
 
@@ -627,7 +669,7 @@ import {
 import { BaseEntity } from './BaseEntity.js';
 import { RegulatoryList } from './RegulatoryList.js';
 import { Substance } from './Substance.js';
-import { RestrictionType } from './enums/index.js';
+import { ComparisonOperator, Severity } from './enums/index.js';
 
 @Entity({ tableName: 'regulatory_list_entry', schema: 'public' })
 @Unique({ properties: ['list', 'substance'] })
@@ -665,22 +707,47 @@ export class RegulatoryListEntry extends BaseEntity {
   substanceNameSnapshot!: string;
 
   // ─────────────────────────────────────────────────────────────
-  // Restriction Details
+  // Agnostic Evaluation Rules (Data-Driven)
   // ─────────────────────────────────────────────────────────────
 
   /**
-   * Type of restriction applied to this substance.
+   * Comparison operator for evaluation.
+   * The evaluator compares substance concentration using this operator.
+   *
+   * Examples:
+   * - PRESENT: Any concentration > 0 triggers violation (prohibited)
+   * - GT: Concentration > compareValue triggers violation (threshold)
    */
-  @Enum({ items: () => RestrictionType, name: 'restriction_type' })
-  restrictionType!: RestrictionType;
+  @Enum({ items: () => ComparisonOperator, name: 'operator' })
+  operator!: ComparisonOperator;
 
   /**
-   * Maximum allowed concentration (as percentage).
-   * NULL for PROHIBITED restrictions.
+   * Value to compare against (as percentage).
+   * NULL for PRESENT/ABSENT operators.
    * Stored as string to preserve decimal precision.
+   *
+   * Examples:
+   * - '0.1' for 0.1% threshold
+   * - null for PRESENT (prohibited substances)
    */
-  @Property({ type: 'decimal', precision: 7, scale: 4, nullable: true, name: 'threshold_pct' })
-  thresholdPct?: string;
+  @Property({ type: 'decimal', precision: 7, scale: 4, nullable: true, name: 'compare_value' })
+  compareValue?: string;
+
+  /**
+   * Issue type to report when violation occurs.
+   * This is the semantic meaning of the violation.
+   *
+   * Examples: 'PROHIBITED_SUBSTANCE', 'CHEMICAL_LIMIT_EXCEEDED', 'RESTRICTED_CONDITIONS'
+   */
+  @Property({ type: 'text', name: 'issue_type' })
+  issueType!: string;
+
+  /**
+   * Severity level when this rule is violated.
+   * Determines blocking behavior and UI treatment.
+   */
+  @Enum({ items: () => Severity, name: 'severity' })
+  severity!: Severity;
 
   /**
    * Stoichiometric factor for element-based regulations.
@@ -803,7 +870,7 @@ export class Migration20260126_RegulatoryList extends Migration {
         WHERE is_current_version = true;
     `);
 
-    // Create regulatory_list_entry table
+    // Create regulatory_list_entry table with agnostic evaluation fields
     this.addSql(`
       CREATE TABLE IF NOT EXISTS public.regulatory_list_entry (
         id TEXT PRIMARY KEY,
@@ -811,11 +878,21 @@ export class Migration20260126_RegulatoryList extends Migration {
         substance_id TEXT NOT NULL REFERENCES public.substance(id),
         cas_number_snapshot TEXT NOT NULL,
         substance_name_snapshot TEXT NOT NULL,
-        restriction_type TEXT NOT NULL CHECK (restriction_type IN ('PROHIBITED', 'THRESHOLD', 'RESTRICTED_WITH_CONDITIONS')),
-        threshold_pct NUMERIC(7,4),
+
+        -- Agnostic evaluation fields (data-driven)
+        operator TEXT NOT NULL CHECK (operator IN ('GT', 'GTE', 'LT', 'LTE', 'EQ', 'PRESENT', 'ABSENT')),
+        compare_value NUMERIC(7,4),  -- NULL for PRESENT/ABSENT operators
+        issue_type TEXT NOT NULL,    -- e.g., 'PROHIBITED_SUBSTANCE', 'CHEMICAL_LIMIT_EXCEEDED'
+        severity TEXT NOT NULL CHECK (severity IN ('BLOCKER', 'WARNING', 'INFO')),
+
+        -- Stoichiometry support
+        stoichiometric_factor NUMERIC(5,4),  -- For element-based regulations
+
+        -- Conditional restrictions
         conditions JSONB,
         legal_reference TEXT,
         notes TEXT,
+
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         CONSTRAINT uq_regulatory_list_entry_list_substance UNIQUE (list_id, substance_id)
@@ -887,7 +964,7 @@ import { RegulatoryList } from '../entities/RegulatoryList.js';
 import { RegulatoryListEntry } from '../entities/RegulatoryListEntry.js';
 import { Substance } from '../entities/Substance.js';
 import { RegulatoryListService } from './RegulatoryListService.js';
-import { RestrictionType } from '../entities/enums/index.js';
+import { ComparisonOperator, Severity } from '../entities/enums/index.js';
 import { setupTestDb, teardownTestDb, isDatabaseAvailable } from '../test-utils.js';
 
 describe('RegulatoryListService', () => {
@@ -1058,17 +1135,21 @@ describe('RegulatoryListService', () => {
       const s2 = em.create(Substance, { casNumber: '75-56-9', primaryName: 'Propylene oxide' });
       await em.persistAndFlush([s1, s2]);
 
-      // Add entries
+      // Add entries with agnostic evaluation fields
       await svc.addEntry(list.id, {
         substanceId: s1.id,
-        restrictionType: RestrictionType.PROHIBITED,
+        operator: ComparisonOperator.PRESENT,
+        issueType: 'PROHIBITED_SUBSTANCE',
+        severity: Severity.BLOCKER,
         legalReference: 'Entry 1',
       });
 
       await svc.addEntry(list.id, {
         substanceId: s2.id,
-        restrictionType: RestrictionType.THRESHOLD,
-        thresholdPct: '0.1',
+        operator: ComparisonOperator.GT,
+        compareValue: '0.1',
+        issueType: 'CHEMICAL_LIMIT_EXCEEDED',
+        severity: Severity.WARNING,
         legalReference: 'Entry 2',
       });
 
@@ -1133,7 +1214,7 @@ import { EntityManager } from '@mikro-orm/postgresql';
 import { RegulatoryList } from '../entities/RegulatoryList.js';
 import { RegulatoryListEntry } from '../entities/RegulatoryListEntry.js';
 import { Substance } from '../entities/Substance.js';
-import { RestrictionType } from '../entities/enums/index.js';
+import { ComparisonOperator, Severity } from '../entities/enums/index.js';
 
 export interface CreateListInput {
   code: string;
@@ -1149,8 +1230,13 @@ export interface CreateListInput {
 
 export interface AddEntryInput {
   substanceId: string;
-  restrictionType: RestrictionType;
-  thresholdPct?: string;
+  // Agnostic evaluation fields
+  operator: ComparisonOperator;
+  compareValue?: string;        // NULL for PRESENT/ABSENT
+  issueType: string;            // e.g., 'PROHIBITED_SUBSTANCE'
+  severity: Severity;
+  // Optional fields
+  stoichiometricFactor?: string;
   conditions?: Record<string, string>;
   legalReference?: string;
   notes?: string;
@@ -1247,8 +1333,13 @@ export class RegulatoryListService {
       substance,
       casNumberSnapshot: substance.casNumber,
       substanceNameSnapshot: substance.primaryName,
-      restrictionType: input.restrictionType,
-      thresholdPct: input.thresholdPct,
+      // Agnostic evaluation fields
+      operator: input.operator,
+      compareValue: input.compareValue,
+      issueType: input.issueType,
+      severity: input.severity,
+      // Optional fields
+      stoichiometricFactor: input.stoichiometricFactor,
       conditions: input.conditions,
       legalReference: input.legalReference,
       notes: input.notes,
@@ -1355,7 +1446,8 @@ const listQuery = z.object({
 });
 
 const entriesQuery = z.object({
-  restrictionType: z.enum(['PROHIBITED', 'THRESHOLD', 'RESTRICTED_WITH_CONDITIONS']).optional(),
+  operator: z.enum(['GT', 'GTE', 'LT', 'LTE', 'EQ', 'PRESENT', 'ABSENT']).optional(),
+  severity: z.enum(['BLOCKER', 'WARNING', 'INFO']).optional(),
 });
 
 // ============================================================================
@@ -1466,9 +1558,12 @@ export function createRegulatoryListsRouter(options: RegulatoryListsRouterOption
 
     let entries = await service.getEntriesForList(list.id, { populate: true });
 
-    // Filter by restriction type if provided
-    if (query.restrictionType) {
-      entries = entries.filter(e => e.restrictionType === query.restrictionType);
+    // Filter by operator or severity if provided
+    if (query.operator) {
+      entries = entries.filter(e => e.operator === query.operator);
+    }
+    if (query.severity) {
+      entries = entries.filter(e => e.severity === query.severity);
     }
 
     return c.json({
@@ -1476,8 +1571,13 @@ export function createRegulatoryListsRouter(options: RegulatoryListsRouterOption
         id: e.id,
         casNumber: e.casNumberSnapshot,
         substanceName: e.substanceNameSnapshot,
-        restrictionType: e.restrictionType,
-        thresholdPct: e.thresholdPct,
+        // Agnostic evaluation fields
+        operator: e.operator,
+        compareValue: e.compareValue,
+        issueType: e.issueType,
+        severity: e.severity,
+        // Optional
+        stoichiometricFactor: e.stoichiometricFactor,
         conditions: e.conditions,
         legalReference: e.legalReference,
       })),
@@ -1529,7 +1629,7 @@ git commit -m "feat(api): add regulatory-lists public taxonomy routes"
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Hono } from 'hono';
 import type { MikroORM } from '@mikro-orm/postgresql';
-import { RegulatoryList, RegulatoryListEntry, Substance, RestrictionType } from '@eurocomply/database';
+import { RegulatoryList, RegulatoryListEntry, Substance, ComparisonOperator, Severity } from '@eurocomply/database';
 import { setupTestDb, teardownTestDb, isDatabaseAvailable } from '@eurocomply/database/test-utils';
 import { createRegulatoryListsRouter } from './regulatory-lists.js';
 
@@ -1543,7 +1643,14 @@ interface SingleResponse {
 }
 
 interface EntriesResponse {
-  data: Array<{ casNumber: string; substanceName: string; restrictionType: string }>;
+  data: Array<{
+    casNumber: string;
+    substanceName: string;
+    operator: string;
+    compareValue?: string;
+    issueType: string;
+    severity: string;
+  }>;
   meta: { total: number };
 }
 
@@ -1597,7 +1704,9 @@ describe('Regulatory Lists API Integration', () => {
       substance,
       casNumberSnapshot: '50-00-0',
       substanceNameSnapshot: 'Formaldehyde',
-      restrictionType: RestrictionType.PROHIBITED,
+      operator: ComparisonOperator.PRESENT,
+      issueType: 'PROHIBITED_SUBSTANCE',
+      severity: Severity.BLOCKER,
       legalReference: 'Entry 1577',
     });
 
@@ -1659,7 +1768,7 @@ describe('Regulatory Lists API Integration', () => {
   });
 
   describe('GET /regulatory-lists/:code/entries', () => {
-    it('returns entries for a list', async (context) => {
+    it('returns entries for a list with agnostic fields', async (context) => {
       if (!orm) { context.skip(); return; }
 
       const res = await app.request('/regulatory-lists/TEST_COSING/entries');
@@ -1669,19 +1778,37 @@ describe('Regulatory Lists API Integration', () => {
       expect(body.data).toHaveLength(1);
       expect(body.data[0].casNumber).toBe('50-00-0');
       expect(body.data[0].substanceName).toBe('Formaldehyde');
-      expect(body.data[0].restrictionType).toBe('PROHIBITED');
+      expect(body.data[0].operator).toBe('PRESENT');
+      expect(body.data[0].issueType).toBe('PROHIBITED_SUBSTANCE');
+      expect(body.data[0].severity).toBe('BLOCKER');
     });
 
-    it('filters entries by restriction type', async (context) => {
+    it('filters entries by operator', async (context) => {
       if (!orm) { context.skip(); return; }
 
-      const res = await app.request('/regulatory-lists/TEST_COSING/entries?restrictionType=PROHIBITED');
+      const res = await app.request('/regulatory-lists/TEST_COSING/entries?operator=PRESENT');
       expect(res.status).toBe(200);
 
       const body = (await res.json()) as EntriesResponse;
       expect(body.data).toHaveLength(1);
 
-      const res2 = await app.request('/regulatory-lists/TEST_COSING/entries?restrictionType=THRESHOLD');
+      const res2 = await app.request('/regulatory-lists/TEST_COSING/entries?operator=GT');
+      expect(res2.status).toBe(200);
+
+      const body2 = (await res2.json()) as EntriesResponse;
+      expect(body2.data).toHaveLength(0);
+    });
+
+    it('filters entries by severity', async (context) => {
+      if (!orm) { context.skip(); return; }
+
+      const res = await app.request('/regulatory-lists/TEST_COSING/entries?severity=BLOCKER');
+      expect(res.status).toBe(200);
+
+      const body = (await res.json()) as EntriesResponse;
+      expect(body.data).toHaveLength(1);
+
+      const res2 = await app.request('/regulatory-lists/TEST_COSING/entries?severity=WARNING');
       expect(res2.status).toBe(200);
 
       const body2 = (await res2.json()) as EntriesResponse;

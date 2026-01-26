@@ -272,10 +272,10 @@ import { parseCSV, parseJSON, RegulatoryListImport } from './parsers.js';
 
 describe('Import Parsers', () => {
   describe('parseCSV', () => {
-    it('should parse valid CSV data', async () => {
-      const csv = `cas_number,ec_number,restriction_type,threshold_pct,legal_reference,notes
-50-00-0,200-001-8,PROHIBITED,,"Entry 1577","Formaldehyde - banned"
-75-56-9,200-879-2,THRESHOLD,0.001,"Entry 1234","Propylene oxide"`;
+    it('should parse valid CSV data with agnostic fields', async () => {
+      const csv = `cas_number,ec_number,operator,compare_value,issue_type,severity,legal_reference,notes
+50-00-0,200-001-8,PRESENT,,PROHIBITED_SUBSTANCE,BLOCKER,"Entry 1577","Formaldehyde - banned"
+75-56-9,200-879-2,GT,0.001,CHEMICAL_LIMIT_EXCEEDED,WARNING,"Entry 1234","Propylene oxide"`;
 
       const result = await parseCSV(csv, {
         code: 'COSING_ANNEX_II',
@@ -288,13 +288,16 @@ describe('Import Parsers', () => {
       expect(result.code).toBe('COSING_ANNEX_II');
       expect(result.entries).toHaveLength(2);
       expect(result.entries[0].casNumber).toBe('50-00-0');
-      expect(result.entries[0].restrictionType).toBe('PROHIBITED');
-      expect(result.entries[1].thresholdPct).toBe('0.001');
+      expect(result.entries[0].operator).toBe('PRESENT');
+      expect(result.entries[0].issueType).toBe('PROHIBITED_SUBSTANCE');
+      expect(result.entries[0].severity).toBe('BLOCKER');
+      expect(result.entries[1].operator).toBe('GT');
+      expect(result.entries[1].compareValue).toBe('0.001');
     });
 
-    it('should handle empty threshold values', async () => {
-      const csv = `cas_number,restriction_type,threshold_pct
-50-00-0,PROHIBITED,`;
+    it('should handle empty compare_value for PRESENT operator', async () => {
+      const csv = `cas_number,operator,compare_value,issue_type,severity
+50-00-0,PRESENT,,PROHIBITED_SUBSTANCE,BLOCKER`;
 
       const result = await parseCSV(csv, {
         code: 'TEST',
@@ -304,12 +307,12 @@ describe('Import Parsers', () => {
         effectiveDate: '2024-01-01',
       });
 
-      expect(result.entries[0].thresholdPct).toBeUndefined();
+      expect(result.entries[0].compareValue).toBeUndefined();
     });
 
     it('should trim whitespace from values', async () => {
-      const csv = `cas_number,restriction_type
-  50-00-0  ,  PROHIBITED  `;
+      const csv = `cas_number,operator,issue_type,severity
+  50-00-0  ,  PRESENT  ,  PROHIBITED_SUBSTANCE  ,  BLOCKER  `;
 
       const result = await parseCSV(csv, {
         code: 'TEST',
@@ -320,12 +323,14 @@ describe('Import Parsers', () => {
       });
 
       expect(result.entries[0].casNumber).toBe('50-00-0');
-      expect(result.entries[0].restrictionType).toBe('PROHIBITED');
+      expect(result.entries[0].operator).toBe('PRESENT');
+      expect(result.entries[0].issueType).toBe('PROHIBITED_SUBSTANCE');
+      expect(result.entries[0].severity).toBe('BLOCKER');
     });
   });
 
   describe('parseJSON', () => {
-    it('should parse valid JSON data', () => {
+    it('should parse valid JSON data with agnostic fields', () => {
       const json = JSON.stringify({
         code: 'REACH_SVHC',
         name: 'REACH SVHC Candidate List',
@@ -336,8 +341,10 @@ describe('Import Parsers', () => {
         entries: [
           {
             casNumber: '127-19-5',
-            restrictionType: 'THRESHOLD',
-            thresholdPct: '0.1',
+            operator: 'GT',
+            compareValue: '0.1',
+            issueType: 'CHEMICAL_LIMIT_EXCEEDED',
+            severity: 'WARNING',
             legalReference: 'REACH Article 33',
           },
         ],
@@ -348,6 +355,8 @@ describe('Import Parsers', () => {
       expect(result.code).toBe('REACH_SVHC');
       expect(result.entries).toHaveLength(1);
       expect(result.entries[0].casNumber).toBe('127-19-5');
+      expect(result.entries[0].operator).toBe('GT');
+      expect(result.entries[0].issueType).toBe('CHEMICAL_LIMIT_EXCEEDED');
     });
 
     it('should throw on invalid JSON', () => {
@@ -380,18 +389,23 @@ Expected: FAIL
 // packages/database/src/services/import/parsers.ts
 import { parse } from 'csv-parse/sync';
 
+/**
+ * Import entry with agnostic evaluation fields.
+ * The operator + compareValue define how to evaluate (no hardcoded rule types).
+ */
 export interface RegulatoryListEntryImport {
   casNumber: string;
   ecNumber?: string;
-  restrictionType: 'PROHIBITED' | 'THRESHOLD' | 'RESTRICTED_WITH_CONDITIONS';
-  thresholdPct?: string;
+
+  // Agnostic evaluation fields (data-driven)
+  operator: 'GT' | 'GTE' | 'LT' | 'LTE' | 'EQ' | 'PRESENT' | 'ABSENT';
+  compareValue?: string;        // NULL for PRESENT/ABSENT
+  issueType: string;            // e.g., 'PROHIBITED_SUBSTANCE', 'CHEMICAL_LIMIT_EXCEEDED'
+  severity: 'BLOCKER' | 'WARNING' | 'INFO';
+
   /**
    * Stoichiometric factor for element-based regulations (e.g., CRM Act).
-   *
-   * Used when the regulation restricts a pure element but the declared
-   * substance is a compound. Example: Cobalt Sulfate → Cobalt factor ~0.38
-   *
-   * The Rollup Service (Plan 8) multiplies: concentration × factor = effective element %
+   * The Evaluator (Plan 14) multiplies: concentration × factor = effective element %
    */
   stoichiometricFactor?: string;
   conditions?: Record<string, string>;
@@ -421,11 +435,13 @@ export interface CSVMetadata {
 /**
  * Parse CSV content into RegulatoryListImport structure.
  *
- * Expected columns:
+ * Expected columns (agnostic evaluation model):
  * - cas_number (required): CAS registry number
  * - ec_number (optional): EINECS/ELINCS number
- * - restriction_type (required): PROHIBITED, THRESHOLD, or RESTRICTED_WITH_CONDITIONS
- * - threshold_pct (optional): Maximum concentration (e.g., "0.1" for 0.1%)
+ * - operator (required): GT, GTE, LT, LTE, EQ, PRESENT, or ABSENT
+ * - compare_value (optional): Threshold value (NULL for PRESENT/ABSENT)
+ * - issue_type (required): e.g., 'PROHIBITED_SUBSTANCE', 'CHEMICAL_LIMIT_EXCEEDED'
+ * - severity (required): BLOCKER, WARNING, or INFO
  * - stoichiometric_factor (optional): For element-based regs (e.g., "0.38" for Cobalt in CoSO₄)
  * - legal_reference (optional): Entry number in regulation
  * - notes (optional): Additional context
@@ -443,8 +459,12 @@ export async function parseCSV(
   const entries: RegulatoryListEntryImport[] = records.map((row: Record<string, string>) => ({
     casNumber: row.cas_number?.trim(),
     ecNumber: row.ec_number?.trim() || undefined,
-    restrictionType: row.restriction_type?.trim() as RegulatoryListEntryImport['restrictionType'],
-    thresholdPct: row.threshold_pct?.trim() || undefined,
+    // Agnostic evaluation fields
+    operator: row.operator?.trim() as RegulatoryListEntryImport['operator'],
+    compareValue: row.compare_value?.trim() || undefined,
+    issueType: row.issue_type?.trim(),
+    severity: row.severity?.trim() as RegulatoryListEntryImport['severity'],
+    // Optional fields
     stoichiometricFactor: row.stoichiometric_factor?.trim() || undefined,
     legalReference: row.legal_reference?.trim() || undefined,
     notes: row.notes?.trim() || undefined,
@@ -534,8 +554,8 @@ describe('Import Validator', () => {
     version: '2024-06',
     effectiveDate: '2024-06-01',
     entries: [
-      { casNumber: '50-00-0', restrictionType: 'PROHIBITED' },
-      { casNumber: '75-56-9', restrictionType: 'THRESHOLD', thresholdPct: '0.001' },
+      { casNumber: '50-00-0', operator: 'PRESENT', issueType: 'PROHIBITED_SUBSTANCE', severity: 'BLOCKER' },
+      { casNumber: '75-56-9', operator: 'GT', compareValue: '0.001', issueType: 'CHEMICAL_LIMIT_EXCEEDED', severity: 'WARNING' },
     ],
   };
 
@@ -549,7 +569,7 @@ describe('Import Validator', () => {
       const data: RegulatoryListImport = {
         ...validImport,
         entries: [
-          { casNumber: '50-00-1', restrictionType: 'PROHIBITED' },  // Invalid check digit
+          { casNumber: '50-00-1', operator: 'PRESENT', issueType: 'PROHIBITED_SUBSTANCE', severity: 'BLOCKER' },  // Invalid check digit
         ],
       };
 
@@ -563,7 +583,7 @@ describe('Import Validator', () => {
       const data: RegulatoryListImport = {
         ...validImport,
         entries: [
-          { casNumber: '5000-0', restrictionType: 'PROHIBITED' },  // Wrong format
+          { casNumber: '5000-0', operator: 'PRESENT', issueType: 'PROHIBITED_SUBSTANCE', severity: 'BLOCKER' },  // Wrong format
         ],
       };
 
@@ -573,53 +593,66 @@ describe('Import Validator', () => {
     });
   });
 
-  describe('restriction type validation', () => {
-    it('should reject invalid restriction type', () => {
+  describe('operator validation', () => {
+    it('should reject invalid operator', () => {
       const data: RegulatoryListImport = {
         ...validImport,
         entries: [
-          { casNumber: '50-00-0', restrictionType: 'INVALID' as any },
+          { casNumber: '50-00-0', operator: 'INVALID' as any, issueType: 'TEST', severity: 'BLOCKER' },
         ],
       };
 
       const errors = validateImport(data);
       expect(errors).toHaveLength(1);
-      expect(errors[0].field).toBe('restrictionType');
+      expect(errors[0].field).toBe('operator');
     });
 
-    it('should require threshold for THRESHOLD type', () => {
+    it('should require compareValue for GT/GTE/LT/LTE operators', () => {
       const data: RegulatoryListImport = {
         ...validImport,
         entries: [
-          { casNumber: '50-00-0', restrictionType: 'THRESHOLD' },  // Missing threshold
+          { casNumber: '50-00-0', operator: 'GT', issueType: 'CHEMICAL_LIMIT_EXCEEDED', severity: 'WARNING' },  // Missing compareValue
         ],
       };
 
       const errors = validateImport(data);
       expect(errors).toHaveLength(1);
-      expect(errors[0].message).toContain('threshold required');
+      expect(errors[0].message).toContain('compareValue required');
+    });
+
+    it('should reject invalid severity', () => {
+      const data: RegulatoryListImport = {
+        ...validImport,
+        entries: [
+          { casNumber: '50-00-0', operator: 'PRESENT', issueType: 'PROHIBITED_SUBSTANCE', severity: 'INVALID' as any },
+        ],
+      };
+
+      const errors = validateImport(data);
+      expect(errors).toHaveLength(1);
+      expect(errors[0].field).toBe('severity');
     });
   });
 
-  describe('threshold validation', () => {
-    it('should reject non-numeric threshold', () => {
+  describe('compareValue validation', () => {
+    it('should reject non-numeric compareValue', () => {
       const data: RegulatoryListImport = {
         ...validImport,
         entries: [
-          { casNumber: '50-00-0', restrictionType: 'THRESHOLD', thresholdPct: 'abc' },
+          { casNumber: '50-00-0', operator: 'GT', compareValue: 'abc', issueType: 'CHEMICAL_LIMIT_EXCEEDED', severity: 'WARNING' },
         ],
       };
 
       const errors = validateImport(data);
       expect(errors).toHaveLength(1);
-      expect(errors[0].field).toBe('thresholdPct');
+      expect(errors[0].field).toBe('compareValue');
     });
 
-    it('should reject negative threshold', () => {
+    it('should reject negative compareValue', () => {
       const data: RegulatoryListImport = {
         ...validImport,
         entries: [
-          { casNumber: '50-00-0', restrictionType: 'THRESHOLD', thresholdPct: '-0.1' },
+          { casNumber: '50-00-0', operator: 'GT', compareValue: '-0.1', issueType: 'CHEMICAL_LIMIT_EXCEEDED', severity: 'WARNING' },
         ],
       };
 
@@ -634,8 +667,8 @@ describe('Import Validator', () => {
       const data: RegulatoryListImport = {
         ...validImport,
         entries: [
-          { casNumber: '50-00-0', restrictionType: 'PROHIBITED' },
-          { casNumber: '50-00-0', restrictionType: 'THRESHOLD', thresholdPct: '0.1' },
+          { casNumber: '50-00-0', operator: 'PRESENT', issueType: 'PROHIBITED_SUBSTANCE', severity: 'BLOCKER' },
+          { casNumber: '50-00-0', operator: 'GT', compareValue: '0.1', issueType: 'CHEMICAL_LIMIT_EXCEEDED', severity: 'WARNING' },
         ],
       };
 
@@ -669,7 +702,9 @@ export interface ValidationError {
   message: string;
 }
 
-const VALID_RESTRICTION_TYPES = ['PROHIBITED', 'THRESHOLD', 'RESTRICTED_WITH_CONDITIONS'];
+const VALID_OPERATORS = ['GT', 'GTE', 'LT', 'LTE', 'EQ', 'PRESENT', 'ABSENT'];
+const OPERATORS_REQUIRING_COMPARE_VALUE = ['GT', 'GTE', 'LT', 'LTE', 'EQ'];
+const VALID_SEVERITIES = ['BLOCKER', 'WARNING', 'INFO'];
 
 /**
  * Validate a regulatory list import for schema and data integrity.
@@ -713,46 +748,66 @@ export function validateImport(data: RegulatoryListImport): ValidationError[] {
       seenCas.add(entry.casNumber);
     }
 
-    // Validate restriction type
-    if (!VALID_RESTRICTION_TYPES.includes(entry.restrictionType)) {
+    // Validate operator (agnostic model)
+    if (!VALID_OPERATORS.includes(entry.operator)) {
       errors.push({
         row,
-        field: 'restrictionType',
-        value: entry.restrictionType,
-        message: `Invalid restriction type: ${entry.restrictionType}. Must be one of: ${VALID_RESTRICTION_TYPES.join(', ')}`,
+        field: 'operator',
+        value: entry.operator,
+        message: `Invalid operator: ${entry.operator}. Must be one of: ${VALID_OPERATORS.join(', ')}`,
       });
     }
 
-    // Validate threshold requirement
-    if (entry.restrictionType === 'THRESHOLD') {
-      if (!entry.thresholdPct) {
+    // Validate compareValue requirement for comparison operators
+    if (OPERATORS_REQUIRING_COMPARE_VALUE.includes(entry.operator)) {
+      if (!entry.compareValue) {
         errors.push({
           row,
-          field: 'thresholdPct',
+          field: 'compareValue',
           value: '',
-          message: 'threshold required for THRESHOLD restriction type',
+          message: `compareValue required for ${entry.operator} operator`,
         });
       }
     }
 
-    // Validate threshold format if provided
-    if (entry.thresholdPct !== undefined && entry.thresholdPct !== '') {
-      const threshold = parseFloat(entry.thresholdPct);
-      if (isNaN(threshold)) {
+    // Validate severity
+    if (!VALID_SEVERITIES.includes(entry.severity)) {
+      errors.push({
+        row,
+        field: 'severity',
+        value: entry.severity,
+        message: `Invalid severity: ${entry.severity}. Must be one of: ${VALID_SEVERITIES.join(', ')}`,
+      });
+    }
+
+    // Validate compareValue format if provided
+    if (entry.compareValue !== undefined && entry.compareValue !== '') {
+      const value = parseFloat(entry.compareValue);
+      if (isNaN(value)) {
         errors.push({
           row,
-          field: 'thresholdPct',
-          value: entry.thresholdPct,
-          message: `Invalid threshold value: ${entry.thresholdPct}. Must be a number.`,
+          field: 'compareValue',
+          value: entry.compareValue,
+          message: `Invalid compareValue: ${entry.compareValue}. Must be a number.`,
         });
-      } else if (threshold < 0) {
+      } else if (value < 0) {
         errors.push({
           row,
-          field: 'thresholdPct',
-          value: entry.thresholdPct,
-          message: `Threshold must be positive: ${entry.thresholdPct}`,
+          field: 'compareValue',
+          value: entry.compareValue,
+          message: `compareValue must be positive: ${entry.compareValue}`,
         });
       }
+    }
+
+    // Validate issueType is provided
+    if (!entry.issueType) {
+      errors.push({
+        row,
+        field: 'issueType',
+        value: '',
+        message: 'issueType is required',
+      });
     }
   }
 
@@ -842,8 +897,8 @@ describe('RegulatoryImportService', () => {
         version: '2024-06',
         effectiveDate: '2024-06-01',
         entries: [
-          { casNumber: '50-00-0', restrictionType: 'PROHIBITED' },
-          { casNumber: '75-56-9', restrictionType: 'THRESHOLD', thresholdPct: '0.001' },
+          { casNumber: '50-00-0', operator: 'PRESENT', issueType: 'PROHIBITED_SUBSTANCE', severity: 'BLOCKER' },
+          { casNumber: '75-56-9', operator: 'GT', compareValue: '0.001', issueType: 'CHEMICAL_LIMIT_EXCEEDED', severity: 'WARNING' },
         ],
       }, 'admin-123');
 
@@ -866,8 +921,8 @@ describe('RegulatoryImportService', () => {
         version: '1.0',
         effectiveDate: '2024-01-01',
         entries: [
-          { casNumber: '50-00-0', restrictionType: 'PROHIBITED' },
-          { casNumber: '999-99-9', restrictionType: 'PROHIBITED' },  // Not in DB
+          { casNumber: '50-00-0', operator: 'PRESENT', issueType: 'PROHIBITED_SUBSTANCE', severity: 'BLOCKER' },
+          { casNumber: '999-99-9', operator: 'PRESENT', issueType: 'PROHIBITED_SUBSTANCE', severity: 'BLOCKER' },  // Not in DB
         ],
       }, 'admin-123');
 
@@ -898,7 +953,7 @@ describe('RegulatoryImportService', () => {
         substance,
         casNumberSnapshot: '50-00-0',
         substanceNameSnapshot: 'Formaldehyde',
-        restrictionType: 'PROHIBITED',
+        operator: 'PRESENT', issueType: 'PROHIBITED_SUBSTANCE', severity: 'BLOCKER',
       });
       await em.flush();
 
@@ -910,8 +965,8 @@ describe('RegulatoryImportService', () => {
         version: '2024-01',
         effectiveDate: '2024-01-01',
         entries: [
-          { casNumber: '50-00-0', restrictionType: 'PROHIBITED' },  // Existing
-          { casNumber: '75-56-9', restrictionType: 'THRESHOLD', thresholdPct: '0.1' },  // New
+          { casNumber: '50-00-0', operator: 'PRESENT', issueType: 'PROHIBITED_SUBSTANCE', severity: 'BLOCKER' },  // Existing
+          { casNumber: '75-56-9', operator: 'GT', compareValue: '0.1', issueType: 'CHEMICAL_LIMIT_EXCEEDED', severity: 'WARNING' },  // New
         ],
       }, 'admin-123');
 
@@ -934,7 +989,7 @@ describe('RegulatoryImportService', () => {
         version: '2024-06',
         effectiveDate: '2024-06-01',
         entries: [
-          { casNumber: '50-00-0', restrictionType: 'PROHIBITED', legalReference: 'Entry 1577' },
+          { casNumber: '50-00-0', operator: 'PRESENT', issueType: 'PROHIBITED_SUBSTANCE', severity: 'BLOCKER', legalReference: 'Entry 1577' },
         ],
       }, 'admin-123');
 
@@ -969,7 +1024,7 @@ describe('RegulatoryImportService', () => {
         version: '2023-01',
         effectiveDate: '2023-01-01',
         entries: [
-          { casNumber: '50-00-0', restrictionType: 'PROHIBITED' },
+          { casNumber: '50-00-0', operator: 'PRESENT', issueType: 'PROHIBITED_SUBSTANCE', severity: 'BLOCKER' },
         ],
       }, 'admin-123');
       await service.applyImport(v1Preview.previewId, 'admin-123');
@@ -982,8 +1037,8 @@ describe('RegulatoryImportService', () => {
         version: '2024-01',
         effectiveDate: '2024-01-01',
         entries: [
-          { casNumber: '50-00-0', restrictionType: 'PROHIBITED' },
-          { casNumber: '75-56-9', restrictionType: 'THRESHOLD', thresholdPct: '0.1' },
+          { casNumber: '50-00-0', operator: 'PRESENT', issueType: 'PROHIBITED_SUBSTANCE', severity: 'BLOCKER' },
+          { casNumber: '75-56-9', operator: 'GT', compareValue: '0.1', issueType: 'CHEMICAL_LIMIT_EXCEEDED', severity: 'WARNING' },
         ],
       }, 'admin-123');
       await service.applyImport(v2Preview.previewId, 'admin-123');
@@ -1011,7 +1066,7 @@ describe('RegulatoryImportService', () => {
         version: '1.0',
         effectiveDate: '2024-01-01',
         entries: [
-          { casNumber: '50-00-0', restrictionType: 'PROHIBITED' },
+          { casNumber: '50-00-0', operator: 'PRESENT', issueType: 'PROHIBITED_SUBSTANCE', severity: 'BLOCKER' },
         ],
       }, 'admin-456');
 
@@ -1043,7 +1098,7 @@ import { RegulatoryList } from '../entities/RegulatoryList.js';
 import { RegulatoryListEntry } from '../entities/RegulatoryListEntry.js';
 import { RegulatoryImportLog } from '../entities/RegulatoryImportLog.js';
 import { Substance } from '../entities/Substance.js';
-import { RestrictionType } from '../entities/enums/index.js';
+import { ComparisonOperator, Severity } from '../entities/enums/index.js';
 import { RegulatoryListImport } from './import/parsers.js';
 import { validateImport, ValidationError } from './import/validator.js';
 import { createId } from '@eurocomply/core';
@@ -1077,8 +1132,13 @@ interface StagedImport {
     substanceId: string;
     casNumber: string;
     primaryName: string;
-    restrictionType: RestrictionType;
-    thresholdPct?: string;
+    // Agnostic evaluation fields
+    operator: ComparisonOperator;
+    compareValue?: string;
+    issueType: string;
+    severity: Severity;
+    // Optional fields
+    stoichiometricFactor?: string;
     conditions?: Record<string, string>;
     legalReference?: string;
     notes?: string;
@@ -1130,8 +1190,13 @@ export class RegulatoryImportService {
         substanceId: substance.id,
         casNumber: substance.casNumber,
         primaryName: substance.primaryName,
-        restrictionType: entry.restrictionType as RestrictionType,
-        thresholdPct: entry.thresholdPct,
+        // Agnostic evaluation fields
+        operator: entry.operator as ComparisonOperator,
+        compareValue: entry.compareValue,
+        issueType: entry.issueType,
+        severity: entry.severity as Severity,
+        // Optional fields
+        stoichiometricFactor: entry.stoichiometricFactor,
         conditions: entry.conditions,
         legalReference: entry.legalReference,
         notes: entry.notes,
@@ -1213,8 +1278,12 @@ export class RegulatoryImportService {
           substance,
           casNumberSnapshot: entry.casNumber,
           substanceNameSnapshot: entry.primaryName,
-          restrictionType: entry.restrictionType,
-          thresholdPct: entry.thresholdPct,
+          // Agnostic evaluation fields
+          operator: entry.operator,
+          compareValue: entry.compareValue,
+          issueType: entry.issueType,
+          severity: entry.severity,
+          // Optional fields
           stoichiometricFactor: entry.stoichiometricFactor,
           conditions: entry.conditions,
           legalReference: entry.legalReference,
