@@ -255,14 +255,13 @@ jobs:
 
       - name: Run E2E Smoke Tests
         env:
-          ZITADEL_PAT: ${{ secrets.ZITADEL_PAT }}
-          ZITADEL_INSTANCE_URL: ${{ secrets.ZITADEL_INSTANCE_URL }}
-          E2E_ZITADEL_USER_ID: ${{ secrets.E2E_ZITADEL_USER_ID }}
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          E2E_CLERK_USER_ID: ${{ secrets.E2E_CLERK_USER_ID }}
         run: |
           export API_URL="https://api.eurocomply.eu"
 
           # Generate E2E test token if configured
-          if [ -n "$E2E_ZITADEL_USER_ID" ] && [ -n "$ZITADEL_PAT" ]; then
+          if [ -n "$E2E_CLERK_USER_ID" ] && [ -n "$CLERK_SECRET_KEY" ]; then
             chmod +x scripts/get-e2e-token.sh
             export E2E_TEST_TOKEN=$(./scripts/get-e2e-token.sh 2>/dev/null) || true
           fi

@@ -10,7 +10,7 @@
 #
 # Environment variables:
 #   API_URL          - Base URL of the API (default: https://api-staging.eurocomply.eu)
-#   E2E_TEST_TOKEN   - ZITADEL JWT token for authenticated tests (optional)
+#   E2E_TEST_TOKEN   - Clerk JWT token for authenticated tests (optional)
 #   E2E_ORG_ID       - Organization ID for authenticated tests (optional)
 #
 

@@ -84,8 +84,8 @@ jobs:
       - name: Terraform Plan
         run: |
           terraform plan -no-color -out=tfplan \
-            -var="zitadel_instance_url=${{ secrets.ZITADEL_INSTANCE_URL }}" \
-            -var="zitadel_webhook_signing_key=${{ secrets.ZITADEL_WEBHOOK_SIGNING_KEY }}"
+            -var="clerk_secret_key=${{ secrets.CLERK_SECRET_KEY }}" \
+            -var="clerk_webhook_secret=${{ secrets.CLERK_WEBHOOK_SECRET }}"
 
       - name: Terraform Apply
         run: terraform apply -auto-approve tfplan

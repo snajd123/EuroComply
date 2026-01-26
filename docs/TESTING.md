@@ -5,7 +5,7 @@
 | Command | Purpose |
 |---------|---------|
 | `pnpm test` | Run automated tests |
-| `pnpm test:webhook` | Test real ZITADEL webhook (creates org, verifies DB) |
+| `pnpm test:webhook` | Test real Clerk webhook (creates org, verifies DB) |
 | `pnpm db:start` | Start database |
 | `pnpm db:reset` | Reset database |
 | `pnpm db:schema` | Show database structure |
@@ -20,7 +20,7 @@
 
 ```
 ┌─────────────┐     webhook      ┌─────────────┐
-│   ZITADEL   │ ───────────────► │     API     │
+│   Clerk   │ ───────────────► │     API     │
 └─────────────┘                  └──────┬──────┘
                                         │
                                         │ writes to
@@ -78,19 +78,19 @@ pnpm worker
 # Terminal 1: Database
 pnpm db:start
 
-# Terminal 2: ngrok (for ZITADEL webhooks)
+# Terminal 2: ngrok (for Clerk webhooks)
 ngrok http 3001
 
 # Terminal 3: API + Worker
 pnpm dev
 ```
 
-### 2. Configure ZITADEL Actions v2 webhook
+### 2. Configure Clerk Actions v2 webhook
 
-- Go to ZITADEL Console → Actions → Webhooks
-- Set endpoint URL to your ngrok URL + `/webhooks/zitadel`
+- Go to Clerk Console → Actions → Webhooks
+- Set endpoint URL to your ngrok URL + `/webhooks/clerk`
 - Enable `org.created` event
-- Copy signing key to `.env` as `ZITADEL_WEBHOOK_SIGNING_KEY`
+- Copy signing key to `.env` as `Clerk_WEBHOOK_SIGNING_KEY`
 
 ### 3. Test
 
@@ -99,7 +99,7 @@ pnpm dev
 pnpm test:webhook
 ```
 
-**Option B:** Manual - create organization in ZITADEL Console
+**Option B:** Manual - create organization in Clerk Console
 
 ### 4. Verify
 
@@ -128,8 +128,8 @@ http://localhost:3001
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/health` | Health check |
-| POST | `/webhooks/zitadel` | ZITADEL webhook (requires signature) |
-| GET | `/api/v1/admin/organizations/:id/status` | Get org status by ID or ZITADEL ID |
+| POST | `/webhooks/clerk` | Clerk webhook (requires signature) |
+| GET | `/api/v1/admin/organizations/:id/status` | Get org status by ID or Clerk ID |
 | GET | `/api/v1/organizations` | List organizations |
 | POST | `/api/v1/organizations` | Create organization |
 
@@ -152,7 +152,7 @@ GET http://localhost:3001/api/v1/organizations
 
 ### Notes
 
-- Webhook endpoint requires valid ZITADEL signature header
+- Webhook endpoint requires valid Clerk signature header
 - Use `pnpm test:webhook` instead of manually testing webhooks
 - Tenant-scoped endpoints (like `/api/v1/products`) require authentication
 

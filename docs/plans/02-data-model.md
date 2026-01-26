@@ -1051,7 +1051,7 @@ CREATE INDEX idx_regulatory_import_log_hash ON public.regulatory_import_log(file
 
 ### User
 
-Users are stored **per-tenant**. A user who belongs to multiple organizations has separate records in each tenant schema, linked by `zitadelId`.
+Users are stored **per-tenant**. A user who belongs to multiple organizations has separate records in each tenant schema, linked by `clerkId`.
 
 ```typescript
 // packages/db/src/entities/User.ts
@@ -1063,9 +1063,9 @@ export class User {
   @PrimaryKey()
   id!: string;
 
-  @Property({ name: 'zitadel_id' })
+  @Property({ name: 'clerk_id' })
   @Unique()
-  zitadelId!: string;
+  clerkId!: string;
 
   @Property()
   @Unique()
@@ -1096,17 +1096,17 @@ export class User {
 Since users exist in multiple tenant schemas, profile changes must propagate to all:
 
 ```typescript
-// apps/api/src/webhooks/zitadel.ts
-// Triggered by ZITADEL user events
+// apps/api/src/webhooks/clerk.ts
+// Triggered by Clerk user events
 
-async function syncUserToAllTenants(orm: MikroORM, zitadelUser: ZitadelUser) {
-  // 1. Get all organizations this user belongs to (from ZITADEL)
-  const memberships = await zitadel.listUserGrants(zitadelUser.id);
+async function syncUserToAllTenants(orm: MikroORM, clerkUser: ClerkUser) {
+  // 1. Get all organizations this user belongs to (from Clerk)
+  const memberships = await clerk.listUserGrants(clerkUser.id);
 
   // 2. Update user record in each tenant schema
   for (const membership of memberships.result) {
     const org = await orm.em.findOne(Organization, {
-      zitadelOrgId: membership.orgId
+      clerkOrgId: membership.orgId
     });
 
     if (!org) continue;
@@ -1114,11 +1114,11 @@ async function syncUserToAllTenants(orm: MikroORM, zitadelUser: ZitadelUser) {
     const em = orm.em.fork({ schema: org.schemaName });
     await em.nativeUpdate(
       User,
-      { zitadelId: zitadelUser.id },
+      { clerkId: clerkUser.id },
       {
-        name: zitadelUser.human?.profile?.displayName ?? '',
-        email: zitadelUser.human?.email?.email,
-        avatarUrl: zitadelUser.human?.profile?.avatarUrl,
+        name: clerkUser.human?.profile?.displayName ?? '',
+        email: clerkUser.human?.email?.email,
+        avatarUrl: clerkUser.human?.profile?.avatarUrl,
         updatedAt: new Date(),
       }
     );
@@ -1128,7 +1128,7 @@ async function syncUserToAllTenants(orm: MikroORM, zitadelUser: ZitadelUser) {
 
 **Sync Events:**
 
-| ZITADEL Event | Action |
+| Clerk Event | Action |
 |---------------|--------|
 | `user.human.added` | Create user in tenant schema (on org membership) |
 | `user.human.profile.changed` | Update name/email/avatar in ALL tenant schemas |
@@ -1850,7 +1850,7 @@ export class OutboxEvent extends BaseEntity {
 | `organization.provisioned` | Organization | Tenant schema created and ready |
 | `organization.deleted` | Organization | Tenant schema dropped |
 | `organization.provisioning_retried` | Organization | Manual retry of failed provisioning |
-| `clerk.metadata_sync_requested` | Organization | Sync schema metadata back to ZITADEL |
+| `clerk.metadata_sync_requested` | Organization | Sync schema metadata back to Clerk |
 
 **Tenant Schema Events** (domain-level):
 
@@ -2519,10 +2519,10 @@ Complete SQL for creating a new tenant schema:
 CREATE SCHEMA IF NOT EXISTS ${schemaName};
 SET search_path = ${schemaName};
 
--- Users (synced from ZITADEL)
+-- Users (synced from Clerk)
 CREATE TABLE users (
     id VARCHAR(30) PRIMARY KEY,
-    zitadel_id VARCHAR(255) UNIQUE NOT NULL,
+    clerk_id VARCHAR(255) UNIQUE NOT NULL,
     email VARCHAR(255) UNIQUE NOT NULL,
     name VARCHAR(255),
     avatar_url TEXT,
@@ -3001,7 +3001,7 @@ const id = createId();
 | Version | Date | Changes |
 |---------|------|---------|
 | 3.6 | 2026-01-24 | Updated OutboxEvent entity to match implementation; added dual-schema pattern documentation, schema placement rules, and event type catalog |
-| 3.5 | 2026-01-23 | Updated Clerk references to ZITADEL for auth provider migration |
+| 3.5 | 2026-01-23 | Updated Clerk references to Clerk for auth provider migration |
 | 3.4 | 2026-01-21 | Added public.ingestion_jobs DDL to Public Schema section |
 | 3.3 | 2026-01-21 | Added Approval Gate Workflow: ComplianceStatus enum, ProductVersion compliance fields, RuleDeviation dual-link model (design-time + authorization), AuditResultSnapshot entity for frozen PreFlight results |
 | 3.2 | 2026-01-21 | Added per-rule overrideMode to ReadinessProfileRule (ENFORCING/SILENT/DISABLED); audit trail fields; Compliance MANAGER governance note |

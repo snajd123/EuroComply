@@ -457,7 +457,7 @@ export class DisclosurePolicy extends BaseEntity {
 │                                                                  │
 │  METHOD 1: Session (Dashboard Users)                            │
 │  ───────────────────────────────────                            │
-│  • ZITADEL-managed JWT tokens                                   │
+│  • Clerk-managed JWT tokens                                     │
 │  • HttpOnly secure cookies                                      │
 │  • Automatic refresh                                            │
 │  • Used by: Web dashboard                                       │
@@ -1979,5 +1979,5 @@ Retailers need free access to display DPPs on their product pages.
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 2.1 | 2026-01-23 | Updated Clerk references to ZITADEL for auth provider migration |
+| 2.2 | 2026-01-26 | Updated ZITADEL references back to Clerk for auth provider |
 | 2.0 | 2026-01-21 | Consolidated from API, EU Integration, EUDI Wallet, E-commerce designs |

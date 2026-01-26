@@ -68,7 +68,7 @@ SKU HOSTING FEE
 |------|----------------|------------------|
 | All tiers | As above | EUR 10/user/month |
 
-**Rationale:** User limits protect margins from auth provider costs (ZITADEL MAU pricing).
+**Rationale:** User limits protect margins from auth provider costs (Clerk MAU pricing).
 
 ### Annual Pricing
 
@@ -139,7 +139,7 @@ Automatic discounts as monthly DPP volume increases:
 
 ```
 STEP 1: REGISTER
-  Email + password (via ZITADEL)
+  Email + password (via Clerk)
   Company name, country, organization type
   Email verification
 
@@ -393,5 +393,5 @@ ESPR Article 31 mandates free DPP access for economic operators.
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 2.1 | 2026-01-23 | Updated Clerk references to ZITADEL for auth provider migration |
+| 2.1 | 2026-01-23 | Updated Clerk references to Clerk for auth provider migration |
 | 2.0 | 2026-01-21 | Consolidated from business-model, onboarding, data-sovereignty designs |
