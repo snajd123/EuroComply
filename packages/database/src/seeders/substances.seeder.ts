@@ -80,6 +80,8 @@ export class SubstancesSeeder {
     let substanceCount = 0;
     let aliasCount = 0;
 
+    const now = new Date();
+
     // Seed substances
     for (const s of bundle.substances) {
       const substance = em.create(Substance, {
@@ -98,6 +100,8 @@ export class SubstancesSeeder {
         echaUrl: s.echaUrl,
         sourceVersion: version,
         isActive: true,
+        createdAt: now,
+        updatedAt: now,
       });
 
       em.persist(substance);
@@ -111,6 +115,8 @@ export class SubstancesSeeder {
             name: a.name,
             type: a.type as AliasType,
             language: a.language ?? 'en',
+            createdAt: now,
+            updatedAt: now,
           });
           em.persist(alias);
           aliasCount++;

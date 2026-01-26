@@ -7,3 +7,10 @@ export {
   generateSchemaName,
   schemaNameSchema,
 } from './schema-validation.js';
+
+export {
+  isValidCasNumber,
+  formatCasNumber,
+  parseCasNumber,
+  type CasParts,
+} from './cas-validator.js';
