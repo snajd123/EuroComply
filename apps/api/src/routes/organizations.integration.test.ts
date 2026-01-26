@@ -47,7 +47,7 @@ interface ErrorResponse {
 
 describe('Organizations API Integration', () => {
   let orm: MikroORM;
-  let app: ReturnType<typeof Hono>;
+  let app: Hono;
 
   const uniqueSuffix = Date.now().toString();
   const testOrgIds: string[] = [];

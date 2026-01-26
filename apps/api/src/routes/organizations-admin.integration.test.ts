@@ -21,7 +21,7 @@ import { createId } from '@eurocomply/core';
 describe('Organizations Admin API Integration', () => {
   let orm: MikroORM;
   let provisioner: TenantProvisioner;
-  let app: ReturnType<typeof Hono>;
+  let app: Hono;
 
   const uniqueSuffix = Date.now().toString();
   const testOrgIds: string[] = [];

@@ -51,7 +51,7 @@ interface ErrorResponse {
 describe('Products API Integration', () => {
   let orm: MikroORM;
   let provisioner: TenantProvisioner;
-  let app: ReturnType<typeof Hono<Env>>;
+  let app: Hono<Env>;
 
   // Test tenant
   const testSchemaName = 'tenant_products_test';

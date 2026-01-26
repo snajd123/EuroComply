@@ -105,10 +105,11 @@ describe('API Keys Management Integration', () => {
     const adminMembership = tenantEm.create(OrganizationUser, {
       id: createId(),
       user: adminUser,
-      clerkMembershipId: `mem_admin_${uniqueSuffix}`,
       isOrgAdmin: true,
       designAuthority: WorkspaceAuthority.MANAGER,
       operationsAuthority: WorkspaceAuthority.MANAGER,
+      marketingAuthority: WorkspaceAuthority.NONE,
+      complianceAuthority: WorkspaceAuthority.NONE,
       createdAt: now,
       updatedAt: now,
     });
@@ -116,10 +117,11 @@ describe('API Keys Management Integration', () => {
     const regularMembership = tenantEm.create(OrganizationUser, {
       id: createId(),
       user: regularUser,
-      clerkMembershipId: `mem_regular_${uniqueSuffix}`,
       isOrgAdmin: false,
       designAuthority: WorkspaceAuthority.VIEWER,
       operationsAuthority: WorkspaceAuthority.NONE,
+      marketingAuthority: WorkspaceAuthority.NONE,
+      complianceAuthority: WorkspaceAuthority.NONE,
       createdAt: now,
       updatedAt: now,
     });
@@ -198,7 +200,7 @@ describe('API Keys Management Integration', () => {
       const res = await app.request('/api-keys');
 
       expect(res.status).toBe(200);
-      const data = await res.json();
+      const data = (await res.json()) as { data: unknown[] };
       expect(data.data).toBeInstanceOf(Array);
     });
 
@@ -271,7 +273,7 @@ describe('API Keys Management Integration', () => {
       });
 
       expect(res.status).toBe(201);
-      const data = await res.json();
+      const data = (await res.json()) as { data: { name: string }; rawKey: string };
       expect(data.data.name).toBe('Test Key');
       expect(data.rawKey).toBeDefined();
       expect(data.rawKey).toMatch(/^ek_/); // API key prefix
@@ -372,7 +374,7 @@ describe('API Keys Management Integration', () => {
       });
 
       expect(res.status).toBe(400);
-      const data = await res.json();
+      const data = (await res.json()) as { message: string };
       expect(data.message).toContain('name');
     });
   });
@@ -392,7 +394,7 @@ describe('API Keys Management Integration', () => {
         body: JSON.stringify({ name: 'Key to Revoke' }),
       });
 
-      const createData = await createRes.json();
+      const createData = (await createRes.json()) as { data: { id: string } };
       const keyId = createData.data.id;
 
       // Then revoke it
@@ -401,7 +403,7 @@ describe('API Keys Management Integration', () => {
       });
 
       expect(revokeRes.status).toBe(200);
-      const revokeData = await revokeRes.json();
+      const revokeData = (await revokeRes.json()) as { success: boolean };
       expect(revokeData.success).toBe(true);
     });
 
