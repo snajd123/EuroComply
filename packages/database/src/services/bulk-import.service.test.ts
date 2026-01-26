@@ -141,4 +141,93 @@ describe('BulkImportService', () => {
       expect(found?.sourceChecksum).toBe('sha256:original');
     });
   });
+
+  describe('copyLarge', () => {
+    it('should import records using COPY FROM STDIN', async () => {
+      const records = [
+        { name: 'copy-test-1', version: 'v1', seeded_at: new Date('2024-01-15T10:00:00Z'), record_count: 100 },
+        { name: 'copy-test-2', version: 'v1', seeded_at: new Date('2024-01-15T10:00:00Z'), record_count: 200 },
+      ];
+
+      const count = await service.copyLarge(
+        'seed_version',
+        records,
+        ['name', 'version', 'seeded_at', 'record_count'],
+        'name',
+        'public'
+      );
+
+      expect(count).toBe(2);
+
+      const all = await em.find(SeedVersion, {});
+      expect(all).toHaveLength(2);
+      expect(all.map(s => s.name).sort()).toEqual(['copy-test-1', 'copy-test-2']);
+      // Verify each record has a unique ID
+      expect(all[0]!.id).not.toBe(all[1]!.id);
+    });
+
+    it('should upsert on conflict when using COPY', async () => {
+      // Insert initial record
+      const initial = new SeedVersion();
+      initial.name = 'copy-existing';
+      initial.version = 'v1';
+      initial.seededAt = new Date();
+      initial.recordCount = 50;
+      em.persist(initial);
+      await em.flush();
+      em.clear();
+
+      // COPY with updated data
+      const records = [
+        { name: 'copy-existing', version: 'v2', seeded_at: new Date('2024-01-16T10:00:00Z'), record_count: 75 },
+      ];
+
+      await service.copyLarge(
+        'seed_version',
+        records,
+        ['name', 'version', 'seeded_at', 'record_count'],
+        'name',
+        'public'
+      );
+
+      const found = await em.findOne(SeedVersion, { name: 'copy-existing' });
+      expect(found?.version).toBe('v2');
+      expect(found?.recordCount).toBe(75);
+    });
+
+    it('should generate unique IDs for each record', async () => {
+      const records = Array.from({ length: 100 }, (_, i) => ({
+        name: `bulk-${i}`,
+        version: 'v1',
+        seeded_at: new Date(),
+        record_count: i,
+      }));
+
+      await service.copyLarge(
+        'seed_version',
+        records,
+        ['name', 'version', 'seeded_at', 'record_count'],
+        'name',
+        'public'
+      );
+
+      const all = await em.find(SeedVersion, {});
+      const ids = new Set(all.map(r => r.id));
+
+      // All IDs should be unique
+      expect(ids.size).toBe(100);
+    });
+
+    it('should handle empty records array', async () => {
+      const count = await service.copyLarge(
+        'seed_version',
+        [],
+        ['name', 'version', 'seeded_at', 'record_count'],
+        'name',
+        'public'
+      );
+
+      expect(count).toBe(0);
+    });
+  });
 });
