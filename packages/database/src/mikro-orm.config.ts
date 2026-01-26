@@ -1,4 +1,5 @@
 import { defineConfig, type Options } from '@mikro-orm/postgresql';
+import { Migrator } from '@mikro-orm/migrations';
 import {
   publicOnlyEntities,
   tenantOnlyEntities,
@@ -40,8 +41,9 @@ export default defineConfig({
   ...baseConfig,
   entities: allEntities,  // Runtime: knows all entities for type safety
   schema: 'public',
+  extensions: [Migrator],
   migrations: {
-    path: './src/migrations',
+    path: './dist/migrations',
     pathTs: './src/migrations',
     glob: '!(*.d).{js,ts}',
     transactional: true,
