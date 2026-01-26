@@ -1,6 +1,7 @@
 import { Entity, Property, Unique, Index, BeforeCreate, BeforeUpdate, Collection, OneToMany } from '@mikro-orm/core';
 import { BaseEntity } from './BaseEntity.js';
 import { isValidCasNumber } from '../utils/cas-validator.js';
+import type { SubstanceAlias } from './SubstanceAlias.js';
 
 @Entity({ tableName: 'substance', schema: 'public' })
 export class Substance extends BaseEntity {
@@ -54,6 +55,10 @@ export class Substance extends BaseEntity {
 
   @Property({ type: 'boolean', default: true, name: 'is_active' })
   isActive: boolean = true;
+
+  // Aliases relationship
+  @OneToMany('SubstanceAlias', 'substance')
+  aliases = new Collection<SubstanceAlias>(this);
 
   // Validation hook
   @BeforeCreate()
