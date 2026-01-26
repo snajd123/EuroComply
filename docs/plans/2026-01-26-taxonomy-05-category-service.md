@@ -396,6 +396,15 @@ export interface UpdateCategoryInput {
   isActive?: boolean;
 }
 
+/**
+ * CategoryService - Manages hierarchical categories using PostgreSQL LTREE.
+ *
+ * PREREQUISITE: Ensure the category.path column has a GIST index for LTREE operators.
+ * This makes @> and <@ queries perform at sub-millisecond speeds even with millions of rows.
+ *
+ * Example migration (if not already present):
+ *   CREATE INDEX idx_category_path_gist ON public.category USING GIST (path);
+ */
 export class CategoryService {
   constructor(private readonly em: EntityManager) {}
 
@@ -475,9 +484,10 @@ export class CategoryService {
     const category = await this.em.findOneOrFail(Category, { id });
 
     // Use LTREE ancestor query
+    // IMPORTANT: Use fully qualified public.category to prevent multi-tenant ambiguity
     const conn = this.em.getConnection();
     const result = await conn.execute<Array<{ id: string }>>(
-      `SELECT id FROM category
+      `SELECT id FROM public.category
        WHERE path @> $1::ltree AND path != $1::ltree
        ORDER BY depth ASC`,
       [category.path]
@@ -499,9 +509,10 @@ export class CategoryService {
     const category = await this.em.findOneOrFail(Category, { id });
 
     // Use LTREE descendant query
+    // IMPORTANT: Use fully qualified public.category to prevent multi-tenant ambiguity
     const conn = this.em.getConnection();
     const result = await conn.execute<Array<{ id: string }>>(
-      `SELECT id FROM category
+      `SELECT id FROM public.category
        WHERE path <@ $1::ltree AND path != $1::ltree
        ORDER BY depth ASC`,
       [category.path]
@@ -596,6 +607,12 @@ export class CategoryService {
   /**
    * Get all categories adopted by a tenant.
    * Returns system categories that the tenant has explicitly adopted.
+   *
+   * DAY 2 CONSIDERATION: If a tenant adopts a leaf node like "electronics.batteries.lithium_ion",
+   * the frontend tree-view may break because parent nodes aren't in the list.
+   * Future enhancement: Return UNION of adopted categories AND their ancestors
+   * to ensure frontend can render complete path from root to adopted leaf.
+   * This can be done with: SELECT DISTINCT unnest(string_to_array(path::text, '.'))
    */
   async getAdoptedCategories(tenantSchema: string): Promise<Category[]> {
     const adoptions = await this.em.find(
