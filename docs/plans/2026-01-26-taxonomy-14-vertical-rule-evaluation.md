@@ -886,7 +886,14 @@ export class RegulatoryListCheckEvaluator {
     entry: RegulatoryListEntry,
     config: RegulatoryListCheckConfig
   ): IssueType | null {
-    const concentration = new Decimal(substance.effectiveConcentrationPct);
+    const rawConcentration = new Decimal(substance.effectiveConcentrationPct);
+
+    // Apply stoichiometric factor if present (element-based regulations)
+    // Example: If law limits Cobalt but user declared Cobalt Sulfate,
+    // multiply concentration by factor (e.g., 0.38) before comparison
+    const concentration = entry.stoichiometricFactor
+      ? rawConcentration.mul(entry.stoichiometricFactor)
+      : rawConcentration;
 
     switch (config.checkType) {
       case 'PROHIBITED':
@@ -1243,6 +1250,90 @@ export { MetricThresholdEvaluator } from './MetricThresholdEvaluator.js';
 git add packages/database/src/services/evaluators/MetricThresholdEvaluator.ts packages/database/src/services/evaluators/MetricThresholdEvaluator.test.ts packages/database/src/services/evaluators/index.ts
 git commit -m "feat(database): add MetricThresholdEvaluator for supply risk checks"
 ```
+
+---
+
+## Implementation Refinements
+
+### 1. Homogeneous Material Branch (Critical)
+
+In Task 3, Step 3, the evaluator handles both `ARTICLE` and `HOMOGENEOUS_MATERIAL` scopes differently:
+
+| Scope | Evaluation Strategy |
+|-------|---------------------|
+| `ARTICLE` | Check rolled-up concentration (summed totals for the whole product) |
+| `HOMOGENEOUS_MATERIAL` | Check **every individual material** in the BOM separately |
+
+**Example:** A laptop with 500 components where one tiny M3 screw contains 0.2% Lead is a RoHS violation—even if the total laptop concentration is 0.000001% Lead.
+
+**Caller Contract:** The `PreFlightAuditService` (Plan 8 integration) must send a **flattened list of materials** to the evaluator when scope is `HOMOGENEOUS_MATERIAL`. The evaluator then iterates each material independently.
+
+### 2. Traceability Array Value
+
+The `SubstanceTraceability` array becomes critical for remediation value:
+
+```typescript
+// Finding tells the user EXACTLY where the violation originates
+evaluationContext: {
+  traceability: [{
+    materialName: 'M3 Screw',
+    materialVersionId: 'screw-abc-123',
+    supplier: 'Supplier X',
+    concentrationInMaterial: '0.2',
+    contributionToProduct: '0.000001',
+  }],
+  reason: 'The laptop is blocked because Lead in M3 Screw from Supplier X exceeds 0.1% threshold.',
+}
+```
+
+This transforms the tool from "Police Officer" (finding problems) to "Engineer" (pinpointing the fix).
+
+### 3. Stoichiometry in checkViolation (Hardening)
+
+When a `RegulatoryListEntry` (from Plan 10) contains a `stoichiometric_factor`, the evaluator must apply it before threshold comparison:
+
+```typescript
+private checkViolation(
+  substance: RolledUpSubstance,
+  entry: RegulatoryListEntry,
+  config: RegulatoryListCheckConfig
+): IssueType | null {
+  // Apply stoichiometric factor if present (element-based regulations)
+  // Example: If law limits Cobalt but user declared Cobalt Sulfate,
+  // multiply concentration by factor (e.g., 0.38) before comparison
+  const rawConcentration = new Decimal(substance.effectiveConcentrationPct);
+  const effectiveConcentration = entry.stoichiometricFactor
+    ? rawConcentration.mul(entry.stoichiometricFactor)
+    : rawConcentration;
+
+  switch (config.checkType) {
+    case 'THRESHOLD':
+      if (entry.restrictionType === RestrictionType.THRESHOLD && entry.thresholdPct) {
+        const threshold = config.thresholdOverridePct
+          ? new Decimal(config.thresholdOverridePct)
+          : new Decimal(entry.thresholdPct);
+
+        if (effectiveConcentration.gt(threshold)) {
+          return 'CHEMICAL_LIMIT_EXCEEDED';
+        }
+      }
+      break;
+    // ... other cases
+  }
+}
+```
+
+### 4. Audit Defensibility (Data Contract Rationale)
+
+The `evaluationContext.appliedList` fields enable enterprise-grade compliance:
+
+| Field | Value |
+|-------|-------|
+| `version` | Allows report to state "Evaluated against REACH Annex XVII v2024-06" |
+| `sourceUrl` | Links directly to EU Official Journal for auditor verification |
+| `legalReference` | Cites specific entry (e.g., "Entry 23, Restriction 4b") |
+
+The `alternativeCas` field in remediation moves from compliance to solution engineering.
 
 ---
 
