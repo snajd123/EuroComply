@@ -1,18 +1,76 @@
 # Testing Guide
 
+## Quick Start
+
+```bash
+# 1. Start database
+pnpm db:start
+
+# 2. Run migrations and seed reference data
+pnpm db:setup
+
+# 3. Start API server
+pnpm dev:local
+```
+
+---
+
 ## Scripts
 
 | Command | Purpose |
 |---------|---------|
-| `pnpm test` | Run automated tests |
-| `pnpm test:webhook` | Test real Clerk webhook (creates org, verifies DB) |
-| `pnpm db:start` | Start database |
-| `pnpm db:reset` | Reset database |
+| `pnpm db:start` | Start PostgreSQL database (port 5432) |
+| `pnpm db:setup` | Run migrations and seed reference data |
+| `pnpm db:reset` | Reset database (drops all data) |
 | `pnpm db:schema` | Show database structure |
-| `pnpm db:cleanup` | Clean test data |
-| `pnpm dev` | Start API + Worker (recommended) |
-| `pnpm worker` | Start only worker (continuous) |
+| `pnpm dev:local` | Start API + Worker with hot-reload |
+| `pnpm dev` | Start API + Worker via turbo |
+| `pnpm test` | Run automated tests |
 | `pnpm worker:once` | Run worker once (for testing/debugging) |
+
+---
+
+## Database Setup
+
+### Prerequisites
+
+1. Docker running
+2. `.env` file configured (copy from `.env.example`)
+
+### Initial Setup
+
+```bash
+# Start PostgreSQL container
+pnpm db:start
+
+# Run migrations and seed reference data
+pnpm db:setup
+```
+
+The `db:setup` command:
+1. Runs all pending migrations (creates tables)
+2. Seeds reference data (substances, units, etc.)
+
+### Environment Variables
+
+```env
+DATABASE_HOST=localhost
+DATABASE_PORT=5432
+DATABASE_NAME=eurocomply_test
+DATABASE_USER=postgres
+DATABASE_PASSWORD=postgres
+```
+
+### Reset Database
+
+```bash
+# Stop and remove database container
+pnpm db:reset
+
+# Restart and setup
+pnpm db:start
+pnpm db:setup
+```
 
 ---
 
@@ -20,7 +78,7 @@
 
 ```
 ┌─────────────┐     webhook      ┌─────────────┐
-│   Clerk   │ ───────────────► │     API     │
+│   ZITADEL   │ ───────────────► │     API     │
 └─────────────┘                  └──────┬──────┘
                                         │
                                         │ writes to
@@ -45,116 +103,76 @@
 
 ## Manual Testing
 
-### 1. Start everything (Recommended)
+### 1. Start Everything (Recommended)
 
 ```bash
-# Terminal 1: Database
+# Terminal 1: Start database and API with hot-reload
 pnpm db:start
-
-# Terminal 2: API + Worker (starts both via turbo)
-pnpm dev
+pnpm db:setup
+pnpm dev:local
 ```
 
-This starts both the API server and the outbox worker. The worker processes:
-- Organization provisioned events (public schema)
-- Tenant-specific events (per-tenant schemas)
-
-### 1b. Alternative: Start components separately
+### 2. For Webhook Testing (ngrok)
 
 ```bash
-# Terminal 1: Database
-pnpm db:start
-
-# Terminal 2: API only
-cd apps/api && pnpm dev
-
-# Terminal 3: Worker only (if needed separately)
-pnpm worker
+# Terminal 1: Database + API
+pnpm db:start && pnpm db:setup
+pnpm dev:local --with-tunnel
 ```
 
-### 2. For webhook testing (ngrok)
+This starts ngrok and displays the public URL for webhook configuration.
 
-```bash
-# Terminal 1: Database
-pnpm db:start
+### 3. Configure ZITADEL Webhook
 
-# Terminal 2: ngrok (for Clerk webhooks)
-ngrok http 3001
-
-# Terminal 3: API + Worker
-pnpm dev
-```
-
-### 2. Configure Clerk Actions v2 webhook
-
-- Go to Clerk Console → Actions → Webhooks
-- Set endpoint URL to your ngrok URL + `/webhooks/clerk`
+- Go to ZITADEL Console → Actions → Webhooks
+- Set endpoint URL to your ngrok URL + `/webhooks/zitadel`
 - Enable `org.created` event
-- Copy signing key to `.env` as `Clerk_WEBHOOK_SIGNING_KEY`
-
-### 3. Test
-
-**Option A:** Run automated webhook test
-```bash
-pnpm test:webhook
-```
-
-**Option B:** Manual - create organization in Clerk Console
-
-### 4. Verify
-
-```bash
-# Check database
-pnpm db:schema
-```
+- Copy signing key to `.env` as `ZITADEL_WEBHOOK_SIGNING_KEY`
 
 ---
 
 ## Postman Testing
 
+### Collections
+
+Two Postman collections are available in `docs/testing/postman/`:
+
+1. **eurocomply-api.postman_collection.json** - Main API (requires auth)
+2. **eurocomply-taxonomy.postman_collection.json** - Taxonomy API (public, no auth)
+
 ### Setup
 
-1. Start the server: `cd apps/api && pnpm dev`
-2. Import or create a new collection in Postman
+1. Start the server: `pnpm dev:local`
+2. Import collections into Postman
+3. Set environment variable: `baseUrl = http://localhost:3001`
 
-### Base URL
+### Taxonomy API (Public)
 
-```
-http://localhost:3001
-```
+No authentication required:
 
-### Available Endpoints
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v1/taxonomy/substances` | List all substances |
+| GET | `/api/v1/taxonomy/substances?svhc=true` | Filter by SVHC |
+| GET | `/api/v1/taxonomy/substances?restricted=true` | Filter by restricted |
+| GET | `/api/v1/taxonomy/substances?search=lead` | Search by name |
+| GET | `/api/v1/taxonomy/substances/regulated` | Get all regulated substances |
+| GET | `/api/v1/taxonomy/substances/:casNumber` | Get substance by CAS number |
+| GET | `/api/v1/taxonomy/substances/:casNumber/aliases` | Get substance aliases |
+| GET | `/api/v1/taxonomy/units` | List all units |
+| GET | `/api/v1/taxonomy/units/:code` | Get unit by code |
+| GET | `/api/v1/taxonomy/units/convert?from=KGM&to=LBR&value=10` | Convert units |
+
+### Protected API
+
+Requires JWT or API key authentication:
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/health` | Health check |
-| POST | `/webhooks/clerk` | Clerk webhook (requires signature) |
-| GET | `/api/v1/admin/organizations/:id/status` | Get org status by ID or Clerk ID |
-| GET | `/api/v1/organizations` | List organizations |
-| POST | `/api/v1/organizations` | Create organization |
-
-### Example Requests
-
-**Health Check:**
-```
-GET http://localhost:3001/health
-```
-
-**Get Organization Status:**
-```
-GET http://localhost:3001/api/v1/admin/organizations/org_xxxxx/status
-```
-
-**List Organizations:**
-```
-GET http://localhost:3001/api/v1/organizations
-```
-
-### Notes
-
-- Webhook endpoint requires valid Clerk signature header
-- Use `pnpm test:webhook` instead of manually testing webhooks
-- Tenant-scoped endpoints (like `/api/v1/products`) require authentication
+| GET | `/api/v1/admin/organizations/:id/status` | Get org status |
+| GET | `/api/v1/products` | List products (tenant-scoped) |
+| POST | `/api/v1/api-keys` | Create API key |
 
 ---
 
@@ -162,17 +180,25 @@ GET http://localhost:3001/api/v1/organizations
 
 ```
 public (shared):
-├── organizations
-└── outbox_event      ← system events (org.provisioned, org.deleted)
+├── organizations        ← tenant registry
+├── api_keys            ← API keys for tenants
+├── webhook_events      ← webhook audit log
+├── unit_definition     ← UNECE unit codes
+├── substance           ← ECHA regulated substances
+├── substance_alias     ← substance alternative names
+├── outbox_event        ← system events
+└── mikro_orm_migrations
 
 tenant_org_xxx (per tenant):
-├── category
-├── product
-├── product_version
-├── attribute_template
-├── unit_definition
-├── audit_log
-└── outbox_event      ← tenant events (future: product.created, etc.)
+├── users               ← tenant users
+├── organization_users  ← user permissions
+├── category            ← product categories
+├── category_adoption   ← category usage tracking
+├── product             ← products
+├── product_version     ← product versions
+├── attribute_template  ← category attributes
+├── audit_log           ← audit trail
+└── outbox_event        ← tenant events
 ```
 
 ---
@@ -194,18 +220,6 @@ WORKER_POLL_INTERVAL=5000  # Milliseconds between polls (default: 5000)
 WORKER_MAX_RETRIES=5       # Retry attempts before marking FAILED (default: 5)
 ```
 
-### Running once (for testing)
-
-```bash
-# Process all pending events once and exit
-pnpm worker:once
-```
-
-This is useful for:
-- Testing event handlers
-- Debugging specific events
-- Running as a cron job instead of continuous polling
-
 ### Checking outbox status
 
 ```sql
@@ -221,3 +235,37 @@ FROM outbox_event
 ORDER BY created_at DESC
 LIMIT 10;
 ```
+
+---
+
+## Troubleshooting
+
+### Database Issues
+
+**Tables missing after db:setup:**
+```bash
+# Reset and recreate
+pnpm db:reset
+pnpm db:start
+pnpm db:setup
+```
+
+**Connection refused:**
+- Check Docker is running: `docker ps`
+- Check port 5432 is available: `lsof -i :5432`
+- Verify .env DATABASE_PORT matches your setup
+
+### Migration Issues
+
+**"relation already exists" error:**
+```bash
+# Database has tables but no migration tracking
+# Reset the database:
+pnpm db:reset
+pnpm db:start
+pnpm db:setup
+```
+
+**"No pending migrations" but tables missing:**
+- Ensure you're running from the project root directory
+- Run `pnpm build` to compile latest migrations
