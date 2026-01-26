@@ -1,0 +1,457 @@
+{
+  "info": {
+    "name": "EuroComply Taxonomy API",
+    "_postman_id": "eurocomply-taxonomy-collection",
+    "description": "Public Taxonomy API endpoints - no authentication required.\n\nIncludes:\n- Units (UNECE codes)\n- Substances (ECHA regulated chemicals)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3001", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "1. Substances",
+      "description": "ECHA regulated substances registry",
+      "item": [
+        {
+          "name": "1.1 List All Substances",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Returns substances array', function () {",
+                  "    const r = pm.response.json();",
+                  "    pm.expect(r.data).to.be.an('array');",
+                  "    pm.expect(r.meta.total).to.be.at.least(20);",
+                  "    console.log('Total substances:', r.meta.total);",
+                  "});",
+                  "",
+                  "pm.test('Substances have required fields', function () {",
+                  "    const r = pm.response.json();",
+                  "    const s = r.data[0];",
+                  "    pm.expect(s.casNumber).to.match(/^\\d{2,7}-\\d{2}-\\d$/);",
+                  "    pm.expect(s.primaryName).to.be.a('string');",
+                  "    pm.expect(s).to.have.property('isSvhc');",
+                  "    pm.expect(s).to.have.property('isRestricted');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/taxonomy/substances",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "taxonomy", "substances"]
+            }
+          }
+        },
+        {
+          "name": "1.2 Filter by SVHC",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('All results are SVHC', function () {",
+                  "    const r = pm.response.json();",
+                  "    pm.expect(r.data.length).to.be.at.least(10);",
+                  "    r.data.forEach(s => {",
+                  "        pm.expect(s.isSvhc).to.equal(true);",
+                  "    });",
+                  "    console.log('SVHC substances:', r.meta.total);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/taxonomy/substances?svhc=true",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "taxonomy", "substances"],
+              "query": [
+                { "key": "svhc", "value": "true" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "1.3 Filter by Restricted",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('All results are restricted', function () {",
+                  "    const r = pm.response.json();",
+                  "    pm.expect(r.data.length).to.be.at.least(10);",
+                  "    r.data.forEach(s => {",
+                  "        pm.expect(s.isRestricted).to.equal(true);",
+                  "    });",
+                  "    console.log('Restricted substances:', r.meta.total);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/taxonomy/substances?restricted=true",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "taxonomy", "substances"],
+              "query": [
+                { "key": "restricted", "value": "true" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "1.4 Search by Name",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Search finds lead', function () {",
+                  "    const r = pm.response.json();",
+                  "    pm.expect(r.data.length).to.be.at.least(1);",
+                  "    const names = r.data.map(s => s.primaryName.toLowerCase());",
+                  "    pm.expect(names.some(n => n.includes('lead'))).to.be.true;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/taxonomy/substances?search=lead",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "taxonomy", "substances"],
+              "query": [
+                { "key": "search", "value": "lead" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "1.5 Get All Regulated",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Returns regulated substances with counts', function () {",
+                  "    const r = pm.response.json();",
+                  "    pm.expect(r.data.length).to.be.at.least(15);",
+                  "    pm.expect(r.meta.svhcCount).to.be.a('number');",
+                  "    pm.expect(r.meta.authorizationCount).to.be.a('number');",
+                  "    pm.expect(r.meta.restrictedCount).to.be.a('number');",
+                  "    console.log('SVHC:', r.meta.svhcCount);",
+                  "    console.log('Authorization:', r.meta.authorizationCount);",
+                  "    console.log('Restricted:', r.meta.restrictedCount);",
+                  "});",
+                  "",
+                  "pm.test('All results are regulated', function () {",
+                  "    const r = pm.response.json();",
+                  "    r.data.forEach(s => {",
+                  "        const isRegulated = s.isSvhc || s.requiresAuthorization || s.isRestricted;",
+                  "        pm.expect(isRegulated).to.be.true;",
+                  "    });",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/taxonomy/substances/regulated",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "taxonomy", "substances", "regulated"]
+            }
+          }
+        },
+        {
+          "name": "1.6 Get Substance by CAS (DMAC)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Returns DMAC', function () {",
+                  "    const r = pm.response.json();",
+                  "    pm.expect(r.data.casNumber).to.equal('127-19-5');",
+                  "    pm.expect(r.data.primaryName).to.equal('N,N-Dimethylacetamide');",
+                  "    pm.expect(r.data.isSvhc).to.be.true;",
+                  "    pm.expect(r.data.requiresAuthorization).to.be.true;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/taxonomy/substances/127-19-5",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "taxonomy", "substances", "127-19-5"]
+            }
+          }
+        },
+        {
+          "name": "1.7 Get Substance by CAS (Lead)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Returns Lead with RoHS restriction', function () {",
+                  "    const r = pm.response.json();",
+                  "    pm.expect(r.data.casNumber).to.equal('7439-92-1');",
+                  "    pm.expect(r.data.primaryName).to.equal('Lead');",
+                  "    pm.expect(r.data.isRestricted).to.be.true;",
+                  "    pm.expect(r.data.restrictionConditions).to.include('RoHS');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/taxonomy/substances/7439-92-1",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "taxonomy", "substances", "7439-92-1"]
+            }
+          }
+        },
+        {
+          "name": "1.8 Get Substance Not Found (404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 404', function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});",
+                  "",
+                  "pm.test('Error message', function () {",
+                  "    const r = pm.response.json();",
+                  "    pm.expect(r.error).to.equal('Not Found');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/taxonomy/substances/9999-99-9",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "taxonomy", "substances", "9999-99-9"]
+            }
+          }
+        },
+        {
+          "name": "1.9 Get Substance Aliases",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Returns DMAC aliases', function () {",
+                  "    const r = pm.response.json();",
+                  "    pm.expect(r.data).to.be.an('array');",
+                  "    pm.expect(r.data.length).to.be.at.least(2);",
+                  "    pm.expect(r.meta.casNumber).to.equal('127-19-5');",
+                  "    ",
+                  "    const names = r.data.map(a => a.name);",
+                  "    pm.expect(names).to.include('DMAC');",
+                  "    console.log('Aliases:', names.join(', '));",
+                  "});",
+                  "",
+                  "pm.test('Aliases have correct structure', function () {",
+                  "    const r = pm.response.json();",
+                  "    const a = r.data[0];",
+                  "    pm.expect(a).to.have.property('name');",
+                  "    pm.expect(a).to.have.property('type');",
+                  "    pm.expect(a).to.have.property('language');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/taxonomy/substances/127-19-5/aliases",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "taxonomy", "substances", "127-19-5", "aliases"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Units",
+      "description": "UNECE unit codes (from existing API)",
+      "item": [
+        {
+          "name": "2.1 List All Units",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Returns units', function () {",
+                  "    const r = pm.response.json();",
+                  "    pm.expect(r.data).to.be.an('array');",
+                  "    pm.expect(r.meta.total).to.be.at.least(30);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/taxonomy/units",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "taxonomy", "units"]
+            }
+          }
+        },
+        {
+          "name": "2.2 Get Unit (KGM)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Returns kilogram', function () {",
+                  "    const r = pm.response.json();",
+                  "    pm.expect(r.data.code).to.equal('KGM');",
+                  "    pm.expect(r.data.system).to.equal('MASS');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/taxonomy/units/KGM",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "taxonomy", "units", "KGM"]
+            }
+          }
+        },
+        {
+          "name": "2.3 Convert kg to lb",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Converts correctly', function () {",
+                  "    const r = pm.response.json();",
+                  "    pm.expect(r.data.from.val).to.equal(10);",
+                  "    pm.expect(r.data.to.val).to.be.within(22, 23);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/taxonomy/units/convert?from=KGM&to=LBR&value=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "taxonomy", "units", "convert"],
+              "query": [
+                { "key": "from", "value": "KGM" },
+                { "key": "to", "value": "LBR" },
+                { "key": "value", "value": "10" }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
