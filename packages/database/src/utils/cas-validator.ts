@@ -29,7 +29,9 @@ export function isValidCasNumber(cas: string): boolean {
     return false;
   }
 
-  const [, firstPart, secondPart, checkDigitStr] = match;
+  const firstPart = match[1]!;
+  const secondPart = match[2]!;
+  const checkDigitStr = match[3]!;
 
   // Concatenate first two parts and calculate checksum
   const digits = (firstPart + secondPart).split('').reverse();
@@ -56,9 +58,9 @@ export function parseCasNumber(cas: string): CasParts | null {
   }
 
   return {
-    firstPart: match[1],
-    secondPart: match[2],
-    checkDigit: match[3],
+    firstPart: match[1]!,
+    secondPart: match[2]!,
+    checkDigit: match[3]!,
   };
 }
 
