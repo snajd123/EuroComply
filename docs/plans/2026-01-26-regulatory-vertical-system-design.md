@@ -7,6 +7,7 @@
 **Architecture:** Public schema holds versioned RegulatoryLists with substance entries. Categories link to applicable lists via LTREE inheritance. PreFlight evaluation dynamically resolves which lists apply based on product category, then cross-references rolled-up substances against list entries.
 
 **Key Decisions:**
+- **Agnostic evaluation model**: Operator + compareValue + issueType + severity stored in database, not code
 - Admin-managed CSV/JSON import (not live API sync)
 - Immutable list versions for forensic compliance
 - ARTICLE vs HOMOGENEOUS_MATERIAL evaluation scope
@@ -58,6 +59,9 @@ export class RegulatoryList extends BaseEntity {
 
 ### 1.2 RegulatoryListEntry (Public Schema)
 
+**AGNOSTIC EVALUATION MODEL:** The entry itself defines the comparison logic via `operator` + `compareValue`.
+No hardcoded rule types - new regulations can be imported without code changes.
+
 ```typescript
 @Entity({ tableName: 'regulatory_list_entry', schema: 'public' })
 @Unique({ properties: ['list', 'substance'] })
@@ -77,11 +81,26 @@ export class RegulatoryListEntry extends BaseEntity {
   @Property({ name: 'substance_name_snapshot' })
   substanceNameSnapshot!: string;
 
-  @Enum(() => RestrictionType)
-  restrictionType!: RestrictionType;  // PROHIBITED | THRESHOLD | RESTRICTED_WITH_CONDITIONS
+  // ─────────────────────────────────────────────────────────────
+  // AGNOSTIC EVALUATION FIELDS (replaces hardcoded RestrictionType)
+  // ─────────────────────────────────────────────────────────────
 
-  @Property({ type: 'decimal', precision: 7, scale: 4, nullable: true })
-  thresholdPct?: string;
+  @Enum(() => ComparisonOperator)
+  operator!: ComparisonOperator;  // How to compare concentration
+
+  @Property({ type: 'decimal', precision: 7, scale: 4, nullable: true, name: 'compare_value' })
+  compareValue?: string;  // Threshold for comparison (null for PRESENT/ABSENT)
+
+  @Property({ type: 'text', name: 'issue_type' })
+  issueType!: string;  // e.g., 'PROHIBITED_SUBSTANCE', 'CHEMICAL_LIMIT_EXCEEDED'
+
+  @Enum(() => Severity)
+  severity!: Severity;  // BLOCKER, WARNING, INFO
+
+  @Property({ type: 'decimal', precision: 7, scale: 4, nullable: true, name: 'stoichiometric_factor' })
+  stoichiometricFactor?: string;  // For element-based regulations (e.g., Cobalt from Cobalt Sulfate)
+
+  // ─────────────────────────────────────────────────────────────
 
   @Property({ type: 'jsonb', nullable: true })
   conditions?: Record<string, string>;  // { application_area: 'spray products' }
@@ -93,10 +112,21 @@ export class RegulatoryListEntry extends BaseEntity {
   notes?: string;
 }
 
-enum RestrictionType {
-  PROHIBITED = 'PROHIBITED',                    // Banned entirely
-  THRESHOLD = 'THRESHOLD',                      // Allowed below threshold
-  RESTRICTED_WITH_CONDITIONS = 'RESTRICTED_WITH_CONDITIONS',  // Conditional
+// Agnostic comparison operators
+enum ComparisonOperator {
+  GT = 'GT',           // concentration > compareValue
+  GTE = 'GTE',         // concentration >= compareValue
+  LT = 'LT',           // concentration < compareValue
+  LTE = 'LTE',         // concentration <= compareValue
+  EQ = 'EQ',           // concentration == compareValue
+  PRESENT = 'PRESENT', // concentration > 0 (any presence is violation)
+  ABSENT = 'ABSENT',   // concentration must be 0 (must be absent)
+}
+
+enum Severity {
+  BLOCKER = 'BLOCKER',
+  WARNING = 'WARNING',
+  INFO = 'INFO',
 }
 ```
 
@@ -182,6 +212,9 @@ type: 'regulatory_list_check' | 'aggregate_metric_threshold'
 
 ### 2.2 regulatory_list_check Config
 
+**AGNOSTIC:** The config specifies WHICH lists to check and HOW to scope evaluation.
+The actual comparison logic (operator, compareValue, issueType, severity) comes from RegulatoryListEntry.
+
 ```typescript
 {
   type: 'regulatory_list_check',
@@ -189,19 +222,21 @@ type: 'regulatory_list_check' | 'aggregate_metric_threshold'
     // Explicit list codes OR null = inherit from CategoryRegulatoryList
     listCodes: ['COSING_ANNEX_II', 'COSING_ANNEX_III'] | null,
 
-    checkType: 'PROHIBITED' | 'THRESHOLD' | 'RESTRICTED_WITH_CONDITIONS',
-
     // Evaluation scope (REACH vs RoHS difference)
     scope: 'ARTICLE' | 'HOMOGENEOUS_MATERIAL',
 
-    // Override list entry threshold (null = use RegulatoryListEntry.threshold)
-    thresholdOverridePct: null,
+    // Override list entry compareValue (null = use RegulatoryListEntry.compareValue)
+    // Used for category-specific stricter thresholds (e.g., toys)
+    compareValueOverride: null,
 
     // For conditional restrictions (checks entry.conditions JSONB)
     conditionKey: 'application_area'
   }
 }
 ```
+
+Note: No `checkType` field - the evaluation is agnostic. Each RegulatoryListEntry defines its own
+operator/compareValue/issueType/severity. This allows new rule types without code changes.
 
 ### 2.3 aggregate_metric_threshold Config
 
@@ -288,13 +323,10 @@ A smart electronic skincare device matches all three regulatory frameworks.
 
 ```typescript
 interface SubstanceFinding extends AuditFinding {
-  // Issue classification
-  issueType:
-    | 'PROHIBITED_SUBSTANCE'
-    | 'CHEMICAL_LIMIT_EXCEEDED'
-    | 'RESTRICTED_CONDITIONS'
-    | 'MISSING_DOCUMENTATION'
-    | 'SUPPLY_RISK_EXCEEDED';
+  // Issue classification - from RegulatoryListEntry.issueType (agnostic string)
+  // Common values: 'PROHIBITED_SUBSTANCE', 'CHEMICAL_LIMIT_EXCEEDED', 'RESTRICTED_CONDITIONS'
+  // New issueTypes can be added via admin import without code changes
+  issueType: string;
 
   // What substance (null for MISSING_DOCUMENTATION)
   substance?: {
@@ -402,6 +434,9 @@ Upload CSV/JSON → Validate Schema → Preview Diff → Apply Changes
 
 ### 5.2 Import File Format
 
+**AGNOSTIC:** Import files define the full evaluation logic per entry.
+No hardcoded rule types - admins can import new regulations without code changes.
+
 ```typescript
 interface RegulatoryListImport {
   code: string;
@@ -416,8 +451,14 @@ interface RegulatoryListImport {
 interface RegulatoryListEntryImport {
   casNumber: string;
   ecNumber?: string;
-  restrictionType: 'PROHIBITED' | 'THRESHOLD' | 'RESTRICTED_WITH_CONDITIONS';
-  thresholdPct?: string;
+
+  // AGNOSTIC EVALUATION FIELDS
+  operator: 'GT' | 'GTE' | 'LT' | 'LTE' | 'EQ' | 'PRESENT' | 'ABSENT';
+  compareValue?: string;  // Required for GT/GTE/LT/LTE/EQ, null for PRESENT/ABSENT
+  issueType: string;      // e.g., 'PROHIBITED_SUBSTANCE', 'CHEMICAL_LIMIT_EXCEEDED'
+  severity: 'BLOCKER' | 'WARNING' | 'INFO';
+  stoichiometricFactor?: string;  // For element-based regulations
+
   conditions?: Record<string, string>;
   legalReference?: string;
   notes?: string;
