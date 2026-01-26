@@ -1,0 +1,347 @@
+{
+  "version": "ECHA-2024-01",
+  "generatedAt": "2026-01-26T00:00:00.000Z",
+  "sources": {
+    "SVHC": "https://echa.europa.eu/candidate-list-table",
+    "Authorization": "https://echa.europa.eu/authorisation-list",
+    "Restriction": "https://echa.europa.eu/substances-restricted-under-reach"
+  },
+  "totalSubstances": 22,
+  "substances": [
+    {
+      "casNumber": "127-19-5",
+      "ecNumber": "204-826-4",
+      "primaryName": "N,N-Dimethylacetamide",
+      "molecularFormula": "C4H9NO",
+      "molecularWeight": "87.1204",
+      "isSvhc": true,
+      "requiresAuthorization": true,
+      "isRestricted": false,
+      "sunsetDate": "2025-02-28",
+      "latestApplicationDate": "2024-08-28",
+      "echaUrl": "https://echa.europa.eu/substance-information/-/substanceinfo/100.004.389",
+      "aliases": [
+        { "name": "DMAC", "type": "COMMON" },
+        { "name": "Dimethylacetamide", "type": "SYNONYM" },
+        { "name": "Acetyldimethylamine", "type": "SYNONYM" }
+      ]
+    },
+    {
+      "casNumber": "872-50-4",
+      "ecNumber": "212-828-1",
+      "primaryName": "N-Methyl-2-pyrrolidone",
+      "molecularFormula": "C5H9NO",
+      "molecularWeight": "99.13",
+      "isSvhc": true,
+      "requiresAuthorization": false,
+      "isRestricted": true,
+      "restrictionConditions": "Shall not be placed on the market as a substance or in mixtures in a concentration >= 0.3%",
+      "echaUrl": "https://echa.europa.eu/substance-information/-/substanceinfo/100.011.662",
+      "aliases": [
+        { "name": "NMP", "type": "COMMON" },
+        { "name": "1-Methyl-2-pyrrolidinone", "type": "SYNONYM" }
+      ]
+    },
+    {
+      "casNumber": "110-54-3",
+      "ecNumber": "203-777-6",
+      "primaryName": "n-Hexane",
+      "molecularFormula": "C6H14",
+      "molecularWeight": "86.18",
+      "isSvhc": true,
+      "requiresAuthorization": false,
+      "isRestricted": false,
+      "echaUrl": "https://echa.europa.eu/substance-information/-/substanceinfo/100.003.435",
+      "aliases": [
+        { "name": "Hexane", "type": "COMMON" }
+      ]
+    },
+    {
+      "casNumber": "117-81-7",
+      "ecNumber": "204-211-0",
+      "primaryName": "Bis(2-ethylhexyl) phthalate",
+      "molecularFormula": "C24H38O4",
+      "molecularWeight": "390.56",
+      "isSvhc": true,
+      "requiresAuthorization": true,
+      "isRestricted": true,
+      "restrictionConditions": "Shall not be used in toys and childcare articles in concentration > 0.1%",
+      "sunsetDate": "2015-02-21",
+      "echaUrl": "https://echa.europa.eu/substance-information/-/substanceinfo/100.003.829",
+      "aliases": [
+        { "name": "DEHP", "type": "COMMON" },
+        { "name": "Di(2-ethylhexyl) phthalate", "type": "SYNONYM" },
+        { "name": "Dioctyl phthalate", "type": "SYNONYM" }
+      ]
+    },
+    {
+      "casNumber": "84-74-2",
+      "ecNumber": "201-557-4",
+      "primaryName": "Dibutyl phthalate",
+      "molecularFormula": "C16H22O4",
+      "molecularWeight": "278.34",
+      "isSvhc": true,
+      "requiresAuthorization": true,
+      "isRestricted": true,
+      "restrictionConditions": "Shall not be used in toys and childcare articles in concentration > 0.1%",
+      "sunsetDate": "2015-02-21",
+      "echaUrl": "https://echa.europa.eu/substance-information/-/substanceinfo/100.001.416",
+      "aliases": [
+        { "name": "DBP", "type": "COMMON" }
+      ]
+    },
+    {
+      "casNumber": "85-68-7",
+      "ecNumber": "201-622-7",
+      "primaryName": "Benzyl butyl phthalate",
+      "molecularFormula": "C19H20O4",
+      "molecularWeight": "312.36",
+      "isSvhc": true,
+      "requiresAuthorization": true,
+      "isRestricted": true,
+      "restrictionConditions": "Shall not be used in toys and childcare articles in concentration > 0.1%",
+      "sunsetDate": "2015-02-21",
+      "echaUrl": "https://echa.europa.eu/substance-information/-/substanceinfo/100.001.475",
+      "aliases": [
+        { "name": "BBP", "type": "COMMON" }
+      ]
+    },
+    {
+      "casNumber": "7439-92-1",
+      "ecNumber": "231-100-4",
+      "primaryName": "Lead",
+      "molecularFormula": "Pb",
+      "molecularWeight": "207.2",
+      "isSvhc": true,
+      "requiresAuthorization": false,
+      "isRestricted": true,
+      "restrictionConditions": "RoHS: Max 0.1% (1000ppm) by weight in homogeneous materials",
+      "echaUrl": "https://echa.europa.eu/substance-information/-/substanceinfo/100.028.273",
+      "aliases": [
+        { "name": "Plumbum", "type": "SYNONYM" }
+      ]
+    },
+    {
+      "casNumber": "7440-43-9",
+      "ecNumber": "231-152-8",
+      "primaryName": "Cadmium",
+      "molecularFormula": "Cd",
+      "molecularWeight": "112.41",
+      "isSvhc": true,
+      "requiresAuthorization": false,
+      "isRestricted": true,
+      "restrictionConditions": "RoHS: Max 0.01% (100ppm) by weight in homogeneous materials",
+      "echaUrl": "https://echa.europa.eu/substance-information/-/substanceinfo/100.028.320",
+      "aliases": []
+    },
+    {
+      "casNumber": "7439-97-6",
+      "ecNumber": "231-106-7",
+      "primaryName": "Mercury",
+      "molecularFormula": "Hg",
+      "molecularWeight": "200.59",
+      "isSvhc": false,
+      "requiresAuthorization": false,
+      "isRestricted": true,
+      "restrictionConditions": "RoHS: Max 0.1% (1000ppm) by weight in homogeneous materials",
+      "echaUrl": "https://echa.europa.eu/substance-information/-/substanceinfo/100.028.278",
+      "aliases": [
+        { "name": "Hydrargyrum", "type": "SYNONYM" },
+        { "name": "Quicksilver", "type": "COMMON" }
+      ]
+    },
+    {
+      "casNumber": "18540-29-9",
+      "ecNumber": "242-367-4",
+      "primaryName": "Chromium (VI)",
+      "isSvhc": true,
+      "requiresAuthorization": false,
+      "isRestricted": true,
+      "restrictionConditions": "RoHS: Max 0.1% (1000ppm) by weight in homogeneous materials",
+      "echaUrl": "https://echa.europa.eu/substance-information/-/substanceinfo/100.038.503",
+      "aliases": [
+        { "name": "Hexavalent chromium", "type": "COMMON" },
+        { "name": "Cr(VI)", "type": "COMMON" }
+      ]
+    },
+    {
+      "casNumber": "50-00-0",
+      "ecNumber": "200-001-8",
+      "primaryName": "Formaldehyde",
+      "molecularFormula": "CH2O",
+      "molecularWeight": "30.03",
+      "isSvhc": true,
+      "requiresAuthorization": false,
+      "isRestricted": true,
+      "restrictionConditions": "Max 0.1% in mixtures",
+      "echaUrl": "https://echa.europa.eu/substance-information/-/substanceinfo/100.000.002",
+      "aliases": [
+        { "name": "Methanal", "type": "IUPAC" },
+        { "name": "Formalin", "type": "COMMON" }
+      ]
+    },
+    {
+      "casNumber": "79-06-1",
+      "ecNumber": "201-173-7",
+      "primaryName": "Acrylamide",
+      "molecularFormula": "C3H5NO",
+      "molecularWeight": "71.08",
+      "isSvhc": true,
+      "requiresAuthorization": false,
+      "isRestricted": true,
+      "restrictionConditions": "Shall not be placed on the market or used as a substance or in mixtures in concentration >= 0.1%",
+      "echaUrl": "https://echa.europa.eu/substance-information/-/substanceinfo/100.001.067",
+      "aliases": [
+        { "name": "2-Propenamide", "type": "IUPAC" }
+      ]
+    },
+    {
+      "casNumber": "111-76-2",
+      "ecNumber": "203-905-0",
+      "primaryName": "2-Butoxyethanol",
+      "molecularFormula": "C6H14O2",
+      "molecularWeight": "118.18",
+      "isSvhc": false,
+      "requiresAuthorization": false,
+      "isRestricted": false,
+      "echaUrl": "https://echa.europa.eu/substance-information/-/substanceinfo/100.003.551",
+      "aliases": [
+        { "name": "Ethylene glycol monobutyl ether", "type": "SYNONYM" },
+        { "name": "Butyl cellosolve", "type": "TRADE" }
+      ]
+    },
+    {
+      "casNumber": "1163-19-5",
+      "ecNumber": "214-604-9",
+      "primaryName": "Decabromodiphenyl ether",
+      "molecularFormula": "C12Br10O",
+      "molecularWeight": "959.17",
+      "isSvhc": true,
+      "requiresAuthorization": false,
+      "isRestricted": true,
+      "restrictionConditions": "RoHS: Max 0.1% (1000ppm) by weight in homogeneous materials",
+      "echaUrl": "https://echa.europa.eu/substance-information/-/substanceinfo/100.013.277",
+      "aliases": [
+        { "name": "DecaBDE", "type": "COMMON" },
+        { "name": "BDE-209", "type": "COMMON" }
+      ]
+    },
+    {
+      "casNumber": "79-94-7",
+      "ecNumber": "201-236-9",
+      "primaryName": "Tetrabromobisphenol A",
+      "molecularFormula": "C15H12Br4O2",
+      "molecularWeight": "543.87",
+      "isSvhc": true,
+      "requiresAuthorization": false,
+      "isRestricted": false,
+      "echaUrl": "https://echa.europa.eu/substance-information/-/substanceinfo/100.001.125",
+      "aliases": [
+        { "name": "TBBPA", "type": "COMMON" }
+      ]
+    },
+    {
+      "casNumber": "80-05-7",
+      "ecNumber": "201-245-8",
+      "primaryName": "Bisphenol A",
+      "molecularFormula": "C15H16O2",
+      "molecularWeight": "228.29",
+      "isSvhc": true,
+      "requiresAuthorization": false,
+      "isRestricted": true,
+      "restrictionConditions": "Prohibited in thermal paper from 2020; restricted in toys",
+      "echaUrl": "https://echa.europa.eu/substance-information/-/substanceinfo/100.001.133",
+      "aliases": [
+        { "name": "BPA", "type": "COMMON" },
+        { "name": "4,4'-Isopropylidenediphenol", "type": "IUPAC" }
+      ]
+    },
+    {
+      "casNumber": "335-67-1",
+      "ecNumber": "206-397-9",
+      "primaryName": "Perfluorooctanoic acid",
+      "molecularFormula": "C8HF15O2",
+      "molecularWeight": "414.07",
+      "isSvhc": true,
+      "requiresAuthorization": false,
+      "isRestricted": true,
+      "restrictionConditions": "Max 25 ppb in mixtures, 1000 ppb in articles",
+      "echaUrl": "https://echa.europa.eu/substance-information/-/substanceinfo/100.005.817",
+      "aliases": [
+        { "name": "PFOA", "type": "COMMON" },
+        { "name": "C8", "type": "COMMON" }
+      ]
+    },
+    {
+      "casNumber": "1763-23-1",
+      "ecNumber": "217-179-8",
+      "primaryName": "Perfluorooctane sulfonic acid",
+      "molecularFormula": "C8HF17O3S",
+      "molecularWeight": "500.13",
+      "isSvhc": true,
+      "requiresAuthorization": false,
+      "isRestricted": true,
+      "restrictionConditions": "Stockholm Convention POP, banned with limited exemptions",
+      "echaUrl": "https://echa.europa.eu/substance-information/-/substanceinfo/100.015.618",
+      "aliases": [
+        { "name": "PFOS", "type": "COMMON" }
+      ]
+    },
+    {
+      "casNumber": "7440-02-0",
+      "ecNumber": "231-111-4",
+      "primaryName": "Nickel",
+      "molecularFormula": "Ni",
+      "molecularWeight": "58.69",
+      "isSvhc": false,
+      "requiresAuthorization": false,
+      "isRestricted": true,
+      "restrictionConditions": "Max 0.5 ug/cm2/week nickel release in articles with prolonged skin contact",
+      "echaUrl": "https://echa.europa.eu/substance-information/-/substanceinfo/100.028.283",
+      "aliases": []
+    },
+    {
+      "casNumber": "10124-43-3",
+      "ecNumber": "233-334-2",
+      "primaryName": "Cobalt sulphate",
+      "molecularFormula": "CoSO4",
+      "molecularWeight": "154.99",
+      "isSvhc": true,
+      "requiresAuthorization": true,
+      "isRestricted": false,
+      "sunsetDate": "2021-01-21",
+      "echaUrl": "https://echa.europa.eu/substance-information/-/substanceinfo/100.030.254",
+      "aliases": [
+        { "name": "Cobalt(II) sulfate", "type": "IUPAC" }
+      ]
+    },
+    {
+      "casNumber": "7440-38-2",
+      "ecNumber": "231-148-6",
+      "primaryName": "Arsenic",
+      "molecularFormula": "As",
+      "molecularWeight": "74.92",
+      "isSvhc": false,
+      "requiresAuthorization": false,
+      "isRestricted": true,
+      "restrictionConditions": "Prohibited in wood preservatives and anti-fouling paints",
+      "echaUrl": "https://echa.europa.eu/substance-information/-/substanceinfo/100.028.316",
+      "aliases": []
+    },
+    {
+      "casNumber": "7732-18-5",
+      "ecNumber": "231-791-2",
+      "primaryName": "Water",
+      "molecularFormula": "H2O",
+      "molecularWeight": "18.015",
+      "isSvhc": false,
+      "requiresAuthorization": false,
+      "isRestricted": false,
+      "echaUrl": "https://echa.europa.eu/substance-information/-/substanceinfo/100.028.902",
+      "aliases": [
+        { "name": "Dihydrogen monoxide", "type": "IUPAC" },
+        { "name": "H2O", "type": "COMMON" }
+      ]
+    }
+  ]
+}
