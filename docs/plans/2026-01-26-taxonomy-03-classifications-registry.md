@@ -717,100 +717,203 @@ git commit -m "feat(database): add ClassificationsSeeder with idempotent HS/CN s
 
 **Files:**
 - Create: `apps/api/src/routes/taxonomy/classifications.ts`
-- Test: `apps/api/src/routes/taxonomy/classifications.test.ts`
+- Test: `apps/api/src/routes/taxonomy/classifications.e2e.test.ts`
 - Modify: `apps/api/src/routes/taxonomy/index.ts`
 
-**Step 1: Write the failing test**
+**Step 1: Write the failing e2e test (NO MOCKS - per RULES.md)**
 
 ```typescript
-// apps/api/src/routes/taxonomy/classifications.test.ts
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+// apps/api/src/routes/taxonomy/classifications.e2e.test.ts
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import type { MikroORM } from '@eurocomply/database';
 import { Hono } from 'hono';
 import { createClassificationsRouter, type ClassificationsRepository, type ClassificationData } from './classifications.js';
-import { ClassificationSystem } from '@eurocomply/database';
+import { ProductClassification, ClassificationSystem } from '@eurocomply/database';
+import { setupTestDb, teardownTestDb, isDatabaseAvailable } from '@eurocomply/database/test-utils';
 
-describe('Classifications API', () => {
+interface ApiResponse<T> {
+  data: T;
+  meta?: { total: number; search?: string | null };
+}
+
+describe('Classifications API E2E', () => {
+  let orm: MikroORM;
   let app: Hono;
-  let mockRepo: ClassificationsRepository;
 
-  const mockClassifications: ClassificationData[] = [
-    { id: 'c1', code: '85', system: ClassificationSystem.HS, description: 'Electrical machinery', level: 0, parentCode: undefined, isActive: true },
-    { id: 'c2', code: '8507', system: ClassificationSystem.HS, description: 'Electric accumulators', level: 1, parentCode: '85', isActive: true },
-    { id: 'c3', code: '8507.60', system: ClassificationSystem.HS, description: 'Lithium-ion accumulators', level: 2, parentCode: '8507', isActive: true },
-    { id: 'c4', code: '8507.60.00', system: ClassificationSystem.CN, description: 'Lithium-ion accumulators (CN)', level: 3, parentCode: '8507.60', isActive: true },
-  ];
+  beforeAll(async () => {
+    if (!(await isDatabaseAvailable())) {
+      return;
+    }
 
-  beforeEach(() => {
-    mockRepo = {
-      findAll: vi.fn().mockResolvedValue(mockClassifications),
-      findByCode: vi.fn().mockImplementation(async (code: string) =>
-        mockClassifications.find(c => c.code === code) || null
-      ),
-      findChildren: vi.fn().mockImplementation(async (parentCode: string) =>
-        mockClassifications.filter(c => c.parentCode === parentCode)
-      ),
+    orm = await setupTestDb();
+
+    // Seed test classifications (real database, no mocks)
+    const em = orm.em.fork();
+    const testData = [
+      { code: '85', system: ClassificationSystem.HS, description: 'Electrical machinery and equipment', level: 0, parentCode: null },
+      { code: '8507', system: ClassificationSystem.HS, description: 'Electric accumulators', level: 1, parentCode: '85' },
+      { code: '8507.60', system: ClassificationSystem.HS, description: 'Lithium-ion accumulators', level: 2, parentCode: '8507' },
+      { code: '8507.60.00', system: ClassificationSystem.CN, description: 'Lithium-ion accumulators (CN detail)', level: 3, parentCode: '8507.60' },
+      { code: '61', system: ClassificationSystem.HS, description: 'Articles of apparel, knitted', level: 0, parentCode: null },
+      { code: '6109', system: ClassificationSystem.HS, description: 'T-shirts, singlets and vests', level: 1, parentCode: '61' },
+    ];
+
+    for (const data of testData) {
+      const classification = em.create(ProductClassification, {
+        code: data.code,
+        system: data.system,
+        description: data.description,
+        level: data.level,
+        parentCode: data.parentCode || undefined,
+        isActive: true,
+        sourceVersion: 'TEST',
+      });
+      em.persist(classification);
+    }
+    await em.flush();
+
+    // Create repository implementation (real database queries)
+    const repo: ClassificationsRepository = {
+      findAll: async (filter): Promise<ClassificationData[]> => {
+        const qb = orm.em.fork().createQueryBuilder(ProductClassification);
+        if (filter?.system) qb.andWhere({ system: filter.system });
+        if (filter?.level !== undefined) qb.andWhere({ level: filter.level });
+        if (filter?.parentCode) qb.andWhere({ parentCode: filter.parentCode });
+        if (filter?.active !== undefined) qb.andWhere({ isActive: filter.active });
+        if (filter?.search) {
+          // ILIKE search on description
+          qb.andWhere({ description: { $ilike: `%${filter.search}%` } });
+        }
+        const results = await qb.getResultList();
+        return results.map(c => ({
+          id: c.id,
+          code: c.code,
+          system: c.system,
+          description: c.description,
+          level: c.level,
+          parentCode: c.parentCode,
+          isActive: c.isActive,
+          sourceVersion: c.sourceVersion,
+        }));
+      },
+      findByCode: async (code, system): Promise<ClassificationData | null> => {
+        const filter: Record<string, unknown> = { code };
+        if (system) filter.system = system;
+        const c = await orm.em.fork().findOne(ProductClassification, filter);
+        if (!c) return null;
+        return {
+          id: c.id,
+          code: c.code,
+          system: c.system,
+          description: c.description,
+          level: c.level,
+          parentCode: c.parentCode,
+          isActive: c.isActive,
+          sourceVersion: c.sourceVersion,
+        };
+      },
+      findChildren: async (parentCode): Promise<ClassificationData[]> => {
+        const results = await orm.em.fork().find(ProductClassification, { parentCode });
+        return results.map(c => ({
+          id: c.id,
+          code: c.code,
+          system: c.system,
+          description: c.description,
+          level: c.level,
+          parentCode: c.parentCode,
+          isActive: c.isActive,
+          sourceVersion: c.sourceVersion,
+        }));
+      },
     };
 
     app = new Hono();
-    app.route('/classifications', createClassificationsRouter(mockRepo));
+    app.route('/classifications', createClassificationsRouter(repo));
+  });
+
+  afterAll(async () => {
+    if (orm) {
+      try {
+        await orm.em.fork().nativeDelete(ProductClassification, {});
+      } catch {
+        // Ignore cleanup errors
+      }
+      await teardownTestDb();
+    }
   });
 
   describe('GET /classifications', () => {
-    it('should return all classifications', async () => {
+    it('should return all classifications from database', async () => {
+      if (!orm) return;
+
       const res = await app.request('/classifications');
       expect(res.status).toBe(200);
-      const body = await res.json();
-      expect(body.data).toHaveLength(4);
+      const body = await res.json() as ApiResponse<ClassificationData[]>;
+      expect(body.data.length).toBe(6);
     });
 
     it('should filter by system', async () => {
-      mockRepo.findAll = vi.fn().mockResolvedValue(
-        mockClassifications.filter(c => c.system === ClassificationSystem.HS)
-      );
+      if (!orm) return;
 
-      const res = await app.request('/classifications?system=HS');
+      const res = await app.request('/classifications?system=CN');
       expect(res.status).toBe(200);
-      expect(mockRepo.findAll).toHaveBeenCalledWith(expect.objectContaining({ system: 'HS' }));
+      const body = await res.json() as ApiResponse<ClassificationData[]>;
+      expect(body.data.length).toBe(1);
+      expect(body.data[0].code).toBe('8507.60.00');
     });
 
     it('should filter by level', async () => {
-      mockRepo.findAll = vi.fn().mockResolvedValue(
-        mockClassifications.filter(c => c.level === 0)
-      );
+      if (!orm) return;
 
       const res = await app.request('/classifications?level=0');
       expect(res.status).toBe(200);
-      expect(mockRepo.findAll).toHaveBeenCalledWith(expect.objectContaining({ level: 0 }));
+      const body = await res.json() as ApiResponse<ClassificationData[]>;
+      expect(body.data.length).toBe(2); // 85 and 61
+      expect(body.data.every(c => c.level === 0)).toBe(true);
     });
 
-    it('should search by description keyword', async () => {
-      mockRepo.findAll = vi.fn().mockResolvedValue(
-        mockClassifications.filter(c => c.description.toLowerCase().includes('lithium'))
-      );
+    it('should search by description keyword (ILIKE)', async () => {
+      if (!orm) return;
 
       const res = await app.request('/classifications?search=lithium');
       expect(res.status).toBe(200);
-      expect(mockRepo.findAll).toHaveBeenCalledWith(expect.objectContaining({ search: 'lithium' }));
-      const body = await res.json();
-      expect(body.meta.search).toBe('lithium');
+      const body = await res.json() as ApiResponse<ClassificationData[]>;
+      expect(body.data.length).toBe(2); // Both lithium-ion entries
+      expect(body.data.every(c => c.description.toLowerCase().includes('lithium'))).toBe(true);
+      expect(body.meta?.search).toBe('lithium');
+    });
+
+    it('should search case-insensitively', async () => {
+      if (!orm) return;
+
+      const res = await app.request('/classifications?search=LITHIUM');
+      expect(res.status).toBe(200);
+      const body = await res.json() as ApiResponse<ClassificationData[]>;
+      expect(body.data.length).toBe(2);
     });
 
     it('should reject search with less than 2 characters', async () => {
+      if (!orm) return;
+
       const res = await app.request('/classifications?search=a');
-      expect(res.status).toBe(400);  // Validation error
+      expect(res.status).toBe(400);
     });
   });
 
   describe('GET /classifications/:code', () => {
     it('should return a classification by code', async () => {
+      if (!orm) return;
+
       const res = await app.request('/classifications/8507.60');
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await res.json() as ApiResponse<ClassificationData>;
       expect(body.data.code).toBe('8507.60');
       expect(body.data.description).toBe('Lithium-ion accumulators');
     });
 
     it('should return 404 for unknown code', async () => {
+      if (!orm) return;
+
       const res = await app.request('/classifications/9999.99');
       expect(res.status).toBe(404);
     });
@@ -818,11 +921,22 @@ describe('Classifications API', () => {
 
   describe('GET /classifications/:code/children', () => {
     it('should return child classifications', async () => {
+      if (!orm) return;
+
       const res = await app.request('/classifications/8507/children');
       expect(res.status).toBe(200);
-      const body = await res.json();
-      expect(body.data).toHaveLength(1);
+      const body = await res.json() as ApiResponse<ClassificationData[]>;
+      expect(body.data.length).toBe(1);
       expect(body.data[0].code).toBe('8507.60');
+    });
+
+    it('should return empty array for leaf nodes', async () => {
+      if (!orm) return;
+
+      const res = await app.request('/classifications/8507.60.00/children');
+      expect(res.status).toBe(200);
+      const body = await res.json() as ApiResponse<ClassificationData[]>;
+      expect(body.data.length).toBe(0);
     });
   });
 });

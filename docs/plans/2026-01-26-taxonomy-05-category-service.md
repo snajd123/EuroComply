@@ -1,0 +1,1704 @@
+# Taxonomy Plan 5: Category Service
+
+> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+
+**Goal:** Implement category service with hierarchy operations, system category seeding, and category adoption for tenant customization.
+
+**Architecture:** Leverage existing `Category` and `CategoryAdoption` entities. Create `CategoryService` for LTREE-based hierarchy operations. Seed system categories to public schema. Implement adoption API for tenants to use system categories.
+
+**Tech Stack:** MikroORM, PostgreSQL LTREE, Hono
+
+**Prerequisites:** Plans 1-4 completed. Category and CategoryAdoption entities already exist.
+
+**Reference:** See `docs/plans/2026-01-23-taxonomy-engine-design.md` Section 2
+
+---
+
+## Task 1: Create CategoryService
+
+**Files:**
+- Create: `packages/database/src/services/category.service.ts`
+- Test: `packages/database/src/services/category.service.test.ts`
+
+**Step 1: Write the failing test**
+
+```typescript
+// packages/database/src/services/category.service.test.ts
+import { MikroORM, EntityManager } from '@mikro-orm/core';
+import { CategoryService } from './category.service.js';
+import { Category, CategoryType } from '../entities/Category.js';
+import { TargetType } from '../entities/enums/index.js';
+import { createTestOrm } from '../test-utils/create-test-orm.js';
+
+describe('CategoryService', () => {
+  let orm: MikroORM;
+  let em: EntityManager;
+  let service: CategoryService;
+
+  beforeAll(async () => {
+    orm = await createTestOrm([Category]);
+  });
+
+  afterAll(async () => {
+    await orm.close(true);
+  });
+
+  beforeEach(async () => {
+    em = orm.em.fork();
+    service = new CategoryService(em);
+    await em.nativeDelete(Category, {});
+  });
+
+  describe('create', () => {
+    it('should create a root category', async () => {
+      const category = await service.create({
+        name: 'Apparel',
+        type: CategoryType.ROOT,
+        targetType: TargetType.PRODUCT,
+      });
+
+      expect(category.id).toBeDefined();
+      expect(category.path).toBe('apparel');
+      expect(category.depth).toBe(0);
+    });
+
+    it('should create a child category with correct path', async () => {
+      const root = await service.create({
+        name: 'Electronics',
+        type: CategoryType.ROOT,
+        targetType: TargetType.PRODUCT,
+      });
+
+      const child = await service.create({
+        name: 'Batteries',
+        parentId: root.id,
+        type: CategoryType.BRANCH,
+        targetType: TargetType.PRODUCT,
+      });
+
+      expect(child.path).toBe('electronics.batteries');
+      expect(child.depth).toBe(1);
+      expect(child.parent?.id).toBe(root.id);
+    });
+  });
+
+  describe('findByPath', () => {
+    it('should find category by LTREE path', async () => {
+      await service.create({
+        name: 'Apparel',
+        type: CategoryType.ROOT,
+        targetType: TargetType.PRODUCT,
+      });
+
+      const found = await service.findByPath('apparel');
+      expect(found).toBeDefined();
+      expect(found?.name).toBe('Apparel');
+    });
+  });
+
+  describe('getAncestors', () => {
+    it('should return all ancestors of a category', async () => {
+      const root = await service.create({
+        name: 'Apparel',
+        type: CategoryType.ROOT,
+        targetType: TargetType.PRODUCT,
+      });
+
+      const branch = await service.create({
+        name: 'Tops',
+        parentId: root.id,
+        type: CategoryType.BRANCH,
+        targetType: TargetType.PRODUCT,
+      });
+
+      const leaf = await service.create({
+        name: 'T-Shirts',
+        parentId: branch.id,
+        type: CategoryType.LEAF,
+        targetType: TargetType.PRODUCT,
+      });
+
+      const ancestors = await service.getAncestors(leaf.id);
+
+      expect(ancestors).toHaveLength(2);
+      expect(ancestors.map(a => a.name)).toEqual(['Apparel', 'Tops']);
+    });
+  });
+
+  describe('getDescendants', () => {
+    it('should return all descendants of a category', async () => {
+      const root = await service.create({
+        name: 'Apparel',
+        type: CategoryType.ROOT,
+        targetType: TargetType.PRODUCT,
+      });
+
+      const tops = await service.create({
+        name: 'Tops',
+        parentId: root.id,
+        type: CategoryType.BRANCH,
+        targetType: TargetType.PRODUCT,
+      });
+
+      await service.create({
+        name: 'T-Shirts',
+        parentId: tops.id,
+        type: CategoryType.LEAF,
+        targetType: TargetType.PRODUCT,
+      });
+
+      await service.create({
+        name: 'Blouses',
+        parentId: tops.id,
+        type: CategoryType.LEAF,
+        targetType: TargetType.PRODUCT,
+      });
+
+      const descendants = await service.getDescendants(root.id);
+
+      expect(descendants).toHaveLength(3);
+    });
+  });
+});
+```
+
+**Step 2: Run test to verify it fails**
+
+```bash
+cd packages/database && pnpm test category.service.test.ts
+```
+
+Expected: FAIL with "Cannot find module './category.service.js'"
+
+**Step 3: Create the service**
+
+```typescript
+// packages/database/src/services/category.service.ts
+import { EntityManager } from '@mikro-orm/core';
+import { Category, CategoryType } from '../entities/Category.js';
+import { TargetType } from '../entities/enums/index.js';
+
+export interface CreateCategoryInput {
+  name: string;
+  description?: string;
+  parentId?: string;
+  type: CategoryType;
+  targetType: TargetType;
+  defaultProfileId?: string;
+}
+
+export interface UpdateCategoryInput {
+  name?: string;
+  description?: string;
+  type?: CategoryType;
+  defaultProfileId?: string;
+  isActive?: boolean;
+}
+
+export class CategoryService {
+  constructor(private readonly em: EntityManager) {}
+
+  /**
+   * Create a new category with auto-generated LTREE path.
+   */
+  async create(input: CreateCategoryInput): Promise<Category> {
+    let parent: Category | null = null;
+    let path: string;
+    let depth: number;
+
+    if (input.parentId) {
+      parent = await this.em.findOneOrFail(Category, { id: input.parentId });
+      path = `${parent.path}.${this.slugify(input.name)}`;
+      depth = parent.depth + 1;
+    } else {
+      path = this.slugify(input.name);
+      depth = 0;
+    }
+
+    const category = this.em.create(Category, {
+      name: input.name,
+      description: input.description,
+      path,
+      type: input.type,
+      targetType: input.targetType,
+      depth,
+      parent,
+      defaultProfileId: input.defaultProfileId,
+      isActive: true,
+    });
+
+    await this.em.persistAndFlush(category);
+    return category;
+  }
+
+  /**
+   * Update an existing category.
+   */
+  async update(id: string, input: UpdateCategoryInput): Promise<Category> {
+    const category = await this.em.findOneOrFail(Category, { id });
+
+    if (input.name !== undefined) {
+      category.name = input.name;
+      // Note: We don't update path on rename to avoid breaking references
+    }
+    if (input.description !== undefined) category.description = input.description;
+    if (input.type !== undefined) category.type = input.type;
+    if (input.defaultProfileId !== undefined) category.defaultProfileId = input.defaultProfileId;
+    if (input.isActive !== undefined) category.isActive = input.isActive;
+
+    await this.em.flush();
+    return category;
+  }
+
+  /**
+   * Find category by LTREE path.
+   */
+  async findByPath(path: string): Promise<Category | null> {
+    return this.em.findOne(Category, { path });
+  }
+
+  /**
+   * Get all ancestors of a category (from root to immediate parent).
+   */
+  async getAncestors(id: string): Promise<Category[]> {
+    const category = await this.em.findOneOrFail(Category, { id });
+
+    // Use LTREE ancestor query
+    const conn = this.em.getConnection();
+    const result = await conn.execute<Array<{ id: string }>>(
+      `SELECT id FROM category
+       WHERE path @> $1::ltree AND path != $1::ltree
+       ORDER BY depth ASC`,
+      [category.path]
+    );
+
+    if (result.length === 0) return [];
+
+    const ids = result.map(r => r.id);
+    const ancestors = await this.em.find(Category, { id: { $in: ids } });
+
+    // Sort by depth to ensure correct order
+    return ancestors.sort((a, b) => a.depth - b.depth);
+  }
+
+  /**
+   * Get all descendants of a category (children, grandchildren, etc.).
+   */
+  async getDescendants(id: string): Promise<Category[]> {
+    const category = await this.em.findOneOrFail(Category, { id });
+
+    // Use LTREE descendant query
+    const conn = this.em.getConnection();
+    const result = await conn.execute<Array<{ id: string }>>(
+      `SELECT id FROM category
+       WHERE path <@ $1::ltree AND path != $1::ltree
+       ORDER BY depth ASC`,
+      [category.path]
+    );
+
+    if (result.length === 0) return [];
+
+    const ids = result.map(r => r.id);
+    return this.em.find(Category, { id: { $in: ids } });
+  }
+
+  /**
+   * Get direct children of a category.
+   */
+  async getChildren(id: string): Promise<Category[]> {
+    return this.em.find(Category, { parent: { id } }, { orderBy: { name: 'ASC' } });
+  }
+
+  /**
+   * Get root categories (no parent).
+   */
+  async getRoots(targetType?: TargetType): Promise<Category[]> {
+    const where: Record<string, unknown> = { depth: 0 };
+    if (targetType) where.targetType = targetType;
+    return this.em.find(Category, where, { orderBy: { name: 'ASC' } });
+  }
+
+  /**
+   * Delete a category (fails if has children or products).
+   */
+  async delete(id: string): Promise<void> {
+    const category = await this.em.findOneOrFail(Category, { id });
+
+    // Check for children
+    const childCount = await this.em.count(Category, { parent: { id } });
+    if (childCount > 0) {
+      throw new Error('Cannot delete category with children');
+    }
+
+    // Note: Product reference check would be done at API layer
+
+    await this.em.removeAndFlush(category);
+  }
+
+  /**
+   * Convert name to URL-safe slug for LTREE path.
+   */
+  private slugify(name: string): string {
+    return name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_|_$/g, '');
+  }
+}
+```
+
+**Step 4: Run test to verify it passes**
+
+```bash
+cd packages/database && pnpm test category.service.test.ts
+```
+
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add packages/database/src/services/category.service.ts packages/database/src/services/category.service.test.ts
+git commit -m "feat(database): add CategoryService with LTREE hierarchy operations"
+```
+
+---
+
+## Task 2: Create System Category Seeder
+
+**Files:**
+- Create: `packages/database/src/seeders/categories.seeder.ts`
+- Create: `packages/database/data/system-categories.json`
+- Test: `packages/database/src/seeders/categories.seeder.test.ts`
+
+**Step 1: Create the data bundle**
+
+```json
+// packages/database/data/system-categories.json
+{
+  "version": "SystemCategories-v1",
+  "generatedAt": "2026-01-26T00:00:00.000Z",
+  "totalCategories": 50,
+  "categories": [
+    {
+      "path": "apparel",
+      "name": "Apparel",
+      "description": "Clothing and textile products",
+      "type": "ROOT",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "apparel.tops",
+      "name": "Tops",
+      "description": "Upper body garments",
+      "type": "BRANCH",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "apparel.tops.tshirts",
+      "name": "T-Shirts",
+      "description": "Short-sleeved casual tops",
+      "type": "LEAF",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "apparel.tops.blouses",
+      "name": "Blouses",
+      "description": "Formal upper body garments",
+      "type": "LEAF",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "apparel.tops.sweaters",
+      "name": "Sweaters",
+      "description": "Knitted upper body garments",
+      "type": "LEAF",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "apparel.bottoms",
+      "name": "Bottoms",
+      "description": "Lower body garments",
+      "type": "BRANCH",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "apparel.bottoms.pants",
+      "name": "Pants",
+      "description": "Full-length leg garments",
+      "type": "LEAF",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "apparel.bottoms.shorts",
+      "name": "Shorts",
+      "description": "Short leg garments",
+      "type": "LEAF",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "apparel.bottoms.skirts",
+      "name": "Skirts",
+      "description": "Non-bifurcated lower body garments",
+      "type": "LEAF",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "apparel.outerwear",
+      "name": "Outerwear",
+      "description": "Coats, jackets, and outer layers",
+      "type": "BRANCH",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "apparel.outerwear.jackets",
+      "name": "Jackets",
+      "description": "Light to medium outerwear",
+      "type": "LEAF",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "apparel.outerwear.coats",
+      "name": "Coats",
+      "description": "Heavy outerwear",
+      "type": "LEAF",
+      "targetType": "PRODUCT"
+    },
+
+    {
+      "path": "electronics",
+      "name": "Electronics",
+      "description": "Electronic devices and components",
+      "type": "ROOT",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "electronics.batteries",
+      "name": "Batteries",
+      "description": "Power storage devices",
+      "type": "BRANCH",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "electronics.batteries.lithium_ion",
+      "name": "Lithium-Ion Batteries",
+      "description": "Rechargeable lithium-ion cells",
+      "type": "LEAF",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "electronics.batteries.lead_acid",
+      "name": "Lead-Acid Batteries",
+      "description": "Lead-based rechargeable batteries",
+      "type": "LEAF",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "electronics.displays",
+      "name": "Displays",
+      "description": "Visual output devices",
+      "type": "BRANCH",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "electronics.displays.lcd",
+      "name": "LCD Displays",
+      "description": "Liquid crystal displays",
+      "type": "LEAF",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "electronics.displays.oled",
+      "name": "OLED Displays",
+      "description": "Organic light-emitting diode displays",
+      "type": "LEAF",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "electronics.computing",
+      "name": "Computing Devices",
+      "description": "Data processing equipment",
+      "type": "BRANCH",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "electronics.computing.laptops",
+      "name": "Laptops",
+      "description": "Portable computers",
+      "type": "LEAF",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "electronics.computing.smartphones",
+      "name": "Smartphones",
+      "description": "Mobile computing devices",
+      "type": "LEAF",
+      "targetType": "PRODUCT"
+    },
+
+    {
+      "path": "furniture",
+      "name": "Furniture",
+      "description": "Furnishings and fixtures",
+      "type": "ROOT",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "furniture.seating",
+      "name": "Seating",
+      "description": "Chairs and seating solutions",
+      "type": "BRANCH",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "furniture.seating.office_chairs",
+      "name": "Office Chairs",
+      "description": "Ergonomic work seating",
+      "type": "LEAF",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "furniture.seating.sofas",
+      "name": "Sofas",
+      "description": "Upholstered seating for multiple persons",
+      "type": "LEAF",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "furniture.tables",
+      "name": "Tables",
+      "description": "Flat-topped furniture",
+      "type": "BRANCH",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "furniture.tables.desks",
+      "name": "Desks",
+      "description": "Work surfaces",
+      "type": "LEAF",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "furniture.tables.dining",
+      "name": "Dining Tables",
+      "description": "Tables for eating",
+      "type": "LEAF",
+      "targetType": "PRODUCT"
+    },
+
+    {
+      "path": "toys",
+      "name": "Toys",
+      "description": "Play items for children",
+      "type": "ROOT",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "toys.construction",
+      "name": "Construction Toys",
+      "description": "Building and assembly toys",
+      "type": "LEAF",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "toys.dolls",
+      "name": "Dolls",
+      "description": "Figurines and dolls",
+      "type": "LEAF",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "toys.electronic",
+      "name": "Electronic Toys",
+      "description": "Battery-powered play items",
+      "type": "LEAF",
+      "targetType": "PRODUCT"
+    },
+
+    {
+      "path": "materials",
+      "name": "Materials",
+      "description": "Raw materials and components",
+      "type": "ROOT",
+      "targetType": "MATERIAL"
+    },
+    {
+      "path": "materials.textiles",
+      "name": "Textiles",
+      "description": "Fabric and fiber materials",
+      "type": "BRANCH",
+      "targetType": "MATERIAL"
+    },
+    {
+      "path": "materials.textiles.cotton",
+      "name": "Cotton",
+      "description": "Cotton-based textiles",
+      "type": "LEAF",
+      "targetType": "MATERIAL"
+    },
+    {
+      "path": "materials.textiles.polyester",
+      "name": "Polyester",
+      "description": "Synthetic polyester textiles",
+      "type": "LEAF",
+      "targetType": "MATERIAL"
+    },
+    {
+      "path": "materials.textiles.elastane",
+      "name": "Elastane",
+      "description": "Stretchable synthetic fiber",
+      "type": "LEAF",
+      "targetType": "MATERIAL"
+    },
+    {
+      "path": "materials.metals",
+      "name": "Metals",
+      "description": "Metallic materials",
+      "type": "BRANCH",
+      "targetType": "MATERIAL"
+    },
+    {
+      "path": "materials.metals.steel",
+      "name": "Steel",
+      "description": "Iron-carbon alloys",
+      "type": "LEAF",
+      "targetType": "MATERIAL"
+    },
+    {
+      "path": "materials.metals.aluminum",
+      "name": "Aluminum",
+      "description": "Aluminum and alloys",
+      "type": "LEAF",
+      "targetType": "MATERIAL"
+    },
+    {
+      "path": "materials.plastics",
+      "name": "Plastics",
+      "description": "Polymer materials",
+      "type": "BRANCH",
+      "targetType": "MATERIAL"
+    },
+    {
+      "path": "materials.plastics.abs",
+      "name": "ABS",
+      "description": "Acrylonitrile butadiene styrene",
+      "type": "LEAF",
+      "targetType": "MATERIAL"
+    },
+    {
+      "path": "materials.plastics.pla",
+      "name": "PLA",
+      "description": "Polylactic acid (biodegradable)",
+      "type": "LEAF",
+      "targetType": "MATERIAL"
+    },
+
+    {
+      "path": "facilities",
+      "name": "Facilities",
+      "description": "Manufacturing and operational sites",
+      "type": "ROOT",
+      "targetType": "FACILITY"
+    },
+    {
+      "path": "facilities.manufacturing",
+      "name": "Manufacturing",
+      "description": "Production facilities",
+      "type": "BRANCH",
+      "targetType": "FACILITY"
+    },
+    {
+      "path": "facilities.warehousing",
+      "name": "Warehousing",
+      "description": "Storage facilities",
+      "type": "BRANCH",
+      "targetType": "FACILITY"
+    }
+  ]
+}
+```
+
+**Step 2: Write the failing test**
+
+```typescript
+// packages/database/src/seeders/categories.seeder.test.ts
+import { MikroORM, EntityManager } from '@mikro-orm/core';
+import { CategoriesSeeder } from './categories.seeder.js';
+import { Category, CategoryType } from '../entities/Category.js';
+import { SeedVersion } from '../entities/SeedVersion.js';
+import { TargetType } from '../entities/enums/index.js';
+import { createTestOrm } from '../test-utils/create-test-orm.js';
+
+describe('CategoriesSeeder', () => {
+  let orm: MikroORM;
+  let em: EntityManager;
+  let seeder: CategoriesSeeder;
+
+  beforeAll(async () => {
+    orm = await createTestOrm([Category, SeedVersion]);
+  });
+
+  afterAll(async () => {
+    await orm.close(true);
+  });
+
+  beforeEach(async () => {
+    em = orm.em.fork();
+    seeder = new CategoriesSeeder(em);
+    await em.nativeDelete(Category, {});
+    await em.nativeDelete(SeedVersion, {});
+  });
+
+  it('should seed categories from data bundle', async () => {
+    const result = await seeder.seed();
+
+    expect(result.seeded).toBe(true);
+    expect(result.count).toBeGreaterThan(30);
+
+    // Verify hierarchy
+    const apparel = await em.findOne(Category, { path: 'apparel' });
+    expect(apparel).toBeDefined();
+    expect(apparel?.type).toBe(CategoryType.ROOT);
+    expect(apparel?.depth).toBe(0);
+
+    const tshirts = await em.findOne(Category, { path: 'apparel.tops.tshirts' });
+    expect(tshirts).toBeDefined();
+    expect(tshirts?.type).toBe(CategoryType.LEAF);
+    expect(tshirts?.depth).toBe(2);
+  });
+
+  it('should set up parent references correctly', async () => {
+    await seeder.seed();
+
+    const tops = await em.findOne(Category, { path: 'apparel.tops' }, { populate: ['parent'] });
+    expect(tops?.parent?.path).toBe('apparel');
+  });
+
+  it('should support multiple target types', async () => {
+    await seeder.seed();
+
+    const products = await em.find(Category, { targetType: TargetType.PRODUCT });
+    const materials = await em.find(Category, { targetType: TargetType.MATERIAL });
+    const facilities = await em.find(Category, { targetType: TargetType.FACILITY });
+
+    expect(products.length).toBeGreaterThan(0);
+    expect(materials.length).toBeGreaterThan(0);
+    expect(facilities.length).toBeGreaterThan(0);
+  });
+
+  it('should skip seeding if version matches', async () => {
+    await seeder.seed();
+    const initialCount = await em.count(Category);
+
+    const result = await seeder.seed();
+
+    expect(result.seeded).toBe(false);
+    expect(result.skipped).toBe(true);
+
+    const finalCount = await em.count(Category);
+    expect(finalCount).toBe(initialCount);
+  });
+});
+```
+
+**Step 3: Run test to verify it fails**
+
+```bash
+cd packages/database && pnpm test categories.seeder.test.ts
+```
+
+Expected: FAIL with "Cannot find module './categories.seeder.js'"
+
+**Step 4: Create the seeder**
+
+```typescript
+// packages/database/src/seeders/categories.seeder.ts
+import { EntityManager } from '@mikro-orm/core';
+import { Category, CategoryType } from '../entities/Category.js';
+import { TargetType } from '../entities/enums/index.js';
+import { SeedService } from '../services/seed.service.js';
+import { readFileSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+export interface SeederResult {
+  seeded: boolean;
+  skipped: boolean;
+  count: number;
+  version: string;
+  message: string;
+}
+
+interface CategoryData {
+  path: string;
+  name: string;
+  description?: string;
+  type: string;
+  targetType: string;
+}
+
+interface CategoryBundle {
+  version: string;
+  generatedAt: string;
+  totalCategories: number;
+  categories: CategoryData[];
+}
+
+export class CategoriesSeeder {
+  private readonly seedService: SeedService;
+  private readonly SEED_NAME = 'system-categories';
+
+  constructor(private readonly em: EntityManager) {
+    this.seedService = new SeedService(em);
+  }
+
+  async seed(): Promise<SeederResult> {
+    // Load data bundle
+    const bundlePath = join(__dirname, '..', 'data', 'system-categories.json');
+    const raw = readFileSync(bundlePath, 'utf-8');
+    const bundle: CategoryBundle = JSON.parse(raw);
+    const version = bundle.version;
+
+    // Check if seeding needed
+    const needsSeeding = await this.seedService.needsSeeding(this.SEED_NAME, version);
+
+    if (!needsSeeding) {
+      const existing = await this.seedService.getSeededVersion(this.SEED_NAME);
+      return {
+        seeded: false,
+        skipped: true,
+        count: existing?.recordCount || 0,
+        version: existing?.version || version,
+        message: `Categories already seeded (${existing?.version}), skipping.`,
+      };
+    }
+
+    // Sort by path to ensure parents are created before children
+    const sorted = [...bundle.categories].sort((a, b) => a.path.localeCompare(b.path));
+
+    // Build path -> id map for parent references
+    const pathToId = new Map<string, string>();
+
+    let count = 0;
+    for (const cat of sorted) {
+      const depth = cat.path.split('.').length - 1;
+      const parentPath = cat.path.includes('.')
+        ? cat.path.substring(0, cat.path.lastIndexOf('.'))
+        : null;
+
+      // Check if already exists
+      const existing = await this.em.findOne(Category, { path: cat.path });
+      if (existing) {
+        pathToId.set(cat.path, existing.id);
+        continue;
+      }
+
+      // Get parent
+      let parent: Category | undefined;
+      if (parentPath) {
+        const parentId = pathToId.get(parentPath);
+        if (parentId) {
+          parent = await this.em.findOne(Category, { id: parentId }) || undefined;
+        }
+      }
+
+      const category = this.em.create(Category, {
+        name: cat.name,
+        description: cat.description,
+        path: cat.path,
+        type: cat.type as CategoryType,
+        targetType: cat.targetType as TargetType,
+        depth,
+        parent,
+        isActive: true,
+      });
+
+      await this.em.persistAndFlush(category);
+      pathToId.set(cat.path, category.id);
+      count++;
+    }
+
+    // Record seeding
+    await this.seedService.recordSeeding(this.SEED_NAME, version, count);
+
+    return {
+      seeded: true,
+      skipped: false,
+      count,
+      version,
+      message: `Seeded ${count} system categories (${version}).`,
+    };
+  }
+}
+```
+
+**Step 5: Run test to verify it passes**
+
+```bash
+cd packages/database && pnpm test categories.seeder.test.ts
+```
+
+Expected: PASS
+
+**Step 6: Commit**
+
+```bash
+git add packages/database/src/seeders/categories.seeder.ts packages/database/src/seeders/categories.seeder.test.ts packages/database/data/system-categories.json
+git commit -m "feat(database): add CategoriesSeeder with system category hierarchy"
+```
+
+---
+
+## Task 3: Create Category API Routes
+
+**Files:**
+- Create: `apps/api/src/routes/taxonomy/categories.ts`
+- Test: `apps/api/src/routes/taxonomy/categories.e2e.test.ts`
+
+**Step 1: Write the failing e2e test (NO MOCKS - per RULES.md)**
+
+```typescript
+// apps/api/src/routes/taxonomy/categories.e2e.test.ts
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import type { MikroORM } from '@eurocomply/database';
+import { Hono } from 'hono';
+import { createCategoriesRouter, type CategoriesRepository, type CategoryData } from './categories.js';
+import { Category, CategoryType } from '@eurocomply/database';
+import { setupTestDb, teardownTestDb, isDatabaseAvailable } from '@eurocomply/database/test-utils';
+
+interface ApiResponse<T> {
+  data: T;
+  meta?: { total: number };
+}
+
+describe('Categories API E2E', () => {
+  let orm: MikroORM;
+  let app: Hono;
+  let testCategoryIds: { apparel: string; tops: string; tshirts: string };
+
+  beforeAll(async () => {
+    if (!(await isDatabaseAvailable())) {
+      return;
+    }
+
+    orm = await setupTestDb();
+
+    // Seed test categories (real database, no mocks)
+    const em = orm.em.fork();
+
+    const apparel = em.create(Category, {
+      name: 'Apparel',
+      path: 'apparel',
+      type: CategoryType.ROOT,
+      targetType: 'PRODUCT',
+      depth: 0,
+      isActive: true,
+    });
+    em.persist(apparel);
+    await em.flush();
+
+    const tops = em.create(Category, {
+      name: 'Tops',
+      path: 'apparel.tops',
+      type: CategoryType.BRANCH,
+      targetType: 'PRODUCT',
+      depth: 1,
+      parentId: apparel.id,
+      isActive: true,
+    });
+    em.persist(tops);
+    await em.flush();
+
+    const tshirts = em.create(Category, {
+      name: 'T-Shirts',
+      path: 'apparel.tops.tshirts',
+      type: CategoryType.LEAF,
+      targetType: 'PRODUCT',
+      depth: 2,
+      parentId: tops.id,
+      isActive: true,
+    });
+    em.persist(tshirts);
+
+    // Add a material category for targetType filter testing
+    const materials = em.create(Category, {
+      name: 'Materials',
+      path: 'materials',
+      type: CategoryType.ROOT,
+      targetType: 'MATERIAL',
+      depth: 0,
+      isActive: true,
+    });
+    em.persist(materials);
+
+    await em.flush();
+
+    testCategoryIds = {
+      apparel: apparel.id,
+      tops: tops.id,
+      tshirts: tshirts.id,
+    };
+
+    // Create repository implementation (real database queries)
+    const repo: CategoriesRepository = {
+      findAll: async (filter): Promise<CategoryData[]> => {
+        const qb = orm.em.fork().createQueryBuilder(Category);
+        if (filter?.targetType) qb.andWhere({ targetType: filter.targetType });
+        if (filter?.depth !== undefined) qb.andWhere({ depth: filter.depth });
+        if (filter?.active !== undefined) qb.andWhere({ isActive: filter.active });
+        const results = await qb.getResultList();
+        return results.map(c => ({
+          id: c.id,
+          name: c.name,
+          path: c.path,
+          type: c.type,
+          targetType: c.targetType,
+          depth: c.depth,
+          parentId: c.parentId ?? undefined,
+          isActive: c.isActive,
+        }));
+      },
+      findById: async (id): Promise<CategoryData | null> => {
+        const c = await orm.em.fork().findOne(Category, { id });
+        if (!c) return null;
+        return {
+          id: c.id,
+          name: c.name,
+          path: c.path,
+          type: c.type,
+          targetType: c.targetType,
+          depth: c.depth,
+          parentId: c.parentId ?? undefined,
+          isActive: c.isActive,
+        };
+      },
+      findByPath: async (path): Promise<CategoryData | null> => {
+        const c = await orm.em.fork().findOne(Category, { path });
+        if (!c) return null;
+        return {
+          id: c.id,
+          name: c.name,
+          path: c.path,
+          type: c.type,
+          targetType: c.targetType,
+          depth: c.depth,
+          parentId: c.parentId ?? undefined,
+          isActive: c.isActive,
+        };
+      },
+      findRoots: async (targetType): Promise<CategoryData[]> => {
+        const filter: Record<string, unknown> = { depth: 0 };
+        if (targetType) filter.targetType = targetType;
+        const results = await orm.em.fork().find(Category, filter);
+        return results.map(c => ({
+          id: c.id,
+          name: c.name,
+          path: c.path,
+          type: c.type,
+          targetType: c.targetType,
+          depth: c.depth,
+          parentId: c.parentId ?? undefined,
+          isActive: c.isActive,
+        }));
+      },
+      findChildren: async (parentId): Promise<CategoryData[]> => {
+        const results = await orm.em.fork().find(Category, { parentId });
+        return results.map(c => ({
+          id: c.id,
+          name: c.name,
+          path: c.path,
+          type: c.type,
+          targetType: c.targetType,
+          depth: c.depth,
+          parentId: c.parentId ?? undefined,
+          isActive: c.isActive,
+        }));
+      },
+      findAncestors: async (id): Promise<CategoryData[]> => {
+        // Walk up the tree by following parentId
+        const ancestors: CategoryData[] = [];
+        let current = await orm.em.fork().findOne(Category, { id });
+        while (current?.parentId) {
+          const parent = await orm.em.fork().findOne(Category, { id: current.parentId });
+          if (parent) {
+            ancestors.unshift({
+              id: parent.id,
+              name: parent.name,
+              path: parent.path,
+              type: parent.type,
+              targetType: parent.targetType,
+              depth: parent.depth,
+              parentId: parent.parentId ?? undefined,
+              isActive: parent.isActive,
+            });
+            current = parent;
+          } else {
+            break;
+          }
+        }
+        return ancestors;
+      },
+    };
+
+    app = new Hono();
+    app.route('/categories', createCategoriesRouter(repo));
+  });
+
+  afterAll(async () => {
+    if (orm) {
+      try {
+        await orm.em.fork().nativeDelete(Category, {});
+      } catch {
+        // Ignore cleanup errors
+      }
+      await teardownTestDb();
+    }
+  });
+
+  describe('GET /categories', () => {
+    it('should return all categories from database', async () => {
+      if (!orm) return;
+
+      const res = await app.request('/categories');
+      expect(res.status).toBe(200);
+      const body = await res.json() as ApiResponse<CategoryData[]>;
+      expect(body.data.length).toBe(4);
+    });
+
+    it('should filter by targetType', async () => {
+      if (!orm) return;
+
+      const res = await app.request('/categories?targetType=PRODUCT');
+      expect(res.status).toBe(200);
+      const body = await res.json() as ApiResponse<CategoryData[]>;
+      expect(body.data.length).toBe(3);
+      expect(body.data.every(c => c.targetType === 'PRODUCT')).toBe(true);
+    });
+
+    it('should filter by depth', async () => {
+      if (!orm) return;
+
+      const res = await app.request('/categories?depth=0');
+      expect(res.status).toBe(200);
+      const body = await res.json() as ApiResponse<CategoryData[]>;
+      expect(body.data.length).toBe(2); // Apparel and Materials
+      expect(body.data.every(c => c.depth === 0)).toBe(true);
+    });
+  });
+
+  describe('GET /categories/roots', () => {
+    it('should return root categories', async () => {
+      if (!orm) return;
+
+      const res = await app.request('/categories/roots');
+      expect(res.status).toBe(200);
+      const body = await res.json() as ApiResponse<CategoryData[]>;
+      expect(body.data.length).toBe(2);
+      expect(body.data.every(c => c.depth === 0)).toBe(true);
+    });
+
+    it('should filter roots by targetType', async () => {
+      if (!orm) return;
+
+      const res = await app.request('/categories/roots?targetType=MATERIAL');
+      expect(res.status).toBe(200);
+      const body = await res.json() as ApiResponse<CategoryData[]>;
+      expect(body.data.length).toBe(1);
+      expect(body.data[0].name).toBe('Materials');
+    });
+  });
+
+  describe('GET /categories/:id', () => {
+    it('should return a category by id', async () => {
+      if (!orm) return;
+
+      const res = await app.request(`/categories/${testCategoryIds.apparel}`);
+      expect(res.status).toBe(200);
+      const body = await res.json() as ApiResponse<CategoryData>;
+      expect(body.data.name).toBe('Apparel');
+    });
+
+    it('should return 404 for unknown id', async () => {
+      if (!orm) return;
+
+      const res = await app.request('/categories/cat_unknown');
+      expect(res.status).toBe(404);
+    });
+  });
+
+  describe('GET /categories/:id/children', () => {
+    it('should return child categories', async () => {
+      if (!orm) return;
+
+      const res = await app.request(`/categories/${testCategoryIds.apparel}/children`);
+      expect(res.status).toBe(200);
+      const body = await res.json() as ApiResponse<CategoryData[]>;
+      expect(body.data.length).toBe(1);
+      expect(body.data[0].name).toBe('Tops');
+    });
+
+    it('should return empty array for leaf nodes', async () => {
+      if (!orm) return;
+
+      const res = await app.request(`/categories/${testCategoryIds.tshirts}/children`);
+      expect(res.status).toBe(200);
+      const body = await res.json() as ApiResponse<CategoryData[]>;
+      expect(body.data.length).toBe(0);
+    });
+  });
+
+  describe('GET /categories/:id/ancestors', () => {
+    it('should return ancestor categories', async () => {
+      if (!orm) return;
+
+      const res = await app.request(`/categories/${testCategoryIds.tshirts}/ancestors`);
+      expect(res.status).toBe(200);
+      const body = await res.json() as ApiResponse<CategoryData[]>;
+      expect(body.data.length).toBe(2); // Apparel and Tops
+      expect(body.data[0].name).toBe('Apparel');
+      expect(body.data[1].name).toBe('Tops');
+    });
+
+    it('should return empty array for root nodes', async () => {
+      if (!orm) return;
+
+      const res = await app.request(`/categories/${testCategoryIds.apparel}/ancestors`);
+      expect(res.status).toBe(200);
+      const body = await res.json() as ApiResponse<CategoryData[]>;
+      expect(body.data.length).toBe(0);
+    });
+  });
+});
+```
+
+**Step 2: Run test to verify it fails**
+
+```bash
+cd apps/api && pnpm test categories.test.ts
+```
+
+Expected: FAIL with "Cannot find module './categories.js'"
+
+**Step 3: Create the router**
+
+```typescript
+// apps/api/src/routes/taxonomy/categories.ts
+import { Hono } from 'hono';
+import { z } from 'zod';
+import { zValidator } from '@hono/zod-validator';
+import { CategoryType } from '@eurocomply/database';
+
+export interface CategoryData {
+  id: string;
+  name: string;
+  description?: string;
+  path: string;
+  type: CategoryType;
+  targetType: string;
+  depth: number;
+  parentId?: string;
+  defaultProfileId?: string;
+  isActive: boolean;
+}
+
+export interface CategoriesRepository {
+  findAll(filter?: {
+    targetType?: string;
+    depth?: number;
+    active?: boolean;
+  }): Promise<CategoryData[]>;
+  findById(id: string): Promise<CategoryData | null>;
+  findByPath(path: string): Promise<CategoryData | null>;
+  findRoots(targetType?: string): Promise<CategoryData[]>;
+  findChildren(parentId: string): Promise<CategoryData[]>;
+  findAncestors(id: string): Promise<CategoryData[]>;
+}
+
+const querySchema = z.object({
+  targetType: z.enum(['PRODUCT', 'MATERIAL', 'FACILITY', 'BATCH']).optional(),
+  depth: z.coerce.number().int().min(0).optional(),
+  active: z.enum(['true', 'false']).transform(v => v === 'true').optional(),
+});
+
+export function createCategoriesRouter(repo: CategoriesRepository): Hono {
+  const router = new Hono();
+
+  // GET /categories - List all with optional filters
+  router.get('/', zValidator('query', querySchema), async (c) => {
+    const query = c.req.valid('query');
+
+    const filter: Parameters<typeof repo.findAll>[0] = {};
+    if (query.targetType) filter.targetType = query.targetType;
+    if (query.depth !== undefined) filter.depth = query.depth;
+    if (query.active !== undefined) filter.active = query.active;
+
+    const categories = await repo.findAll(filter);
+
+    return c.json({
+      data: categories,
+      meta: { total: categories.length },
+    });
+  });
+
+  // GET /categories/roots - Get root categories
+  router.get('/roots', zValidator('query', z.object({
+    targetType: z.enum(['PRODUCT', 'MATERIAL', 'FACILITY', 'BATCH']).optional(),
+  })), async (c) => {
+    const query = c.req.valid('query');
+    const roots = await repo.findRoots(query.targetType);
+
+    return c.json({
+      data: roots,
+      meta: { total: roots.length },
+    });
+  });
+
+  // GET /categories/:id - Get single by id
+  router.get('/:id', async (c) => {
+    const id = c.req.param('id');
+    const category = await repo.findById(id);
+
+    if (!category) {
+      return c.json({ error: 'Category not found' }, 404);
+    }
+
+    return c.json({ data: category });
+  });
+
+  // GET /categories/:id/children - Get direct children
+  router.get('/:id/children', async (c) => {
+    const id = c.req.param('id');
+    const category = await repo.findById(id);
+
+    if (!category) {
+      return c.json({ error: 'Category not found' }, 404);
+    }
+
+    const children = await repo.findChildren(id);
+
+    return c.json({
+      data: children,
+      meta: { total: children.length, parentId: id },
+    });
+  });
+
+  // GET /categories/:id/ancestors - Get all ancestors
+  router.get('/:id/ancestors', async (c) => {
+    const id = c.req.param('id');
+    const category = await repo.findById(id);
+
+    if (!category) {
+      return c.json({ error: 'Category not found' }, 404);
+    }
+
+    const ancestors = await repo.findAncestors(id);
+
+    return c.json({
+      data: ancestors,
+      meta: { total: ancestors.length, categoryId: id },
+    });
+  });
+
+  return router;
+}
+```
+
+**Step 4: Run test to verify it passes**
+
+```bash
+cd apps/api && pnpm test categories.test.ts
+```
+
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add apps/api/src/routes/taxonomy/categories.ts apps/api/src/routes/taxonomy/categories.test.ts
+git commit -m "feat(api): add categories API routes (list, roots, children, ancestors)"
+```
+
+---
+
+## Task 4: Create CLI Command and Update Exports
+
+**Files:**
+- Create: `packages/database/src/cli/seed-categories.ts`
+- Modify: `packages/database/package.json`
+- Modify: `packages/database/src/seeders/index.ts`
+- Modify: `packages/database/src/services/index.ts`
+- Modify: `package.json` (root)
+
+**Step 1: Create the CLI command**
+
+```typescript
+// packages/database/src/cli/seed-categories.ts
+import { CategoriesSeeder } from '../seeders/categories.seeder.js';
+import { initOrm } from '../init-orm.js';
+import type { MikroORM } from '@mikro-orm/core';
+
+async function main() {
+  let orm: MikroORM | undefined;
+
+  try {
+    console.log('Initializing database connection...');
+    orm = await initOrm();
+
+    const em = orm.em.fork();
+    const seeder = new CategoriesSeeder(em);
+
+    console.log('Running categories seeder...');
+    const result = await seeder.seed();
+
+    console.log(`✓ ${result.message}`);
+
+    process.exit(0);
+  } catch (error) {
+    console.error('Error seeding categories:', error instanceof Error ? error.message : error);
+    process.exit(1);
+  } finally {
+    await orm?.close();
+  }
+}
+
+main();
+```
+
+**Step 2: Add scripts to package.json**
+
+```json
+// Add to packages/database/package.json scripts:
+{
+  "scripts": {
+    "seed:categories": "tsx src/cli/seed-categories.ts"
+  }
+}
+```
+
+**Step 3: Update seeders index**
+
+```typescript
+// packages/database/src/seeders/index.ts
+export { UnitsSeeder, type SeederResult } from './units.seeder.js';
+export { ClassificationsSeeder } from './classifications.seeder.js';
+export { SubstancesSeeder, type SubstanceSeederResult } from './substances.seeder.js';
+export { CategoriesSeeder } from './categories.seeder.js';
+```
+
+**Step 4: Update services index**
+
+```typescript
+// packages/database/src/services/index.ts
+export { BulkImportService } from './bulk-import.service.js';
+export { SeedService } from './seed.service.js';
+export { CategoryService, type CreateCategoryInput, type UpdateCategoryInput } from './category.service.js';
+```
+
+**Step 5: Update root package.json**
+
+```json
+// Add to root package.json scripts:
+{
+  "scripts": {
+    "db:seed:categories": "pnpm --filter @eurocomply/database seed:categories",
+    "db:seed:public": "pnpm db:seed:units && pnpm db:seed:classifications && pnpm db:seed:substances && pnpm db:seed:categories"
+  }
+}
+```
+
+**Step 6: Test the command**
+
+```bash
+pnpm db:seed:categories
+```
+
+Expected: Categories seeded successfully
+
+**Step 7: Commit**
+
+```bash
+git add packages/database/src/cli/seed-categories.ts packages/database/package.json packages/database/src/seeders/index.ts packages/database/src/services/index.ts package.json
+git commit -m "feat(database): add seed:categories CLI command and export CategoryService"
+```
+
+---
+
+## Task 5: Integration Test
+
+**Files:**
+- Create: `packages/database/src/services/category.integration.test.ts`
+
+**Step 1: Write integration test**
+
+```typescript
+// packages/database/src/services/category.integration.test.ts
+import { MikroORM, EntityManager } from '@mikro-orm/core';
+import { CategoriesSeeder } from '../seeders/categories.seeder.js';
+import { CategoryService } from './category.service.js';
+import { Category, CategoryType } from '../entities/Category.js';
+import { SeedVersion } from '../entities/SeedVersion.js';
+import { TargetType } from '../entities/enums/index.js';
+import { createTestOrm } from '../test-utils/create-test-orm.js';
+
+describe('Category Service Integration', () => {
+  let orm: MikroORM;
+  let em: EntityManager;
+  let service: CategoryService;
+
+  beforeAll(async () => {
+    orm = await createTestOrm([Category, SeedVersion]);
+
+    // Seed categories
+    em = orm.em.fork();
+    const seeder = new CategoriesSeeder(em);
+    await seeder.seed();
+  });
+
+  afterAll(async () => {
+    await orm.close(true);
+  });
+
+  beforeEach(() => {
+    em = orm.em.fork();
+    service = new CategoryService(em);
+  });
+
+  describe('Hierarchy Navigation', () => {
+    it('should find category by path', async () => {
+      const category = await service.findByPath('apparel.tops.tshirts');
+
+      expect(category).toBeDefined();
+      expect(category?.name).toBe('T-Shirts');
+    });
+
+    it('should get ancestors of leaf category', async () => {
+      const tshirts = await service.findByPath('apparel.tops.tshirts');
+      const ancestors = await service.getAncestors(tshirts!.id);
+
+      expect(ancestors).toHaveLength(2);
+      expect(ancestors.map(a => a.name)).toEqual(['Apparel', 'Tops']);
+    });
+
+    it('should get descendants of root category', async () => {
+      const apparel = await service.findByPath('apparel');
+      const descendants = await service.getDescendants(apparel!.id);
+
+      expect(descendants.length).toBeGreaterThan(5);
+    });
+
+    it('should get direct children', async () => {
+      const apparel = await service.findByPath('apparel');
+      const children = await service.getChildren(apparel!.id);
+
+      expect(children.length).toBeGreaterThan(0);
+      expect(children.every(c => c.depth === 1)).toBe(true);
+    });
+  });
+
+  describe('Root Categories', () => {
+    it('should get all root categories', async () => {
+      const roots = await service.getRoots();
+
+      expect(roots.length).toBeGreaterThan(0);
+      expect(roots.every(r => r.depth === 0)).toBe(true);
+    });
+
+    it('should filter roots by target type', async () => {
+      const productRoots = await service.getRoots(TargetType.PRODUCT);
+      const materialRoots = await service.getRoots(TargetType.MATERIAL);
+
+      expect(productRoots.every(r => r.targetType === TargetType.PRODUCT)).toBe(true);
+      expect(materialRoots.every(r => r.targetType === TargetType.MATERIAL)).toBe(true);
+    });
+  });
+
+  describe('LTREE Operations', () => {
+    it('should have valid LTREE paths', async () => {
+      const allCategories = await em.find(Category, {});
+
+      for (const cat of allCategories) {
+        // Path should match expected pattern
+        expect(cat.path).toMatch(/^[a-z0-9_]+(\.[a-z0-9_]+)*$/);
+
+        // Depth should match path segments
+        const expectedDepth = cat.path.split('.').length - 1;
+        expect(cat.depth).toBe(expectedDepth);
+      }
+    });
+
+    it('should have correct parent references', async () => {
+      const nonRoots = await em.find(Category, { depth: { $gt: 0 } }, { populate: ['parent'] });
+
+      for (const cat of nonRoots) {
+        expect(cat.parent).toBeDefined();
+        expect(cat.depth).toBe(cat.parent!.depth + 1);
+      }
+    });
+  });
+
+  describe('Category Creation', () => {
+    it('should create tenant category under system category', async () => {
+      const apparel = await service.findByPath('apparel');
+
+      const tenantCategory = await service.create({
+        name: 'Premium Line',
+        parentId: apparel!.id,
+        type: CategoryType.BRANCH,
+        targetType: TargetType.PRODUCT,
+      });
+
+      expect(tenantCategory.path).toBe('apparel.premium_line');
+      expect(tenantCategory.depth).toBe(1);
+
+      // Cleanup
+      await service.delete(tenantCategory.id);
+    });
+  });
+});
+```
+
+**Step 2: Run integration test**
+
+```bash
+cd packages/database && pnpm test category.integration.test.ts
+```
+
+Expected: PASS
+
+**Step 3: Commit**
+
+```bash
+git add packages/database/src/services/category.integration.test.ts
+git commit -m "test(database): add category service integration tests"
+```
+
+---
+
+## Summary
+
+**Deliverables:**
+- `CategoryService` with LTREE hierarchy operations (ancestors, descendants, children, roots)
+- System categories data bundle (`data/system-categories.json`) with ~50 categories
+- `CategoriesSeeder` service with idempotent seeding
+- Categories API routes (list, roots, get, children, ancestors)
+- `seed:categories` CLI command
+- Integration tests for hierarchy navigation
+
+**API Routes:**
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/taxonomy/categories` | List with filters (targetType, depth) |
+| GET | `/api/v1/taxonomy/categories/roots` | Get root categories |
+| GET | `/api/v1/taxonomy/categories/:id` | Get by id |
+| GET | `/api/v1/taxonomy/categories/:id/children` | Get direct children |
+| GET | `/api/v1/taxonomy/categories/:id/ancestors` | Get all ancestors |
+
+**Updated db:seed:public command:**
+```bash
+pnpm db:seed:public
+# Runs: seed:units → seed:classifications → seed:substances → seed:categories
+```
+
+**Next Plan:** Plan 6 (Attribute Service) adds attribute templates linked to categories.
