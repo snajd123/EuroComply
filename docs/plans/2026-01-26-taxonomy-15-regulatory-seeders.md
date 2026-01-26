@@ -18,6 +18,43 @@
 
 ---
 
+## Critical Dependency: Plan 4 Substance Registry Sync
+
+The seeders use `em.findOne(Substance, { casNumber: entry.cas })` to link regulatory list entries to substances. This **only works if Plan 4 has already seeded the global CAS library**.
+
+**Fail-Safe Behavior:** If a substance is missing, the seeder logs a warning and skips the entry (no crash). However, for complete regulatory coverage, ensure the following CAS numbers are included in Plan 4's seed data:
+
+### Required CAS Numbers for Plan 15 Seeders
+
+| CAS Number | Substance Name | Used By |
+|------------|----------------|---------|
+| 7439-92-1 | Lead | REACH, RoHS, CosIng |
+| 7440-43-9 | Cadmium | REACH, RoHS |
+| 18540-29-9 | Hexavalent chromium | REACH, RoHS |
+| 117-81-7 | DEHP | REACH, RoHS |
+| 84-74-2 | DBP | REACH, RoHS |
+| 85-68-7 | BBP | REACH, RoHS |
+| 25637-99-4 | HBCDD | REACH |
+| 79-94-7 | TBBPA | REACH |
+| 80-05-7 | Bisphenol A | REACH |
+| 127-19-5 | DMAC | REACH |
+| 872-50-4 | NMP | REACH |
+| 7439-97-6 | Mercury | RoHS, CosIng |
+| 1336-36-3 | PBB | RoHS |
+| 32534-81-9 | PBDE | RoHS |
+| 84-69-5 | DIBP | RoHS |
+| 50-00-0 | Formaldehyde | CosIng |
+| 123-31-9 | Hydroquinone | CosIng |
+| 71-43-2 | Benzene | CosIng |
+| 75-56-9 | Propylene oxide | CosIng |
+| 106-89-8 | Epichlorohydrin | CosIng |
+| 100-97-0 | Methenamine | CosIng |
+| 94-13-3 | Propylparaben | CosIng |
+
+**Recommendation:** Add these 22 substances to Plan 4's seed data to ensure full regulatory list coverage during development.
+
+---
+
 ## Task 1: Create REACH SVHC Sample Seeder
 
 **Files:**
