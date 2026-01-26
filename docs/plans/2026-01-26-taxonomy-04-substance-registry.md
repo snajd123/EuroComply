@@ -1115,6 +1115,17 @@ git commit -m "feat(database): add curated ECHA substance data bundle (~25 regul
 
 ## Task 7: Create SubstancesSeeder Service
 
+> **Architectural Note: Seeding Strategy**
+>
+> This seeder uses a **two-pass approach**:
+> 1. Upsert substances using `upsertSmall` (natural key: CAS number)
+> 2. Query database to map generated IDs (CUID) back to CAS numbers
+> 3. Use the CAS→ID map to link aliases to their parent substances
+>
+> This is the correct pattern for relational seeding when using natural keys (CAS) to relate to surrogate keys (CUID).
+>
+> **Performance Note:** `upsertSmall` is appropriate for the curated ECHA list (~100-400 substances). However, when importing the full **CLP Inventory (~130,000 substances)** in the future, you **must use `copyLarge`** (PostgreSQL COPY) from Plan 1. `upsertSmall` will be too slow for 130k records.
+
 **Files:**
 - Create: `packages/database/src/seeders/substances.seeder.ts`
 - Test: `packages/database/src/seeders/substances.seeder.test.ts`
