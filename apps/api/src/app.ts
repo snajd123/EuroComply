@@ -7,7 +7,7 @@ import type { MikroORM } from '@eurocomply/database';
 import { createOrganizationsRouter } from './routes/organizations.js';
 import { createProductsRouter } from './routes/products.js';
 import { createApiKeysRouter } from './routes/api-keys.js';
-import { createUnitsRouter, type UnitsRepository } from './routes/taxonomy/index.js';
+import { createUnitsRouter, type UnitsRepository, createSubstancesRouter, type SubstancesRepository } from './routes/taxonomy/index.js';
 import { tenantMiddleware, createTenantMiddlewareWithApiKeys } from './middleware/tenant.js';
 import { adminAuthMiddleware } from './middleware/admin-auth.js';
 import { createUserMiddleware } from './middleware/user.js';
@@ -37,6 +37,7 @@ export interface AppDependencies {
   webhooksRouter?: Hono;
   organizationsAdminRouter?: Hono;
   unitsRepository?: UnitsRepository;
+  substancesRepository?: SubstancesRepository;
 }
 
 export function createApp(deps?: AppDependencies): Hono<Env> {
@@ -103,6 +104,9 @@ export function createApp(deps?: AppDependencies): Hono<Env> {
   const taxonomy = new Hono<Env>();
   if (deps?.unitsRepository) {
     taxonomy.route('/units', createUnitsRouter(deps.unitsRepository));
+  }
+  if (deps?.substancesRepository) {
+    taxonomy.route('/substances', createSubstancesRouter(deps.substancesRepository));
   }
   v1.route('/taxonomy', taxonomy);
 

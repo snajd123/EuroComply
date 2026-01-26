@@ -3,7 +3,7 @@ import { createApp } from './app.js';
 import { initOrm, TenantProvisioner } from '@eurocomply/database';
 import { createWebhooksRouter } from './routes/webhooks.js';
 import { createOrganizationsAdminRouter } from './routes/organizations.js';
-import { createUnitsRepository } from './routes/taxonomy/index.js';
+import { createUnitsRepository, createSubstancesRepository } from './routes/taxonomy/index.js';
 
 async function main() {
   const port = parseInt(process.env['PORT'] ?? '3001', 10);
@@ -31,8 +31,11 @@ async function main() {
   console.log('Creating units repository...');
   const unitsRepository = createUnitsRepository(orm);
 
+  console.log('Creating substances repository...');
+  const substancesRepository = createSubstancesRepository(orm);
+
   console.log('Creating app...');
-  const app = createApp({ orm, webhooksRouter, organizationsAdminRouter, unitsRepository });
+  const app = createApp({ orm, webhooksRouter, organizationsAdminRouter, unitsRepository, substancesRepository });
 
   console.log(`Starting server on port ${port}...`);
 
