@@ -247,7 +247,7 @@ export class RawMaterial extends BaseEntity {
   /**
    * Primary source countries (ISO 3166-1 alpha-2 or country names)
    */
-  @Property({ type: 'json', nullable: true, name: 'main_sources' })
+  @Property({ type: 'jsonb', nullable: true, name: 'main_sources' })
   mainSources?: string[];
 
   /**
@@ -259,7 +259,7 @@ export class RawMaterial extends BaseEntity {
   /**
    * Primary applications/sectors
    */
-  @Property({ type: 'json', nullable: true, name: 'primary_applications' })
+  @Property({ type: 'jsonb', nullable: true, name: 'primary_applications' })
   primaryApplications?: string[];
 
   // ─────────────────────────────────────────────────────────────
@@ -324,6 +324,7 @@ import { RawMaterial } from './RawMaterial.js';
 @ManyToMany({
   entity: () => RawMaterial,
   pivotTable: 'public.substance_raw_materials',  // Explicitly match migration
+  inversedBy: 'substances',  // RawMaterial owns the relationship
   owner: true,
 })
 rawMaterials = new Collection<RawMaterial>(this);
