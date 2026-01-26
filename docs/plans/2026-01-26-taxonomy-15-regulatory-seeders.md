@@ -68,7 +68,7 @@ import { EntityManager } from '@mikro-orm/postgresql';
 import { RegulatoryList } from '../../entities/RegulatoryList.js';
 import { RegulatoryListEntry } from '../../entities/RegulatoryListEntry.js';
 import { Substance } from '../../entities/Substance.js';
-import { RestrictionType } from '../../entities/enums/index.js';
+import { ComparisonOperator, Severity } from '../../entities/enums/index.js';
 
 /**
  * Sample REACH SVHC Candidate List entries.
@@ -139,8 +139,11 @@ export async function seedReachSvhc(em: EntityManager): Promise<void> {
       substance,
       casNumberSnapshot: entry.cas,
       substanceNameSnapshot: entry.name,
-      restrictionType: RestrictionType.THRESHOLD,
-      thresholdPct: entry.threshold,
+      // Agnostic evaluation fields
+      operator: ComparisonOperator.GT,  // Fails if concentration > threshold
+      compareValue: entry.threshold,
+      issueType: 'CHEMICAL_LIMIT_EXCEEDED',
+      severity: Severity.WARNING,
       legalReference: entry.reference,
       notes: 'SVHC - declaration required above 0.1% w/w',
     });
@@ -175,7 +178,7 @@ import { EntityManager } from '@mikro-orm/postgresql';
 import { RegulatoryList } from '../../entities/RegulatoryList.js';
 import { RegulatoryListEntry } from '../../entities/RegulatoryListEntry.js';
 import { Substance } from '../../entities/Substance.js';
-import { RestrictionType } from '../../entities/enums/index.js';
+import { ComparisonOperator, Severity } from '../../entities/enums/index.js';
 
 /**
  * RoHS Directive 2011/65/EU Annex II - Restricted Substances
@@ -237,8 +240,11 @@ export async function seedRohsRestricted(em: EntityManager): Promise<void> {
       substance,
       casNumberSnapshot: entry.cas,
       substanceNameSnapshot: entry.name,
-      restrictionType: RestrictionType.THRESHOLD,
-      thresholdPct: entry.threshold,
+      // Agnostic evaluation fields
+      operator: ComparisonOperator.GT,  // Fails if concentration > threshold
+      compareValue: entry.threshold,
+      issueType: 'CHEMICAL_LIMIT_EXCEEDED',
+      severity: Severity.BLOCKER,  // RoHS violations are blockers
       legalReference: entry.reference,
       notes: 'Evaluated at homogeneous material level',
     });
@@ -273,7 +279,7 @@ import { EntityManager } from '@mikro-orm/postgresql';
 import { RegulatoryList } from '../../entities/RegulatoryList.js';
 import { RegulatoryListEntry } from '../../entities/RegulatoryListEntry.js';
 import { Substance } from '../../entities/Substance.js';
-import { RestrictionType } from '../../entities/enums/index.js';
+import { ComparisonOperator, Severity } from '../../entities/enums/index.js';
 
 /**
  * Sample CosIng Annex II entries (Prohibited Substances in Cosmetics).
@@ -322,7 +328,7 @@ export async function seedCosingAnnexII(em: EntityManager): Promise<void> {
 
   await em.persistAndFlush(list);
 
-  // Create entries (all PROHIBITED - no threshold)
+  // Create entries (all use PRESENT operator - any presence is violation)
   let added = 0;
   let skipped = 0;
 
@@ -340,7 +346,10 @@ export async function seedCosingAnnexII(em: EntityManager): Promise<void> {
       substance,
       casNumberSnapshot: entry.cas,
       substanceNameSnapshot: entry.name,
-      restrictionType: RestrictionType.PROHIBITED,
+      // Agnostic evaluation fields
+      operator: ComparisonOperator.PRESENT,  // Any presence > 0 is a violation
+      issueType: 'PROHIBITED_SUBSTANCE',
+      severity: Severity.BLOCKER,
       legalReference: entry.reference,
       notes: 'Prohibited in cosmetic products',
     });
