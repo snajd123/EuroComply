@@ -324,10 +324,18 @@ describe('SubstanceRollupService', () => {
       // Setup: Create substance in public schema
       const substance = em.create(Substance, {
         casNumber: '127-19-5',
-        primaryName: 'N,N-Dimethylacetamide (DMAC)',
+        primaryName: 'N,N-Dimethylacetamide (DMAC)',  // Note: primaryName per Plan 4
         isSvhc: true,
       });
       await em.persistAndFlush(substance);
+
+      // Setup: Create material version for BOM
+      const elastaneMaterial = em.create(ProductVersion, {
+        id: 'pv_elastane',
+        product: em.getReference(Product, 'prod_elastane'),
+        version: '1.0',
+      });
+      await em.persistAndFlush(elastaneMaterial);
 
       // Setup: BOM entry - Elastane is 5% of product
       const bomEntry = em.create(BomEntry, {
@@ -339,9 +347,10 @@ describe('SubstanceRollupService', () => {
       await em.persistAndFlush(bomEntry);
 
       // Setup: MaterialSubstance - DMAC is 8% of Elastane
+      // NOTE: Uses @ManyToOne relations per Plan 7
       const matSub = em.create(MaterialSubstance, {
-        materialVersionId: 'pv_elastane',
-        substanceId: substance.id,
+        materialVersion: elastaneMaterial,  // ManyToOne relation
+        substance,                           // ManyToOne relation (cross-schema)
         concentrationPct: '8.0',
         basis: ConcentrationBasis.WEIGHT,
       });
@@ -361,10 +370,15 @@ describe('SubstanceRollupService', () => {
       // Setup: One substance in two different materials
       const substance = em.create(Substance, {
         casNumber: '111-76-2',
-        primaryName: '2-Butoxyethanol',
+        primaryName: '2-Butoxyethanol',  // primaryName per Plan 4
         isSvhc: false,
       });
       await em.persistAndFlush(substance);
+
+      // Setup: Create material versions
+      const matVersionA = em.create(ProductVersion, { id: 'pv_mat_a', version: '1.0' });
+      const matVersionB = em.create(ProductVersion, { id: 'pv_mat_b', version: '1.0' });
+      await em.persistAndFlush([matVersionA, matVersionB]);
 
       // BOM: Material A (60%) and Material B (40%)
       const bomA = em.create(BomEntry, {
@@ -381,16 +395,17 @@ describe('SubstanceRollupService', () => {
       });
       await em.persistAndFlush([bomA, bomB]);
 
-      // Substance in both: 2% in A, 3% in B
+      // Substance in both materials: 2% in A, 3% in B
+      // NOTE: Uses @ManyToOne relations per Plan 7
       const msA = em.create(MaterialSubstance, {
-        materialVersionId: 'pv_mat_a',
-        substanceId: substance.id,
+        materialVersion: matVersionA,  // ManyToOne relation
+        substance,                      // ManyToOne relation
         concentrationPct: '2.0',
         basis: ConcentrationBasis.WEIGHT,
       });
       const msB = em.create(MaterialSubstance, {
-        materialVersionId: 'pv_mat_b',
-        substanceId: substance.id,
+        materialVersion: matVersionB,  // ManyToOne relation
+        substance,                      // ManyToOne relation
         concentrationPct: '3.0',
         basis: ConcentrationBasis.WEIGHT,
       });
@@ -408,10 +423,13 @@ describe('SubstanceRollupService', () => {
     it('should flag SVHC above 0.1% threshold', async () => {
       const substance = em.create(Substance, {
         casNumber: '79-06-1',
-        primaryName: 'Acrylamide',
+        primaryName: 'Acrylamide',  // primaryName per Plan 4
         isSvhc: true,
       });
       await em.persistAndFlush(substance);
+
+      const matVersion = em.create(ProductVersion, { id: 'pv_svhc_mat', version: '1.0' });
+      await em.persistAndFlush(matVersion);
 
       const bom = em.create(BomEntry, {
         parentVersionId: 'pv_svhc_test',
@@ -423,8 +441,8 @@ describe('SubstanceRollupService', () => {
 
       // 10% material × 2% concentration = 0.2% effective (above 0.1% threshold)
       const ms = em.create(MaterialSubstance, {
-        materialVersionId: 'pv_svhc_mat',
-        substanceId: substance.id,
+        materialVersion: matVersion,  // ManyToOne relation
+        substance,                     // ManyToOne relation
         concentrationPct: '2.0',
         basis: ConcentrationBasis.WEIGHT,
       });
@@ -438,10 +456,13 @@ describe('SubstanceRollupService', () => {
     it('should NOT flag SVHC below 0.1% threshold', async () => {
       const substance = em.create(Substance, {
         casNumber: '79-06-1',
-        primaryName: 'Acrylamide',
+        primaryName: 'Acrylamide',  // primaryName per Plan 4
         isSvhc: true,
       });
       await em.persistAndFlush(substance);
+
+      const matVersion = em.create(ProductVersion, { id: 'pv_svhc_mat_low', version: '1.0' });
+      await em.persistAndFlush(matVersion);
 
       const bom = em.create(BomEntry, {
         parentVersionId: 'pv_svhc_low',
@@ -453,8 +474,8 @@ describe('SubstanceRollupService', () => {
 
       // 1% material × 5% concentration = 0.05% effective (below 0.1%)
       const ms = em.create(MaterialSubstance, {
-        materialVersionId: 'pv_svhc_mat_low',
-        substanceId: substance.id,
+        materialVersion: matVersion,  // ManyToOne relation
+        substance,                     // ManyToOne relation
         concentrationPct: '5.0',
         basis: ConcentrationBasis.WEIGHT,
       });
@@ -468,11 +489,14 @@ describe('SubstanceRollupService', () => {
     it('should flag substances requiring authorization', async () => {
       const substance = em.create(Substance, {
         casNumber: '117-81-7',
-        primaryName: 'DEHP',
+        primaryName: 'DEHP',  // primaryName per Plan 4
         isSvhc: true,
         requiresAuthorization: true,
       });
       await em.persistAndFlush(substance);
+
+      const matVersion = em.create(ProductVersion, { id: 'pv_auth_mat', version: '1.0' });
+      await em.persistAndFlush(matVersion);
 
       const bom = em.create(BomEntry, {
         parentVersionId: 'pv_auth_test',
@@ -482,10 +506,11 @@ describe('SubstanceRollupService', () => {
       });
       await em.persistAndFlush(bom);
 
+      // Any presence of Annex XIV substance triggers authorization requirement
       const ms = em.create(MaterialSubstance, {
-        materialVersionId: 'pv_auth_mat',
-        substanceId: substance.id,
-        concentrationPct: '0.001', // Any presence triggers
+        materialVersion: matVersion,  // ManyToOne relation
+        substance,                     // ManyToOne relation
+        concentrationPct: '0.001',
         basis: ConcentrationBasis.WEIGHT,
       });
       await em.persistAndFlush(ms);
@@ -493,6 +518,54 @@ describe('SubstanceRollupService', () => {
       const result = await service.rollUp('pv_auth_test');
 
       expect(result.substances[0].regulatoryFlags.requiresAuthorization).toBe(true);
+    });
+
+    it('should handle multi-level BOM (recursive traversal)', async () => {
+      // Setup: Product → Component (50%) → Material (30%)
+      // Effective share of Material = 50% × 30% = 15%
+      const substance = em.create(Substance, {
+        casNumber: '100-42-5',
+        primaryName: 'Styrene',
+        isSvhc: false,
+      });
+      await em.persistAndFlush(substance);
+
+      const componentVersion = em.create(ProductVersion, { id: 'pv_component', version: '1.0' });
+      const materialVersion = em.create(ProductVersion, { id: 'pv_nested_mat', version: '1.0' });
+      await em.persistAndFlush([componentVersion, materialVersion]);
+
+      // BOM Level 1: Product → Component (50%)
+      const bomLevel1 = em.create(BomEntry, {
+        parentVersionId: 'pv_nested_product',
+        childVersionId: 'pv_component',
+        quantity: '50.0',
+        quantityUnit: 'P1',
+      });
+      // BOM Level 2: Component → Material (30%)
+      const bomLevel2 = em.create(BomEntry, {
+        parentVersionId: 'pv_component',
+        childVersionId: 'pv_nested_mat',
+        quantity: '30.0',
+        quantityUnit: 'P1',
+      });
+      await em.persistAndFlush([bomLevel1, bomLevel2]);
+
+      // Material contains 10% substance
+      const ms = em.create(MaterialSubstance, {
+        materialVersion: materialVersion,
+        substance,
+        concentrationPct: '10.0',
+        basis: ConcentrationBasis.WEIGHT,
+      });
+      await em.persistAndFlush(ms);
+
+      const result = await service.rollUp('pv_nested_product');
+
+      // Effective: 50% × 30% × 10% / 100 = 1.5%
+      // Wait, that's: (50/100) * (30/100) * 10 = 0.15 * 10 = 1.5%
+      // Actually: bomShare = 50% * 30% / 100 = 15%, then 15% * 10% / 100 = 1.5%
+      expect(result.substances).toHaveLength(1);
+      expect(new Decimal(result.substances[0].effectiveConcentrationPct).toNumber()).toBeCloseTo(1.5, 2);
     });
   });
 });
@@ -548,25 +621,22 @@ export class SubstanceRollupService {
     }
 
     // 2. Get all material substance declarations for BOM materials
+    // NOTE: Use populate: ['substance'] to fetch public.substance in single query
     const materialVersionIds = flatBom.map(node => node.materialVersionId);
-    const materialSubstances = await this.em.find(MaterialSubstance, {
-      materialVersionId: { $in: materialVersionIds },
-    });
+    const materialSubstances = await this.em.find(
+      MaterialSubstance,
+      { materialVersion: { id: { $in: materialVersionIds } } },
+      { populate: ['substance'] }  // Cross-schema populate works with SET search_path
+    );
 
-    // 3. Get all referenced substances from public schema
-    const substanceIds = [...new Set(materialSubstances.map(ms => ms.substanceId))];
-    const substances = substanceIds.length > 0
-      ? await this.em.find(Substance, { id: { $in: substanceIds } }, { schema: 'public' })
-      : [];
-    const substanceMap = new Map(substances.map(s => [s.id, s]));
-
-    // 4. Create lookup for BOM shares
+    // 3. Create lookup for BOM shares
     const bomShareMap = new Map(flatBom.map(node => [
       node.materialVersionId,
       { sharePct: node.effectiveSharePct, name: node.materialName },
     ]));
 
-    // 5. Aggregate by CAS number
+    // 4. Aggregate by CAS number
+    // NOTE: Access substance via ms.substance relation (populated above)
     const aggregated = new Map<string, {
       substance: Substance;
       sources: SubstanceSource[];
@@ -574,15 +644,18 @@ export class SubstanceRollupService {
     }>();
 
     for (const ms of materialSubstances) {
-      const substance = substanceMap.get(ms.substanceId);
+      // Access substance via @ManyToOne relation (cross-schema, populated)
+      const substance = ms.substance;
       if (!substance) {
-        warnings.push(`Substance ${ms.substanceId} not found in registry`);
+        warnings.push(`MaterialSubstance ${ms.id} has no substance reference`);
         continue;
       }
 
-      const bomInfo = bomShareMap.get(ms.materialVersionId);
+      // Access materialVersion via @ManyToOne relation
+      const materialVersionId = ms.materialVersion.id;
+      const bomInfo = bomShareMap.get(materialVersionId);
       if (!bomInfo) {
-        warnings.push(`Material ${ms.materialVersionId} not in BOM`);
+        warnings.push(`Material ${materialVersionId} not in BOM`);
         continue;
       }
 
@@ -591,13 +664,14 @@ export class SubstanceRollupService {
       const contributionPct = bomSharePct.mul(concentrationPct).div(100);
 
       const source: SubstanceSource = {
-        materialVersionId: ms.materialVersionId,
+        materialVersionId,
         materialName: bomInfo.name,
         bomSharePct: bomInfo.sharePct,
         substanceConcentrationPct: concentrationPct.toString(),
         contributionPct: contributionPct.toString(),
       };
 
+      // Aggregate by CAS number (via populated relation)
       const existing = aggregated.get(substance.casNumber);
       if (existing) {
         existing.sources.push(source);
@@ -646,27 +720,85 @@ export class SubstanceRollupService {
 
   /**
    * Flatten BOM tree to get all leaf materials with their effective shares.
-   * Currently supports single-level BOM; nested BOM requires recursive traversal.
+   * Uses recursive CTE to traverse multi-level BOMs (Product → Component → Sub-assembly → Material).
+   *
+   * Example: If Product contains 50% of Component A, and Component A contains 20% of Material X,
+   * then Material X's effective share in the Product is 50% × 20% = 10%.
    */
   private async flattenBom(
     productVersionId: string,
     warnings: string[]
   ): Promise<FlatBomNode[]> {
-    // Get direct BOM entries
-    const bomEntries = await this.em.find(BomEntry, {
-      parentVersionId: productVersionId,
-    });
+    // Use recursive CTE to walk the entire BOM tree
+    // This handles arbitrary nesting depth (Product → Component → Sub-assembly → Material)
+    const conn = this.em.getConnection();
 
-    const nodes: FlatBomNode[] = [];
-    for (const entry of bomEntries) {
-      // For now, assume quantity in P1 (percent) unit
-      // TODO: Support nested BOM with recursive traversal
-      nodes.push({
-        materialVersionId: entry.childVersionId,
-        materialName: entry.childVersionId, // TODO: Resolve actual name from ProductVersion
-        effectiveSharePct: entry.quantity,
-        depth: 1,
-      });
+    const result = await conn.execute<Array<{
+      material_version_id: string;
+      material_name: string;
+      effective_share_pct: string;
+      depth: number;
+      is_leaf: boolean;
+    }>>(
+      `WITH RECURSIVE bom_tree AS (
+        -- Base case: direct children of the root product version
+        SELECT
+          be.child_version_id AS material_version_id,
+          COALESCE(pv.name, be.child_version_id) AS material_name,
+          be.quantity::decimal(18, 6) AS effective_share_pct,
+          1 AS depth,
+          -- Check if this node has children (not a leaf)
+          EXISTS (
+            SELECT 1 FROM bom_entry sub WHERE sub.parent_version_id = be.child_version_id
+          ) AS has_children
+
+        FROM bom_entry be
+        LEFT JOIN product_version pv ON pv.id = be.child_version_id
+        WHERE be.parent_version_id = $1
+
+        UNION ALL
+
+        -- Recursive case: children of children
+        SELECT
+          be.child_version_id AS material_version_id,
+          COALESCE(pv.name, be.child_version_id) AS material_name,
+          -- Multiply parent's effective share by this entry's share
+          (bt.effective_share_pct * be.quantity::decimal(18, 6) / 100)::decimal(18, 6) AS effective_share_pct,
+          bt.depth + 1 AS depth,
+          EXISTS (
+            SELECT 1 FROM bom_entry sub WHERE sub.parent_version_id = be.child_version_id
+          ) AS has_children
+
+        FROM bom_tree bt
+        JOIN bom_entry be ON be.parent_version_id = bt.material_version_id
+        LEFT JOIN product_version pv ON pv.id = be.child_version_id
+        WHERE bt.has_children = true  -- Only recurse if parent has children
+          AND bt.depth < 10  -- Safety limit to prevent infinite recursion
+      )
+      -- Only return leaf nodes (materials with no children)
+      SELECT
+        material_version_id,
+        material_name,
+        effective_share_pct::text,
+        depth,
+        NOT has_children AS is_leaf
+      FROM bom_tree
+      WHERE has_children = false  -- Only leaf materials
+      ORDER BY depth, material_name`,
+      [productVersionId]
+    );
+
+    const nodes: FlatBomNode[] = result.map(row => ({
+      materialVersionId: row.material_version_id,
+      materialName: row.material_name,
+      effectiveSharePct: row.effective_share_pct,
+      depth: row.depth,
+    }));
+
+    // Warn if BOM is very deep (might indicate circular reference or unusual structure)
+    const maxDepth = Math.max(...nodes.map(n => n.depth), 0);
+    if (maxDepth >= 8) {
+      warnings.push(`Deep BOM structure detected (${maxDepth} levels). Verify no circular references.`);
     }
 
     return nodes;
@@ -1168,7 +1300,7 @@ describe('Substance Rollup API E2E', () => {
 // apps/api/src/routes/products.ts - ADD these routes to createProductsRouter
 
 import { SubstanceRollupService } from '@eurocomply/database/services/substance-rollup.service.js';
-import { SubstanceRuleEvaluator } from '@eurocomply/database/services/substance-rule-evaluator.js';
+import { SubstanceRuleEvaluator, SubstanceRuleConfig, SubstanceRuleFinding } from '@eurocomply/database/services/substance-rule-evaluator.js';
 
 // Inside createProductsRouter function, add:
 
@@ -1227,6 +1359,9 @@ router.get('/:productId/versions/:versionId/substances/rollup', authorize('compl
  * Evaluate rolled-up substances against regulatory rules.
  * Returns compliance status and rule violations for PreFlight integration.
  * Requires compliance:view authorization.
+ *
+ * NOTE: Fetches active RuleTemplates from database and evaluates each rule
+ * against the rolled-up substances.
  */
 router.get('/:productId/versions/:versionId/substances/evaluate', authorize('compliance', 'view'), async (c) => {
   const schema = c.get('tenantSchema')!;
@@ -1241,15 +1376,49 @@ router.get('/:productId/versions/:versionId/substances/evaluate', authorize('com
       return { error: 'Product version not found' as const };
     }
 
-    // First calculate rollup
+    // 1. Calculate rolled-up substances from BOM
     const rollupService = new SubstanceRollupService(txEm);
     const rollup = await rollupService.rollUp(versionId);
 
-    // Then evaluate against rules
-    const evaluator = new SubstanceRuleEvaluator(txEm);
-    const evaluation = await evaluator.evaluate(rollup.substances);
+    // 2. Fetch active substance rule templates from database
+    // System rules (organization = null) + tenant-specific rules
+    const ruleTemplates = await txEm.find('RuleTemplate', {
+      $or: [
+        { organization: null },  // System rules
+        { organization: { id: c.get('membership')?.organization?.id } },  // Tenant rules
+      ],
+      isActive: true,
+      validationLogic: { type: { $like: 'substance_%' } },  // Only substance rules
+    });
 
-    return { rollup, evaluation };
+    // 3. Evaluate each rule against rolled-up substances
+    const evaluator = new SubstanceRuleEvaluator();
+    const allFindings: SubstanceRuleFinding[] = [];
+
+    for (const template of ruleTemplates) {
+      const ruleConfig = template.validationLogic as SubstanceRuleConfig;
+      const findings = evaluator.evaluate(rollup.substances, ruleConfig);
+      allFindings.push(...findings.map(f => ({
+        ...f,
+        ruleCode: template.code,
+        ruleName: template.name,
+        severity: template.severity,
+      })));
+    }
+
+    // 4. Determine overall compliance
+    const blockers = allFindings.filter(f => !f.passed && f.severity === 'BLOCKER');
+    const warnings = allFindings.filter(f => !f.passed && f.severity === 'WARNING');
+
+    return {
+      rollup,
+      evaluation: {
+        isCompliant: blockers.length === 0,
+        blockerCount: blockers.length,
+        warningCount: warnings.length,
+        findings: allFindings,
+      },
+    };
   });
 
   if ('error' in result) {
@@ -1261,9 +1430,11 @@ router.get('/:productId/versions/:versionId/substances/evaluate', authorize('com
       productVersionId: versionId,
       evaluatedAt: new Date().toISOString(),
       isCompliant: result.evaluation.isCompliant,
-      violations: result.evaluation.violations,
-      warnings: result.evaluation.warnings,
+      blockerCount: result.evaluation.blockerCount,
+      warningCount: result.evaluation.warningCount,
+      findings: result.evaluation.findings,
       substanceCount: result.rollup.substances.length,
+      rollupWarnings: result.rollup.warnings,
     },
     meta: { productId, versionId },
   });
