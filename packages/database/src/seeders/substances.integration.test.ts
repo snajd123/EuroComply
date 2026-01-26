@@ -7,7 +7,7 @@ import type { MikroORM } from '@mikro-orm/postgresql';
 
 describe('SubstancesSeeder Integration', () => {
   let orm: MikroORM;
-  let dbAvailable: boolean;
+  let dbAvailable = false;
 
   beforeAll(async () => {
     dbAvailable = await isDatabaseAvailable();
