@@ -1,5 +1,6 @@
 export { BaseEntity } from './BaseEntity.js';
-export { UnitSystem, TargetType } from './enums/index.js';
+export { UnitSystem, TargetType, AliasType } from './enums/index.js';
+export { Substance } from './Substance.js';
 export {
   Organization,
   EnforcementMode,
@@ -40,6 +41,7 @@ import { ProductVersion } from './ProductVersion.js';
 import { AuditLog } from './AuditLog.js';
 import { User } from './User.js';
 import { OrganizationUser } from './OrganizationUser.js';
+import { Substance } from './Substance.js';
 
 /**
  * Entities that belong ONLY in the PUBLIC schema.
@@ -50,6 +52,7 @@ export const publicOnlyEntities = [
   ApiKey,
   WebhookEvent,
   UnitDefinition,
+  Substance,
 ];
 
 /**
