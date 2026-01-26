@@ -315,8 +315,17 @@ import { RawMaterial } from './RawMaterial.js';
 /**
  * Raw materials this substance is associated with.
  * E.g., "Cobalt dichloride" → ["Cobalt"]
+ *
+ * This enables automatic Strategic Material Content detection:
+ * - User declares "Cobalt sulfate" (CAS 10124-43-3) in their material
+ * - System looks up rawMaterials for that substance → finds "Cobalt"
+ * - Cobalt.isStrategic = true → Product flagged as containing Strategic Raw Material
  */
-@ManyToMany(() => RawMaterial, rawMaterial => rawMaterial.substances, { owner: true })
+@ManyToMany({
+  entity: () => RawMaterial,
+  pivotTable: 'public.substance_raw_materials',  // Explicitly match migration
+  owner: true,
+})
 rawMaterials = new Collection<RawMaterial>(this);
 ```
 
@@ -1405,10 +1414,11 @@ git commit -m "feat(database): export RawMaterial entity and seeder"
 
 **Deliverables:**
 - `RawMaterial` entity with CRM/Strategic flags, RMIS indicators
-- Migration for `raw_material` table and junction table
+- Migration for `raw_material` table and M:N junction table
 - `RawMaterialsSeeder` with CRM 2024 list (34 materials)
 - Raw Materials API routes with filtering
-- Optional substance linking for CRMA compliance
+- Substance ↔ RawMaterial linking for automatic CRMA detection
+- **SubstanceRollupService integration** for strategic material content calculation
 
 **API Routes:**
 | Method | Path | Description |
@@ -1424,6 +1434,353 @@ git commit -m "feat(database): export RawMaterial entity and seeder"
 - Supply risk scoring for supply chain resilience warnings
 - Recycling rate data for DPP circularity calculations
 - Source concentration for geopolitical risk assessment
+
+---
+
+## Task 7: Integrate Strategic Material Detection into SubstanceRollupService
+
+**Files:**
+- Modify: `packages/database/src/services/substance-rollup.types.ts`
+- Modify: `packages/database/src/services/substance-rollup.service.ts`
+- Test: `packages/database/src/services/substance-rollup.service.test.ts` (add tests)
+
+**Purpose:** When rolling up substances, automatically detect if any substance is linked to a Critical/Strategic Raw Material for CRMA compliance.
+
+**Step 1: Update the types file**
+
+```typescript
+// Add to packages/database/src/services/substance-rollup.types.ts
+
+/**
+ * Strategic/Critical Raw Material content detected in product
+ */
+export interface StrategicMaterialContent {
+  rawMaterialId: string;
+  rawMaterialName: string;
+  symbol?: string;
+  isStrategic: boolean;
+  isCritical: boolean;
+  supplyRisk?: string;
+  economicImportance?: string;
+  recyclingInputRate?: string;
+  contributingSubstances: Array<{
+    casNumber: string;
+    primaryName: string;
+    effectiveConcentrationPct: string;
+  }>;
+}
+
+// Update SubstanceRollupResult interface:
+export interface SubstanceRollupResult {
+  productVersionId: string;
+  calculatedAt: Date;
+  substances: RolledUpSubstance[];
+  warnings: string[];
+  isComplete: boolean;
+
+  // CRMA Strategic Material Content (NEW)
+  strategicMaterials: StrategicMaterialContent[];
+  containsStrategicMaterial: boolean;
+  containsCriticalMaterial: boolean;
+}
+```
+
+**Step 2: Write the failing test**
+
+```typescript
+// Add to packages/database/src/services/substance-rollup.service.test.ts
+
+describe('Strategic Material Detection', () => {
+  it('should detect strategic raw material from substance link', async () => {
+    // Setup: Create Cobalt raw material (strategic)
+    const cobalt = em.create(RawMaterial, {
+      name: 'Cobalt',
+      symbol: 'Co',
+      isCritical: true,
+      isStrategic: true,
+      supplyRisk: '6.2',
+    });
+    await em.persistAndFlush(cobalt);
+
+    // Setup: Create Cobalt sulfate substance linked to Cobalt
+    const cobaltSulfate = em.create(Substance, {
+      casNumber: '10124-43-3',
+      primaryName: 'Cobalt sulfate',
+      isSvhc: true,
+    });
+    cobaltSulfate.rawMaterials.add(cobalt);
+    await em.persistAndFlush(cobaltSulfate);
+
+    // Setup: Create material version and BOM
+    const matVersion = em.create(ProductVersion, { id: 'pv_cobalt_mat', version: '1.0' });
+    await em.persistAndFlush(matVersion);
+
+    const bom = em.create(BomEntry, {
+      parentVersionId: 'pv_strategic_test',
+      childVersionId: 'pv_cobalt_mat',
+      quantity: '5.0',
+      quantityUnit: 'P1',
+    });
+    await em.persistAndFlush(bom);
+
+    // Material contains 2% Cobalt sulfate
+    const ms = em.create(MaterialSubstance, {
+      materialVersion: matVersion,
+      substance: cobaltSulfate,
+      concentrationPct: '2.0',
+      basis: ConcentrationBasis.WEIGHT,
+    });
+    await em.persistAndFlush(ms);
+
+    // Execute
+    const result = await service.rollUp('pv_strategic_test');
+
+    // Assert: Strategic material detected
+    expect(result.containsStrategicMaterial).toBe(true);
+    expect(result.containsCriticalMaterial).toBe(true);
+    expect(result.strategicMaterials).toHaveLength(1);
+    expect(result.strategicMaterials[0].rawMaterialName).toBe('Cobalt');
+    expect(result.strategicMaterials[0].isStrategic).toBe(true);
+    expect(result.strategicMaterials[0].contributingSubstances[0].casNumber).toBe('10124-43-3');
+  });
+
+  it('should aggregate multiple substances linked to same raw material', async () => {
+    // Setup: Lithium raw material
+    const lithium = em.create(RawMaterial, {
+      name: 'Lithium',
+      symbol: 'Li',
+      isCritical: true,
+      isStrategic: true,
+    });
+    await em.persistAndFlush(lithium);
+
+    // Two lithium compounds
+    const lithiumCarbonate = em.create(Substance, {
+      casNumber: '554-13-2',
+      primaryName: 'Lithium carbonate',
+    });
+    lithiumCarbonate.rawMaterials.add(lithium);
+
+    const lithiumMetal = em.create(Substance, {
+      casNumber: '7439-93-2',
+      primaryName: 'Lithium (metal)',
+    });
+    lithiumMetal.rawMaterials.add(lithium);
+    await em.persistAndFlush([lithiumCarbonate, lithiumMetal]);
+
+    // Material versions
+    const matA = em.create(ProductVersion, { id: 'pv_li_mat_a', version: '1.0' });
+    const matB = em.create(ProductVersion, { id: 'pv_li_mat_b', version: '1.0' });
+    await em.persistAndFlush([matA, matB]);
+
+    // BOM entries
+    const bomA = em.create(BomEntry, {
+      parentVersionId: 'pv_lithium_product',
+      childVersionId: 'pv_li_mat_a',
+      quantity: '30.0',
+      quantityUnit: 'P1',
+    });
+    const bomB = em.create(BomEntry, {
+      parentVersionId: 'pv_lithium_product',
+      childVersionId: 'pv_li_mat_b',
+      quantity: '20.0',
+      quantityUnit: 'P1',
+    });
+    await em.persistAndFlush([bomA, bomB]);
+
+    // Material substances
+    const msA = em.create(MaterialSubstance, {
+      materialVersion: matA,
+      substance: lithiumCarbonate,
+      concentrationPct: '5.0',
+      basis: ConcentrationBasis.WEIGHT,
+    });
+    const msB = em.create(MaterialSubstance, {
+      materialVersion: matB,
+      substance: lithiumMetal,
+      concentrationPct: '10.0',
+      basis: ConcentrationBasis.WEIGHT,
+    });
+    await em.persistAndFlush([msA, msB]);
+
+    // Execute
+    const result = await service.rollUp('pv_lithium_product');
+
+    // Assert: Both substances aggregated under Lithium
+    expect(result.containsStrategicMaterial).toBe(true);
+    expect(result.strategicMaterials).toHaveLength(1);
+    expect(result.strategicMaterials[0].rawMaterialName).toBe('Lithium');
+    expect(result.strategicMaterials[0].contributingSubstances).toHaveLength(2);
+  });
+
+  it('should return empty strategicMaterials when no links exist', async () => {
+    // Setup: Substance with no raw material links
+    const dmac = em.create(Substance, {
+      casNumber: '127-19-5',
+      primaryName: 'N,N-Dimethylacetamide',
+      isSvhc: true,
+    });
+    await em.persistAndFlush(dmac);
+
+    const matVersion = em.create(ProductVersion, { id: 'pv_no_strategic', version: '1.0' });
+    await em.persistAndFlush(matVersion);
+
+    const bom = em.create(BomEntry, {
+      parentVersionId: 'pv_no_strategic_product',
+      childVersionId: 'pv_no_strategic',
+      quantity: '10.0',
+      quantityUnit: 'P1',
+    });
+    await em.persistAndFlush(bom);
+
+    const ms = em.create(MaterialSubstance, {
+      materialVersion: matVersion,
+      substance: dmac,
+      concentrationPct: '5.0',
+      basis: ConcentrationBasis.WEIGHT,
+    });
+    await em.persistAndFlush(ms);
+
+    // Execute
+    const result = await service.rollUp('pv_no_strategic_product');
+
+    // Assert: No strategic materials
+    expect(result.containsStrategicMaterial).toBe(false);
+    expect(result.containsCriticalMaterial).toBe(false);
+    expect(result.strategicMaterials).toHaveLength(0);
+  });
+});
+```
+
+**Step 3: Run test to verify it fails**
+
+```bash
+cd packages/database && pnpm test substance-rollup.service.test.ts
+```
+
+Expected: FAIL with missing properties
+
+**Step 4: Update the service**
+
+```typescript
+// Update packages/database/src/services/substance-rollup.service.ts
+
+import { RawMaterial } from '../entities/RawMaterial.js';
+import { StrategicMaterialContent } from './substance-rollup.types.js';
+
+// In the rollUp method, after building rolledUpSubstances array:
+
+    // 6. Detect Strategic/Critical Raw Material content
+    const strategicMaterialsMap = new Map<string, StrategicMaterialContent>();
+
+    for (const [casNumber, data] of aggregated) {
+      // Load rawMaterials relation for this substance
+      const substanceWithLinks = await this.em.findOne(
+        Substance,
+        { id: data.substance.id },
+        { populate: ['rawMaterials'], schema: 'public' }
+      );
+
+      if (!substanceWithLinks?.rawMaterials?.length) continue;
+
+      for (const rm of substanceWithLinks.rawMaterials.getItems()) {
+        const existing = strategicMaterialsMap.get(rm.id);
+        const substanceContribution = {
+          casNumber,
+          primaryName: data.substance.primaryName,
+          effectiveConcentrationPct: data.totalConcentration.toDecimalPlaces(6).toString(),
+        };
+
+        if (existing) {
+          existing.contributingSubstances.push(substanceContribution);
+        } else {
+          strategicMaterialsMap.set(rm.id, {
+            rawMaterialId: rm.id,
+            rawMaterialName: rm.name,
+            symbol: rm.symbol,
+            isStrategic: rm.isStrategic,
+            isCritical: rm.isCritical,
+            supplyRisk: rm.supplyRisk,
+            economicImportance: rm.economicImportance,
+            recyclingInputRate: rm.recyclingInputRate,
+            contributingSubstances: [substanceContribution],
+          });
+        }
+      }
+    }
+
+    const strategicMaterials = Array.from(strategicMaterialsMap.values());
+
+    // Sort by supply risk descending (highest risk first)
+    strategicMaterials.sort((a, b) => {
+      const riskA = a.supplyRisk ? parseFloat(a.supplyRisk) : 0;
+      const riskB = b.supplyRisk ? parseFloat(b.supplyRisk) : 0;
+      return riskB - riskA;
+    });
+
+    return {
+      productVersionId,
+      calculatedAt: new Date(),
+      substances: rolledUpSubstances,
+      warnings,
+      isComplete: warnings.length === 0,
+      // CRMA Strategic Material Content
+      strategicMaterials,
+      containsStrategicMaterial: strategicMaterials.some(m => m.isStrategic),
+      containsCriticalMaterial: strategicMaterials.some(m => m.isCritical),
+    };
+```
+
+**Step 5: Run tests to verify they pass**
+
+```bash
+cd packages/database && pnpm test substance-rollup.service.test.ts
+```
+
+Expected: PASS
+
+**Step 6: Update the rollup API response**
+
+```typescript
+// Update apps/api/src/routes/products.ts - rollup endpoint response
+
+return c.json({
+  data: {
+    productVersionId: result.rollup.productVersionId,
+    calculatedAt: result.rollup.calculatedAt.toISOString(),
+    isComplete: result.rollup.isComplete,
+    warnings: result.rollup.warnings,
+    substances: result.rollup.substances.map(s => ({ /* existing mapping */ })),
+
+    // CRMA Strategic Material Content (NEW)
+    strategicMaterials: result.rollup.strategicMaterials.map(sm => ({
+      rawMaterialId: sm.rawMaterialId,
+      rawMaterialName: sm.rawMaterialName,
+      symbol: sm.symbol,
+      isStrategic: sm.isStrategic,
+      isCritical: sm.isCritical,
+      supplyRisk: sm.supplyRisk,
+      recyclingInputRate: sm.recyclingInputRate,
+      contributingSubstances: sm.contributingSubstances,
+    })),
+    containsStrategicMaterial: result.rollup.containsStrategicMaterial,
+    containsCriticalMaterial: result.rollup.containsCriticalMaterial,
+  },
+  meta: { productId, versionId },
+});
+```
+
+**Step 7: Commit**
+
+```bash
+git add packages/database/src/services/substance-rollup.types.ts \
+        packages/database/src/services/substance-rollup.service.ts \
+        packages/database/src/services/substance-rollup.service.test.ts \
+        apps/api/src/routes/products.ts
+git commit -m "feat(database): integrate strategic material detection into substance rollup"
+```
+
+---
 
 **Future Enhancements (Day 2):**
 - RMIS API integration for live data updates
