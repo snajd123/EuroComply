@@ -1,7 +1,7 @@
 # Regulatory Advisor & Template Engine
 
 **Status:** Active
-**Last Updated:** 2026-01-21
+**Last Updated:** 2026-01-26
 
 ---
 
@@ -527,7 +527,8 @@ export class RuleTemplate extends BaseEntity {
   // --- Validation ---
   @Property({ type: 'jsonb', nullable: true })
   validationLogic?: {
-    type: 'required' | 'pattern' | 'range' | 'custom';
+    type: 'required' | 'pattern' | 'range' | 'custom' |
+          'substance_threshold' | 'substance_presence' | 'substance_authorization';
     config: Record<string, unknown>;
   };
 
@@ -536,7 +537,93 @@ export class RuleTemplate extends BaseEntity {
 }
 ```
 
-### 4.5 ReasonCode Entity
+### 4.5 Substance Rule Templates (System Rules)
+
+Example system rules for substance compliance:
+
+```typescript
+// REACH SVHC Declaration Rule
+const REACH_SVHC_DECLARATION: Partial<RuleTemplate> = {
+  code: 'REACH_SVHC_DECLARATION',
+  name: 'SVHC Declaration Requirement',
+  scope: RuleScope.SYSTEM,
+  type: RuleType.PROCESS,
+  ruleCategory: RuleCategory.COMPLIANCE,
+  severity: RuleSeverity.WARNING,
+  validationLogic: {
+    type: 'substance_threshold',
+    config: {
+      filter: { isSvhc: true },
+      thresholdPct: 0.1,  // 0.1% w/w
+      message: 'Product contains SVHC above 0.1% - declaration required per REACH Article 33',
+    },
+  },
+  // legalAnchor: linked to REACH Article 33 PDF highlight
+};
+
+// REACH Authorization Required Rule
+const REACH_AUTHORIZATION_REQUIRED: Partial<RuleTemplate> = {
+  code: 'REACH_AUTHORIZATION_REQUIRED',
+  name: 'Authorization Required Substance',
+  scope: RuleScope.SYSTEM,
+  type: RuleType.PROCESS,
+  ruleCategory: RuleCategory.DESIGN,
+  severity: RuleSeverity.BLOCKER,
+  validationLogic: {
+    type: 'substance_authorization',
+    config: {
+      message: 'Product contains substance requiring REACH authorization (Annex XIV)',
+    },
+  },
+  // legalAnchor: linked to REACH Annex XIV PDF highlight
+};
+
+// RoHS Restricted Substances Rule
+const ROHS_RESTRICTED_SUBSTANCES: Partial<RuleTemplate> = {
+  code: 'ROHS_RESTRICTED_SUBSTANCES',
+  name: 'RoHS Restricted Substance Check',
+  scope: RuleScope.SYSTEM,
+  type: RuleType.PROCESS,
+  ruleCategory: RuleCategory.DESIGN,
+  severity: RuleSeverity.BLOCKER,
+  validationLogic: {
+    type: 'substance_presence',
+    config: {
+      forbiddenCasNumbers: [
+        '7439-92-1',  // Lead
+        '7440-43-9',  // Cadmium
+        '7439-97-6',  // Mercury
+        '18540-29-9', // Chromium VI
+        // ... other RoHS restricted substances
+      ],
+      thresholds: {
+        default: 0.1,      // 0.1% for most
+        '7440-43-9': 0.01, // 0.01% for Cadmium
+      },
+      message: 'Product contains RoHS restricted substance',
+    },
+  },
+  // legalAnchor: linked to RoHS Directive Annex II PDF highlight
+};
+```
+
+**Substance Rule Config Interface:**
+
+```typescript
+interface SubstanceRuleConfig {
+  filter?: {
+    isSvhc?: boolean;
+    isRestricted?: boolean;
+    requiresAuthorization?: boolean;
+  };
+  thresholdPct?: number;
+  forbiddenCasNumbers?: string[];
+  thresholds?: Record<string, number>; // CAS-specific thresholds
+  message: string;
+}
+```
+
+### 4.6 ReasonCode Entity
 
 ```typescript
 // src/modules/regulations/entities/reason-code.entity.ts
@@ -1292,6 +1379,50 @@ export class PreFlightAuditService {
     }
 
     return 'NOT_APPLICABLE';
+  }
+
+  /**
+   * Evaluate substance-specific rules against rolled-up substances from BOM.
+   * See Taxonomy Engine Design (Section 6.7) for rollup calculation.
+   */
+  private async evaluateSubstanceRule(
+    dpp: DPPSnapshot,
+    rule: EffectiveRule
+  ): Promise<'PASSED' | 'FAILED' | 'NOT_APPLICABLE'> {
+    const substances = dpp.designData?.rolledUpSubstances || [];
+    const config = rule.template.validationLogic?.config as SubstanceRuleConfig;
+
+    switch (rule.template.validationLogic?.type) {
+      case 'substance_threshold':
+        // Check if any substance exceeds concentration threshold
+        // Example: SVHC > 0.1% requires declaration
+        const filtered = substances.filter(s => {
+          if (config.filter?.isSvhc !== undefined && s.isSvhc !== config.filter.isSvhc) return false;
+          if (config.filter?.isRestricted !== undefined && s.isRestricted !== config.filter.isRestricted) return false;
+          return true;
+        });
+
+        const exceeds = filtered.some(
+          s => parseFloat(s.effectiveConcentrationPct) > config.thresholdPct
+        );
+        return exceeds ? 'FAILED' : 'PASSED';
+
+      case 'substance_presence':
+        // Check if any forbidden substance is present at all
+        // Example: RoHS restricted substances
+        const forbidden = substances.some(s =>
+          config.forbiddenCasNumbers?.includes(s.casNumber)
+        );
+        return forbidden ? 'FAILED' : 'PASSED';
+
+      case 'substance_authorization':
+        // Check if any substance requires authorization
+        const needsAuth = substances.some(s => s.requiresAuthorization);
+        return needsAuth ? 'FAILED' : 'PASSED';
+
+      default:
+        return 'NOT_APPLICABLE';
+    }
   }
 
   private formatLegalAnchor(anchor: RegulationAnchor): AuditFinding['legalAnchor'] {

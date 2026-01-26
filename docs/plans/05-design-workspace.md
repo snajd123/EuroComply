@@ -1,7 +1,7 @@
 # Design Workspace & Taxonomy Engine
 
 **Status:** Active
-**Last Updated:** 2026-01-21
+**Last Updated:** 2026-01-26
 
 ---
 
@@ -913,6 +913,122 @@ export class RollupCalculationService {
     return { value: max === -Infinity ? 0 : max };
   }
 }
+```
+
+### 5.7 Substance Declarations & Rollup
+
+Materials (products with `targetType: MATERIAL`) can have **substance declarations** that track chemical composition for regulatory compliance (REACH, RoHS).
+
+#### Substance Declaration UI (Material Detail View)
+
+```
++-----------------------------------------------------------------------------+
+|                    MATERIAL: Elastane Fiber v2.0                             |
++-----------------------------------------------------------------------------+
+|                                                                              |
+|  ATTRIBUTES                           SUBSTANCE DECLARATIONS    [+ Add]     |
+|  +-------------------------------+    +----------------------------------+  |
+|  | Weight: 50g/m²                |    | CAS 127-19-5 | DMAC | 8.0% w/w  |  |
+|  | Tensile Strength: 450 MPa     |    | ⚠️ SVHC | ⚠️ Auth Required        |  |
+|  | Origin: Germany               |    | Verified: J.Smith | 2024-01-15  |  |
+|  +-------------------------------+    |                    [Edit][Remove]|  |
+|                                       +----------------------------------+  |
+|                                       | CAS 111-76-2 | 2-Butoxyethanol  |  |
+|                                       | 0.5% w/w | ✓ Not regulated       |  |
+|                                       | Verified: J.Doe | 2024-01-10     |  |
+|                                       |                    [Edit][Remove]|  |
+|                                       +----------------------------------+  |
++-----------------------------------------------------------------------------+
+```
+
+#### Add Substance Modal
+
+```
++-----------------------------------------------------------------------------+
+|                       ADD SUBSTANCE DECLARATION                              |
++-----------------------------------------------------------------------------+
+|                                                                              |
+|  Search: [dimethyl                         ] 🔍                              |
+|                                                                              |
+|  +-----------------------------------------------------------------------+  |
+|  | CAS 127-19-5 | N,N-Dimethylacetamide (DMAC)                           |  |
+|  | ⚠️ SVHC Candidate | ⚠️ Authorization Required | Sunset: 2025-02-28    |  |
+|  |                                                            [Select]   |  |
+|  +-----------------------------------------------------------------------+  |
+|  | CAS 68-12-2 | N,N-Dimethylformamide (DMF)                             |  |
+|  | ⚠️ SVHC Candidate                                                      |  |
+|  |                                                            [Select]   |  |
+|  +-----------------------------------------------------------------------+  |
+|                                                                              |
+|  Selected: CAS 127-19-5 (DMAC)                                              |
+|                                                                              |
+|  Concentration: [ 8.0    ] % w/w                                            |
+|  ☑ Intentionally added (vs. impurity)                                       |
+|                                                                              |
+|  Verification Source:                                                        |
+|  [ Supplier SDS dated 2024-01-15, Rev 3.2                              ]    |
+|                                                                              |
+|                                      [Cancel]  [Add Declaration]            |
++-----------------------------------------------------------------------------+
+```
+
+#### BOM Builder - Substance Rollup
+
+When building a product BOM, substances from all materials roll up with calculated effective concentrations:
+
+```
++-----------------------------------------------------------------------------+
+|                           BOM BUILDER - SUBSTANCES                           |
++-----------------------------------------------------------------------------+
+|                                                                              |
+|  BILL OF MATERIALS                    |  ROLLED-UP SUBSTANCES               |
+|  +-------------------------------+    |  +-------------------------------+  |
+|  | Organic Cotton v1.0    95%    |    |  | ⚠️ 1 FLAGGED SUBSTANCE         |  |
+|  | └── Substances: None ✓        |    |  +-------------------------------+  |
+|  +-------------------------------+    |  | DMAC (CAS 127-19-5)           |  |
+|  | Elastane Fiber v2.0    5%     |    |  | Effective: 0.4% w/w           |  |
+|  | └── Substances: 2 declared    |    |  | ⚠️ SVHC > 0.1% threshold       |  |
+|  |     ├── DMAC: 8.0%            |    |  | Source: Elastane (5% × 8%)    |  |
+|  |     └── 2-Butoxyethanol: 0.5% |    |  +-------------------------------+  |
+|  +-------------------------------+    |  | 2-Butoxyethanol               |  |
+|                                       |  | Effective: 0.025% w/w         |  |
+|                                       |  | ✓ Below thresholds            |  |
+|                                       |  +-------------------------------+  |
+|                                       |                                     |
+|                                       |  [View Full Substance Report]       |
++-----------------------------------------------------------------------------+
+```
+
+#### Calculation Formula
+
+```
+effectiveConcentration = bomSharePct × substanceConcentrationPct
+
+Example:
+- Elastane is 5% of product by weight
+- DMAC is 8% of Elastane
+- Effective DMAC in product = 5% × 8% = 0.4%
+- SVHC threshold is 0.1%
+- 0.4% > 0.1% → Declaration required per REACH Article 33
+```
+
+#### Integration with Regulatory Advisor
+
+When substance rollup detects issues, findings appear in PreFlight:
+
+```
+PreFlight Check: Summer T-Shirt v1.0
+─────────────────────────────────────
+⚠️ WARNING: SVHC Declaration Required
+   Substance: N,N-Dimethylacetamide (DMAC)
+   CAS: 127-19-5
+   Effective Concentration: 0.4% w/w
+   Threshold: 0.1% w/w (REACH Article 33)
+
+   Required Action: Include SVHC declaration in product documentation
+   Legal Reference: REACH Article 33 - Duty to communicate
+
+   [Acknowledge & Continue] [View Substance Details]
 ```
 
 ---

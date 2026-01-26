@@ -2,13 +2,14 @@
 
 **Status:** Draft
 **Created:** 2026-01-23
+**Updated:** 2026-01-26
 **Author:** Brainstorm Session
 
 ---
 
 ## 1. Overview
 
-The Taxonomy Engine is the foundational data backbone for EuroComply. It provides structured, typed, unit-aware attribute management across all workspaces and entity types.
+The Taxonomy Engine is the foundational data backbone for EuroComply. It provides structured, typed, unit-aware attribute management across all workspaces and entity types. It also manages **international reference data** including units of measure, product classifications, and regulated substances.
 
 ### Why This Matters
 
@@ -23,12 +24,14 @@ The current implementation stores product attributes as unstructured JSON (`meta
 
 | Principle | Implementation |
 |-----------|----------------|
-| **Standardized Storage** | UNECE Rec 20 units, audit-ready by default |
+| **Standardized Storage** | UNECE Rec 20 units, HS/CN classifications, ECHA substances |
 | **Flexible Display** | Convert to user's preferred units on read |
 | **Category-Driven** | Attributes defined at category level, inherited by products |
 | **Dual-Scope** | System categories (platform-managed) + Tenant categories (org-managed) |
 | **Cell-Ready** | Soft links to public schema, no cross-schema FK constraints |
 | **Multi-Target** | Same engine powers Products, Facilities, Batches, Materials |
+| **Version-Locked Substances** | Substance declarations tied to material versions for audit trail |
+| **Regulatory Intelligence** | SVHC, Authorization, Restriction status from ECHA |
 
 ### Scope
 
@@ -37,9 +40,19 @@ The Taxonomy Engine applies to multiple entity types:
 | Target Type | Workspace | Example Attributes |
 |-------------|-----------|-------------------|
 | `PRODUCT` | Design | weight, recycled_content, material_composition |
-| `MATERIAL` | Design | density, tensile_strength, origin_country |
+| `MATERIAL` | Design | density, tensile_strength, **substance declarations** |
 | `FACILITY` | Operations | capacity, certifications, audit_date |
 | `BATCH` | Operations | quantity, production_date, quality_grade |
+
+### Reference Data Registries
+
+The Taxonomy Engine manages three types of international reference data:
+
+| Registry | Source | Records | Schema | Purpose |
+|----------|--------|---------|--------|---------|
+| **Units** | UNECE Rec 20 | ~1,800 | `public` | Measuring quantities |
+| **Classifications** | WCO HS / EU CN | ~20,000 | `public` | Trade/customs categorization |
+| **Substances** | ECHA (EU) | ~400 core + 130k CLP | `public` | Chemical compliance (REACH, RoHS) |
 
 ---
 
@@ -209,6 +222,361 @@ const inKg = convert(grams, 'KGM');
 | **Organization** | `Organization.unitPreferences` | 3rd |
 | **System default** | Per unit system | 4th |
 
+### 4.4 Bulk Import Strategy
+
+Reference data (units, classifications, substances) is seeded via **deployment pipeline**, not application startup. This prevents race conditions with horizontally-scaled pods.
+
+**Deployment flow:**
+
+```
+1. Run migrations         (pnpm db:migrate)
+2. Run public seeders     (pnpm db:seed:public)  ← Pre-deployment task
+3. Deploy pods            (pods start clean)
+```
+
+**Import strategies by dataset size:**
+
+| Dataset | Records | Strategy |
+|---------|---------|----------|
+| ECHA SVHC/Auth/Restriction | <500 | MikroORM upsert |
+| UNECE Rec 20 | ~1,800 | PostgreSQL COPY |
+| HS/CN Codes | ~20,000 | PostgreSQL COPY |
+| CLP Inventory (optional) | ~130,000 | PostgreSQL COPY |
+
+**Bulk import service:**
+
+```typescript
+// packages/database/src/services/bulk-import.service.ts
+export class BulkImportService {
+  /**
+   * Small datasets: ORM-based upsert (safe, simple)
+   */
+  async upsertSmall<T>(repo: EntityRepository<T>, records: T[]): Promise<number>;
+
+  /**
+   * Large datasets: COPY via temp staging table (safe, fast)
+   * - Creates temp table matching target schema
+   * - COPY from CSV with proper escaping
+   * - Upsert from staging to target via INSERT ... ON CONFLICT
+   * - Drop staging table (auto-cleaned if import fails)
+   */
+  async copyLarge(tableName: string, csvPath: string, columns: string[]): Promise<number>;
+}
+```
+
+**Version tracking:**
+
+```typescript
+@Entity({ tableName: 'seed_version', schema: 'public' })
+export class SeedVersion extends BaseEntity {
+  @Property() @Unique()
+  name!: string;        // "unece-rec20", "echa-svhc"
+
+  @Property()
+  version!: string;     // "Rev17", "2024-01-15"
+
+  @Property()
+  seededAt!: Date;
+}
+```
+
+### 4.5 Product Classifications (HS/CN Codes)
+
+Product classifications categorize products for trade and customs purposes. Unlike categories (organizational taxonomy), classifications are **international standards** used for regulatory reporting.
+
+**Data sources:**
+
+| System | Source | Codes | Digits | Scope |
+|--------|--------|-------|--------|-------|
+| **HS** | WCO (World Customs Org) | ~5,300 headings | 6 | International |
+| **CN** | EU TARIC | ~15,000 codes | 8 | EU-specific |
+| **TARIC** | EU Commission | ~20,000 codes | 10 | EU tariff rates |
+
+**Entity: ProductClassification**
+
+```typescript
+@Entity({ tableName: 'product_classification', schema: 'public' })
+export class ProductClassification extends BaseEntity {
+  @Property({ length: 20 })
+  @Unique()
+  code!: string;              // "8471.30" (HS) or "8471.30.00" (CN)
+
+  @Enum(() => ClassificationSystem)
+  system!: ClassificationSystem;  // HS, CN, TARIC
+
+  @Property()
+  description!: string;       // "Portable digital automatic data processing machines"
+
+  @Property({ nullable: true })
+  parentCode?: string;        // "8471" for "8471.30"
+
+  @Property({ default: 0 })
+  level!: number;             // 0=chapter, 1=heading, 2=subheading
+
+  @Property({ default: true })
+  isActive!: boolean;
+
+  @Property({ nullable: true })
+  sourceVersion?: string;     // "HS2022", "CN2024"
+}
+
+export enum ClassificationSystem {
+  HS = 'HS',
+  CN = 'CN',
+  TARIC = 'TARIC'
+}
+```
+
+**Relationship to Product:**
+
+```typescript
+// On Product entity - soft link to public.product_classification
+@Property({ nullable: true, name: 'classification_code' })
+classificationCode?: string;  // "8471.30.00"
+```
+
+**Use cases:**
+- Customs declarations for international trade
+- CBAM (Carbon Border Adjustment Mechanism) reporting
+- Regulatory scope determination (e.g., "RoHS applies to HS Chapter 85")
+
+### 4.6 Substance Registry (ECHA Data)
+
+The Substance Registry stores chemical substance reference data from ECHA (European Chemicals Agency). This enables compliance checking for REACH, RoHS, and other chemical regulations.
+
+**Data sources (all free, EU-official):**
+
+| Source | Records | Content |
+|--------|---------|---------|
+| **ECHA SVHC Candidate List** | ~240 | Substances of Very High Concern |
+| **ECHA Authorisation List** | ~60 | Annex XIV - requires authorization |
+| **ECHA Restriction List** | ~70 | Annex XVII - banned/limited |
+| **EU CLP Inventory** | ~130,000 | Full classification database (optional) |
+
+**Entity: Substance**
+
+```typescript
+@Entity({ tableName: 'substance', schema: 'public' })
+export class Substance extends BaseEntity {
+  @Property({ length: 20 })
+  @Unique()
+  @Index()
+  casNumber!: string;           // "127-19-5" (validated with checksum)
+
+  @Property({ length: 20, nullable: true })
+  ecNumber?: string;            // "204-826-4" (EU EC/EINECS number)
+
+  @Property()
+  primaryName!: string;         // IUPAC or most common name
+
+  @Property({ type: 'text', nullable: true })
+  description?: string;
+
+  @Property({ type: 'decimal', precision: 12, scale: 4, nullable: true })
+  molecularWeight?: string;
+
+  @Property({ length: 500, nullable: true })
+  molecularFormula?: string;    // "C4H9NO"
+
+  // Regulatory status from ECHA
+  @Property({ default: false })
+  isSvhc!: boolean;             // SVHC Candidate List
+
+  @Property({ default: false })
+  requiresAuthorization!: boolean;  // Annex XIV
+
+  @Property({ default: false })
+  isRestricted!: boolean;       // Annex XVII
+
+  @Property({ type: 'text', nullable: true })
+  restrictionConditions?: string;   // "Max 0.1% in consumer products"
+
+  @Property({ type: 'date', nullable: true })
+  sunsetDate?: Date;            // Authorization deadline
+
+  @Property({ type: 'date', nullable: true })
+  latestApplicationDate?: Date; // Last date to apply for authorization
+
+  // Source tracking
+  @Property({ nullable: true })
+  echaUrl?: string;             // Link to ECHA substance page
+
+  @Property({ nullable: true })
+  sourceVersion?: string;       // "SVHC-2024-01"
+
+  @Property({ default: true })
+  isActive!: boolean;
+
+  @OneToMany(() => SubstanceAlias, alias => alias.substance)
+  aliases = new Collection<SubstanceAlias>(this);
+}
+```
+
+**Entity: SubstanceAlias**
+
+Chemicals often have multiple names (IUPAC, common, trade names):
+
+```typescript
+@Entity({ tableName: 'substance_alias', schema: 'public' })
+@Unique({ properties: ['substance', 'name'] })
+export class SubstanceAlias extends BaseEntity {
+  @ManyToOne(() => Substance)
+  substance!: Substance;
+
+  @Property()
+  @Index()
+  name!: string;                // Alternative name
+
+  @Enum(() => AliasType)
+  type!: AliasType;
+
+  @Property({ nullable: true })
+  language?: string;            // "en", "de", "fr"
+}
+
+export enum AliasType {
+  IUPAC = 'IUPAC',
+  COMMON = 'COMMON',
+  TRADE = 'TRADE',
+  SYNONYM = 'SYNONYM',
+  INDEX_NAME = 'INDEX_NAME'     // CLP Index name
+}
+```
+
+**CAS Number Validation:**
+
+CAS numbers have a checksum digit that must be validated on import:
+
+```typescript
+// packages/database/src/utils/cas-validator.ts
+export function isValidCasNumber(cas: string): boolean {
+  // Format: 2-7 digits, hyphen, 2 digits, hyphen, check digit
+  const match = cas.match(/^(\d{2,7})-(\d{2})-(\d)$/);
+  if (!match) return false;
+
+  const digits = (match[1] + match[2]).split('').reverse();
+  const checkDigit = parseInt(match[3], 10);
+  const sum = digits.reduce((acc, d, i) => acc + parseInt(d, 10) * (i + 1), 0);
+
+  return sum % 10 === checkDigit;
+}
+
+// Use as @BeforeCreate hook on Substance entity
+```
+
+### 4.7 MaterialSubstance (Tenant-Scoped)
+
+The `MaterialSubstance` entity links substances to **material versions** (not products). This is tenant-scoped because concentration data is proprietary.
+
+**Why version-linked:**
+
+In PLM, material formulations change between versions:
+- v1.0: Contains DMAC solvent (8%) - SVHC, non-compliant
+- v2.0: Reformulated with NMP (3%) - less restricted
+- v3.0: Bio-solvent (2%) - fully compliant
+
+Linking to `ProductVersion` preserves this audit trail.
+
+**Entity: MaterialSubstance**
+
+```typescript
+@Entity({ tableName: 'material_substance' })
+@Unique({ properties: ['materialVersion', 'substance'] })
+export class MaterialSubstance extends BaseEntity {
+  // Links to ProductVersion (material must have targetType=MATERIAL)
+  @ManyToOne(() => ProductVersion, { name: 'material_version_id' })
+  @Index()
+  materialVersion!: ProductVersion;
+
+  // Links to public.substance (cross-schema FK via soft link)
+  @Property({ name: 'substance_id' })
+  @Index()
+  substanceId!: string;
+
+  // Concentration data (high precision for regulatory thresholds)
+  @Property({ type: 'decimal', precision: 10, scale: 6, nullable: true })
+  concentrationPct?: string;      // % by weight (e.g., "0.050000" for 0.05%)
+
+  @Property({ type: 'decimal', precision: 10, scale: 6, nullable: true })
+  concentrationMin?: string;      // Range minimum (if variable)
+
+  @Property({ type: 'decimal', precision: 10, scale: 6, nullable: true })
+  concentrationMax?: string;      // Range maximum (if variable)
+
+  @Enum(() => ConcentrationBasis)
+  basis: ConcentrationBasis = ConcentrationBasis.WEIGHT;
+
+  // Verification audit trail
+  @ManyToOne(() => User, { name: 'verified_by_id', nullable: true })
+  verifiedBy?: User;
+
+  @Property({ nullable: true })
+  verifiedAt?: Date;
+
+  @Property({ type: 'text', nullable: true })
+  verificationSource?: string;    // "Supplier SDS dated 2024-01-15"
+
+  // Conditional presence
+  @Property({ default: false })
+  isIntentionallyAdded!: boolean; // vs. impurity/contamination
+
+  @Property({ type: 'text', nullable: true })
+  notes?: string;
+}
+
+export enum ConcentrationBasis {
+  WEIGHT = 'WEIGHT',       // % w/w (most common)
+  VOLUME = 'VOLUME',       // % v/v
+  MOLAR = 'MOLAR'          // mol%
+}
+```
+
+**Validation: targetType must be MATERIAL**
+
+```sql
+-- Database trigger to enforce material-only constraint
+CREATE OR REPLACE FUNCTION check_material_version_target_type()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM product_version pv
+    JOIN product p ON pv.product_id = p.id
+    JOIN category c ON p.category_id = c.id
+    WHERE pv.id = NEW.material_version_id
+    AND c.target_type = 'MATERIAL'
+  ) THEN
+    RAISE EXCEPTION 'material_substance.material_version_id must reference a MATERIAL product version';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_material_substance_validate
+  BEFORE INSERT OR UPDATE ON material_substance
+  FOR EACH ROW EXECUTE FUNCTION check_material_target_type();
+```
+
+**Design Workspace Integration:**
+
+Substances appear in the Design Workspace when working with materials:
+
+1. **Material Detail View** - Designers see/edit substance declarations
+2. **BOM Builder** - Shows rolled-up substances with effective concentrations
+3. **Add Substance Modal** - Search by name or CAS, see regulatory flags
+4. **Compliance Check** - Substances evaluated against REACH/RoHS rules
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Material: Elastane Fiber v2.0                               │
+├─────────────────────────────────────────────────────────────┤
+│ SUBSTANCE DECLARATIONS                        [+ Add]       │
+│ ┌─────────────────────────────────────────────────────────┐ │
+│ │ CAS 127-19-5 | DMAC | 8.0% w/w | ⚠️ SVHC               │ │
+│ │ Verified by: John Smith | 2024-01-15 | Supplier SDS     │ │
+│ └─────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────┘
+```
+
 ---
 
 ## 5. Attribute Value Storage
@@ -357,6 +725,81 @@ Total weight = 0.66 + 0.01 = 0.67 kg
 | Child missing target attribute | Skip child in calculation |
 | All children missing | Result = `null`, source = `CANNOT_CALCULATE` |
 | Weight is zero | Skip that child (avoid division issues) |
+
+### 6.7 Substance Rollup
+
+Substances roll up differently from attributes. Instead of calculating a single value, we **aggregate substances** from all materials in the BOM with their effective concentrations.
+
+**Calculation:**
+
+```
+effectiveConcentration = bomSharePct × substanceConcentrationPct
+```
+
+**Example:**
+
+```
+T-Shirt v1.0 BOM:
+├── Organic Cotton v1.0 (95% by weight)
+│   └── Substances: None declared
+│
+└── Elastane Fiber v2.0 (5% by weight)
+    └── Substances:
+        ├── DMAC (CAS 127-19-5): 8.0% concentration
+        └── 2-Butoxyethanol (CAS 111-76-2): 0.5% concentration
+
+Rolled-up Substances:
+├── DMAC: 5% × 8.0% = 0.4% effective concentration ⚠️ SVHC > 0.1%
+└── 2-Butoxyethanol: 5% × 0.5% = 0.025% effective concentration ✓
+```
+
+**Service: SubstanceRollupService**
+
+```typescript
+interface RolledUpSubstance {
+  substance: Substance;
+  effectiveConcentrationPct: string;
+  sources: Array<{
+    materialVersion: ProductVersion;
+    bomQuantityPct: string;
+    substanceConcentrationPct: string;
+  }>;
+  regulatoryFlags: {
+    exceedsSvhcThreshold: boolean;    // > 0.1% w/w
+    requiresAuthorization: boolean;
+    isRestricted: boolean;
+  };
+}
+
+export class SubstanceRollupService {
+  async rollUp(productVersionId: string): Promise<RolledUpSubstance[]> {
+    // 1. Get BOM entries for this product version
+    // 2. For each material version, get MaterialSubstance records
+    // 3. Calculate effective concentration: bomShare% × substanceConc%
+    // 4. Aggregate by CAS number (same substance may appear in multiple materials)
+    // 5. Apply regulatory flags based on thresholds
+    return rolledUpSubstances;
+  }
+}
+```
+
+**Aggregation rules:**
+
+| Scenario | Handling |
+|----------|----------|
+| Same substance in multiple materials | Sum effective concentrations |
+| Substance with concentration range | Use max for compliance check |
+| Nested BOM (material contains sub-materials) | Recursive rollup through tree |
+| Missing substance data on material | Flag as incomplete, log warning |
+
+**Regulatory thresholds:**
+
+| Regulation | Threshold | Flag |
+|------------|-----------|------|
+| REACH SVHC | > 0.1% w/w | `exceedsSvhcThreshold` |
+| RoHS Lead | > 0.1% w/w | `isRestricted` |
+| RoHS Cadmium | > 0.01% w/w | `isRestricted` |
+| REACH Authorization | Any presence | `requiresAuthorization` |
 
 ---
 
@@ -721,17 +1164,26 @@ TENANT SCHEMA
 /api/v1
 ├── /taxonomy
 │   ├── /units                    ← Read-only, UNECE definitions
+│   ├── /classifications          ← HS/CN codes (NEW)
+│   ├── /substances               ← ECHA substance registry (NEW)
 │   ├── /categories               ← System + tenant categories
 │   │   └── /:id/attributes       ← Attributes for category
 │   └── /attributes               ← Direct attribute management
 │
 ├── /products
 │   └── /:id/versions/:versionId
-│       └── /attributes           ← Get/set attribute values
+│       ├── /attributes           ← Get/set attribute values
+│       └── /substances/rollup    ← Rolled-up substances from BOM (NEW)
+│
+├── /materials
+│   └── /:id/versions/:versionId
+│       └── /substances           ← Substance declarations (NEW)
 │
 └── /admin
     └── /taxonomy                 ← Platform admin only
         ├── /units                ← Manage UNECE units
+        ├── /classifications      ← Manage HS/CN codes (NEW)
+        ├── /substances           ← Manage ECHA substances (NEW)
         └── /categories           ← Manage system categories
 ```
 
@@ -750,7 +1202,111 @@ GET  /api/v1/taxonomy/units/convert
      Returns: { from: { val: 8, unit: "OZA" }, to: { val: 0.227, unit: "KGM" } }
 ```
 
-### 8.3 Categories
+### 8.3 Classifications (Read-only for tenants)
+
+```
+GET  /api/v1/taxonomy/classifications
+     Query: ?system=HS|CN&level=0|1|2&parent=8471
+     Returns: List of classification codes, filtered
+
+GET  /api/v1/taxonomy/classifications/:code
+     Returns: Single classification with description
+
+GET  /api/v1/taxonomy/classifications/:code/children
+     Returns: Child classifications under this code
+```
+
+### 8.4 Substances (Read-only for tenants)
+
+```
+GET  /api/v1/taxonomy/substances
+     Query: ?svhc=true&restricted=true&search=acetone
+     Returns: List of substances matching filters
+
+GET  /api/v1/taxonomy/substances/:casNumber
+     Returns: Single substance with regulatory status and aliases
+
+GET  /api/v1/taxonomy/substances/:casNumber/aliases
+     Returns: All names for this substance
+
+GET  /api/v1/taxonomy/substances/regulated
+     Returns: All regulated substances (SVHC + Auth + Restricted)
+```
+
+**Response example:**
+
+```json
+// GET /api/v1/taxonomy/substances/127-19-5
+{
+  "data": {
+    "casNumber": "127-19-5",
+    "ecNumber": "204-826-4",
+    "primaryName": "N,N-Dimethylacetamide",
+    "molecularFormula": "C4H9NO",
+    "molecularWeight": "87.1204",
+    "isSvhc": true,
+    "requiresAuthorization": true,
+    "isRestricted": false,
+    "sunsetDate": "2025-02-28",
+    "echaUrl": "https://echa.europa.eu/substance-information/-/substanceinfo/100.004.389",
+    "aliases": [
+      { "name": "DMAC", "type": "COMMON" },
+      { "name": "Dimethylacetamide", "type": "SYNONYM" }
+    ]
+  }
+}
+```
+
+### 8.5 Material Substances (Tenant-scoped)
+
+```
+GET  /api/v1/materials/:id/versions/:versionId/substances
+     Returns: Substance declarations for this material version
+
+POST /api/v1/materials/:id/versions/:versionId/substances
+     Body: {
+       casNumber: "127-19-5",
+       concentrationPct: "8.0",
+       basis: "WEIGHT",
+       isIntentionallyAdded: true,
+       verificationSource: "Supplier SDS dated 2024-01-15"
+     }
+     Creates: MaterialSubstance record with audit trail
+
+PATCH /api/v1/materials/:id/versions/:versionId/substances/:casNumber
+      Body: { concentrationPct?, verificationSource?, notes? }
+      Updates: Substance declaration
+
+DELETE /api/v1/materials/:id/versions/:versionId/substances/:casNumber
+       Removes: Substance declaration from material version
+```
+
+### 8.6 Product Substance Rollup
+
+```
+GET  /api/v1/products/:id/versions/:versionId/substances/rollup
+     Returns: Rolled-up substances from BOM with effective concentrations
+
+     Response: {
+       data: [
+         {
+           substance: { casNumber, primaryName, isSvhc, ... },
+           effectiveConcentrationPct: "0.4",
+           sources: [
+             { materialName, materialVersion, bomSharePct, concentrationPct }
+           ],
+           regulatoryFlags: {
+             exceedsSvhcThreshold: true,
+             requiresAuthorization: true,
+             isRestricted: false
+           }
+         }
+       ],
+       meta: { totalSubstances: 2, flaggedCount: 1 }
+     }
+```
+
+### 8.7 Categories
 
 ```
 GET  /api/v1/taxonomy/categories
@@ -779,7 +1335,7 @@ POST /api/v1/taxonomy/categories/:id/sync
      Syncs: FORKED category with latest system version (manual merge)
 ```
 
-### 8.4 Attributes
+### 8.8 Attributes
 
 ```
 GET  /api/v1/taxonomy/categories/:categoryId/attributes
@@ -801,7 +1357,7 @@ DELETE /api/v1/taxonomy/attributes/:id
        Deletes: Tenant attribute (fails if values exist)
 ```
 
-### 8.5 Product Attribute Values
+### 8.9 Product Attribute Values
 
 ```
 GET  /api/v1/products/:productId/versions/:versionId/attributes
@@ -822,7 +1378,7 @@ POST /api/v1/products/:productId/versions/:versionId/attributes/rollup
      Returns: Updated calculated values
 ```
 
-### 8.6 Admin Routes (Platform only)
+### 8.10 Admin Routes (Platform only)
 
 ```
 POST   /api/admin/taxonomy/units
@@ -840,7 +1396,7 @@ POST   /api/admin/taxonomy/attributes
        Creates: System attribute template
 ```
 
-### 8.7 Response Format Example
+### 8.11 Response Format Example
 
 ```typescript
 // GET /api/v1/products/:id/versions/:versionId/attributes
@@ -892,7 +1448,7 @@ POST   /api/admin/taxonomy/attributes
 }
 ```
 
-### 8.8 Authorization Matrix
+### 8.12 Authorization Matrix
 
 | Route | VIEWER | CONTRIBUTOR | EDITOR | MANAGER |
 |-------|--------|-------------|--------|---------|
@@ -1187,25 +1743,31 @@ export class RollupEngine {
 
 ### Phase 1: Foundation & Units
 
-**Goal:** UNECE unit system working, conversion service operational
+**Goal:** UNECE unit system working, bulk import infrastructure, conversion service operational
 
 **Entities:**
-- `UnitDefinition` (public schema)
+- `UnitDefinition` (public schema) - add `sourceVersion` field
+- `SeedVersion` (public schema) - NEW, tracks seeded data versions
 
 **Deliverables:**
 
 | Item | Description |
 |------|-------------|
-| UNECE seed script | Import ~200 common units from Rec 20 XML |
-| `UnitDefinition` entity | MikroORM entity in public schema |
+| UNECE data bundle | Download Rec 20 Rev17, convert to `data/unece-rec20.json` (~1,800 units) |
+| `BulkImportService` | COPY-based import for large datasets |
+| `SeedVersion` entity | Track what's been seeded and when |
+| CLI command | `pnpm db:seed:units` (deployment task, not startup) |
+| `UnitDefinition` entity | Add `sourceVersion` field |
 | `UnitConversionService` | Convert between units in same system |
 | Unit API routes | `GET /units`, `GET /units/:code`, `GET /units/convert` |
-| Unit tests | Conversion accuracy, edge cases |
+| Unit tests | Conversion accuracy, bulk import idempotency |
 
 **Acceptance Criteria:**
 - [ ] `GET /api/v1/taxonomy/units?system=MASS` returns kg, g, oz, lb, etc.
 - [ ] `GET /api/v1/taxonomy/units/convert?from=OZA&to=KGM&value=8` returns 0.2267962
 - [ ] Conversion preserves precision to 10 decimal places
+- [ ] `pnpm db:seed:units` is idempotent (safe to run multiple times)
+- [ ] Full ~1,800 UNECE units available (not just ~200)
 
 ---
 
@@ -1299,21 +1861,192 @@ export class RollupEngine {
 
 ---
 
+### Phase 5: Product Classifications
+
+**Goal:** HS/CN code registry for trade/customs categorization
+
+**Entities:**
+- `ProductClassification` (public schema)
+
+**Deliverables:**
+
+| Item | Description |
+|------|-------------|
+| HS/CN data bundles | Download WCO HS2022, EU CN2024 to `data/` |
+| `ProductClassification` entity | Code, system, description, parent hierarchy |
+| `ClassificationSystem` enum | HS, CN, TARIC |
+| CLI command | `pnpm db:seed:classifications` |
+| Classification API routes | List, get, children |
+| Product.classificationCode | Soft link to classification |
+| Tests | Hierarchy traversal, search |
+
+**Acceptance Criteria:**
+- [ ] `GET /api/v1/taxonomy/classifications?system=HS&level=1` returns chapter headings
+- [ ] `GET /api/v1/taxonomy/classifications/8471.30/children` returns subheadings
+- [ ] Products can be assigned a classification code
+- [ ] ~20,000 HS/CN codes imported via COPY
+
+---
+
+### Phase 6: Substance Registry
+
+**Goal:** ECHA substance reference data with regulatory status
+
+**Entities:**
+- `Substance` (public schema)
+- `SubstanceAlias` (public schema)
+
+**Deliverables:**
+
+| Item | Description |
+|------|-------------|
+| ECHA data bundles | Download SVHC, Authorisation, Restriction lists |
+| `Substance` entity | CAS, EC number, regulatory flags, dates |
+| `SubstanceAlias` entity | Multiple names per substance |
+| `isValidCasNumber()` utility | Checksum validation |
+| `@BeforeCreate` hook | Validate CAS on insert |
+| CLI commands | `pnpm db:seed:echa-svhc`, etc. |
+| Substance API routes | List, get, aliases, regulated |
+| Tests | CAS validation, regulatory filtering |
+
+**Acceptance Criteria:**
+- [ ] `GET /api/v1/taxonomy/substances?svhc=true` returns SVHC candidates
+- [ ] `GET /api/v1/taxonomy/substances/127-19-5` returns DMAC with aliases
+- [ ] Invalid CAS numbers rejected with clear error
+- [ ] ~370 regulated substances imported (SVHC + Auth + Restriction)
+
+---
+
+### Phase 7: Material-Substance Linking
+
+**Goal:** Connect substances to material versions with audit trail
+
+**Entities:**
+- `MaterialSubstance` (tenant schema)
+
+**Deliverables:**
+
+| Item | Description |
+|------|-------------|
+| `MaterialSubstance` entity | Version-linked, concentration, verification |
+| Cross-schema FK | Soft link to `public.substance` |
+| Database trigger | Enforce `targetType = MATERIAL` |
+| `MaterialSubstanceService` | CRUD with validation |
+| Material substances API | List, add, update, remove |
+| Verification audit trail | User, timestamp, source |
+| Tests | CRUD, validation errors, cross-schema |
+
+**Acceptance Criteria:**
+- [ ] Substances can only be added to MATERIAL products
+- [ ] `POST` validates CAS checksum before creating
+- [ ] Verification audit trail captured (who, when, source)
+- [ ] Concentration stored with 6 decimal precision
+
+---
+
+### Phase 8: Substance Rollup & Compliance
+
+**Goal:** Aggregate substances through BOM, integrate with Regulatory Advisor
+
+**Deliverables:**
+
+| Item | Description |
+|------|-------------|
+| `SubstanceRollupService` | Calculate effective concentrations |
+| BOM traversal | Walk hierarchy, aggregate by CAS |
+| Substance rule templates | SVHC threshold, RoHS restricted, Auth required |
+| PreFlight integration | Evaluate substance rules |
+| Rollup API | `GET /products/:id/versions/:vid/substances/rollup` |
+| Tests | Rollup calculations, rule evaluation |
+
+**Acceptance Criteria:**
+- [ ] Effective concentration calculated correctly (bomShare × substanceConc)
+- [ ] Same substance in multiple materials aggregated (summed)
+- [ ] SVHC > 0.1% flagged automatically
+- [ ] PreFlight includes substance findings
+
+---
+
+### Phase 9: DPP & Reporting
+
+**Goal:** Include substance declarations in Digital Product Passport
+
+**Deliverables:**
+
+| Item | Description |
+|------|-------------|
+| DPP substance schema | Add substances section to payload |
+| DPP issuance update | Include rolled-up substances |
+| Compliance statement | Generate based on findings |
+| Substance report API | Export CSV/PDF |
+| SCIP format support | EU ECHA SCIP database export |
+| Tests | DPP validation, report generation |
+
+**Acceptance Criteria:**
+- [ ] DPP includes substance declarations with effective concentrations
+- [ ] Compliance statement auto-generated based on SVHC presence
+- [ ] SCIP-compatible export available
+
+---
+
+### Phase 10: CLP Inventory (Optional)
+
+**Goal:** Import full 130,000 CLP substance inventory for comprehensive search
+
+**Deliverables:**
+
+| Item | Description |
+|------|-------------|
+| CLP data bundle | Download EU CLP Inventory CSV |
+| COPY-based import | Handle 130k records efficiently |
+| Extended Substance fields | Hazard classifications |
+| Search optimization | Indexes for large dataset |
+| Tests | Performance benchmarks |
+
+**Acceptance Criteria:**
+- [ ] 130,000 substances imported in < 60 seconds
+- [ ] Search returns results in < 100ms
+- [ ] Hazard classifications available for labeling
+
+---
+
 ### Dependency Graph
 
 ```
 Phase 1 ─────────────────┐
-(Units)                  │
+(Units + Bulk Import)    │
                          ▼
 Phase 2 ◄────────────────┤
 (Categories/Attributes)  │
-                         ▼
-Phase 3 ◄────────────────┤
-(Product Values)         │
-                         ▼
-Phase 4 ◄────────────────┘
-(Rollups)
+                         ├───────────────────────────┐
+                         ▼                           ▼
+Phase 3 ◄────────────────┤                    Phase 5
+(Product Values)         │                    (Classifications)
+                         ▼                           │
+Phase 4 ◄────────────────┤                           │
+(Attribute Rollups)      │                           │
+                         │                           │
+Phase 6 ◄────────────────┴───────────────────────────┘
+(Substance Registry)     ← Uses bulk import from Phase 1
+         │
+         ▼
+Phase 7 ◄────────────────┐
+(Material-Substance)     │
+         │               │
+         ▼               │
+Phase 8 ◄────────────────┘
+(Substance Rollup)       ← Integrates with Phase 4 rollup patterns
+         │
+         ▼
+Phase 9
+(DPP Integration)
+         │
+         ▼
+Phase 10 (Optional)
+(CLP Full Import)
 ```
+
+**Parallelization:** Phases 5 (Classifications) and 6 (Substances) can run in parallel after Phase 1.
 
 ---
 
@@ -1321,11 +2054,17 @@ Phase 4 ◄────────────────┘
 
 | Phase | New Entities | API Routes | Services | Tests |
 |-------|--------------|------------|----------|-------|
-| 1 | 1 | 3 | 1 | ~15 |
+| 1 | 2 | 3 | 2 | ~20 |
 | 2 | 3 | 10 | 2 | ~40 |
 | 3 | 0 (changes) | 4 | 3 | ~30 |
 | 4 | 0 | 2 | 2 | ~25 |
-| **Total** | **4** | **19** | **8** | **~110** |
+| 5 | 1 | 3 | 1 | ~15 |
+| 6 | 2 | 4 | 1 | ~20 |
+| 7 | 1 | 4 | 1 | ~25 |
+| 8 | 0 | 1 | 2 | ~20 |
+| 9 | 0 | 2 | 1 | ~15 |
+| 10 | 0 | 0 | 1 | ~10 |
+| **Total** | **9** | **33** | **16** | **~220** |
 
 ---
 
@@ -1418,10 +2157,20 @@ function parseMetadataValue(key: string, value: unknown): ParsedValue | null {
 | Document | Relationship |
 |----------|--------------|
 | [02-data-model.md](./02-data-model.md) | Entity definitions, schema design |
-| [05-design-workspace.md](./05-design-workspace.md) | Product/BOM usage of taxonomy |
+| [05-design-workspace.md](./05-design-workspace.md) | Product/BOM usage of taxonomy, **substance declaration UI** |
 | [06-operations-workspace.md](./06-operations-workspace.md) | Facility/Batch usage of taxonomy |
-| [08-compliance-workspace.md](./08-compliance-workspace.md) | DPP attribute extraction |
-| [13-regulatory-advisor.md](./13-regulatory-advisor.md) | Rule validation against attributes |
+| [08-compliance-workspace.md](./08-compliance-workspace.md) | DPP attribute extraction, **substance declarations in DPP** |
+| [13-regulatory-advisor.md](./13-regulatory-advisor.md) | Rule validation against attributes, **substance compliance rules** |
+
+### Documents Requiring Updates
+
+The following documents need updates to reflect the new Classifications and Substances features:
+
+| Document | Required Updates |
+|----------|------------------|
+| `02-data-model.md` | Add `ProductClassification`, `Substance`, `SubstanceAlias`, `MaterialSubstance` entity DDL |
+| `05-design-workspace.md` | Add substance declaration UI flow in Material Detail View and BOM Builder |
+| `13-regulatory-advisor.md` | Add substance-specific rule types (SVHC threshold, RoHS, Authorization) |
 
 ---
 
@@ -1430,3 +2179,4 @@ function parseMetadataValue(key: string, value: unknown): ParsedValue | null {
 | Version | Date | Changes |
 |---------|------|---------|
 | 1.0 | 2026-01-23 | Initial design from brainstorm session |
+| 1.1 | 2026-01-26 | Added Product Classifications (HS/CN), Substance Registry (ECHA), MaterialSubstance entity, Substance Rollup, bulk import strategy, expanded implementation phases |

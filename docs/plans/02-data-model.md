@@ -1,7 +1,7 @@
 # Data Model (MikroORM)
 
 **Status:** Active
-**Last Updated:** 2026-01-24
+**Last Updated:** 2026-01-26
 
 ---
 
@@ -18,7 +18,12 @@ eurocomply database
 │   ├── regulation_documents    -- Official regulation PDFs
 │   ├── regulation_anchors      -- Highlighted text coordinates
 │   ├── marketplace_listings    -- Published templates
-│   └── ingestion_jobs          -- PDF processing jobs
+│   ├── ingestion_jobs          -- PDF processing jobs
+│   ├── seed_version            -- Reference data version tracking (NEW)
+│   ├── unit_definition         -- UNECE Rec 20 units
+│   ├── product_classification  -- HS/CN codes (NEW)
+│   ├── substance               -- ECHA substance registry (NEW)
+│   └── substance_alias         -- Substance alternative names (NEW)
 │
 └── tenant_{slug}               -- Per-tenant data
     ├── users
@@ -27,6 +32,7 @@ eurocomply database
     ├── product_identifiers
     ├── product_versions
     ├── bom_entries
+    ├── material_substance      -- Substance declarations per material version (NEW)
     ├── dpp_snapshots
     ├── operations_events
     ├── outbox_events
@@ -51,6 +57,12 @@ eurocomply database
 | MarketplaceListing | `public` | Discoverable by all tenants |
 | RuleTemplate (SYSTEM) | `public` | Platform-managed rules |
 | ReasonCode (SYSTEM) | `public` | Platform-managed codes |
+| SeedVersion | `public` | Reference data version tracking |
+| UnitDefinition | `public` | UNECE Rec 20 units (shared) |
+| ProductClassification | `public` | HS/CN codes (shared international standard) |
+| Substance | `public` | ECHA substance registry (shared) |
+| SubstanceAlias | `public` | Substance names (shared) |
+| MaterialSubstance | `tenant_{slug}` | Concentration data is proprietary |
 | RuleTemplate (ORG) | `tenant_{slug}` | Tenant-specific rules |
 | All others | `tenant_{slug}` | Tenant isolation |
 
@@ -454,6 +466,268 @@ CREATE INDEX idx_ingestion_jobs_status ON public.ingestion_jobs(status);
 --   INSERT INTO tenant_{slug}.template_adoptions (...);
 --   UPDATE public.marketplace_listings SET adoption_count = adoption_count + 1 WHERE id = $listing_id;
 -- COMMIT;
+```
+
+### SeedVersion
+
+Tracks seeded reference data versions to enable idempotent deployment seeds.
+
+```typescript
+// packages/database/src/entities/SeedVersion.ts
+import { Entity, Property, Unique } from '@mikro-orm/core';
+import { BaseEntity } from './BaseEntity.js';
+
+@Entity({ tableName: 'seed_version', schema: 'public' })
+export class SeedVersion extends BaseEntity {
+  @Property()
+  @Unique()
+  name!: string;        // "unece-rec20", "echa-svhc", "hs-codes"
+
+  @Property()
+  version!: string;     // "Rev17", "2024-01-15", "HS2022"
+
+  @Property({ name: 'seeded_at' })
+  seededAt!: Date;
+
+  @Property({ type: 'int', default: 0, name: 'record_count' })
+  recordCount!: number;
+}
+```
+
+**DDL:**
+
+```sql
+CREATE TABLE public.seed_version (
+    id VARCHAR(30) PRIMARY KEY,
+    name VARCHAR(100) NOT NULL UNIQUE,
+    version VARCHAR(50) NOT NULL,
+    seeded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    record_count INT DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_seed_version_name ON public.seed_version(name);
+```
+
+### ProductClassification
+
+HS/CN codes for product trade classification.
+
+```typescript
+// packages/database/src/entities/ProductClassification.ts
+import { Entity, Property, Enum, Unique, Index } from '@mikro-orm/core';
+import { BaseEntity } from './BaseEntity.js';
+
+export enum ClassificationSystem {
+  HS = 'HS',       // International (6 digits)
+  CN = 'CN',       // EU Combined Nomenclature (8 digits)
+  TARIC = 'TARIC'  // EU Tariff (10 digits)
+}
+
+@Entity({ tableName: 'product_classification', schema: 'public' })
+@Index({ properties: ['system', 'level'] })
+export class ProductClassification extends BaseEntity {
+  @Property({ length: 20 })
+  @Unique()
+  code!: string;              // "8471.30" (HS) or "8471.30.00" (CN)
+
+  @Enum(() => ClassificationSystem)
+  system!: ClassificationSystem;
+
+  @Property({ type: 'text' })
+  description!: string;       // "Portable digital automatic data processing machines"
+
+  @Property({ nullable: true, name: 'parent_code' })
+  parentCode?: string;        // "8471" for "8471.30"
+
+  @Property({ type: 'int', default: 0 })
+  level!: number;             // 0=chapter, 1=heading, 2=subheading
+
+  @Property({ default: true, name: 'is_active' })
+  isActive!: boolean;
+
+  @Property({ nullable: true, name: 'source_version' })
+  sourceVersion?: string;     // "HS2022", "CN2024"
+}
+```
+
+**DDL:**
+
+```sql
+CREATE TABLE public.product_classification (
+    id VARCHAR(30) PRIMARY KEY,
+    code VARCHAR(20) NOT NULL UNIQUE,
+    system VARCHAR(10) NOT NULL,      -- HS, CN, TARIC
+    description TEXT NOT NULL,
+    parent_code VARCHAR(20),
+    level INT DEFAULT 0,
+    is_active BOOLEAN DEFAULT TRUE,
+    source_version VARCHAR(50),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_product_classification_system_level ON public.product_classification(system, level);
+CREATE INDEX idx_product_classification_parent ON public.product_classification(parent_code);
+```
+
+### Substance
+
+Chemical substance registry sourced from ECHA.
+
+```typescript
+// packages/database/src/entities/Substance.ts
+import { Entity, Property, Unique, Index, OneToMany, Collection, BeforeCreate } from '@mikro-orm/core';
+import { BaseEntity } from './BaseEntity.js';
+import { SubstanceAlias } from './SubstanceAlias.js';
+import { isValidCasNumber } from '../utils/cas-validator.js';
+
+@Entity({ tableName: 'substance', schema: 'public' })
+@Index({ properties: ['isSvhc', 'requiresAuthorization', 'isRestricted'] })
+export class Substance extends BaseEntity {
+  @Property({ length: 20 })
+  @Unique()
+  @Index()
+  casNumber!: string;           // "127-19-5" (validated with checksum)
+
+  @Property({ length: 20, nullable: true, name: 'ec_number' })
+  ecNumber?: string;            // "204-826-4" (EU EC/EINECS number)
+
+  @Property({ name: 'primary_name' })
+  primaryName!: string;         // IUPAC or most common name
+
+  @Property({ type: 'text', nullable: true })
+  description?: string;
+
+  @Property({ type: 'decimal', precision: 12, scale: 4, nullable: true, name: 'molecular_weight' })
+  molecularWeight?: string;
+
+  @Property({ length: 500, nullable: true, name: 'molecular_formula' })
+  molecularFormula?: string;    // "C4H9NO"
+
+  // Regulatory status from ECHA
+  @Property({ default: false, name: 'is_svhc' })
+  isSvhc!: boolean;             // SVHC Candidate List
+
+  @Property({ default: false, name: 'requires_authorization' })
+  requiresAuthorization!: boolean;  // Annex XIV
+
+  @Property({ default: false, name: 'is_restricted' })
+  isRestricted!: boolean;       // Annex XVII
+
+  @Property({ type: 'text', nullable: true, name: 'restriction_conditions' })
+  restrictionConditions?: string;   // "Max 0.1% in consumer products"
+
+  @Property({ type: 'date', nullable: true, name: 'sunset_date' })
+  sunsetDate?: Date;            // Authorization deadline
+
+  @Property({ type: 'date', nullable: true, name: 'latest_application_date' })
+  latestApplicationDate?: Date; // Last date to apply for authorization
+
+  // Source tracking
+  @Property({ nullable: true, name: 'echa_url' })
+  echaUrl?: string;             // Link to ECHA substance page
+
+  @Property({ nullable: true, name: 'source_version' })
+  sourceVersion?: string;       // "SVHC-2024-01"
+
+  @Property({ default: true, name: 'is_active' })
+  isActive!: boolean;
+
+  @OneToMany(() => SubstanceAlias, alias => alias.substance)
+  aliases = new Collection<SubstanceAlias>(this);
+
+  @BeforeCreate()
+  validateCasNumber() {
+    if (!isValidCasNumber(this.casNumber)) {
+      throw new Error(`Invalid CAS number checksum: ${this.casNumber}`);
+    }
+  }
+}
+```
+
+**DDL:**
+
+```sql
+CREATE TABLE public.substance (
+    id VARCHAR(30) PRIMARY KEY,
+    cas_number VARCHAR(20) NOT NULL UNIQUE,
+    ec_number VARCHAR(20),
+    primary_name VARCHAR(255) NOT NULL,
+    description TEXT,
+    molecular_weight DECIMAL(12, 4),
+    molecular_formula VARCHAR(500),
+    is_svhc BOOLEAN DEFAULT FALSE,
+    requires_authorization BOOLEAN DEFAULT FALSE,
+    is_restricted BOOLEAN DEFAULT FALSE,
+    restriction_conditions TEXT,
+    sunset_date DATE,
+    latest_application_date DATE,
+    echa_url VARCHAR(500),
+    source_version VARCHAR(50),
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_substance_cas ON public.substance(cas_number);
+CREATE INDEX idx_substance_regulatory ON public.substance(is_svhc, requires_authorization, is_restricted);
+CREATE INDEX idx_substance_name ON public.substance(primary_name);
+```
+
+### SubstanceAlias
+
+Multiple names for a single substance.
+
+```typescript
+// packages/database/src/entities/SubstanceAlias.ts
+import { Entity, Property, ManyToOne, Enum, Index, Unique } from '@mikro-orm/core';
+import { BaseEntity } from './BaseEntity.js';
+import { Substance } from './Substance.js';
+
+export enum AliasType {
+  IUPAC = 'IUPAC',
+  COMMON = 'COMMON',
+  TRADE = 'TRADE',
+  SYNONYM = 'SYNONYM',
+  INDEX_NAME = 'INDEX_NAME'     // CLP Index name
+}
+
+@Entity({ tableName: 'substance_alias', schema: 'public' })
+@Unique({ properties: ['substance', 'name'] })
+export class SubstanceAlias extends BaseEntity {
+  @ManyToOne(() => Substance, { name: 'substance_id' })
+  substance!: Substance;
+
+  @Property()
+  @Index()
+  name!: string;                // Alternative name
+
+  @Enum(() => AliasType)
+  type!: AliasType;
+
+  @Property({ length: 10, nullable: true })
+  language?: string;            // "en", "de", "fr"
+}
+```
+
+**DDL:**
+
+```sql
+CREATE TABLE public.substance_alias (
+    id VARCHAR(30) PRIMARY KEY,
+    substance_id VARCHAR(30) NOT NULL REFERENCES public.substance(id) ON DELETE CASCADE,
+    name VARCHAR(500) NOT NULL,
+    type VARCHAR(20) NOT NULL,     -- IUPAC, COMMON, TRADE, SYNONYM, INDEX_NAME
+    language VARCHAR(10),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(substance_id, name)
+);
+
+CREATE INDEX idx_substance_alias_name ON public.substance_alias(name);
+CREATE INDEX idx_substance_alias_substance ON public.substance_alias(substance_id);
 ```
 
 ---
@@ -938,6 +1212,123 @@ export class BomEntry {
 - For trace chemicals, use smaller units (grams instead of kilograms)
 - Store the unit alongside quantity for clarity
 - Consider a `unit_conversion` table if cross-unit calculations are common
+
+### MaterialSubstance
+
+Links substances (from public registry) to material product versions. Tenant-scoped because concentration data is proprietary.
+
+```typescript
+// packages/database/src/entities/MaterialSubstance.ts
+import { Entity, Property, ManyToOne, Enum, Index, Unique } from '@mikro-orm/core';
+import { BaseEntity } from './BaseEntity.js';
+import { ProductVersion } from './ProductVersion.js';
+import { User } from './User.js';
+
+export enum ConcentrationBasis {
+  WEIGHT = 'WEIGHT',       // % w/w (most common)
+  VOLUME = 'VOLUME',       // % v/v
+  MOLAR = 'MOLAR'          // mol%
+}
+
+@Entity({ tableName: 'material_substance' })
+@Unique({ properties: ['materialVersion', 'substanceId'] })
+export class MaterialSubstance extends BaseEntity {
+  // Links to ProductVersion (material must have targetType=MATERIAL)
+  @ManyToOne(() => ProductVersion, { name: 'material_version_id' })
+  @Index()
+  materialVersion!: ProductVersion;
+
+  // Soft link to public.substance (cross-schema)
+  @Property({ name: 'substance_id' })
+  @Index()
+  substanceId!: string;
+
+  // Concentration data (high precision for regulatory thresholds like 0.1%)
+  @Property({ type: 'decimal', precision: 10, scale: 6, nullable: true, name: 'concentration_pct' })
+  concentrationPct?: string;      // % by weight (e.g., "0.050000" for 0.05%)
+
+  @Property({ type: 'decimal', precision: 10, scale: 6, nullable: true, name: 'concentration_min' })
+  concentrationMin?: string;      // Range minimum (if variable)
+
+  @Property({ type: 'decimal', precision: 10, scale: 6, nullable: true, name: 'concentration_max' })
+  concentrationMax?: string;      // Range maximum (if variable)
+
+  @Enum(() => ConcentrationBasis)
+  basis: ConcentrationBasis = ConcentrationBasis.WEIGHT;
+
+  // Verification audit trail
+  @ManyToOne(() => User, { name: 'verified_by_id', nullable: true })
+  verifiedBy?: User;
+
+  @Property({ nullable: true, name: 'verified_at' })
+  verifiedAt?: Date;
+
+  @Property({ type: 'text', nullable: true, name: 'verification_source' })
+  verificationSource?: string;    // "Supplier SDS dated 2024-01-15"
+
+  // Conditional presence
+  @Property({ default: true, name: 'is_intentionally_added' })
+  isIntentionallyAdded!: boolean; // vs. impurity/contamination
+
+  @Property({ type: 'text', nullable: true })
+  notes?: string;
+}
+```
+
+**DDL:**
+
+```sql
+CREATE TABLE material_substance (
+    id VARCHAR(30) PRIMARY KEY,
+    material_version_id VARCHAR(30) NOT NULL REFERENCES product_versions(id) ON DELETE CASCADE,
+    substance_id VARCHAR(30) NOT NULL,  -- Soft link to public.substance
+    concentration_pct DECIMAL(10, 6),
+    concentration_min DECIMAL(10, 6),
+    concentration_max DECIMAL(10, 6),
+    basis VARCHAR(10) DEFAULT 'WEIGHT',  -- WEIGHT, VOLUME, MOLAR
+    verified_by_id VARCHAR(30) REFERENCES users(id),
+    verified_at TIMESTAMPTZ,
+    verification_source TEXT,
+    is_intentionally_added BOOLEAN DEFAULT TRUE,
+    notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(material_version_id, substance_id)
+);
+
+CREATE INDEX idx_material_substance_version ON material_substance(material_version_id);
+CREATE INDEX idx_material_substance_substance ON material_substance(substance_id);
+
+-- Trigger to enforce targetType = MATERIAL constraint
+CREATE OR REPLACE FUNCTION check_material_version_target_type()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM product_versions pv
+    JOIN products p ON pv.product_id = p.id
+    JOIN categories c ON p.category_id = c.id
+    WHERE pv.id = NEW.material_version_id
+    AND c.target_type = 'MATERIAL'
+  ) THEN
+    RAISE EXCEPTION 'material_substance.material_version_id must reference a MATERIAL product version';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_material_substance_validate
+  BEFORE INSERT OR UPDATE ON material_substance
+  FOR EACH ROW EXECUTE FUNCTION check_material_version_target_type();
+```
+
+**Concentration Precision:**
+
+| Use Case | Example | Covered by DECIMAL(10,6) |
+|----------|---------|--------------------------|
+| SVHC threshold | 0.1% = 0.100000 | Yes |
+| Trace impurity | 0.001% = 0.001000 | Yes |
+| PPM level | 10 ppm = 0.001000% | Yes |
+| High concentration | 95.5% = 95.500000 | Yes |
 
 ### DppSnapshot
 
@@ -2179,6 +2570,23 @@ CREATE INDEX idx_audit_log_created ON audit_log(created_at);
 │              |                                                               │
 │              +── (referenced by RuleTemplate.legalAnchorId)                 │
 │                                                                              │
+│  TAXONOMY REFERENCE DATA (shared across all tenants)                        │
+│  ─────────────────────────────────────────────────────                      │
+│                                                                              │
+│  SeedVersion                       (tracks seeded data versions)            │
+│                                                                              │
+│  UnitDefinition                    (UNECE Rec 20 units)                     │
+│       +── (referenced by AttributeTemplate.defaultUnitId)                   │
+│                                                                              │
+│  ProductClassification             (HS/CN codes)                            │
+│       +── parentCode → ProductClassification (hierarchy)                    │
+│       +── (referenced by Product.classificationCode)                        │
+│                                                                              │
+│  Substance                         (ECHA registry)                          │
+│       |                                                                      │
+│       +── SubstanceAlias[] (IUPAC, common, trade names)                     │
+│       +── (referenced by tenant.MaterialSubstance.substanceId)              │
+│                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -2190,6 +2598,7 @@ CREATE INDEX idx_audit_log_created ON audit_log(created_at);
 │       +── OrganizationUser (membership + authorities)                       │
 │       +── ProductVersion.createdBy / reviewer / publishedBy                 │
 │       +── RuleDeviation.acknowledgedBy                                      │
+│       +── MaterialSubstance.verifiedBy                                      │
 │       +── AuditLog.user                                                     │
 │                                                                              │
 │  Product                                                                     │
@@ -2197,15 +2606,25 @@ CREATE INDEX idx_audit_log_created ON audit_log(created_at);
 │       +── ProductIdentifier[] (GTIN, SKU, etc.)                             │
 │       +── ProductVersion[] (per-workspace versions)                         │
 │       |       +── BomEntry[]                                                │
+│       |       +── MaterialSubstance[] (for MATERIAL targetType only)        │
 │       |       +── DppSnapshot.designVersion / marketingVersion              │
 │       +── Product[] (variants via parent_id)                                │
 │       +── DppSnapshot[]                                                     │
+│       +── classificationCode → public.ProductClassification (soft link)    │
+│                                                                              │
+│  MaterialSubstance (links material versions to public.substance)            │
+│       |                                                                      │
+│       +── materialVersion → ProductVersion (MATERIAL only)                  │
+│       +── substanceId → public.substance (soft link, cross-schema)          │
+│       +── verifiedBy → User                                                 │
+│       +── concentrationPct, basis (WEIGHT/VOLUME/MOLAR)                     │
 │                                                                              │
 │  RuleTemplate ◄─────── ReadinessProfileRule ───────► ReadinessProfile       │
 │       |                     (overrides)                    |                 │
 │       +── legalAnchorId → public.regulation_anchors        +── DppSnapshot  │
 │       +── attributeTemplateId → attribute_template                          │
 │       +── inheritedFromId (Live Link)                                       │
+│       +── validationLogic.type: substance_threshold/presence/authorization                                       │
 │                                                                              │
 │  ReasonCode                                                                  │
 │       |                                                                      │
