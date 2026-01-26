@@ -200,6 +200,22 @@ describe('AttributeService', () => {
       // Invalid - wrong type
       await expect(service.validateValue(attr.id, { val: 'text', unit: 'KGM' })).rejects.toThrow();
     });
+
+    it('should reject unit from wrong unit system', async () => {
+      const attr = await service.create({
+        key: 'weight',
+        name: 'Weight',
+        type: AttributeType.NUMBER_UNIT,
+        categoryId: rootCategory.id,
+        targetType: TargetType.PRODUCT,
+        unitSystem: UnitSystem.MASS,  // Weight attribute expects MASS units
+      });
+
+      // Invalid - LTR (Liters) is from VOLUME system, not MASS
+      await expect(
+        service.validateValue(attr.id, { val: 5, unit: 'LTR' })
+      ).rejects.toThrow('Invalid unit "LTR" for weight. Expected a unit from the MASS system.');
+    });
   });
 });
 ```
@@ -263,6 +279,15 @@ export class AttributeService {
     return attr;
   }
 
+  /**
+   * Get attributes for a category, optionally including inherited attributes from ancestors.
+   * Uses LTREE @> operator for efficient ancestor lookup (requires GIST index on path).
+   *
+   * Inheritance Rules (Day 2):
+   * - INHERIT: Attribute flows down to children (default)
+   * - OVERRIDE: Child can replace parent's attribute with same key
+   * - FINAL: Cannot be overridden by children
+   */
   async getAttributesForCategory(categoryId: string, includeInherited: boolean = true): Promise<AttributeTemplate[]> {
     const category = await this.em.findOneOrFail(Category, { id: categoryId });
 
@@ -270,24 +295,46 @@ export class AttributeService {
       return this.em.find(AttributeTemplate, { category: { id: categoryId } });
     }
 
-    // Get all ancestor paths
-    const pathParts = category.path.split('.');
-    const ancestorPaths: string[] = [];
-    for (let i = 1; i <= pathParts.length; i++) {
-      ancestorPaths.push(pathParts.slice(0, i).join('.'));
-    }
+    // Use LTREE @> operator for efficient ancestor lookup
+    // IMPORTANT: Use fully qualified public.category to prevent multi-tenant ambiguity
+    const conn = this.em.getConnection();
+    const ancestorResult = await conn.execute<Array<{ id: string }>>(
+      `SELECT id FROM public.category
+       WHERE path @> $1::ltree
+       ORDER BY depth ASC`,
+      [category.path]
+    );
 
-    // Get categories by paths
-    const categories = await this.em.find(Category, { path: { $in: ancestorPaths } });
-    const categoryIds = categories.map(c => c.id);
+    const categoryIds = ancestorResult.map(r => r.id);
 
-    // Get attributes
-    return this.em.find(AttributeTemplate, {
+    // Get attributes from all ancestor categories (including self)
+    const allAttributes = await this.em.find(AttributeTemplate, {
       category: { id: { $in: categoryIds } },
       isActive: true,
-    }, { orderBy: { sortOrder: 'ASC' } });
+    }, { orderBy: { sortOrder: 'ASC' }, populate: ['category'] });
+
+    // Apply inheritance rules: later (deeper) attributes with OVERRIDE replace earlier ones
+    const attributeMap = new Map<string, AttributeTemplate>();
+    for (const attr of allAttributes) {
+      const existing = attributeMap.get(attr.key);
+      if (!existing) {
+        attributeMap.set(attr.key, attr);
+      } else if (existing.inheritanceRule !== InheritanceRule.FINAL) {
+        // Child can override unless parent is FINAL
+        if (attr.inheritanceRule === InheritanceRule.OVERRIDE ||
+            attr.category.depth > existing.category.depth) {
+          attributeMap.set(attr.key, attr);
+        }
+      }
+    }
+
+    return Array.from(attributeMap.values());
   }
 
+  /**
+   * Validate a value against an attribute template.
+   * Includes type checking, range validation, enum validation, and unit system guarding.
+   */
   async validateValue(attributeId: string, value: AttributeValue): Promise<void> {
     const attr = await this.em.findOneOrFail(AttributeTemplate, { id: attributeId });
 
@@ -314,6 +361,20 @@ export class AttributeService {
         break;
     }
 
+    // Unit system guarding: verify unit belongs to template's unitSystem
+    if (attr.type === AttributeType.NUMBER_UNIT && value.unit && attr.unitSystem) {
+      const validUnit = await this.em.findOne('Unit', {
+        code: value.unit,
+        system: attr.unitSystem,
+      });
+      if (!validUnit) {
+        throw new Error(
+          `Invalid unit "${value.unit}" for ${attr.key}. ` +
+          `Expected a unit from the ${attr.unitSystem} system.`
+        );
+      }
+    }
+
     // Validation rules
     if (attr.validationRules) {
       const rules = attr.validationRules as { min?: number; max?: number; pattern?: string };
@@ -323,12 +384,18 @@ export class AttributeService {
       if (rules.max !== undefined && typeof value.val === 'number' && value.val > rules.max) {
         throw new Error(`${attr.key} must be <= ${rules.max}`);
       }
+      if (rules.pattern && typeof value.val === 'string') {
+        const regex = new RegExp(rules.pattern);
+        if (!regex.test(value.val)) {
+          throw new Error(`${attr.key} does not match pattern: ${rules.pattern}`);
+        }
+      }
     }
 
     // Enum validation
     if (attr.type === AttributeType.ENUM && attr.enumValues) {
       if (!attr.enumValues.includes(value.val as string)) {
-        throw new Error(`Invalid enum value for ${attr.key}`);
+        throw new Error(`Invalid enum value for ${attr.key}. Valid values: ${attr.enumValues.join(', ')}`);
       }
     }
   }
@@ -573,7 +640,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import type { MikroORM } from '@eurocomply/database';
 import { Hono } from 'hono';
 import { createAttributesRouter, type AttributesRepository, type AttributeData } from './attributes.js';
-import { AttributeTemplate, Category, CategoryType, AttributeDataType } from '@eurocomply/database';
+import { AttributeTemplate, AttributeType, Category, CategoryType } from '@eurocomply/database';
 import { setupTestDb, teardownTestDb, isDatabaseAvailable } from '@eurocomply/database/test-utils';
 import type { Env } from '../../app.js';
 
@@ -608,11 +675,11 @@ describe('Attributes API E2E', () => {
     await em.flush();
 
     const attr = em.create(AttributeTemplate, {
+      key: 'weight',
       name: 'Weight',
-      slug: 'weight',
-      dataType: AttributeDataType.DECIMAL,
+      type: AttributeType.NUMBER_UNIT,
       category,
-      isRequired: true,
+      targetType: 'PRODUCT',
       isActive: true,
     });
     em.persist(attr);
@@ -623,16 +690,18 @@ describe('Attributes API E2E', () => {
       findAll: async (filter): Promise<AttributeData[]> => {
         const qb = orm.em.fork().createQueryBuilder(AttributeTemplate);
         if (filter?.categoryId) qb.andWhere({ category: { id: filter.categoryId } });
-        if (filter?.dataType) qb.andWhere({ dataType: filter.dataType });
+        if (filter?.type) qb.andWhere({ type: filter.type });
+        if (filter?.key) qb.andWhere({ key: filter.key });
         if (filter?.active !== undefined) qb.andWhere({ isActive: filter.active });
         const results = await qb.getResultList();
         return results.map(a => ({
           id: a.id,
+          key: a.key,
           name: a.name,
-          slug: a.slug,
-          dataType: a.dataType,
+          type: a.type,
           categoryId: a.category?.id,
-          isRequired: a.isRequired,
+          targetType: a.targetType,
+          unitSystem: a.unitSystem,
           isActive: a.isActive,
         }));
       },
@@ -641,24 +710,26 @@ describe('Attributes API E2E', () => {
         if (!a) return null;
         return {
           id: a.id,
+          key: a.key,
           name: a.name,
-          slug: a.slug,
-          dataType: a.dataType,
+          type: a.type,
           categoryId: a.category?.id,
-          isRequired: a.isRequired,
+          targetType: a.targetType,
+          unitSystem: a.unitSystem,
           isActive: a.isActive,
         };
       },
       findByCategoryWithInheritance: async (categoryId): Promise<AttributeData[]> => {
-        // Simplified - full implementation would use LTREE queries
+        // Full implementation uses LTREE @> query via AttributeService
         const results = await orm.em.fork().find(AttributeTemplate, { category: { id: categoryId } });
         return results.map(a => ({
           id: a.id,
+          key: a.key,
           name: a.name,
-          slug: a.slug,
-          dataType: a.dataType,
+          type: a.type,
           categoryId: a.category?.id,
-          isRequired: a.isRequired,
+          targetType: a.targetType,
+          unitSystem: a.unitSystem,
           isActive: a.isActive,
         }));
       },
@@ -682,6 +753,16 @@ describe('Attributes API E2E', () => {
     const body = await res.json() as ApiResponse<AttributeData[]>;
     expect(body.data.length).toBeGreaterThan(0);
   });
+
+  it('should filter attributes by key', async () => {
+    if (!orm) return;
+
+    const res = await app.request('/attributes?key=weight');
+    expect(res.status).toBe(200);
+    const body = await res.json() as ApiResponse<AttributeData[]>;
+    expect(body.data.length).toBe(1);
+    expect(body.data[0].key).toBe('weight');
+  });
 });
 ```
 
@@ -700,23 +781,27 @@ Expected: FAIL with "Cannot find module './attributes.js'"
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
-import { AttributeDataType } from '@eurocomply/database';
+import { AttributeType, UnitSystem, TargetType } from '@eurocomply/database';
 import type { Env } from '../../app.js';
 
 export interface AttributeData {
   id: string;
+  key: string;
   name: string;
-  slug: string;
-  dataType: AttributeDataType;
+  description?: string;
+  type: AttributeType;
   categoryId?: string;
-  isRequired: boolean;
+  targetType: TargetType;
+  unitSystem?: UnitSystem;
+  defaultUnitId?: string;
   isActive: boolean;
 }
 
 export interface AttributesRepository {
   findAll(filter?: {
     categoryId?: string;
-    dataType?: AttributeDataType;
+    type?: AttributeType;
+    key?: string;  // Filter by human-readable key (e.g., "weight")
     active?: boolean;
   }): Promise<AttributeData[]>;
   findById(id: string): Promise<AttributeData | null>;
@@ -725,7 +810,8 @@ export interface AttributesRepository {
 
 const querySchema = z.object({
   categoryId: z.string().optional(),
-  dataType: z.nativeEnum(AttributeDataType).optional(),
+  type: z.nativeEnum(AttributeType).optional(),
+  key: z.string().optional(),  // e.g., ?key=weight
   active: z.enum(['true', 'false']).transform(v => v === 'true').optional(),
 });
 
@@ -733,12 +819,14 @@ export function createAttributesRouter(repo: AttributesRepository): Hono<Env> {
   const router = new Hono<Env>();
 
   // GET /attributes - List all with optional filters
+  // Supports: ?categoryId=..., ?type=NUMBER_UNIT, ?key=weight, ?active=true
   router.get('/', zValidator('query', querySchema), async (c) => {
     const query = c.req.valid('query');
 
     const filter: Parameters<typeof repo.findAll>[0] = {};
     if (query.categoryId) filter.categoryId = query.categoryId;
-    if (query.dataType) filter.dataType = query.dataType;
+    if (query.type) filter.type = query.type;
+    if (query.key) filter.key = query.key;
     if (query.active !== undefined) filter.active = query.active;
 
     const attributes = await repo.findAll(filter);
@@ -794,7 +882,8 @@ git commit -m "feat(api): add attributes API routes (list, get by id)"
 **API Routes:**
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/v1/taxonomy/attributes` | List with filters |
+| GET | `/api/v1/taxonomy/attributes` | List with filters (?categoryId, ?type, ?key, ?active) |
+| GET | `/api/v1/taxonomy/attributes?key=weight` | Quick lookup by human-readable key |
 | GET | `/api/v1/taxonomy/attributes/:id` | Get by id |
 | GET | `/api/v1/taxonomy/categories/:id/attributes` | Get with inheritance |
 
