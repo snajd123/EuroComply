@@ -476,8 +476,18 @@ git commit -m "feat(database): add Substance entity with CAS validation and regu
 
 ## Task 4: Create SubstanceAlias Entity
 
+> **Architectural Note: Proper ManyToOne Relationship**
+>
+> Since both `Substance` and `SubstanceAlias` live in the public schema, we use a proper `@ManyToOne` relationship instead of a soft `substanceId` string. This enables:
+> - `populate: ['aliases']` in API routes for cleaner queries
+> - MikroORM cascade operations
+> - Type-safe relationship navigation
+>
+> The `copyLarge` seeder (Task 7) still uses raw IDs, but MikroORM correctly hydrates the relationship when loading.
+
 **Files:**
 - Create: `packages/database/src/entities/SubstanceAlias.ts`
+- Modify: `packages/database/src/entities/Substance.ts` (add OneToMany)
 - Modify: `packages/database/src/entities/index.ts`
 - Test: `packages/database/src/entities/SubstanceAlias.test.ts`
 
@@ -518,17 +528,17 @@ describe('SubstanceAlias', () => {
     await em.persistAndFlush(substance);
 
     const alias = em.create(SubstanceAlias, {
-      substanceId: substance.id,
+      substance,  // Use relationship, not substanceId
       name: 'DMAC',
       type: AliasType.COMMON,
       language: 'en',
     });
     await em.persistAndFlush(alias);
 
-    const found = await em.findOne(SubstanceAlias, { name: 'DMAC' });
+    const found = await em.findOne(SubstanceAlias, { name: 'DMAC' }, { populate: ['substance'] });
     expect(found).toBeDefined();
     expect(found?.type).toBe(AliasType.COMMON);
-    expect(found?.substanceId).toBe(substance.id);
+    expect(found?.substance.id).toBe(substance.id);
   });
 
   it('should allow multiple aliases per substance', async () => {
@@ -542,20 +552,39 @@ describe('SubstanceAlias', () => {
     await em.persistAndFlush(substance);
 
     const alias1 = em.create(SubstanceAlias, {
-      substanceId: substance.id,
+      substance,
       name: 'Ethyl alcohol',
       type: AliasType.SYNONYM,
     });
     const alias2 = em.create(SubstanceAlias, {
-      substanceId: substance.id,
+      substance,
       name: 'Alcohol',
       type: AliasType.COMMON,
     });
 
     await em.persistAndFlush([alias1, alias2]);
 
-    const aliases = await em.find(SubstanceAlias, { substanceId: substance.id });
+    const aliases = await em.find(SubstanceAlias, { substance });
     expect(aliases).toHaveLength(2);
+  });
+
+  it('should populate aliases from substance', async () => {
+    const em = orm.em.fork();
+
+    const substance = em.create(Substance, {
+      casNumber: '127-19-5',
+      primaryName: 'N,N-Dimethylacetamide',
+      isActive: true,
+    });
+    await em.persistAndFlush(substance);
+
+    em.create(SubstanceAlias, { substance, name: 'DMAC', type: AliasType.COMMON });
+    em.create(SubstanceAlias, { substance, name: 'DMAc', type: AliasType.SYNONYM });
+    await em.flush();
+
+    em.clear();
+    const loaded = await em.findOne(Substance, { casNumber: '127-19-5' }, { populate: ['aliases'] });
+    expect(loaded?.aliases.length).toBe(2);
   });
 
   it('should enforce unique substance+name constraint', async () => {
@@ -569,14 +598,14 @@ describe('SubstanceAlias', () => {
     await em.persistAndFlush(substance);
 
     const alias1 = em.create(SubstanceAlias, {
-      substanceId: substance.id,
+      substance,
       name: 'H2O',
       type: AliasType.SYNONYM,
     });
     await em.persistAndFlush(alias1);
 
     const alias2 = em.create(SubstanceAlias, {
-      substanceId: substance.id,
+      substance,
       name: 'H2O',
       type: AliasType.COMMON,
     });
@@ -598,17 +627,19 @@ Expected: FAIL with "Cannot find module './SubstanceAlias.js'"
 
 ```typescript
 // packages/database/src/entities/SubstanceAlias.ts
-import { Entity, Property, Unique, Index, Enum } from '@mikro-orm/core';
+import { Entity, Property, Unique, Index, Enum, ManyToOne } from '@mikro-orm/core';
 import { BaseEntity } from './BaseEntity.js';
 import { AliasType } from './enums/index.js';
+import type { Substance } from './Substance.js';
 
 @Entity({ tableName: 'substance_alias', schema: 'public' })
-@Unique({ properties: ['substanceId', 'name'] })
+@Unique({ properties: ['substance', 'name'] })
 export class SubstanceAlias extends BaseEntity {
-  // Soft link to public.substance (cross-schema safe)
-  @Property({ name: 'substance_id' })
-  @Index()
-  substanceId!: string;
+  @ManyToOne(() => import('./Substance.js').then(m => m.Substance), {
+    fieldName: 'substance_id',
+    index: true,
+  })
+  substance!: Substance;
 
   @Property({ type: 'text' })
   @Index()
@@ -617,9 +648,21 @@ export class SubstanceAlias extends BaseEntity {
   @Enum({ items: () => AliasType })
   type!: AliasType;  // IUPAC, COMMON, TRADE, SYNONYM, INDEX_NAME
 
-  @Property({ length: 10, nullable: true })
+  @Property({ length: 10, nullable: true, default: 'en' })
   language?: string;  // "en", "de", "fr"
 }
+```
+
+**Step 3b: Add OneToMany to Substance entity**
+
+```typescript
+// Add to packages/database/src/entities/Substance.ts
+import { OneToMany, Collection } from '@mikro-orm/core';
+import type { SubstanceAlias } from './SubstanceAlias.js';
+
+// Add inside the Substance class:
+@OneToMany(() => import('./SubstanceAlias.js').then(m => m.SubstanceAlias), alias => alias.substance)
+aliases = new Collection<SubstanceAlias>(this);
 ```
 
 **Step 4: Export from index**
@@ -1251,6 +1294,7 @@ export interface SubstanceSeederResult {
 interface AliasData {
   name: string;
   type: string;
+  language?: string;  // ISO 639-1, defaults to 'en'
 }
 
 interface SubstanceData {
@@ -1340,10 +1384,20 @@ export class SubstancesSeeder {
     }
 
     // 2. Bulk insert substances using copyLarge (PostgreSQL COPY)
+    const substanceColumns = [
+      'id', 'cas_number', 'ec_number', 'primary_name', 'description',
+      'molecular_weight', 'molecular_formula', 'is_svhc',
+      'requires_authorization', 'is_restricted', 'restriction_conditions',
+      'sunset_date', 'latest_application_date', 'echa_url',
+      'source_version', 'is_active', 'created_at', 'updated_at',
+    ];
+
     const substanceCount = await this.bulkImportService.copyLarge(
       'substance',
       substanceRecords,
-      'public'  // Substances live in public schema
+      substanceColumns,
+      'cas_number',  // Conflict column for upsert
+      'public'       // Schema
     );
 
     // 3. Build alias records using the in-memory CAS→ID map (no DB round-trip)
@@ -1358,6 +1412,7 @@ export class SubstancesSeeder {
           substance_id: substanceId,
           name: alias.name,
           type: alias.type,
+          language: alias.language ?? 'en',
           created_at: new Date(),
           updated_at: new Date(),
         });
@@ -1365,12 +1420,18 @@ export class SubstancesSeeder {
     }
 
     // 4. Bulk insert aliases using copyLarge
+    const aliasColumns = [
+      'id', 'substance_id', 'name', 'type', 'language', 'created_at', 'updated_at',
+    ];
+
     let aliasCount = 0;
     if (aliasRecords.length > 0) {
       aliasCount = await this.bulkImportService.copyLarge(
         'substance_alias',
         aliasRecords,
-        'public'  // Aliases also in public schema
+        aliasColumns,
+        ['substance_id', 'name'],  // Composite conflict columns
+        'public'
       );
     }
 
@@ -1480,16 +1541,18 @@ describe('Substances API E2E', () => {
     await em.flush();
     testSubstanceId = substance1.id;
 
-    // Add aliases for first substance
+    // Add aliases for first substance (use relationship, not substanceId)
     const alias1 = em.create(SubstanceAlias, {
-      substanceId: substance1.id,
+      substance: substance1,
       name: 'DMAC',
       type: AliasType.COMMON,
+      language: 'en',
     });
     const alias2 = em.create(SubstanceAlias, {
-      substanceId: substance1.id,
+      substance: substance1,
       name: 'Dimethylacetamide',
       type: AliasType.SYNONYM,
+      language: 'en',
     });
     em.persist([alias1, alias2]);
     await em.flush();
@@ -1530,12 +1593,13 @@ describe('Substances API E2E', () => {
         };
       },
       findAliases: async (substanceId): Promise<SubstanceAliasData[]> => {
-        const aliases = await orm.em.fork().find(SubstanceAlias, { substanceId });
+        const aliases = await orm.em.fork().find(SubstanceAlias, { substance: { id: substanceId } });
         return aliases.map(a => ({
           id: a.id,
-          substanceId: a.substanceId,
+          substanceId: a.substance.id,
           name: a.name,
           type: a.type,
+          language: a.language ?? 'en',
         }));
       },
       findRegulated: async (): Promise<SubstanceData[]> => {
@@ -1690,12 +1754,20 @@ export interface SubstanceData {
   isActive: boolean;
 }
 
+/**
+ * Substance alias for API response.
+ * Frontend uses `type` and `language` to determine display priority:
+ * - IUPAC names for scientific contexts
+ * - COMMON names for user-friendly display
+ * - TRADE names for commercial contexts
+ * - language for localization
+ */
 export interface SubstanceAliasData {
   id: string;
   substanceId: string;
   name: string;
-  type: string;
-  language?: string;
+  type: string;     // AliasType: IUPAC, COMMON, TRADE, SYNONYM, INDEX_NAME
+  language: string; // ISO 639-1: "en", "de", "fr" - defaults to "en"
 }
 
 export interface SubstancesRepository {
