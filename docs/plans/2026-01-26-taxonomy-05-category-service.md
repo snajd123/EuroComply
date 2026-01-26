@@ -27,6 +27,7 @@
 import { MikroORM, EntityManager } from '@mikro-orm/core';
 import { CategoryService } from './category.service.js';
 import { Category, CategoryType } from '../entities/Category.js';
+import { CategoryAdoption } from '../entities/CategoryAdoption.js';
 import { TargetType } from '../entities/enums/index.js';
 import { createTestOrm } from '../test-utils/create-test-orm.js';
 
@@ -36,7 +37,7 @@ describe('CategoryService', () => {
   let service: CategoryService;
 
   beforeAll(async () => {
-    orm = await createTestOrm([Category]);
+    orm = await createTestOrm([Category, CategoryAdoption]);
   });
 
   afterAll(async () => {
@@ -46,6 +47,7 @@ describe('CategoryService', () => {
   beforeEach(async () => {
     em = orm.em.fork();
     service = new CategoryService(em);
+    await em.nativeDelete(CategoryAdoption, {});
     await em.nativeDelete(Category, {});
   });
 
@@ -79,6 +81,32 @@ describe('CategoryService', () => {
       expect(child.path).toBe('electronics.batteries');
       expect(child.depth).toBe(1);
       expect(child.parent?.id).toBe(root.id);
+    });
+
+    it('should throw user-friendly error on slug collision', async () => {
+      // Create "T-Shirts" category
+      const root = await service.create({
+        name: 'Apparel',
+        type: CategoryType.ROOT,
+        targetType: TargetType.PRODUCT,
+      });
+
+      await service.create({
+        name: 'T-Shirts',
+        parentId: root.id,
+        type: CategoryType.LEAF,
+        targetType: TargetType.PRODUCT,
+      });
+
+      // Try to create "T Shirts" which slugifies to same path
+      await expect(
+        service.create({
+          name: 'T Shirts',  // Different name, same slug
+          parentId: root.id,
+          type: CategoryType.LEAF,
+          targetType: TargetType.PRODUCT,
+        })
+      ).rejects.toThrow('Category path "apparel.t_shirts" already exists');
     });
   });
 
@@ -159,6 +187,104 @@ describe('CategoryService', () => {
       expect(descendants).toHaveLength(3);
     });
   });
+
+  // ==========================================================================
+  // Category Adoption Tests
+  // ==========================================================================
+
+  describe('adoptCategory', () => {
+    it('should adopt a system category for a tenant', async () => {
+      const category = await service.create({
+        name: 'Electronics',
+        type: CategoryType.ROOT,
+        targetType: TargetType.PRODUCT,
+      });
+
+      const adoption = await service.adoptCategory('tenant_acme', category.id);
+
+      expect(adoption.tenantSchema).toBe('tenant_acme');
+      expect(adoption.category.id).toBe(category.id);
+      expect(adoption.isActive).toBe(true);
+    });
+
+    it('should throw if category already adopted', async () => {
+      const category = await service.create({
+        name: 'Batteries',
+        type: CategoryType.ROOT,
+        targetType: TargetType.PRODUCT,
+      });
+
+      await service.adoptCategory('tenant_acme', category.id);
+
+      await expect(
+        service.adoptCategory('tenant_acme', category.id)
+      ).rejects.toThrow('already adopted');
+    });
+  });
+
+  describe('getAdoptedCategories', () => {
+    it('should return only adopted categories for tenant', async () => {
+      const electronics = await service.create({
+        name: 'Electronics',
+        type: CategoryType.ROOT,
+        targetType: TargetType.PRODUCT,
+      });
+
+      const apparel = await service.create({
+        name: 'Apparel',
+        type: CategoryType.ROOT,
+        targetType: TargetType.PRODUCT,
+      });
+
+      // Tenant adopts only electronics
+      await service.adoptCategory('tenant_acme', electronics.id);
+
+      const adopted = await service.getAdoptedCategories('tenant_acme');
+
+      expect(adopted).toHaveLength(1);
+      expect(adopted[0].name).toBe('Electronics');
+    });
+  });
+
+  describe('unadoptCategory', () => {
+    it('should remove adoption for tenant', async () => {
+      const category = await service.create({
+        name: 'Electronics',
+        type: CategoryType.ROOT,
+        targetType: TargetType.PRODUCT,
+      });
+
+      await service.adoptCategory('tenant_acme', category.id);
+      await service.unadoptCategory('tenant_acme', category.id);
+
+      const adopted = await service.getAdoptedCategories('tenant_acme');
+      expect(adopted).toHaveLength(0);
+    });
+  });
+
+  describe('getAvailableForAdoption', () => {
+    it('should return categories not yet adopted', async () => {
+      const electronics = await service.create({
+        name: 'Electronics',
+        type: CategoryType.ROOT,
+        targetType: TargetType.PRODUCT,
+      });
+
+      const apparel = await service.create({
+        name: 'Apparel',
+        type: CategoryType.ROOT,
+        targetType: TargetType.PRODUCT,
+      });
+
+      // Tenant adopts only electronics
+      await service.adoptCategory('tenant_acme', electronics.id);
+
+      const available = await service.getAvailableForAdoption('tenant_acme');
+
+      expect(available).toHaveLength(1);
+      expect(available[0].name).toBe('Apparel');
+    });
+  });
 });
 ```
 
@@ -176,6 +302,7 @@ Expected: FAIL with "Cannot find module './category.service.js'"
 // packages/database/src/services/category.service.ts
 import { EntityManager } from '@mikro-orm/core';
 import { Category, CategoryType } from '../entities/Category.js';
+import { CategoryAdoption } from '../entities/CategoryAdoption.js';
 import { TargetType } from '../entities/enums/index.js';
 
 export interface CreateCategoryInput {
@@ -200,6 +327,7 @@ export class CategoryService {
 
   /**
    * Create a new category with auto-generated LTREE path.
+   * Checks for slug collisions to provide user-friendly error messages.
    */
   async create(input: CreateCategoryInput): Promise<Category> {
     let parent: Category | null = null;
@@ -213,6 +341,15 @@ export class CategoryService {
     } else {
       path = this.slugify(input.name);
       depth = 0;
+    }
+
+    // Check for slug collision (e.g., "T-Shirts" and "T Shirts" both become "t_shirts")
+    const existingPath = await this.em.findOne(Category, { path });
+    if (existingPath) {
+      throw new Error(
+        `Category path "${path}" already exists. ` +
+        `Names "${input.name}" and "${existingPath.name}" produce the same slug.`
+      );
     }
 
     const category = this.em.create(Category, {
@@ -343,6 +480,92 @@ export class CategoryService {
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '_')
       .replace(/^_|_$/g, '');
+  }
+
+  // ==========================================================================
+  // Category Adoption (Tenant Customization)
+  // ==========================================================================
+
+  /**
+   * Adopt a system category for a tenant.
+   * Creates a CategoryAdoption record linking the tenant to the system category.
+   *
+   * @param tenantSchema - The tenant's schema name (e.g., "tenant_acme")
+   * @param categoryId - The system category ID to adopt
+   * @returns The created CategoryAdoption record
+   */
+  async adoptCategory(tenantSchema: string, categoryId: string): Promise<CategoryAdoption> {
+    // Verify category exists and is a system category (in public schema)
+    const category = await this.em.findOneOrFail(Category, { id: categoryId });
+
+    // Check if already adopted
+    const existing = await this.em.findOne(CategoryAdoption, {
+      tenantSchema,
+      category: { id: categoryId },
+    });
+
+    if (existing) {
+      throw new Error(`Category "${category.name}" is already adopted by tenant "${tenantSchema}"`);
+    }
+
+    const adoption = this.em.create(CategoryAdoption, {
+      tenantSchema,
+      category,
+      isActive: true,
+      adoptedAt: new Date(),
+    });
+
+    await this.em.persistAndFlush(adoption);
+    return adoption;
+  }
+
+  /**
+   * Get all categories adopted by a tenant.
+   * Returns system categories that the tenant has explicitly adopted.
+   */
+  async getAdoptedCategories(tenantSchema: string): Promise<Category[]> {
+    const adoptions = await this.em.find(
+      CategoryAdoption,
+      { tenantSchema, isActive: true },
+      { populate: ['category'] }
+    );
+
+    return adoptions.map(a => a.category);
+  }
+
+  /**
+   * Remove adoption of a system category for a tenant.
+   * Note: This only removes the adoption link, not the category itself.
+   */
+  async unadoptCategory(tenantSchema: string, categoryId: string): Promise<void> {
+    const adoption = await this.em.findOne(CategoryAdoption, {
+      tenantSchema,
+      category: { id: categoryId },
+    });
+
+    if (!adoption) {
+      throw new Error(`Category is not adopted by tenant "${tenantSchema}"`);
+    }
+
+    await this.em.removeAndFlush(adoption);
+  }
+
+  /**
+   * Get available system categories for adoption (not yet adopted by tenant).
+   */
+  async getAvailableForAdoption(tenantSchema: string, targetType?: TargetType): Promise<Category[]> {
+    // Get all adopted category IDs for this tenant
+    const adoptions = await this.em.find(CategoryAdoption, { tenantSchema });
+    const adoptedIds = new Set(adoptions.map(a => a.category.id));
+
+    // Get all system categories
+    const where: Record<string, unknown> = { isActive: true };
+    if (targetType) where.targetType = targetType;
+
+    const allCategories = await this.em.find(Category, where);
+
+    // Filter out already adopted
+    return allCategories.filter(c => !adoptedIds.has(c.id));
   }
 }
 ```
@@ -1314,6 +1537,12 @@ export interface CategoriesRepository {
   findRoots(targetType?: string): Promise<CategoryData[]>;
   findChildren(parentId: string): Promise<CategoryData[]>;
   findAncestors(id: string): Promise<CategoryData[]>;
+
+  // Category Adoption (Tenant Customization)
+  getAdoptedCategories(tenantSchema: string): Promise<CategoryData[]>;
+  getAvailableForAdoption(tenantSchema: string, targetType?: string): Promise<CategoryData[]>;
+  adoptCategory(tenantSchema: string, categoryId: string): Promise<{ id: string; tenantSchema: string; categoryId: string }>;
+  unadoptCategory(tenantSchema: string, categoryId: string): Promise<void>;
 }
 
 const querySchema = z.object({
@@ -1384,7 +1613,7 @@ export function createCategoriesRouter(repo: CategoriesRepository): Hono {
     });
   });
 
-  // GET /categories/:id/ancestors - Get all ancestors
+  // GET /categories/:id/ancestors - Get all ancestors (breadcrumb trail)
   router.get('/:id/ancestors', async (c) => {
     const id = c.req.param('id');
     const category = await repo.findById(id);
@@ -1399,6 +1628,83 @@ export function createCategoriesRouter(repo: CategoriesRepository): Hono {
       data: ancestors,
       meta: { total: ancestors.length, categoryId: id },
     });
+  });
+
+  // ==========================================================================
+  // Category Adoption Routes (Tenant Customization)
+  // ==========================================================================
+
+  // GET /categories/adoption - Get adopted categories for current tenant
+  router.get('/adoption', async (c) => {
+    const tenantSchema = c.get('tenantSchema'); // From auth middleware
+    if (!tenantSchema) {
+      return c.json({ error: 'Tenant context required' }, 401);
+    }
+
+    const adopted = await repo.getAdoptedCategories(tenantSchema);
+
+    return c.json({
+      data: adopted,
+      meta: { total: adopted.length, tenantSchema },
+    });
+  });
+
+  // GET /categories/adoption/available - Get categories available for adoption
+  router.get('/adoption/available', zValidator('query', z.object({
+    targetType: z.enum(['PRODUCT', 'MATERIAL', 'FACILITY', 'BATCH']).optional(),
+  })), async (c) => {
+    const tenantSchema = c.get('tenantSchema');
+    if (!tenantSchema) {
+      return c.json({ error: 'Tenant context required' }, 401);
+    }
+
+    const query = c.req.valid('query');
+    const available = await repo.getAvailableForAdoption(tenantSchema, query.targetType);
+
+    return c.json({
+      data: available,
+      meta: { total: available.length, tenantSchema },
+    });
+  });
+
+  // POST /categories/:id/adopt - Adopt a system category
+  router.post('/:id/adopt', async (c) => {
+    const tenantSchema = c.get('tenantSchema');
+    if (!tenantSchema) {
+      return c.json({ error: 'Tenant context required' }, 401);
+    }
+
+    const categoryId = c.req.param('id');
+
+    try {
+      const adoption = await repo.adoptCategory(tenantSchema, categoryId);
+      return c.json({ data: adoption }, 201);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('already adopted')) {
+        return c.json({ error: error.message }, 409);
+      }
+      throw error;
+    }
+  });
+
+  // DELETE /categories/:id/adopt - Remove category adoption
+  router.delete('/:id/adopt', async (c) => {
+    const tenantSchema = c.get('tenantSchema');
+    if (!tenantSchema) {
+      return c.json({ error: 'Tenant context required' }, 401);
+    }
+
+    const categoryId = c.req.param('id');
+
+    try {
+      await repo.unadoptCategory(tenantSchema, categoryId);
+      return c.json({ success: true }, 200);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('not adopted')) {
+        return c.json({ error: error.message }, 404);
+      }
+      throw error;
+    }
   });
 
   return router;
