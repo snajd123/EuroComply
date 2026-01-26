@@ -154,8 +154,8 @@ export class CategoryRegulatoryList extends BaseEntity {
   @Property({ type: 'boolean', default: false })
   isExclusion!: boolean;  // True = exempt this category from parent's list
 
-  @Property({ type: 'decimal', precision: 5, scale: 4, nullable: true })
-  thresholdOverridePct?: string;  // Category-specific threshold (stricter for toys)
+  @Property({ type: 'decimal', precision: 5, scale: 4, nullable: true, name: 'compare_value_override' })
+  compareValueOverride?: string;  // Category-specific stricter compareValue (e.g., toys)
 }
 
 enum ListRequirement {
@@ -263,7 +263,7 @@ operator/compareValue/issueType/severity. This allows new rule types without cod
 SELECT
   rl.*,
   crl.requirement,
-  crl.threshold_override_pct,
+  crl.compare_value_override,
   c.path as matched_at,
   nlevel(c.path) as depth
 FROM public.regulatory_list rl
@@ -282,7 +282,7 @@ WITH candidate_lists AS (
     rl.*,
     crl.requirement,
     crl.is_exclusion,
-    crl.threshold_override_pct,
+    crl.compare_value_override,
     crl.priority,
     c.path as matched_at,
     nlevel(c.path) as depth

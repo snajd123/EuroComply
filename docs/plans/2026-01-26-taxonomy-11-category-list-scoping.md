@@ -4,7 +4,7 @@
 
 **Goal:** Implement CategoryRegulatoryList join table enabling LTREE-based inheritance of regulatory requirements from category hierarchy.
 
-**Architecture:** Create `CategoryRegulatoryList` entity linking Categories to RegulatoryLists with priority, exclusion, and threshold override support. Service provides LTREE `@>` queries for resolving all applicable lists for a product category, respecting inheritance and exclusions.
+**Architecture:** Create `CategoryRegulatoryList` entity linking Categories to RegulatoryLists with priority, exclusion, and compareValue override support. Service provides LTREE `@>` queries for resolving all applicable lists for a product category, respecting inheritance and exclusions.
 
 **Tech Stack:** MikroORM, PostgreSQL LTREE, TypeScript
 
@@ -194,7 +194,7 @@ describe('CategoryRegulatoryList Entity', () => {
     expect(found.isExclusion).toBe(true);
   });
 
-  it('supports threshold override', async (context) => {
+  it('supports compareValue override', async (context) => {
     if (!orm) { context.skip(); return; }
     const em = orm.em.fork();
 
@@ -205,13 +205,13 @@ describe('CategoryRegulatoryList Entity', () => {
       category: catRef,
       regulatoryList: listRef,
       requirement: ListRequirement.RESTRICTION,
-      thresholdOverridePct: '0.01',  // Stricter for cosmetics
+      compareValueOverride: '0.01',  // Stricter for cosmetics
     });
 
     await em.persistAndFlush(mapping);
 
     const found = await em.findOneOrFail(CategoryRegulatoryList, { category: catRef });
-    expect(found.thresholdOverridePct).toBe('0.01');
+    expect(found.compareValueOverride).toBe('0.01');
   });
 
   it('enforces unique constraint on category + list', async (context) => {
@@ -308,12 +308,12 @@ export class CategoryRegulatoryList extends BaseEntity {
   isExclusion: boolean = false;
 
   /**
-   * Category-specific threshold override.
-   * When set, this threshold is used instead of the default list entry threshold.
+   * Category-specific compareValue override (agnostic model).
+   * When set, this value is used instead of the default RegulatoryListEntry.compareValue.
    * Example: Toys might have 0.01% while general products allow 0.1%.
    */
-  @Property({ type: 'decimal', precision: 5, scale: 4, nullable: true, name: 'threshold_override_pct' })
-  thresholdOverridePct?: string;
+  @Property({ type: 'decimal', precision: 5, scale: 4, nullable: true, name: 'compare_value_override' })
+  compareValueOverride?: string;
 }
 ```
 
@@ -362,7 +362,7 @@ export class Migration20260126_CategoryRegulatoryList extends Migration {
         requirement TEXT NOT NULL CHECK (requirement IN ('PROHIBITION', 'RESTRICTION', 'DECLARATION')),
         priority SMALLINT NOT NULL DEFAULT 0,
         is_exclusion BOOLEAN NOT NULL DEFAULT false,
-        threshold_override_pct NUMERIC(5,4),
+        compare_value_override NUMERIC(5,4),
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         CONSTRAINT uq_category_regulatory_list UNIQUE (category_id, regulatory_list_id)
@@ -637,13 +637,13 @@ describe('CategoryRegulatoryListService', () => {
     });
   });
 
-  describe('getListsForCategory with threshold override', () => {
-    it('returns threshold override when set', async (context) => {
+  describe('getListsForCategory with compareValue override', () => {
+    it('returns compareValue override when set', async (context) => {
       if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
       const service = new CategoryRegulatoryListService(em);
 
-      // Add stricter threshold for cosmetics on REACH
+      // Add stricter compareValue for cosmetics on REACH
       const cosmeticsRef = await em.findOneOrFail(Category, { path: 'products.cosmetics' });
       const reachRef = await em.findOneOrFail(RegulatoryList, { code: 'REACH_SVHC' });
 
@@ -651,14 +651,14 @@ describe('CategoryRegulatoryListService', () => {
         category: cosmeticsRef,
         regulatoryList: reachRef,
         requirement: ListRequirement.RESTRICTION,
-        thresholdOverridePct: '0.01',  // Stricter than default 0.1%
+        compareValueOverride: '0.01',  // Stricter than default 0.1%
       });
       await em.flush();
 
       const lists = await service.getListsForCategory('products.cosmetics.skincare.moisturizers');
 
       const reachMapping = lists.find(l => l.regulatoryList.code === 'REACH_SVHC');
-      expect(reachMapping?.thresholdOverridePct).toBe('0.01');
+      expect(reachMapping?.compareValueOverride).toBe('0.01');
     });
   });
 
@@ -705,7 +705,7 @@ export interface ApplicableList {
   matchedAt: string;  // The category path where this mapping was defined
   depth: number;
   priority: number;
-  thresholdOverridePct?: string;
+  compareValueOverride?: string;
 }
 
 export class CategoryRegulatoryListService {
@@ -727,7 +727,7 @@ export class CategoryRegulatoryListService {
       requirement: string;
       priority: number;
       is_exclusion: boolean;
-      threshold_override_pct: string | null;
+      compare_value_override: string | null;
       path: string;
       depth: number;
     }>>(`
@@ -738,7 +738,7 @@ export class CategoryRegulatoryListService {
         crl.requirement,
         crl.priority,
         crl.is_exclusion,
-        crl.threshold_override_pct,
+        crl.compare_value_override,
         c.path,
         c.depth
       FROM public.category_regulatory_list crl
@@ -817,7 +817,7 @@ export class CategoryRegulatoryListService {
     requirement: ListRequirement;
     priority?: number;
     isExclusion?: boolean;
-    thresholdOverridePct?: string;
+    compareValueOverride?: string;
   }): Promise<CategoryRegulatoryList> {
     const category = await this.em.findOneOrFail(Category, { id: input.categoryId });
     const list = await this.em.findOneOrFail(RegulatoryList, { id: input.regulatoryListId });
@@ -828,7 +828,7 @@ export class CategoryRegulatoryListService {
       requirement: input.requirement,
       priority: input.priority ?? 0,
       isExclusion: input.isExclusion ?? false,
-      thresholdOverridePct: input.thresholdOverridePct,
+      compareValueOverride: input.compareValueOverride,
     });
 
     await this.em.persistAndFlush(mapping);
@@ -945,7 +945,7 @@ export function createCategoryListsRouter(options: CategoryListsRouterOptions): 
           matchedAt: m.category.path,
           depth: m.category.depth,
           priority: m.priority,
-          thresholdOverridePct: m.thresholdOverridePct,
+          compareValueOverride: m.compareValueOverride,
         })),
         meta: {
           categoryPath,
@@ -996,7 +996,7 @@ git commit -m "feat(api): add category regulatory lists route with LTREE inherit
 
 **Plan 11 delivers:**
 - `ListRequirement` enum
-- `CategoryRegulatoryList` entity with priority, exclusion, threshold override
+- `CategoryRegulatoryList` entity with priority, exclusion, compareValue override
 - Database migration
 - `CategoryRegulatoryListService` with LTREE `@>` inheritance queries
 - API route for querying applicable lists by category path
@@ -1006,7 +1006,7 @@ git commit -m "feat(api): add category regulatory lists route with LTREE inherit
 - LTREE inheritance: child categories automatically inherit parent list mappings
 - Exclusions: child categories can exempt themselves from inherited lists
 - Priority: ordering when multiple lists at same depth
-- Threshold override: category-specific stricter thresholds
+- CompareValue override: category-specific stricter compareValues
 
 **Implementation Refinements (for hardening):**
 
@@ -1014,10 +1014,10 @@ git commit -m "feat(api): add category regulatory lists route with LTREE inherit
    - Plan 9/10 discussed adding a `stoichiometric_factor` to `RegulatoryListEntry`
    - The Evaluation Service (Plan 14) should implement this resolution hierarchy:
      ```
-     1. CategoryRegulatoryList.thresholdOverridePct (if non-null)
-     2. RegulatoryListEntry.thresholdPct (default list entry threshold)
+     1. CategoryRegulatoryList.compareValueOverride (if non-null)
+     2. RegulatoryListEntry.compareValue (default list entry compareValue)
      ```
-   - This allows category-specific stricter thresholds to override the default list entry values
+   - This allows category-specific stricter compareValues to override the default list entry values
 
 2. **Temporal Scoping (Future Enhancement):**
    - Current implementation filters `rl.is_current_version = true` (correct for 99% of use cases)
@@ -1038,7 +1038,7 @@ git commit -m "feat(api): add category regulatory lists route with LTREE inherit
 
 **Next Plans:**
 - **Plan 12:** RegulatoryImportService (admin import pipeline)
-- **Plan 14:** Vertical rule evaluators (implement threshold fallback hierarchy)
+- **Plan 14:** Vertical rule evaluators (implement compareValue fallback hierarchy)
 - **Plan 15:** Initial list seeders
 
 ---
