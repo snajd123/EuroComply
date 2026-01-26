@@ -23,6 +23,7 @@
     "build": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",
+    "setup": "node dist/cli/setup.js",
     "seed:substances": "node dist/cli/seed-substances.js"
   },
   "dependencies": {

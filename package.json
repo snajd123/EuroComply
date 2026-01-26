@@ -17,6 +17,7 @@
     "test:webhook": "echo 'Test webhook script removed during ZITADEL migration. Use ZITADEL Console to test webhooks.'",
     "db:schema": "./scripts/test-schema.sh",
     "db:cleanup": "./scripts/test-cleanup.sh",
+    "db:setup": "pnpm --filter @eurocomply/database setup",
     "db:seed:substances": "pnpm --filter @eurocomply/database seed:substances"
   },
   "devDependencies": {
