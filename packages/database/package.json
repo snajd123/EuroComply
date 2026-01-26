@@ -23,7 +23,7 @@
     "build": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",
-    "seed:substances": "tsx src/cli/seed-substances.ts"
+    "seed:substances": "node dist/cli/seed-substances.js"
   },
   "dependencies": {
     "@eurocomply/core": "workspace:*",

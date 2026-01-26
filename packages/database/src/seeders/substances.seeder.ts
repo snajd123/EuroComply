@@ -7,6 +7,9 @@ import { SubstanceAlias } from '../entities/SubstanceAlias.js';
 import { AliasType } from '../entities/enums/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+// Data file is at package root: packages/database/data/
+// From dist/seeders/ we need to go up 2 levels
+const PACKAGE_ROOT = join(__dirname, '..', '..');
 
 export interface SubstanceSeederResult {
   seeded: boolean;
@@ -59,7 +62,7 @@ export class SubstancesSeeder {
     const em = this.em.fork();
 
     // Load data bundle
-    const bundlePath = join(__dirname, '..', 'data', 'echa-substances.json');
+    const bundlePath = join(PACKAGE_ROOT, 'data', 'echa-substances.json');
     const raw = readFileSync(bundlePath, 'utf-8');
     const bundle: SubstanceBundle = JSON.parse(raw);
     const version = bundle.version;
