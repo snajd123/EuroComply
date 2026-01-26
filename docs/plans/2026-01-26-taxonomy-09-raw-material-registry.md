@@ -1418,7 +1418,8 @@ git commit -m "feat(database): export RawMaterial entity and seeder"
 - `RawMaterialsSeeder` with CRM 2024 list (34 materials)
 - Raw Materials API routes with filtering
 - Substance ↔ RawMaterial linking for automatic CRMA detection
-- **SubstanceRollupService integration** for strategic material content calculation
+- `SubstanceRollupService` integration for strategic material detection
+- **`RawMaterialRollupService`** for content percentage calculation with stoichiometric conversion
 
 **API Routes:**
 | Method | Path | Description |
@@ -1428,6 +1429,7 @@ git commit -m "feat(database): export RawMaterial entity and seeder"
 | GET | `/api/v1/taxonomy/raw-materials/strategic` | All Strategic Raw Materials |
 | GET | `/api/v1/taxonomy/raw-materials/:id` | Get by ID |
 | GET | `/api/v1/taxonomy/raw-materials/name/:name` | Get by exact name |
+| GET | `/api/v1/products/:id/versions/:versionId/raw-materials/rollup` | Calculate raw material content % |
 
 **CRMA Compliance Features Enabled:**
 - Automatic identification of Critical/Strategic material content in products
@@ -1778,6 +1780,623 @@ git add packages/database/src/services/substance-rollup.types.ts \
         packages/database/src/services/substance-rollup.service.test.ts \
         apps/api/src/routes/products.ts
 git commit -m "feat(database): integrate strategic material detection into substance rollup"
+```
+
+---
+
+## Task 8: Raw Material Content Rollup Service
+
+**Files:**
+- Create: `packages/database/src/services/raw-material-rollup.service.ts`
+- Create: `packages/database/src/services/raw-material-rollup.types.ts`
+- Test: `packages/database/src/services/raw-material-rollup.service.test.ts`
+
+**Purpose:** Calculate actual raw material content percentages for CRMA compliance. While Task 7 detects *presence*, this task calculates *how much* of each strategic material is in the product.
+
+**CRMA Context:**
+- CRMA Annex IV sets benchmarks: "By 2030, X% of strategic materials must be domestically processed"
+- Products must report strategic material content percentage
+- Supply risk scores should be aggregated for risk assessment
+
+**Step 1: Create the types file**
+
+```typescript
+// packages/database/src/services/raw-material-rollup.types.ts
+import { RawMaterial } from '../entities/RawMaterial.js';
+
+/**
+ * Raw material content in a product, calculated from substance concentrations
+ */
+export interface RawMaterialContent {
+  rawMaterialId: string;
+  rawMaterialName: string;
+  symbol?: string;
+
+  // CRMA Classification
+  isCritical: boolean;
+  isStrategic: boolean;
+
+  // Content calculation
+  totalContentPct: string;           // Sum of all contributing substance concentrations
+  contributingSubstances: Array<{
+    casNumber: string;
+    primaryName: string;
+    effectiveConcentrationPct: string;
+    conversionFactor: string;        // Stoichiometric factor (e.g., Co in CoSO4 = 0.38)
+    rawMaterialContentPct: string;   // effectiveConcentration × conversionFactor
+  }>;
+
+  // RMIS Risk Indicators
+  supplyRisk?: string;
+  economicImportance?: string;
+  recyclingInputRate?: string;
+  mainSources?: string[];
+}
+
+/**
+ * Result of raw material content rollup
+ */
+export interface RawMaterialRollupResult {
+  productVersionId: string;
+  calculatedAt: Date;
+
+  // Content by raw material
+  rawMaterials: RawMaterialContent[];
+
+  // Aggregated metrics
+  totalStrategicContentPct: string;   // Sum of all strategic material content
+  totalCriticalContentPct: string;    // Sum of all critical material content
+  weightedSupplyRisk: string;         // Content-weighted average supply risk
+
+  // Flags
+  containsStrategicMaterial: boolean;
+  containsCriticalMaterial: boolean;
+
+  // Compliance
+  crmaCompliance: {
+    strategicContentPct: string;
+    meetsReportingThreshold: boolean;  // > 1% strategic content requires reporting
+  };
+
+  warnings: string[];
+  isComplete: boolean;
+}
+
+/**
+ * Conversion factors for calculating raw material content from compound concentration.
+ * E.g., Cobalt sulfate (CoSO4) is 38% Cobalt by weight.
+ */
+export const STOICHIOMETRIC_FACTORS: Record<string, Record<string, string>> = {
+  'Cobalt': {
+    '7440-48-4': '1.0',       // Cobalt metal
+    '10124-43-3': '0.38',     // Cobalt sulfate (CoSO4)
+    '7646-79-9': '0.45',      // Cobalt dichloride (CoCl2)
+    '10141-05-6': '0.32',     // Cobalt dinitrate
+  },
+  'Lithium': {
+    '7439-93-2': '1.0',       // Lithium metal
+    '554-13-2': '0.19',       // Lithium carbonate (Li2CO3)
+    '12031-80-0': '0.30',     // Lithium peroxide
+  },
+  'Nickel': {
+    '7440-02-0': '1.0',       // Nickel metal
+    '7718-54-9': '0.45',      // Nickel dichloride
+    '7786-81-4': '0.38',      // Nickel sulfate
+  },
+  // Add more as needed
+};
+```
+
+**Step 2: Write the failing test**
+
+```typescript
+// packages/database/src/services/raw-material-rollup.service.test.ts
+import { MikroORM, EntityManager } from '@mikro-orm/core';
+import { RawMaterialRollupService } from './raw-material-rollup.service.js';
+import { SubstanceRollupService } from './substance-rollup.service.js';
+import { MaterialSubstance, Substance, RawMaterial, BomEntry, ProductVersion, Product } from '../entities/index.js';
+import { ConcentrationBasis } from '../entities/enums/index.js';
+import { createTestOrm } from '../test-utils/create-test-orm.js';
+import Decimal from 'decimal.js';
+
+describe('RawMaterialRollupService', () => {
+  let orm: MikroORM;
+  let em: EntityManager;
+  let service: RawMaterialRollupService;
+
+  beforeAll(async () => {
+    orm = await createTestOrm([
+      Substance, RawMaterial, MaterialSubstance, BomEntry, ProductVersion, Product,
+    ]);
+  });
+
+  afterAll(async () => {
+    await orm.close(true);
+  });
+
+  beforeEach(async () => {
+    em = orm.em.fork();
+    service = new RawMaterialRollupService(em);
+    await em.nativeDelete(MaterialSubstance, {});
+    await em.nativeDelete(BomEntry, {});
+  });
+
+  describe('rollUp', () => {
+    it('should calculate raw material content with stoichiometric conversion', async () => {
+      // Setup: Cobalt raw material
+      const cobalt = em.create(RawMaterial, {
+        name: 'Cobalt',
+        symbol: 'Co',
+        isCritical: true,
+        isStrategic: true,
+        supplyRisk: '6.2',
+      });
+      await em.persistAndFlush(cobalt);
+
+      // Cobalt sulfate (CoSO4) - 38% Co by weight
+      const cobaltSulfate = em.create(Substance, {
+        casNumber: '10124-43-3',
+        primaryName: 'Cobalt sulfate',
+      });
+      cobaltSulfate.rawMaterials.add(cobalt);
+      await em.persistAndFlush(cobaltSulfate);
+
+      // Material version
+      const matVersion = em.create(ProductVersion, { id: 'pv_co_mat', version: '1.0' });
+      await em.persistAndFlush(matVersion);
+
+      // BOM: Material is 20% of product
+      const bom = em.create(BomEntry, {
+        parentVersionId: 'pv_co_product',
+        childVersionId: 'pv_co_mat',
+        quantity: '20.0',
+        quantityUnit: 'P1',
+      });
+      await em.persistAndFlush(bom);
+
+      // Material contains 10% Cobalt sulfate
+      const ms = em.create(MaterialSubstance, {
+        materialVersion: matVersion,
+        substance: cobaltSulfate,
+        concentrationPct: '10.0',
+        basis: ConcentrationBasis.WEIGHT,
+      });
+      await em.persistAndFlush(ms);
+
+      // Execute
+      const result = await service.rollUp('pv_co_product');
+
+      // Assert:
+      // Effective CoSO4 = 20% × 10% = 2%
+      // Cobalt content = 2% × 0.38 = 0.76%
+      expect(result.rawMaterials).toHaveLength(1);
+      expect(result.rawMaterials[0].rawMaterialName).toBe('Cobalt');
+      expect(new Decimal(result.rawMaterials[0].totalContentPct).toNumber()).toBeCloseTo(0.76, 2);
+      expect(result.containsStrategicMaterial).toBe(true);
+      expect(new Decimal(result.totalStrategicContentPct).toNumber()).toBeCloseTo(0.76, 2);
+    });
+
+    it('should aggregate multiple substances for same raw material', async () => {
+      // Setup: Cobalt with two compounds
+      const cobalt = em.create(RawMaterial, {
+        name: 'Cobalt',
+        symbol: 'Co',
+        isCritical: true,
+        isStrategic: true,
+        supplyRisk: '6.2',
+      });
+      await em.persistAndFlush(cobalt);
+
+      // Cobalt metal (100% Co) and Cobalt sulfate (38% Co)
+      const cobaltMetal = em.create(Substance, {
+        casNumber: '7440-48-4',
+        primaryName: 'Cobalt (metal)',
+      });
+      cobaltMetal.rawMaterials.add(cobalt);
+
+      const cobaltSulfate = em.create(Substance, {
+        casNumber: '10124-43-3',
+        primaryName: 'Cobalt sulfate',
+      });
+      cobaltSulfate.rawMaterials.add(cobalt);
+      await em.persistAndFlush([cobaltMetal, cobaltSulfate]);
+
+      // Two materials
+      const matA = em.create(ProductVersion, { id: 'pv_co_mat_a', version: '1.0' });
+      const matB = em.create(ProductVersion, { id: 'pv_co_mat_b', version: '1.0' });
+      await em.persistAndFlush([matA, matB]);
+
+      // BOM
+      const bomA = em.create(BomEntry, {
+        parentVersionId: 'pv_co_agg_product',
+        childVersionId: 'pv_co_mat_a',
+        quantity: '10.0',
+        quantityUnit: 'P1',
+      });
+      const bomB = em.create(BomEntry, {
+        parentVersionId: 'pv_co_agg_product',
+        childVersionId: 'pv_co_mat_b',
+        quantity: '30.0',
+        quantityUnit: 'P1',
+      });
+      await em.persistAndFlush([bomA, bomB]);
+
+      // Material A: 5% cobalt metal, Material B: 8% cobalt sulfate
+      const msA = em.create(MaterialSubstance, {
+        materialVersion: matA,
+        substance: cobaltMetal,
+        concentrationPct: '5.0',
+        basis: ConcentrationBasis.WEIGHT,
+      });
+      const msB = em.create(MaterialSubstance, {
+        materialVersion: matB,
+        substance: cobaltSulfate,
+        concentrationPct: '8.0',
+        basis: ConcentrationBasis.WEIGHT,
+      });
+      await em.persistAndFlush([msA, msB]);
+
+      // Execute
+      const result = await service.rollUp('pv_co_agg_product');
+
+      // Assert:
+      // Material A: 10% × 5% × 1.0 = 0.5% Co
+      // Material B: 30% × 8% × 0.38 = 0.912% Co
+      // Total: 1.412% Co
+      expect(result.rawMaterials).toHaveLength(1);
+      expect(result.rawMaterials[0].rawMaterialName).toBe('Cobalt');
+      expect(result.rawMaterials[0].contributingSubstances).toHaveLength(2);
+      expect(new Decimal(result.rawMaterials[0].totalContentPct).toNumber()).toBeCloseTo(1.412, 2);
+    });
+
+    it('should calculate weighted supply risk', async () => {
+      // Setup: Cobalt (high risk) and Copper (low risk)
+      const cobalt = em.create(RawMaterial, {
+        name: 'Cobalt',
+        symbol: 'Co',
+        isCritical: true,
+        isStrategic: true,
+        supplyRisk: '6.2',
+      });
+      const copper = em.create(RawMaterial, {
+        name: 'Copper',
+        symbol: 'Cu',
+        isCritical: false,
+        isStrategic: true,
+        supplyRisk: '2.1',
+      });
+      await em.persistAndFlush([cobalt, copper]);
+
+      const cobaltMetal = em.create(Substance, { casNumber: '7440-48-4', primaryName: 'Cobalt' });
+      cobaltMetal.rawMaterials.add(cobalt);
+
+      const copperMetal = em.create(Substance, { casNumber: '7440-50-8', primaryName: 'Copper' });
+      copperMetal.rawMaterials.add(copper);
+      await em.persistAndFlush([cobaltMetal, copperMetal]);
+
+      const matA = em.create(ProductVersion, { id: 'pv_risk_a', version: '1.0' });
+      const matB = em.create(ProductVersion, { id: 'pv_risk_b', version: '1.0' });
+      await em.persistAndFlush([matA, matB]);
+
+      const bomA = em.create(BomEntry, {
+        parentVersionId: 'pv_risk_product',
+        childVersionId: 'pv_risk_a',
+        quantity: '10.0',
+        quantityUnit: 'P1',
+      });
+      const bomB = em.create(BomEntry, {
+        parentVersionId: 'pv_risk_product',
+        childVersionId: 'pv_risk_b',
+        quantity: '50.0',
+        quantityUnit: 'P1',
+      });
+      await em.persistAndFlush([bomA, bomB]);
+
+      // 2% Cobalt, 10% Copper effective
+      const msA = em.create(MaterialSubstance, {
+        materialVersion: matA,
+        substance: cobaltMetal,
+        concentrationPct: '20.0',  // 10% × 20% = 2%
+        basis: ConcentrationBasis.WEIGHT,
+      });
+      const msB = em.create(MaterialSubstance, {
+        materialVersion: matB,
+        substance: copperMetal,
+        concentrationPct: '20.0',  // 50% × 20% = 10%
+        basis: ConcentrationBasis.WEIGHT,
+      });
+      await em.persistAndFlush([msA, msB]);
+
+      // Execute
+      const result = await service.rollUp('pv_risk_product');
+
+      // Weighted risk = (2% × 6.2 + 10% × 2.1) / (2% + 10%) = (12.4 + 21) / 12 = 2.78
+      expect(result.rawMaterials).toHaveLength(2);
+      expect(new Decimal(result.weightedSupplyRisk).toNumber()).toBeCloseTo(2.78, 1);
+    });
+  });
+});
+```
+
+**Step 3: Run test to verify it fails**
+
+```bash
+cd packages/database && pnpm test raw-material-rollup.service.test.ts
+```
+
+Expected: FAIL with "Cannot find module"
+
+**Step 4: Create the service**
+
+```typescript
+// packages/database/src/services/raw-material-rollup.service.ts
+import { EntityManager } from '@mikro-orm/core';
+import Decimal from 'decimal.js';
+import { SubstanceRollupService } from './substance-rollup.service.js';
+import { Substance } from '../entities/Substance.js';
+import { RawMaterial } from '../entities/RawMaterial.js';
+import {
+  RawMaterialRollupResult,
+  RawMaterialContent,
+  STOICHIOMETRIC_FACTORS,
+} from './raw-material-rollup.types.js';
+
+export class RawMaterialRollupService {
+  private readonly substanceRollupService: SubstanceRollupService;
+
+  constructor(private readonly em: EntityManager) {
+    this.substanceRollupService = new SubstanceRollupService(em);
+  }
+
+  /**
+   * Calculate raw material content percentages for a product version.
+   * Uses substance rollup as base and applies stoichiometric conversion factors.
+   */
+  async rollUp(productVersionId: string): Promise<RawMaterialRollupResult> {
+    const warnings: string[] = [];
+
+    // 1. Get substance rollup first
+    const substanceRollup = await this.substanceRollupService.rollUp(productVersionId);
+    warnings.push(...substanceRollup.warnings);
+
+    if (substanceRollup.substances.length === 0) {
+      return this.emptyResult(productVersionId, warnings);
+    }
+
+    // 2. Aggregate by raw material with stoichiometric conversion
+    const rawMaterialMap = new Map<string, {
+      rawMaterial: RawMaterial;
+      contributions: Array<{
+        casNumber: string;
+        primaryName: string;
+        effectiveConcentrationPct: Decimal;
+        conversionFactor: Decimal;
+        rawMaterialContentPct: Decimal;
+      }>;
+    }>();
+
+    for (const rolledSubstance of substanceRollup.substances) {
+      // Load substance with rawMaterials
+      const substance = await this.em.findOne(
+        Substance,
+        { casNumber: rolledSubstance.casNumber },
+        { populate: ['rawMaterials'], schema: 'public' }
+      );
+
+      if (!substance?.rawMaterials?.length) continue;
+
+      const effectiveConc = new Decimal(rolledSubstance.effectiveConcentrationPct);
+
+      for (const rm of substance.rawMaterials.getItems()) {
+        // Get stoichiometric factor (default 1.0 if not specified)
+        const factorMap = STOICHIOMETRIC_FACTORS[rm.name] || {};
+        const factor = new Decimal(factorMap[rolledSubstance.casNumber] || '1.0');
+        const rawMaterialContent = effectiveConc.mul(factor);
+
+        const existing = rawMaterialMap.get(rm.id);
+        const contribution = {
+          casNumber: rolledSubstance.casNumber,
+          primaryName: rolledSubstance.primaryName,
+          effectiveConcentrationPct: effectiveConc,
+          conversionFactor: factor,
+          rawMaterialContentPct: rawMaterialContent,
+        };
+
+        if (existing) {
+          existing.contributions.push(contribution);
+        } else {
+          rawMaterialMap.set(rm.id, {
+            rawMaterial: rm,
+            contributions: [contribution],
+          });
+        }
+      }
+    }
+
+    // 3. Build result with totals
+    const rawMaterials: RawMaterialContent[] = [];
+    let totalStrategicContent = new Decimal(0);
+    let totalCriticalContent = new Decimal(0);
+    let weightedRiskSum = new Decimal(0);
+    let totalContent = new Decimal(0);
+
+    for (const [, data] of rawMaterialMap) {
+      const totalContentPct = data.contributions.reduce(
+        (sum, c) => sum.add(c.rawMaterialContentPct),
+        new Decimal(0)
+      );
+
+      const content: RawMaterialContent = {
+        rawMaterialId: data.rawMaterial.id,
+        rawMaterialName: data.rawMaterial.name,
+        symbol: data.rawMaterial.symbol,
+        isCritical: data.rawMaterial.isCritical,
+        isStrategic: data.rawMaterial.isStrategic,
+        totalContentPct: totalContentPct.toDecimalPlaces(6).toString(),
+        contributingSubstances: data.contributions.map(c => ({
+          casNumber: c.casNumber,
+          primaryName: c.primaryName,
+          effectiveConcentrationPct: c.effectiveConcentrationPct.toDecimalPlaces(6).toString(),
+          conversionFactor: c.conversionFactor.toString(),
+          rawMaterialContentPct: c.rawMaterialContentPct.toDecimalPlaces(6).toString(),
+        })),
+        supplyRisk: data.rawMaterial.supplyRisk,
+        economicImportance: data.rawMaterial.economicImportance,
+        recyclingInputRate: data.rawMaterial.recyclingInputRate,
+        mainSources: data.rawMaterial.mainSources,
+      };
+
+      rawMaterials.push(content);
+
+      // Aggregate totals
+      if (data.rawMaterial.isStrategic) {
+        totalStrategicContent = totalStrategicContent.add(totalContentPct);
+      }
+      if (data.rawMaterial.isCritical) {
+        totalCriticalContent = totalCriticalContent.add(totalContentPct);
+      }
+
+      // Weighted supply risk
+      if (data.rawMaterial.supplyRisk) {
+        const risk = new Decimal(data.rawMaterial.supplyRisk);
+        weightedRiskSum = weightedRiskSum.add(totalContentPct.mul(risk));
+        totalContent = totalContent.add(totalContentPct);
+      }
+    }
+
+    // Sort by content percentage descending
+    rawMaterials.sort((a, b) =>
+      new Decimal(b.totalContentPct).cmp(new Decimal(a.totalContentPct))
+    );
+
+    const weightedSupplyRisk = totalContent.gt(0)
+      ? weightedRiskSum.div(totalContent).toDecimalPlaces(2).toString()
+      : '0';
+
+    return {
+      productVersionId,
+      calculatedAt: new Date(),
+      rawMaterials,
+      totalStrategicContentPct: totalStrategicContent.toDecimalPlaces(6).toString(),
+      totalCriticalContentPct: totalCriticalContent.toDecimalPlaces(6).toString(),
+      weightedSupplyRisk,
+      containsStrategicMaterial: totalStrategicContent.gt(0),
+      containsCriticalMaterial: totalCriticalContent.gt(0),
+      crmaCompliance: {
+        strategicContentPct: totalStrategicContent.toDecimalPlaces(6).toString(),
+        meetsReportingThreshold: totalStrategicContent.gte(1),  // > 1% requires reporting
+      },
+      warnings,
+      isComplete: warnings.length === 0,
+    };
+  }
+
+  private emptyResult(productVersionId: string, warnings: string[]): RawMaterialRollupResult {
+    return {
+      productVersionId,
+      calculatedAt: new Date(),
+      rawMaterials: [],
+      totalStrategicContentPct: '0',
+      totalCriticalContentPct: '0',
+      weightedSupplyRisk: '0',
+      containsStrategicMaterial: false,
+      containsCriticalMaterial: false,
+      crmaCompliance: {
+        strategicContentPct: '0',
+        meetsReportingThreshold: false,
+      },
+      warnings,
+      isComplete: true,
+    };
+  }
+}
+```
+
+**Step 5: Run tests to verify they pass**
+
+```bash
+cd packages/database && pnpm test raw-material-rollup.service.test.ts
+```
+
+Expected: PASS
+
+**Step 6: Create Raw Material Rollup API endpoint**
+
+```typescript
+// Add to apps/api/src/routes/products.ts
+
+import { RawMaterialRollupService } from '@eurocomply/database/services/raw-material-rollup.service.js';
+
+/**
+ * GET /products/:productId/versions/:versionId/raw-materials/rollup
+ *
+ * Calculate raw material content percentages for CRMA compliance.
+ * Returns strategic material content, supply risk scores, and CRMA reporting status.
+ * Requires compliance:view authorization.
+ */
+router.get('/:productId/versions/:versionId/raw-materials/rollup', authorize('compliance', 'view'), async (c) => {
+  const schema = c.get('tenantSchema')!;
+  const em = orm.em.fork({ schema });
+  const { productId, versionId } = c.req.param();
+
+  const result = await em.transactional(async (txEm) => {
+    await txEm.execute(`SET search_path TO "${schema}", public`);
+
+    const version = await txEm.findOne(ProductVersion, { id: versionId, product: { id: productId } });
+    if (!version) {
+      return { error: 'Product version not found' as const };
+    }
+
+    const service = new RawMaterialRollupService(txEm);
+    return { rollup: await service.rollUp(versionId) };
+  });
+
+  if ('error' in result) {
+    return c.json({ error: 'Not Found', message: result.error }, 404);
+  }
+
+  return c.json({
+    data: {
+      productVersionId: result.rollup.productVersionId,
+      calculatedAt: result.rollup.calculatedAt.toISOString(),
+      isComplete: result.rollup.isComplete,
+      warnings: result.rollup.warnings,
+
+      // Raw material content
+      rawMaterials: result.rollup.rawMaterials,
+      totalStrategicContentPct: result.rollup.totalStrategicContentPct,
+      totalCriticalContentPct: result.rollup.totalCriticalContentPct,
+      weightedSupplyRisk: result.rollup.weightedSupplyRisk,
+
+      // Flags
+      containsStrategicMaterial: result.rollup.containsStrategicMaterial,
+      containsCriticalMaterial: result.rollup.containsCriticalMaterial,
+
+      // CRMA Compliance
+      crmaCompliance: result.rollup.crmaCompliance,
+    },
+    meta: { productId, versionId },
+  });
+});
+```
+
+**Step 7: Export service**
+
+```typescript
+// Add to packages/database/src/services/index.ts
+export * from './raw-material-rollup.service.js';
+export * from './raw-material-rollup.types.js';
+```
+
+**Step 8: Commit**
+
+```bash
+git add packages/database/src/services/raw-material-rollup.service.ts \
+        packages/database/src/services/raw-material-rollup.types.ts \
+        packages/database/src/services/raw-material-rollup.service.test.ts \
+        packages/database/src/services/index.ts \
+        apps/api/src/routes/products.ts
+git commit -m "feat(database): add RawMaterialRollupService for CRMA content calculation"
 ```
 
 ---
