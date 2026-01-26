@@ -14,6 +14,43 @@
 
 ---
 
+## API Integration Patterns (MUST FOLLOW)
+
+> **CRITICAL:** All API implementations MUST follow existing codebase patterns from `apps/api/src/`.
+
+### Taxonomy Routes (Public - No Auth)
+Attributes are **public reference data** - no authentication required:
+```typescript
+// File: apps/api/src/routes/taxonomy/index.ts
+const taxonomy = new Hono<Env>();
+taxonomy.route('/attributes', createAttributesRouter(deps.attributesRepository));
+v1.route('/taxonomy', taxonomy);  // No middleware - public routes
+```
+
+### Response Format (MUST MATCH)
+```typescript
+// Success
+c.json({ data: entity })
+c.json({ data: items, meta: { total: items.length } })
+
+// Errors
+c.json({ error: 'Not Found', message: 'Attribute not found' }, 404)
+```
+
+### Env Type (from apps/api/src/app.ts)
+```typescript
+export type Env = {
+  Variables: {
+    tenantSchema?: string;
+    userId?: string;
+    user?: User;
+    membership?: OrganizationUser;
+  };
+};
+```
+
+---
+
 ## Task 1: Create AttributeService
 
 **Files:**
@@ -526,12 +563,222 @@ git commit -m "feat(database): add AttributesSeeder with system attribute templa
 
 **Files:**
 - Create: `apps/api/src/routes/taxonomy/attributes.ts`
-- Test: `apps/api/src/routes/taxonomy/attributes.test.ts`
+- Test: `apps/api/src/routes/taxonomy/attributes.e2e.test.ts`
 
-Create API routes similar to categories with:
-- GET /attributes - List with filters
-- GET /attributes/:id - Get by id
-- GET /categories/:id/attributes - Get attributes for category (with inheritance)
+**Step 1: Write the failing e2e test (NO MOCKS - per RULES.md)**
+
+```typescript
+// apps/api/src/routes/taxonomy/attributes.e2e.test.ts
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import type { MikroORM } from '@eurocomply/database';
+import { Hono } from 'hono';
+import { createAttributesRouter, type AttributesRepository, type AttributeData } from './attributes.js';
+import { AttributeTemplate, Category, CategoryType, AttributeDataType } from '@eurocomply/database';
+import { setupTestDb, teardownTestDb, isDatabaseAvailable } from '@eurocomply/database/test-utils';
+import type { Env } from '../../app.js';
+
+interface ApiResponse<T> {
+  data: T;
+  meta?: { total: number };
+}
+
+describe('Attributes API E2E', () => {
+  let orm: MikroORM;
+  let app: Hono<Env>;
+
+  beforeAll(async () => {
+    if (!(await isDatabaseAvailable())) {
+      return;
+    }
+
+    orm = await setupTestDb();
+
+    // Seed test data (real database, no mocks)
+    const em = orm.em.fork();
+
+    const category = em.create(Category, {
+      name: 'Electronics',
+      path: 'electronics',
+      type: CategoryType.ROOT,
+      targetType: 'PRODUCT',
+      depth: 0,
+      isActive: true,
+    });
+    em.persist(category);
+    await em.flush();
+
+    const attr = em.create(AttributeTemplate, {
+      name: 'Weight',
+      slug: 'weight',
+      dataType: AttributeDataType.DECIMAL,
+      category,
+      isRequired: true,
+      isActive: true,
+    });
+    em.persist(attr);
+    await em.flush();
+
+    // Create repository implementation (real database queries)
+    const repo: AttributesRepository = {
+      findAll: async (filter): Promise<AttributeData[]> => {
+        const qb = orm.em.fork().createQueryBuilder(AttributeTemplate);
+        if (filter?.categoryId) qb.andWhere({ category: { id: filter.categoryId } });
+        if (filter?.dataType) qb.andWhere({ dataType: filter.dataType });
+        if (filter?.active !== undefined) qb.andWhere({ isActive: filter.active });
+        const results = await qb.getResultList();
+        return results.map(a => ({
+          id: a.id,
+          name: a.name,
+          slug: a.slug,
+          dataType: a.dataType,
+          categoryId: a.category?.id,
+          isRequired: a.isRequired,
+          isActive: a.isActive,
+        }));
+      },
+      findById: async (id): Promise<AttributeData | null> => {
+        const a = await orm.em.fork().findOne(AttributeTemplate, { id });
+        if (!a) return null;
+        return {
+          id: a.id,
+          name: a.name,
+          slug: a.slug,
+          dataType: a.dataType,
+          categoryId: a.category?.id,
+          isRequired: a.isRequired,
+          isActive: a.isActive,
+        };
+      },
+      findByCategoryWithInheritance: async (categoryId): Promise<AttributeData[]> => {
+        // Simplified - full implementation would use LTREE queries
+        const results = await orm.em.fork().find(AttributeTemplate, { category: { id: categoryId } });
+        return results.map(a => ({
+          id: a.id,
+          name: a.name,
+          slug: a.slug,
+          dataType: a.dataType,
+          categoryId: a.category?.id,
+          isRequired: a.isRequired,
+          isActive: a.isActive,
+        }));
+      },
+    };
+
+    app = new Hono<Env>();
+    app.route('/attributes', createAttributesRouter(repo));
+  });
+
+  afterAll(async () => {
+    if (orm) {
+      await teardownTestDb();
+    }
+  });
+
+  it('should list all attributes', async () => {
+    if (!orm) return;
+
+    const res = await app.request('/attributes');
+    expect(res.status).toBe(200);
+    const body = await res.json() as ApiResponse<AttributeData[]>;
+    expect(body.data.length).toBeGreaterThan(0);
+  });
+});
+```
+
+**Step 2: Run test to verify it fails**
+
+```bash
+cd apps/api && pnpm test attributes.e2e.test.ts
+```
+
+Expected: FAIL with "Cannot find module './attributes.js'"
+
+**Step 3: Create the router**
+
+```typescript
+// apps/api/src/routes/taxonomy/attributes.ts
+import { Hono } from 'hono';
+import { z } from 'zod';
+import { zValidator } from '@hono/zod-validator';
+import { AttributeDataType } from '@eurocomply/database';
+import type { Env } from '../../app.js';
+
+export interface AttributeData {
+  id: string;
+  name: string;
+  slug: string;
+  dataType: AttributeDataType;
+  categoryId?: string;
+  isRequired: boolean;
+  isActive: boolean;
+}
+
+export interface AttributesRepository {
+  findAll(filter?: {
+    categoryId?: string;
+    dataType?: AttributeDataType;
+    active?: boolean;
+  }): Promise<AttributeData[]>;
+  findById(id: string): Promise<AttributeData | null>;
+  findByCategoryWithInheritance(categoryId: string): Promise<AttributeData[]>;
+}
+
+const querySchema = z.object({
+  categoryId: z.string().optional(),
+  dataType: z.nativeEnum(AttributeDataType).optional(),
+  active: z.enum(['true', 'false']).transform(v => v === 'true').optional(),
+});
+
+export function createAttributesRouter(repo: AttributesRepository): Hono<Env> {
+  const router = new Hono<Env>();
+
+  // GET /attributes - List all with optional filters
+  router.get('/', zValidator('query', querySchema), async (c) => {
+    const query = c.req.valid('query');
+
+    const filter: Parameters<typeof repo.findAll>[0] = {};
+    if (query.categoryId) filter.categoryId = query.categoryId;
+    if (query.dataType) filter.dataType = query.dataType;
+    if (query.active !== undefined) filter.active = query.active;
+
+    const attributes = await repo.findAll(filter);
+
+    return c.json({
+      data: attributes,
+      meta: { total: attributes.length },
+    });
+  });
+
+  // GET /attributes/:id - Get single by id
+  router.get('/:id', async (c) => {
+    const id = c.req.param('id');
+    const attribute = await repo.findById(id);
+
+    if (!attribute) {
+      return c.json({ error: 'Not Found', message: `Attribute not found: ${id}` }, 404);
+    }
+
+    return c.json({ data: attribute });
+  });
+
+  return router;
+}
+```
+
+**Step 4: Run test to verify it passes**
+
+```bash
+cd apps/api && pnpm test attributes.e2e.test.ts
+```
+
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add apps/api/src/routes/taxonomy/attributes.ts apps/api/src/routes/taxonomy/attributes.e2e.test.ts
+git commit -m "feat(api): add attributes API routes (list, get by id)"
+```
 
 ---
 

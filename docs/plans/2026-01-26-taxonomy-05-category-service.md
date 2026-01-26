@@ -14,6 +14,80 @@
 
 ---
 
+## API Integration Patterns (MUST FOLLOW)
+
+> **CRITICAL:** All API implementations MUST follow existing codebase patterns from `apps/api/src/`.
+
+### Route Types in This Plan
+
+**1. Public Taxonomy Routes (No Auth)**
+Category listing, hierarchy traversal - public reference data:
+```typescript
+// File: apps/api/src/routes/taxonomy/index.ts
+const taxonomy = new Hono<Env>();
+taxonomy.route('/categories', createCategoriesRouter(deps.categoriesRepository));
+v1.route('/taxonomy', taxonomy);  // No middleware - public routes
+```
+
+**2. Tenant-Scoped Adoption Routes (REQUIRES AUTH)**
+Category adoption requires tenant context + authorization:
+```typescript
+// File: apps/api/src/app.ts
+v1.use('/categories/adoption/*', createTenantMiddlewareWithApiKeys(deps.orm.em));
+v1.use('/categories/adoption/*', userMiddleware);
+v1.route('/categories/adoption', createCategoryAdoptionRouter({ orm: deps.orm }));
+```
+
+### Authorization Pattern (for tenant routes)
+```typescript
+import { authorize } from '../../middleware/authorize.js';
+
+// Adoption requires design:edit authority
+router.post('/:id/adopt', authorize('design', 'edit'), async (c) => { ... });
+router.delete('/:id/adopt', authorize('design', 'edit'), async (c) => { ... });
+router.get('/', authorize('design', 'view'), async (c) => { ... });
+```
+
+### Tenant Isolation Pattern (CRITICAL)
+```typescript
+router.post('/:id/adopt', authorize('design', 'edit'), async (c) => {
+  const schema = c.get('tenantSchema')!;
+  const em = orm.em.fork({ schema });
+
+  // ALWAYS use transaction with SET search_path for tenant data
+  const result = await em.transactional(async (txEm) => {
+    await txEm.execute(`SET search_path TO "${schema}", public`);
+    // ... operations
+  });
+});
+```
+
+### Response Format (MUST MATCH)
+```typescript
+// Success
+c.json({ data: entity })
+c.json({ data: items, meta: { total: items.length } })
+
+// Errors
+c.json({ error: 'Not Found', message: 'Category not found' }, 404)
+c.json({ error: 'Forbidden', message: 'Insufficient permissions', workspace: 'design', action: 'edit' }, 403)
+c.json({ error: 'Conflict', message: 'Category already adopted' }, 409)
+```
+
+### Env Type (from apps/api/src/app.ts)
+```typescript
+export type Env = {
+  Variables: {
+    tenantSchema?: string;
+    userId?: string;
+    user?: User;
+    membership?: OrganizationUser;
+  };
+};
+```
+
+---
+
 ## Task 1: Create CategoryService
 
 **Files:**
@@ -1512,6 +1586,8 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import { CategoryType } from '@eurocomply/database';
+import type { Env } from '../../app.js';
+import { authorize } from '../../middleware/authorize.js';
 
 export interface CategoryData {
   id: string;
@@ -1551,8 +1627,8 @@ const querySchema = z.object({
   active: z.enum(['true', 'false']).transform(v => v === 'true').optional(),
 });
 
-export function createCategoriesRouter(repo: CategoriesRepository): Hono {
-  const router = new Hono();
+export function createCategoriesRouter(repo: CategoriesRepository): Hono<Env> {
+  const router = new Hono<Env>();
 
   // GET /categories - List all with optional filters
   router.get('/', zValidator('query', querySchema), async (c) => {
@@ -1632,13 +1708,15 @@ export function createCategoriesRouter(repo: CategoriesRepository): Hono {
 
   // ==========================================================================
   // Category Adoption Routes (Tenant Customization)
+  // REQUIRES: Tenant middleware + user middleware applied in app.ts
   // ==========================================================================
 
   // GET /categories/adoption - Get adopted categories for current tenant
-  router.get('/adoption', async (c) => {
-    const tenantSchema = c.get('tenantSchema'); // From auth middleware
+  // NOTE: This route requires tenant middleware to be applied at /categories/adoption/* in app.ts
+  router.get('/adoption', authorize('design', 'view'), async (c) => {
+    const tenantSchema = c.get('tenantSchema');
     if (!tenantSchema) {
-      return c.json({ error: 'Tenant context required' }, 401);
+      return c.json({ error: 'Unauthorized', message: 'Tenant context required' }, 401);
     }
 
     const adopted = await repo.getAdoptedCategories(tenantSchema);
@@ -1650,12 +1728,12 @@ export function createCategoriesRouter(repo: CategoriesRepository): Hono {
   });
 
   // GET /categories/adoption/available - Get categories available for adoption
-  router.get('/adoption/available', zValidator('query', z.object({
+  router.get('/adoption/available', authorize('design', 'view'), zValidator('query', z.object({
     targetType: z.enum(['PRODUCT', 'MATERIAL', 'FACILITY', 'BATCH']).optional(),
   })), async (c) => {
     const tenantSchema = c.get('tenantSchema');
     if (!tenantSchema) {
-      return c.json({ error: 'Tenant context required' }, 401);
+      return c.json({ error: 'Unauthorized', message: 'Tenant context required' }, 401);
     }
 
     const query = c.req.valid('query');
@@ -1668,10 +1746,10 @@ export function createCategoriesRouter(repo: CategoriesRepository): Hono {
   });
 
   // POST /categories/:id/adopt - Adopt a system category
-  router.post('/:id/adopt', async (c) => {
+  router.post('/:id/adopt', authorize('design', 'edit'), async (c) => {
     const tenantSchema = c.get('tenantSchema');
     if (!tenantSchema) {
-      return c.json({ error: 'Tenant context required' }, 401);
+      return c.json({ error: 'Unauthorized', message: 'Tenant context required' }, 401);
     }
 
     const categoryId = c.req.param('id');
@@ -1681,27 +1759,27 @@ export function createCategoriesRouter(repo: CategoriesRepository): Hono {
       return c.json({ data: adoption }, 201);
     } catch (error) {
       if (error instanceof Error && error.message.includes('already adopted')) {
-        return c.json({ error: error.message }, 409);
+        return c.json({ error: 'Conflict', message: error.message }, 409);
       }
       throw error;
     }
   });
 
   // DELETE /categories/:id/adopt - Remove category adoption
-  router.delete('/:id/adopt', async (c) => {
+  router.delete('/:id/adopt', authorize('design', 'edit'), async (c) => {
     const tenantSchema = c.get('tenantSchema');
     if (!tenantSchema) {
-      return c.json({ error: 'Tenant context required' }, 401);
+      return c.json({ error: 'Unauthorized', message: 'Tenant context required' }, 401);
     }
 
     const categoryId = c.req.param('id');
 
     try {
       await repo.unadoptCategory(tenantSchema, categoryId);
-      return c.json({ success: true }, 200);
+      return c.json({ data: { success: true } }, 200);
     } catch (error) {
       if (error instanceof Error && error.message.includes('not adopted')) {
-        return c.json({ error: error.message }, 404);
+        return c.json({ error: 'Not Found', message: error.message }, 404);
       }
       throw error;
     }

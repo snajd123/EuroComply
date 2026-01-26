@@ -14,6 +14,52 @@
 
 ---
 
+## API Integration Patterns (MUST FOLLOW)
+
+> **CRITICAL:** All API implementations MUST follow existing codebase patterns from `apps/api/src/`.
+
+### Route Factory Pattern
+```typescript
+export function create*Router(options: RouterOptions): Hono<Env> {
+  const router = new Hono<Env>();
+  return router;
+}
+```
+
+### Taxonomy Routes (Public - No Auth)
+Substances are **public reference data** - no authentication required:
+```typescript
+// File: apps/api/src/routes/taxonomy/index.ts
+const taxonomy = new Hono<Env>();
+taxonomy.route('/substances', createSubstancesRouter(deps.substancesRepository));
+v1.route('/taxonomy', taxonomy);  // No middleware - public routes
+```
+
+### Response Format (MUST MATCH)
+```typescript
+// Success
+c.json({ data: entity })
+c.json({ data: items, meta: { total: items.length } })
+
+// Errors (use exact format)
+c.json({ error: 'Not Found', message: 'Substance not found: 127-19-5' }, 404)
+c.json({ error: 'Bad Request', message: 'Invalid CAS number format' }, 400)
+```
+
+### Env Type (from apps/api/src/app.ts)
+```typescript
+export type Env = {
+  Variables: {
+    tenantSchema?: string;
+    userId?: string;
+    user?: User;
+    membership?: OrganizationUser;
+  };
+};
+```
+
+---
+
 ## Task 1: Create AliasType Enum
 
 **Files:**
@@ -1735,6 +1781,7 @@ Expected: FAIL with "Cannot find module './substances.js'"
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
+import type { Env } from '../../app.js';
 
 export interface SubstanceData {
   id: string;
@@ -1791,8 +1838,8 @@ const querySchema = z.object({
   active: z.enum(['true', 'false']).transform(v => v === 'true').optional(),
 });
 
-export function createSubstancesRouter(repo: SubstancesRepository): Hono {
-  const router = new Hono();
+export function createSubstancesRouter(repo: SubstancesRepository): Hono<Env> {
+  const router = new Hono<Env>();
 
   // GET /substances - List all with optional filters
   router.get('/', zValidator('query', querySchema), async (c) => {
@@ -1834,7 +1881,7 @@ export function createSubstancesRouter(repo: SubstancesRepository): Hono {
     const substance = await repo.findByCasNumber(casNumber);
 
     if (!substance) {
-      return c.json({ error: 'Substance not found' }, 404);
+      return c.json({ error: 'Not Found', message: `Substance not found: ${casNumber}` }, 404);
     }
 
     return c.json({ data: substance });
@@ -1846,7 +1893,7 @@ export function createSubstancesRouter(repo: SubstancesRepository): Hono {
     const substance = await repo.findByCasNumber(casNumber);
 
     if (!substance) {
-      return c.json({ error: 'Substance not found' }, 404);
+      return c.json({ error: 'Not Found', message: `Substance not found: ${casNumber}` }, 404);
     }
 
     const aliases = await repo.findAliases(substance.id);

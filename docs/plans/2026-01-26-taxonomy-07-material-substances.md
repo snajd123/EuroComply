@@ -14,6 +14,76 @@
 
 ---
 
+## API Integration Patterns (MUST FOLLOW)
+
+> **CRITICAL:** All API implementations MUST follow existing codebase patterns from `apps/api/src/`.
+
+### Tenant-Scoped Routes (REQUIRES FULL AUTH STACK)
+Material substances are **tenant data** - requires authentication and authorization:
+
+```typescript
+// File: apps/api/src/app.ts
+// Material substance routes need tenant + user middleware
+v1.use('/materials/*/substances', createTenantMiddlewareWithApiKeys(deps.orm.em));
+v1.use('/materials/*/substances', userMiddleware);
+v1.route('/materials', createMaterialsRouter({ orm: deps.orm }));
+```
+
+### Authorization Pattern
+```typescript
+import { authorize } from '../../middleware/authorize.js';
+
+// Viewing substances requires design:view
+router.get('/:materialId/versions/:versionId/substances', authorize('design', 'view'), async (c) => { ... });
+
+// Modifying substances requires design:edit
+router.post('/:materialId/versions/:versionId/substances', authorize('design', 'edit'), async (c) => { ... });
+router.put('/:materialId/versions/:versionId/substances/:id', authorize('design', 'edit'), async (c) => { ... });
+router.delete('/:materialId/versions/:versionId/substances/:id', authorize('design', 'edit'), async (c) => { ... });
+```
+
+### Tenant Isolation Pattern (CRITICAL)
+```typescript
+router.get('/:materialId/versions/:versionId/substances', authorize('design', 'view'), async (c) => {
+  const schema = c.get('tenantSchema')!;
+  const em = orm.em.fork({ schema });
+
+  // ALWAYS use transaction with SET search_path for tenant data
+  const result = await em.transactional(async (txEm) => {
+    await txEm.execute(`SET search_path TO "${schema}", public`);
+    return txEm.find(MaterialSubstance, { productVersion: { id: versionId } });
+  });
+
+  return c.json({ data: result.map(serializeMaterialSubstance) });
+});
+```
+
+### Response Format (MUST MATCH)
+```typescript
+// Success
+c.json({ data: entity })
+c.json({ data: items, meta: { total: items.length } })
+
+// Errors
+c.json({ error: 'Not Found', message: 'Material not found' }, 404)
+c.json({ error: 'Forbidden', message: 'Insufficient permissions', workspace: 'design', action: 'edit' }, 403)
+c.json({ error: 'Bad Request', message: 'Invalid substance reference' }, 400)
+```
+
+### Env Type (from apps/api/src/app.ts)
+```typescript
+export type Env = {
+  Variables: {
+    tenantSchema?: string;
+    userId?: string;
+    user?: User;
+    membership?: OrganizationUser;
+  };
+};
+```
+
+---
+
 ## Task 1: Create ConcentrationBasis Enum
 
 **Files:**
@@ -429,15 +499,228 @@ git commit -m "feat(database): add MaterialSubstanceService for substance declar
 
 **Files:**
 - Create: `apps/api/src/routes/materials/substances.ts`
-- Test: `apps/api/src/routes/materials/substances.test.ts`
+- Test: `apps/api/src/routes/materials/substances.e2e.test.ts`
+- Modify: `apps/api/src/routes/materials/index.ts`
 
 **API Routes:**
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/v1/materials/:id/versions/:versionId/substances` | List declarations |
-| POST | `/api/v1/materials/:id/versions/:versionId/substances` | Add substance |
-| PATCH | `/api/v1/materials/:id/versions/:versionId/substances/:casNumber` | Update |
-| DELETE | `/api/v1/materials/:id/versions/:versionId/substances/:casNumber` | Remove |
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/materials/:id/versions/:versionId/substances` | design:view | List declarations |
+| POST | `/materials/:id/versions/:versionId/substances` | design:edit | Add substance |
+| PATCH | `/materials/:id/versions/:versionId/substances/:casNumber` | design:edit | Update |
+| DELETE | `/materials/:id/versions/:versionId/substances/:casNumber` | design:edit | Remove |
+
+**Step 1: Create the router**
+
+```typescript
+// apps/api/src/routes/materials/substances.ts
+import { Hono } from 'hono';
+import { z } from 'zod';
+import { zValidator } from '@hono/zod-validator';
+import type { MikroORM } from '@mikro-orm/core';
+import { MaterialSubstance, Substance, ProductVersion, ConcentrationBasis } from '@eurocomply/database';
+import { isValidCasNumber } from '@eurocomply/database/utils';
+import type { Env } from '../../app.js';
+import { authorize } from '../../middleware/authorize.js';
+
+export interface MaterialSubstancesRouterOptions {
+  orm: MikroORM;
+}
+
+const addSubstanceSchema = z.object({
+  casNumber: z.string().refine(isValidCasNumber, 'Invalid CAS number format'),
+  concentration: z.number().min(0).max(100),
+  concentrationBasis: z.nativeEnum(ConcentrationBasis).default(ConcentrationBasis.WEIGHT),
+  notes: z.string().max(1000).optional(),
+});
+
+const updateSubstanceSchema = z.object({
+  concentration: z.number().min(0).max(100).optional(),
+  concentrationBasis: z.nativeEnum(ConcentrationBasis).optional(),
+  notes: z.string().max(1000).optional(),
+});
+
+export function createMaterialSubstancesRouter(options: MaterialSubstancesRouterOptions): Hono<Env> {
+  const { orm } = options;
+  const router = new Hono<Env>();
+
+  // GET /:materialId/versions/:versionId/substances - List substance declarations
+  router.get('/:materialId/versions/:versionId/substances', authorize('design', 'view'), async (c) => {
+    const schema = c.get('tenantSchema')!;
+    const em = orm.em.fork({ schema });
+    const versionId = c.req.param('versionId');
+
+    const substances = await em.transactional(async (txEm) => {
+      await txEm.execute(`SET search_path TO "${schema}", public`);
+      return txEm.find(MaterialSubstance, { productVersion: { id: versionId } });
+    });
+
+    return c.json({
+      data: substances.map(s => ({
+        id: s.id,
+        casNumber: s.substanceCasNumber,
+        concentration: s.concentration,
+        concentrationBasis: s.concentrationBasis,
+        notes: s.notes,
+        isVerified: s.isVerified,
+        verifiedAt: s.verifiedAt,
+        verifiedBy: s.verifiedBy,
+      })),
+      meta: { total: substances.length, versionId },
+    });
+  });
+
+  // POST /:materialId/versions/:versionId/substances - Add substance declaration
+  router.post('/:materialId/versions/:versionId/substances', authorize('design', 'edit'), zValidator('json', addSubstanceSchema), async (c) => {
+    const schema = c.get('tenantSchema')!;
+    const em = orm.em.fork({ schema });
+    const versionId = c.req.param('versionId');
+    const body = c.req.valid('json');
+
+    const result = await em.transactional(async (txEm) => {
+      await txEm.execute(`SET search_path TO "${schema}", public`);
+
+      // Verify product version exists
+      const version = await txEm.findOne(ProductVersion, { id: versionId });
+      if (!version) {
+        return { error: 'Product version not found' as const };
+      }
+
+      // Verify substance exists in public schema
+      const substance = await txEm.findOne(Substance, { casNumber: body.casNumber });
+      if (!substance) {
+        return { error: `Substance not found: ${body.casNumber}` as const };
+      }
+
+      // Check for duplicate
+      const existing = await txEm.findOne(MaterialSubstance, {
+        productVersion: { id: versionId },
+        substanceCasNumber: body.casNumber,
+      });
+      if (existing) {
+        return { error: `Substance ${body.casNumber} already declared on this version` as const, status: 409 };
+      }
+
+      const materialSubstance = txEm.create(MaterialSubstance, {
+        productVersion: version,
+        substanceCasNumber: body.casNumber,
+        concentration: body.concentration,
+        concentrationBasis: body.concentrationBasis,
+        notes: body.notes,
+        isVerified: false,
+      });
+
+      await txEm.persistAndFlush(materialSubstance);
+      return { substance: materialSubstance };
+    });
+
+    if ('error' in result) {
+      const status = result.status || 400;
+      return c.json({ error: status === 409 ? 'Conflict' : 'Bad Request', message: result.error }, status as 400 | 409);
+    }
+
+    return c.json({
+      data: {
+        id: result.substance.id,
+        casNumber: result.substance.substanceCasNumber,
+        concentration: result.substance.concentration,
+        concentrationBasis: result.substance.concentrationBasis,
+      },
+    }, 201);
+  });
+
+  // PATCH /:materialId/versions/:versionId/substances/:casNumber - Update declaration
+  router.patch('/:materialId/versions/:versionId/substances/:casNumber', authorize('design', 'edit'), zValidator('json', updateSubstanceSchema), async (c) => {
+    const schema = c.get('tenantSchema')!;
+    const em = orm.em.fork({ schema });
+    const versionId = c.req.param('versionId');
+    const casNumber = c.req.param('casNumber');
+    const body = c.req.valid('json');
+
+    const result = await em.transactional(async (txEm) => {
+      await txEm.execute(`SET search_path TO "${schema}", public`);
+
+      const substance = await txEm.findOne(MaterialSubstance, {
+        productVersion: { id: versionId },
+        substanceCasNumber: casNumber,
+      });
+
+      if (!substance) {
+        return { error: 'Substance declaration not found' as const };
+      }
+
+      if (body.concentration !== undefined) substance.concentration = body.concentration;
+      if (body.concentrationBasis !== undefined) substance.concentrationBasis = body.concentrationBasis;
+      if (body.notes !== undefined) substance.notes = body.notes;
+
+      // Reset verification on change
+      substance.isVerified = false;
+      substance.verifiedAt = undefined;
+      substance.verifiedBy = undefined;
+
+      await txEm.flush();
+      return { substance };
+    });
+
+    if ('error' in result) {
+      return c.json({ error: 'Not Found', message: result.error }, 404);
+    }
+
+    return c.json({ data: { id: result.substance.id, casNumber: result.substance.substanceCasNumber } });
+  });
+
+  // DELETE /:materialId/versions/:versionId/substances/:casNumber - Remove declaration
+  router.delete('/:materialId/versions/:versionId/substances/:casNumber', authorize('design', 'edit'), async (c) => {
+    const schema = c.get('tenantSchema')!;
+    const em = orm.em.fork({ schema });
+    const versionId = c.req.param('versionId');
+    const casNumber = c.req.param('casNumber');
+
+    const result = await em.transactional(async (txEm) => {
+      await txEm.execute(`SET search_path TO "${schema}", public`);
+
+      const substance = await txEm.findOne(MaterialSubstance, {
+        productVersion: { id: versionId },
+        substanceCasNumber: casNumber,
+      });
+
+      if (!substance) {
+        return { error: 'Substance declaration not found' as const };
+      }
+
+      await txEm.removeAndFlush(substance);
+      return { success: true };
+    });
+
+    if ('error' in result) {
+      return c.json({ error: 'Not Found', message: result.error }, 404);
+    }
+
+    return c.json({ data: { success: true } });
+  });
+
+  return router;
+}
+```
+
+**Step 2: Register in app.ts**
+
+```typescript
+// apps/api/src/app.ts - add to createApp function
+// Material substance routes (tenant-scoped, requires auth)
+v1.use('/materials/*', createTenantMiddlewareWithApiKeys(deps.orm.em as any));
+if (userMiddleware) {
+  v1.use('/materials/*', userMiddleware);
+}
+v1.route('/materials', createMaterialSubstancesRouter({ orm: deps.orm }));
+```
+
+**Step 3: Write e2e tests and commit**
+
+```bash
+git add apps/api/src/routes/materials/substances.ts apps/api/src/routes/materials/substances.e2e.test.ts
+git commit -m "feat(api): add material substances API with tenant isolation and auth"
+```
 
 ---
 

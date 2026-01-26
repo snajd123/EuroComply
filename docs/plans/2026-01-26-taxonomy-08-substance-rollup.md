@@ -14,6 +14,73 @@
 
 ---
 
+## API Integration Patterns (MUST FOLLOW)
+
+> **CRITICAL:** All API implementations MUST follow existing codebase patterns from `apps/api/src/`.
+
+### Tenant-Scoped Routes (REQUIRES FULL AUTH STACK)
+Substance rollup operates on **tenant product data** - requires authentication and authorization:
+
+```typescript
+// File: apps/api/src/app.ts
+// Product substance routes need tenant + user middleware
+v1.use('/products/*', createTenantMiddlewareWithApiKeys(deps.orm.em));
+v1.use('/products/*', userMiddleware);
+v1.route('/products', createProductsRouter({ orm: deps.orm }));
+```
+
+### Authorization Pattern
+```typescript
+import { authorize } from '../../middleware/authorize.js';
+
+// Viewing rollup requires compliance:view (or design:view)
+router.get('/:productId/versions/:versionId/substances/rollup', authorize('compliance', 'view'), async (c) => { ... });
+
+// Regulatory evaluation also requires compliance:view
+router.get('/:productId/versions/:versionId/substances/evaluate', authorize('compliance', 'view'), async (c) => { ... });
+```
+
+### Tenant Isolation Pattern (CRITICAL)
+```typescript
+router.get('/:productId/versions/:versionId/substances/rollup', authorize('compliance', 'view'), async (c) => {
+  const schema = c.get('tenantSchema')!;
+  const em = orm.em.fork({ schema });
+
+  // ALWAYS use transaction with SET search_path for tenant data
+  const result = await em.transactional(async (txEm) => {
+    await txEm.execute(`SET search_path TO "${schema}", public`);
+    const rollupService = new SubstanceRollupService(txEm);
+    return rollupService.calculateRollup(versionId);
+  });
+
+  return c.json({ data: result });
+});
+```
+
+### Response Format (MUST MATCH)
+```typescript
+// Success
+c.json({ data: rollupResult, meta: { productVersionId, calculatedAt } })
+
+// Errors
+c.json({ error: 'Not Found', message: 'Product version not found' }, 404)
+c.json({ error: 'Forbidden', message: 'Insufficient permissions', workspace: 'compliance', action: 'view' }, 403)
+```
+
+### Env Type (from apps/api/src/app.ts)
+```typescript
+export type Env = {
+  Variables: {
+    tenantSchema?: string;
+    userId?: string;
+    user?: User;
+    membership?: OrganizationUser;
+  };
+};
+```
+
+---
+
 ## Task 1: Create BomEntry Entity (Stub)
 
 > **Note:** If BomEntry already exists from a BOM phase, skip to Task 2.
@@ -998,133 +1065,217 @@ git commit -m "feat(database): add SubstanceRuleEvaluator for PreFlight integrat
 ## Task 6: Create Substance Rollup API Routes
 
 **Files:**
-- Create: `apps/api/src/routes/products/substance-rollup.ts`
+- Modify: `apps/api/src/routes/products.ts` (add rollup/evaluate endpoints)
 - Test: `apps/api/src/routes/products/substance-rollup.e2e.test.ts`
 
-**Step 1: Write the failing test**
+> **Note:** These routes extend the existing products router. See `apps/api/src/routes/products.ts` for the current implementation pattern.
+
+**Step 1: Write the failing e2e test (NO MOCKS - per RULES.md)**
 
 ```typescript
 // apps/api/src/routes/products/substance-rollup.e2e.test.ts
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { testClient, setupTestApp, cleanupTestApp } from '../../test-utils/index.js';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import type { MikroORM } from '@eurocomply/database';
+import { Hono } from 'hono';
+import { Product, ProductVersion, BomEntry, MaterialSubstance, Substance } from '@eurocomply/database';
+import { setupTestDb, teardownTestDb, isDatabaseAvailable } from '@eurocomply/database/test-utils';
+import type { Env } from '../../app.js';
+import { authorize } from '../../middleware/authorize.js';
+import { SubstanceRollupService } from '@eurocomply/database/services/substance-rollup.service.js';
 
-describe('GET /api/v1/products/:id/versions/:versionId/substances/rollup', () => {
+interface RollupResponse {
+  data: {
+    productVersionId: string;
+    calculatedAt: string;
+    isComplete: boolean;
+    substances: Array<{
+      casNumber: string;
+      effectiveConcentrationPct: number;
+    }>;
+  };
+}
+
+describe('Substance Rollup API E2E', () => {
+  let orm: MikroORM;
+  let app: Hono<Env>;
+  let testVersionId: string;
+
   beforeAll(async () => {
-    await setupTestApp();
+    if (!(await isDatabaseAvailable())) {
+      return;
+    }
+
+    orm = await setupTestDb();
+    // Setup test data: product → version → BOM → materials → substances
+    // (Detailed setup omitted for brevity - see test fixtures)
+
+    app = new Hono<Env>();
+
+    // Simulate tenant middleware
+    app.use('*', async (c, next) => {
+      c.set('tenantSchema', 'test_tenant');
+      c.set('userId', 'test-user');
+      await next();
+    });
+
+    // Add rollup route
+    app.get('/:productId/versions/:versionId/substances/rollup', authorize('compliance', 'view'), async (c) => {
+      const schema = c.get('tenantSchema')!;
+      const em = orm.em.fork({ schema });
+      const versionId = c.req.param('versionId');
+
+      const result = await em.transactional(async (txEm) => {
+        await txEm.execute(`SET search_path TO "${schema}", public`);
+        const service = new SubstanceRollupService(txEm);
+        return service.rollUp(versionId);
+      });
+
+      return c.json({
+        data: {
+          productVersionId: result.productVersionId,
+          calculatedAt: result.calculatedAt.toISOString(),
+          isComplete: result.isComplete,
+          warnings: result.warnings,
+          substances: result.substances,
+        },
+      });
+    });
   });
 
   afterAll(async () => {
-    await cleanupTestApp();
-  });
-
-  it('should return 401 without auth', async () => {
-    const res = await testClient.products.$get(
-      '/prod_123/versions/pv_123/substances/rollup'
-    );
-    expect(res.status).toBe(401);
+    if (orm) {
+      await teardownTestDb();
+    }
   });
 
   it('should return rolled-up substances for product version', async () => {
-    // This test requires setup fixtures for:
-    // - Product with version
-    // - BOM entries linking to materials
-    // - MaterialSubstance declarations on materials
-    // - Substances in public registry
+    if (!orm) return;
 
-    const res = await testClient.products.$get(
-      '/prod_test/versions/pv_test/substances/rollup',
-      {
-        headers: { Authorization: 'Bearer test-token' },
-      }
-    );
-
+    const res = await app.request(`/prod_test/versions/${testVersionId}/substances/rollup`);
     expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(data).toHaveProperty('substances');
-    expect(data).toHaveProperty('calculatedAt');
-    expect(data).toHaveProperty('isComplete');
+
+    const body = await res.json() as RollupResponse;
+    expect(body.data.productVersionId).toBeDefined();
+    expect(body.data.calculatedAt).toBeDefined();
+    expect(body.data.substances).toBeInstanceOf(Array);
   });
 });
 ```
 
-**Step 2: Create the route**
+**Step 2: Add routes to existing products router**
 
 ```typescript
-// apps/api/src/routes/products/substance-rollup.ts
-import { Hono } from 'hono';
-import { zValidator } from '@hono/zod-validator';
-import { z } from 'zod';
-import { SubstanceRollupService } from '@eurocomply/database/services/substance-rollup.service.js';
-import { requireAuth } from '../../middleware/auth.js';
-import { getRequestContext } from '../../middleware/context.js';
+// apps/api/src/routes/products.ts - ADD these routes to createProductsRouter
 
-const substanceRollupRoutes = new Hono();
+import { SubstanceRollupService } from '@eurocomply/database/services/substance-rollup.service.js';
+import { SubstanceRuleEvaluator } from '@eurocomply/database/services/substance-rule-evaluator.js';
+
+// Inside createProductsRouter function, add:
 
 /**
  * GET /products/:productId/versions/:versionId/substances/rollup
  *
  * Calculate and return rolled-up substance concentrations from the BOM.
+ * Requires compliance:view authorization.
  */
-substanceRollupRoutes.get(
-  '/:productId/versions/:versionId/substances/rollup',
-  requireAuth(),
-  zValidator(
-    'param',
-    z.object({
-      productId: z.string().startsWith('prod_'),
-      versionId: z.string().startsWith('pv_'),
-    })
-  ),
-  async (c) => {
-    const { versionId } = c.req.valid('param');
-    const { em } = getRequestContext(c);
+router.get('/:productId/versions/:versionId/substances/rollup', authorize('compliance', 'view'), async (c) => {
+  const schema = c.get('tenantSchema')!;
+  const em = orm.em.fork({ schema });
+  const { productId, versionId } = c.req.param();
 
-    const service = new SubstanceRollupService(em);
-    const result = await service.rollUp(versionId);
+  const result = await em.transactional(async (txEm) => {
+    await txEm.execute(`SET search_path TO "${schema}", public`);
 
-    return c.json({
-      success: true,
-      data: {
-        productVersionId: result.productVersionId,
-        calculatedAt: result.calculatedAt.toISOString(),
-        isComplete: result.isComplete,
-        warnings: result.warnings,
-        substances: result.substances.map(s => ({
-          substanceId: s.substanceId,
-          casNumber: s.casNumber,
-          ecNumber: s.ecNumber,
-          primaryName: s.primaryName,
-          effectiveConcentrationPct: s.effectiveConcentrationPct,
-          basis: s.basis,
-          sources: s.sources,
-          regulatoryFlags: s.regulatoryFlags,
-        })),
-      },
-    });
+    // Verify product version exists and belongs to this product
+    const version = await txEm.findOne(ProductVersion, { id: versionId, product: { id: productId } });
+    if (!version) {
+      return { error: 'Product version not found' as const };
+    }
+
+    const service = new SubstanceRollupService(txEm);
+    return { rollup: await service.rollUp(versionId) };
+  });
+
+  if ('error' in result) {
+    return c.json({ error: 'Not Found', message: result.error }, 404);
   }
-);
 
-export { substanceRollupRoutes };
+  return c.json({
+    data: {
+      productVersionId: result.rollup.productVersionId,
+      calculatedAt: result.rollup.calculatedAt.toISOString(),
+      isComplete: result.rollup.isComplete,
+      warnings: result.rollup.warnings,
+      substances: result.rollup.substances.map(s => ({
+        substanceId: s.substanceId,
+        casNumber: s.casNumber,
+        ecNumber: s.ecNumber,
+        primaryName: s.primaryName,
+        effectiveConcentrationPct: s.effectiveConcentrationPct,
+        basis: s.basis,
+        sources: s.sources,
+        regulatoryFlags: s.regulatoryFlags,
+      })),
+    },
+    meta: { productId, versionId },
+  });
+});
+
+/**
+ * GET /products/:productId/versions/:versionId/substances/evaluate
+ *
+ * Evaluate rolled-up substances against regulatory rules.
+ * Returns compliance status and rule violations for PreFlight integration.
+ * Requires compliance:view authorization.
+ */
+router.get('/:productId/versions/:versionId/substances/evaluate', authorize('compliance', 'view'), async (c) => {
+  const schema = c.get('tenantSchema')!;
+  const em = orm.em.fork({ schema });
+  const { productId, versionId } = c.req.param();
+
+  const result = await em.transactional(async (txEm) => {
+    await txEm.execute(`SET search_path TO "${schema}", public`);
+
+    const version = await txEm.findOne(ProductVersion, { id: versionId, product: { id: productId } });
+    if (!version) {
+      return { error: 'Product version not found' as const };
+    }
+
+    // First calculate rollup
+    const rollupService = new SubstanceRollupService(txEm);
+    const rollup = await rollupService.rollUp(versionId);
+
+    // Then evaluate against rules
+    const evaluator = new SubstanceRuleEvaluator(txEm);
+    const evaluation = await evaluator.evaluate(rollup.substances);
+
+    return { rollup, evaluation };
+  });
+
+  if ('error' in result) {
+    return c.json({ error: 'Not Found', message: result.error }, 404);
+  }
+
+  return c.json({
+    data: {
+      productVersionId: versionId,
+      evaluatedAt: new Date().toISOString(),
+      isCompliant: result.evaluation.isCompliant,
+      violations: result.evaluation.violations,
+      warnings: result.evaluation.warnings,
+      substanceCount: result.rollup.substances.length,
+    },
+    meta: { productId, versionId },
+  });
+});
 ```
 
-**Step 3: Register routes in product router**
-
-Add to the main products router:
-
-```typescript
-// In apps/api/src/routes/products/index.ts
-import { substanceRollupRoutes } from './substance-rollup.js';
-
-// Register substance rollup routes
-productRoutes.route('/', substanceRollupRoutes);
-```
-
-**Step 4: Run tests and commit**
+**Step 3: Run tests and commit**
 
 ```bash
 cd apps/api && pnpm test substance-rollup.e2e.test.ts
-git add apps/api/src/routes/products/substance-rollup.ts apps/api/src/routes/products/substance-rollup.e2e.test.ts apps/api/src/routes/products/index.ts
-git commit -m "feat(api): add substance rollup endpoint for products"
+git add apps/api/src/routes/products.ts apps/api/src/routes/products/substance-rollup.e2e.test.ts
+git commit -m "feat(api): add substance rollup and evaluate endpoints with tenant isolation"
 ```
 
 ---

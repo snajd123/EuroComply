@@ -14,6 +14,57 @@
 
 ---
 
+## API Integration Patterns (MUST FOLLOW)
+
+> **CRITICAL:** All API implementations MUST follow existing codebase patterns from `apps/api/src/`.
+
+### Route Factory Pattern
+```typescript
+// All routes use factory pattern with injected dependencies
+export function create*Router(options: RouterOptions): Hono<Env> {
+  const router = new Hono<Env>();
+  // ... routes
+  return router;
+}
+```
+
+### Taxonomy Routes (Public - No Auth)
+Classifications, substances, and units are **public reference data** - no authentication required:
+```typescript
+// File: apps/api/src/routes/taxonomy/index.ts
+const taxonomy = new Hono<Env>();
+taxonomy.route('/units', createUnitsRouter(deps.unitsRepository));
+taxonomy.route('/classifications', createClassificationsRouter(deps.classificationsRepository));
+v1.route('/taxonomy', taxonomy);  // No middleware - public routes
+```
+
+### Response Format (MUST MATCH)
+```typescript
+// Success - single entity
+c.json({ data: entity })
+
+// Success - list with metadata
+c.json({ data: items, meta: { total: items.length } })
+
+// Error responses (use these exact formats)
+c.json({ error: 'Not Found', message: 'Classification not found: 8507' }, 404)
+c.json({ error: 'Bad Request', message: 'Invalid classification system' }, 400)
+```
+
+### Env Type (from apps/api/src/app.ts)
+```typescript
+export type Env = {
+  Variables: {
+    tenantSchema?: string;
+    userId?: string;
+    user?: User;
+    membership?: OrganizationUser;
+  };
+};
+```
+
+---
+
 ## Task 1: Create ClassificationSystem Enum
 
 **Files:**
@@ -958,6 +1009,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import { ClassificationSystem } from '@eurocomply/database';
+import type { Env } from '../../app.js';
 
 export interface ClassificationData {
   id: string;
@@ -990,8 +1042,8 @@ const querySchema = z.object({
   search: z.string().min(2).max(100).optional(),  // ILIKE search on description (min 2 chars)
 });
 
-export function createClassificationsRouter(repo: ClassificationsRepository): Hono {
-  const router = new Hono();
+export function createClassificationsRouter(repo: ClassificationsRepository): Hono<Env> {
+  const router = new Hono<Env>();
 
   // GET /classifications - List all with optional filters
   // Supports search parameter for ILIKE on description (critical for Regulatory Advisor)
@@ -1022,7 +1074,7 @@ export function createClassificationsRouter(repo: ClassificationsRepository): Ho
     const classification = await repo.findByCode(code);
 
     if (!classification) {
-      return c.json({ error: 'Classification not found' }, 404);
+      return c.json({ error: 'Not Found', message: `Classification not found: ${code}` }, 404);
     }
 
     return c.json({ data: classification });
