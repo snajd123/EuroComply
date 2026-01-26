@@ -16,3 +16,4 @@ export {
   type ConversionResult,
 } from './unit-conversion.service.js';
 export { OutboxProcessorService } from './outbox-processor.service.js';
+export { BulkImportService, type UpsertData } from './bulk-import.service.js';
