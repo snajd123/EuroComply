@@ -19,11 +19,15 @@ eurocomply database
 │   ├── regulation_anchors      -- Highlighted text coordinates
 │   ├── marketplace_listings    -- Published templates
 │   ├── ingestion_jobs          -- PDF processing jobs
-│   ├── seed_version            -- Reference data version tracking (NEW)
+│   ├── seed_version            -- Reference data version tracking
 │   ├── unit_definition         -- UNECE Rec 20 units
-│   ├── product_classification  -- HS/CN codes (NEW)
-│   ├── substance               -- ECHA substance registry (NEW)
-│   └── substance_alias         -- Substance alternative names (NEW)
+│   ├── product_classification  -- HS/CN codes
+│   ├── substance               -- ECHA substance registry
+│   ├── substance_alias         -- Substance alternative names
+│   ├── regulatory_list         -- Versioned regulatory lists (COSING, RoHS, etc.)
+│   ├── regulatory_list_entry   -- Substances in regulatory lists
+│   ├── category_regulatory_list -- Category-to-list LTREE mapping
+│   └── regulatory_import_log   -- Admin import audit trail
 │
 └── tenant_{slug}               -- Per-tenant data
     ├── users
@@ -62,6 +66,10 @@ eurocomply database
 | ProductClassification | `public` | HS/CN codes (shared international standard) |
 | Substance | `public` | ECHA substance registry (shared) |
 | SubstanceAlias | `public` | Substance names (shared) |
+| RegulatoryList | `public` | Versioned regulatory lists (shared across tenants) |
+| RegulatoryListEntry | `public` | Substance restrictions per list (shared) |
+| CategoryRegulatoryList | `public` | Category-to-list LTREE mapping (shared) |
+| RegulatoryImportLog | `public` | Admin import audit trail (shared) |
 | MaterialSubstance | `tenant_{slug}` | Concentration data is proprietary |
 | RuleTemplate (ORG) | `tenant_{slug}` | Tenant-specific rules |
 | All others | `tenant_{slug}` | Tenant isolation |
@@ -728,6 +736,309 @@ CREATE TABLE public.substance_alias (
 
 CREATE INDEX idx_substance_alias_name ON public.substance_alias(name);
 CREATE INDEX idx_substance_alias_substance ON public.substance_alias(substance_id);
+```
+
+### RegulatoryList
+
+Versioned regulatory lists (COSING, RoHS, REACH SVHC, etc.) for data-driven compliance checking.
+
+> **Reference:** See `docs/plans/2026-01-26-regulatory-vertical-system-design.md` for full design.
+
+```typescript
+// packages/database/src/entities/RegulatoryList.ts
+import { Entity, Property, ManyToOne, OneToMany, Collection, Unique, Index } from '@mikro-orm/core';
+import { BaseEntity } from './BaseEntity.js';
+
+@Entity({ tableName: 'regulatory_list', schema: 'public' })
+@Unique({ properties: ['code', 'version'] })
+@Index({ properties: ['source', 'isCurrentVersion'] })
+export class RegulatoryList extends BaseEntity {
+  @Property({ length: 100 })
+  code!: string;              // 'COSING_ANNEX_II' - stable identifier
+
+  @Property({ length: 255 })
+  name!: string;              // 'CosIng Annex II - Prohibited Substances'
+
+  @Property({ length: 50 })
+  source!: string;            // 'EU_COSING', 'ECHA', 'EU_ROHS'
+
+  @Property({ length: 50 })
+  version!: string;           // '2024-06', '2026-01'
+
+  @Property({ name: 'effective_date' })
+  effectiveDate!: Date;       // When this version became law
+
+  @Property({ name: 'superseded_date', nullable: true })
+  supersededDate?: Date;      // When next version replaced it
+
+  @Property({ name: 'is_current_version', default: true })
+  isCurrentVersion!: boolean; // Fast lookup for latest
+
+  @Property({ name: 'source_url', nullable: true, length: 500 })
+  sourceUrl?: string;         // Deep link to official EU source
+
+  @ManyToOne(() => RegulatoryList, { nullable: true, name: 'previous_version_id' })
+  previousVersion?: RegulatoryList;  // Chain for history traversal
+
+  @OneToMany(() => RegulatoryListEntry, e => e.list)
+  entries = new Collection<RegulatoryListEntry>(this);
+}
+```
+
+**DDL:**
+
+```sql
+CREATE TABLE public.regulatory_list (
+    id VARCHAR(30) PRIMARY KEY,
+    code VARCHAR(100) NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    source VARCHAR(50) NOT NULL,
+    version VARCHAR(50) NOT NULL,
+    effective_date DATE NOT NULL,
+    superseded_date DATE,
+    is_current_version BOOLEAN DEFAULT TRUE,
+    source_url VARCHAR(500),
+    previous_version_id VARCHAR(30) REFERENCES public.regulatory_list(id),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(code, version)
+);
+
+CREATE INDEX idx_regulatory_list_source ON public.regulatory_list(source, is_current_version);
+CREATE INDEX idx_regulatory_list_code ON public.regulatory_list(code);
+```
+
+### RegulatoryListEntry
+
+Substances within a regulatory list, with restriction type and thresholds.
+
+```typescript
+// packages/database/src/entities/RegulatoryListEntry.ts
+import { Entity, Property, ManyToOne, Enum, Unique, Index } from '@mikro-orm/core';
+import { BaseEntity } from './BaseEntity.js';
+import { RegulatoryList } from './RegulatoryList.js';
+import { Substance } from './Substance.js';
+
+export enum RestrictionType {
+  PROHIBITED = 'PROHIBITED',                         // Substance banned entirely
+  THRESHOLD = 'THRESHOLD',                           // Allowed below threshold
+  RESTRICTED_WITH_CONDITIONS = 'RESTRICTED_WITH_CONDITIONS',  // Conditional use
+}
+
+@Entity({ tableName: 'regulatory_list_entry', schema: 'public' })
+@Unique({ properties: ['list', 'substance'] })
+@Index({ properties: ['list'] })
+@Index({ properties: ['substance'] })
+export class RegulatoryListEntry extends BaseEntity {
+  @ManyToOne(() => RegulatoryList, { name: 'list_id' })
+  list!: RegulatoryList;
+
+  // Live reference (for joins)
+  @ManyToOne(() => Substance, { name: 'substance_id' })
+  substance!: Substance;
+
+  // Forensic snapshots (immutable at import time)
+  @Property({ name: 'cas_number_snapshot', length: 20 })
+  casNumberSnapshot!: string;
+
+  @Property({ name: 'substance_name_snapshot', length: 500 })
+  substanceNameSnapshot!: string;
+
+  @Enum(() => RestrictionType)
+  @Property({ name: 'restriction_type' })
+  restrictionType!: RestrictionType;
+
+  @Property({ type: 'decimal', precision: 7, scale: 4, nullable: true, name: 'threshold_pct' })
+  thresholdPct?: string;      // e.g., "0.1000" for 0.1%
+
+  @Property({ type: 'jsonb', nullable: true })
+  conditions?: Record<string, string>;  // { application_area: 'spray products' }
+
+  @Property({ name: 'legal_reference', nullable: true, length: 100 })
+  legalReference?: string;    // 'Entry 1577'
+
+  @Property({ type: 'text', nullable: true })
+  notes?: string;
+}
+```
+
+**DDL:**
+
+```sql
+CREATE TABLE public.regulatory_list_entry (
+    id VARCHAR(30) PRIMARY KEY,
+    list_id VARCHAR(30) NOT NULL REFERENCES public.regulatory_list(id) ON DELETE CASCADE,
+    substance_id VARCHAR(30) NOT NULL REFERENCES public.substance(id),
+    cas_number_snapshot VARCHAR(20) NOT NULL,
+    substance_name_snapshot VARCHAR(500) NOT NULL,
+    restriction_type VARCHAR(30) NOT NULL,  -- PROHIBITED, THRESHOLD, RESTRICTED_WITH_CONDITIONS
+    threshold_pct DECIMAL(7, 4),
+    conditions JSONB,
+    legal_reference VARCHAR(100),
+    notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(list_id, substance_id)
+);
+
+CREATE INDEX idx_regulatory_list_entry_list ON public.regulatory_list_entry(list_id);
+CREATE INDEX idx_regulatory_list_entry_substance ON public.regulatory_list_entry(substance_id);
+CREATE INDEX idx_regulatory_list_entry_cas ON public.regulatory_list_entry(cas_number_snapshot);
+```
+
+### CategoryRegulatoryList
+
+Links category LTREE paths to regulatory lists. Enables automatic list inheritance based on product category.
+
+```typescript
+// packages/database/src/entities/CategoryRegulatoryList.ts
+import { Entity, Property, ManyToOne, Unique, Index } from '@mikro-orm/core';
+import { BaseEntity } from './BaseEntity.js';
+import { RegulatoryList } from './RegulatoryList.js';
+
+@Entity({ tableName: 'category_regulatory_list', schema: 'public' })
+@Unique({ properties: ['categoryPath', 'list'] })
+@Index({ type: 'gist', properties: ['categoryPath'] })  // LTREE GiST index
+export class CategoryRegulatoryList extends BaseEntity {
+  // LTREE path pattern (e.g., 'products.cosmetics', 'products.electronics')
+  // Uses PostgreSQL LTREE @> operator for inheritance queries
+  @Property({ name: 'category_path', columnType: 'ltree' })
+  categoryPath!: string;
+
+  @ManyToOne(() => RegulatoryList, { name: 'list_id' })
+  list!: RegulatoryList;
+
+  @Property({ type: 'int', default: 0 })
+  priority!: number;          // Higher priority = checked first
+
+  @Property({ default: false, name: 'is_excluded' })
+  isExcluded!: boolean;       // True = explicitly exclude this list from category
+
+  @Property({ type: 'text', nullable: true })
+  notes?: string;             // Admin notes for audit trail
+}
+```
+
+**DDL:**
+
+```sql
+-- Requires LTREE extension
+CREATE EXTENSION IF NOT EXISTS ltree;
+
+CREATE TABLE public.category_regulatory_list (
+    id VARCHAR(30) PRIMARY KEY,
+    category_path LTREE NOT NULL,
+    list_id VARCHAR(30) NOT NULL REFERENCES public.regulatory_list(id) ON DELETE CASCADE,
+    priority INT DEFAULT 0,
+    is_excluded BOOLEAN DEFAULT FALSE,
+    notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(category_path, list_id)
+);
+
+CREATE INDEX idx_category_regulatory_list_path ON public.category_regulatory_list USING GIST (category_path);
+CREATE INDEX idx_category_regulatory_list_list ON public.category_regulatory_list(list_id);
+```
+
+**LTREE Query Examples:**
+
+```sql
+-- Find all regulatory lists applicable to a product in category 'products.cosmetics.skincare'
+SELECT DISTINCT rl.*
+FROM public.category_regulatory_list crl
+JOIN public.regulatory_list rl ON crl.list_id = rl.id
+WHERE crl.category_path @> 'products.cosmetics.skincare'::ltree
+  AND crl.is_excluded = FALSE
+  AND rl.is_current_version = TRUE
+ORDER BY crl.priority DESC;
+
+-- This matches:
+--   'products' (ancestor)
+--   'products.cosmetics' (ancestor)
+--   'products.cosmetics.skincare' (exact)
+```
+
+### RegulatoryImportLog
+
+Audit trail for admin regulatory list imports.
+
+```typescript
+// packages/database/src/entities/RegulatoryImportLog.ts
+import { Entity, Property, ManyToOne, Enum, Index } from '@mikro-orm/core';
+import { BaseEntity } from './BaseEntity.js';
+import { RegulatoryList } from './RegulatoryList.js';
+
+export enum ImportStatus {
+  PENDING = 'PENDING',
+  PREVIEW = 'PREVIEW',
+  APPLIED = 'APPLIED',
+  FAILED = 'FAILED',
+  ROLLED_BACK = 'ROLLED_BACK',
+}
+
+@Entity({ tableName: 'regulatory_import_log', schema: 'public' })
+@Index({ properties: ['status', 'createdAt'] })
+export class RegulatoryImportLog extends BaseEntity {
+  @ManyToOne(() => RegulatoryList, { nullable: true, name: 'list_id' })
+  list?: RegulatoryList;      // Set after successful apply
+
+  @Property({ name: 'file_name', length: 255 })
+  fileName!: string;
+
+  @Property({ name: 'file_hash', length: 64 })
+  fileHash!: string;          // SHA-256 for deduplication
+
+  @Enum(() => ImportStatus)
+  status!: ImportStatus;
+
+  @Property({ name: 'admin_user_id', length: 30 })
+  adminUserId!: string;       // Who initiated the import
+
+  @Property({ type: 'jsonb', nullable: true, name: 'preview_summary' })
+  previewSummary?: {
+    totalRows: number;
+    validRows: number;
+    errorRows: number;
+    newSubstances: number;
+    updatedEntries: number;
+  };
+
+  @Property({ type: 'jsonb', nullable: true, name: 'validation_errors' })
+  validationErrors?: Array<{
+    row: number;
+    field: string;
+    message: string;
+  }>;
+
+  @Property({ name: 'applied_at', nullable: true })
+  appliedAt?: Date;
+
+  @Property({ type: 'text', nullable: true, name: 'error_message' })
+  errorMessage?: string;
+}
+```
+
+**DDL:**
+
+```sql
+CREATE TABLE public.regulatory_import_log (
+    id VARCHAR(30) PRIMARY KEY,
+    list_id VARCHAR(30) REFERENCES public.regulatory_list(id),
+    file_name VARCHAR(255) NOT NULL,
+    file_hash VARCHAR(64) NOT NULL,
+    status VARCHAR(20) NOT NULL,  -- PENDING, PREVIEW, APPLIED, FAILED, ROLLED_BACK
+    admin_user_id VARCHAR(30) NOT NULL,
+    preview_summary JSONB,
+    validation_errors JSONB,
+    applied_at TIMESTAMPTZ,
+    error_message TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_regulatory_import_log_status ON public.regulatory_import_log(status, created_at);
+CREATE INDEX idx_regulatory_import_log_hash ON public.regulatory_import_log(file_hash);
 ```
 
 ---

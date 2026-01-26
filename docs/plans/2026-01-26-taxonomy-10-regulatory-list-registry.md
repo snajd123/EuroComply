@@ -20,10 +20,52 @@
 
 ### Route Factory Pattern
 ```typescript
+// Pass ORM, fork EntityManager inside handlers
+export interface RouterOptions {
+  orm: MikroORM;
+}
+
 export function create*Router(options: RouterOptions): Hono<Env> {
+  const { orm } = options;
   const router = new Hono<Env>();
+
+  router.get('/', async (c) => {
+    const em = orm.em.fork();  // Fork inside handler
+    // ...
+  });
+
   return router;
 }
+```
+
+### Zod Validation (REQUIRED)
+```typescript
+import { z } from 'zod';
+import { zValidator } from '@hono/zod-validator';
+
+const listQuery = z.object({
+  source: z.string().optional(),
+  version: z.string().optional(),
+});
+
+router.get('/', zValidator('query', listQuery), async (c) => {
+  const query = c.req.valid('query');
+  // ...
+});
+```
+
+### Test Setup (REQUIRED)
+```typescript
+import { setupTestDb, teardownTestDb, isDatabaseAvailable } from '@eurocomply/database/test-utils';
+
+beforeAll(async () => {
+  if (!(await isDatabaseAvailable())) return;
+  orm = await setupTestDb();
+});
+
+afterAll(async () => {
+  if (orm) await teardownTestDb();
+});
 ```
 
 ### Taxonomy Routes (Public - No Auth)
@@ -31,15 +73,18 @@ RegulatoryLists are **public reference data** - no authentication required:
 ```typescript
 // File: apps/api/src/routes/taxonomy/index.ts
 const taxonomy = new Hono<Env>();
-taxonomy.route('/regulatory-lists', createRegulatoryListsRouter(deps));
+taxonomy.route('/regulatory-lists', createRegulatoryListsRouter({ orm }));
 v1.route('/taxonomy', taxonomy);  // No middleware - public routes
 ```
 
 ### Response Format (MUST MATCH)
 ```typescript
-// Success
+// Success (reads)
 c.json({ data: entity })
 c.json({ data: items, meta: { total: items.length } })
+
+// Success (mutations)
+c.json({ success: true, data: { ... } })
 
 // Errors (use exact format)
 c.json({ error: 'Not Found', message: 'Regulatory list not found: INVALID_CODE' }, 404)
@@ -100,28 +145,31 @@ git commit -m "feat(database): add RestrictionType enum (PROHIBITED, THRESHOLD, 
 
 ```typescript
 // packages/database/src/entities/RegulatoryList.test.ts
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { MikroORM, PostgreSqlDriver } from '@mikro-orm/postgresql';
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import type { MikroORM } from '@mikro-orm/postgresql';
 import { RegulatoryList } from './RegulatoryList.js';
-import testConfig from '../mikro-orm.config.test.js';
+import { setupTestDb, teardownTestDb, isDatabaseAvailable } from '../test-utils.js';
 
 describe('RegulatoryList Entity', () => {
-  let orm: MikroORM<PostgreSqlDriver>;
+  let orm: MikroORM;
 
   beforeAll(async () => {
-    orm = await MikroORM.init<PostgreSqlDriver>({
-      ...testConfig,
-      entities: [RegulatoryList],
-      allowGlobalContext: true,
-    });
-    await orm.getSchemaGenerator().refreshDatabase();
+    if (!(await isDatabaseAvailable())) return;
+    orm = await setupTestDb();
   });
 
   afterAll(async () => {
-    await orm.close(true);
+    if (orm) await teardownTestDb();
   });
 
-  it('should create a regulatory list with required fields', async () => {
+  beforeEach(async () => {
+    if (!orm) return;
+    const em = orm.em.fork();
+    await em.nativeDelete(RegulatoryList, {});
+  });
+
+  it('creates regulatory list with required fields', async (context) => {
+    if (!orm) { context.skip(); return; }
     const em = orm.em.fork();
 
     const list = em.create(RegulatoryList, {
@@ -143,7 +191,8 @@ describe('RegulatoryList Entity', () => {
     expect(found.supersededDate).toBeUndefined();
   });
 
-  it('should enforce unique constraint on code + version', async () => {
+  it('enforces unique constraint on code + version', async (context) => {
+    if (!orm) { context.skip(); return; }
     const em = orm.em.fork();
 
     const list1 = em.create(RegulatoryList, {
@@ -155,7 +204,8 @@ describe('RegulatoryList Entity', () => {
     });
     await em.persistAndFlush(list1);
 
-    const list2 = em.create(RegulatoryList, {
+    const em2 = orm.em.fork();
+    const list2 = em2.create(RegulatoryList, {
       code: 'REACH_SVHC',
       name: 'REACH SVHC Candidate List',
       source: 'ECHA',
@@ -163,10 +213,11 @@ describe('RegulatoryList Entity', () => {
       effectiveDate: new Date('2024-01-15'),
     });
 
-    await expect(em.persistAndFlush(list2)).rejects.toThrow();
+    await expect(em2.persistAndFlush(list2)).rejects.toThrow();
   });
 
-  it('should allow same code with different versions', async () => {
+  it('allows same code with different versions', async (context) => {
+    if (!orm) { context.skip(); return; }
     const em = orm.em.fork();
 
     const v1 = em.create(RegulatoryList, {
@@ -193,7 +244,8 @@ describe('RegulatoryList Entity', () => {
     expect(versions).toHaveLength(2);
   });
 
-  it('should support version chain via previousVersion', async () => {
+  it('supports version chain via previousVersion', async (context) => {
+    if (!orm) { context.skip(); return; }
     const em = orm.em.fork();
 
     const v1 = em.create(RegulatoryList, {
@@ -361,39 +413,36 @@ git commit -m "feat(database): add RegulatoryList entity with versioning support
 ```typescript
 // packages/database/src/entities/RegulatoryListEntry.test.ts
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { MikroORM, PostgreSqlDriver } from '@mikro-orm/postgresql';
+import type { MikroORM } from '@mikro-orm/postgresql';
 import { RegulatoryList } from './RegulatoryList.js';
 import { RegulatoryListEntry } from './RegulatoryListEntry.js';
 import { Substance } from './Substance.js';
 import { RestrictionType } from './enums/index.js';
-import testConfig from '../mikro-orm.config.test.js';
+import { setupTestDb, teardownTestDb, isDatabaseAvailable } from '../test-utils.js';
 
 describe('RegulatoryListEntry Entity', () => {
-  let orm: MikroORM<PostgreSqlDriver>;
-  let list: RegulatoryList;
-  let substance: Substance;
+  let orm: MikroORM;
+  let listId: string;
+  let substanceId: string;
 
   beforeAll(async () => {
-    orm = await MikroORM.init<PostgreSqlDriver>({
-      ...testConfig,
-      entities: [RegulatoryList, RegulatoryListEntry, Substance],
-      allowGlobalContext: true,
-    });
-    await orm.getSchemaGenerator().refreshDatabase();
+    if (!(await isDatabaseAvailable())) return;
+    orm = await setupTestDb();
   });
 
   afterAll(async () => {
-    await orm.close(true);
+    if (orm) await teardownTestDb();
   });
 
   beforeEach(async () => {
+    if (!orm) return;
     const em = orm.em.fork();
     await em.nativeDelete(RegulatoryListEntry, {});
     await em.nativeDelete(RegulatoryList, {});
     await em.nativeDelete(Substance, {});
 
     // Create test list
-    list = em.create(RegulatoryList, {
+    const list = em.create(RegulatoryList, {
       code: 'TEST_LIST',
       name: 'Test Regulatory List',
       source: 'TEST',
@@ -402,19 +451,22 @@ describe('RegulatoryListEntry Entity', () => {
     });
 
     // Create test substance
-    substance = em.create(Substance, {
+    const substance = em.create(Substance, {
       casNumber: '50-00-0',
       primaryName: 'Formaldehyde',
     });
 
     await em.persistAndFlush([list, substance]);
+    listId = list.id;
+    substanceId = substance.id;
   });
 
-  it('should create an entry with prohibition restriction', async () => {
+  it('creates entry with prohibition restriction', async (context) => {
+    if (!orm) { context.skip(); return; }
     const em = orm.em.fork();
 
-    const listRef = await em.findOneOrFail(RegulatoryList, { code: 'TEST_LIST' });
-    const substanceRef = await em.findOneOrFail(Substance, { casNumber: '50-00-0' });
+    const listRef = await em.findOneOrFail(RegulatoryList, { id: listId });
+    const substanceRef = await em.findOneOrFail(Substance, { id: substanceId });
 
     const entry = em.create(RegulatoryListEntry, {
       list: listRef,
@@ -438,11 +490,12 @@ describe('RegulatoryListEntry Entity', () => {
     expect(found.legalReference).toBe('Entry 1577');
   });
 
-  it('should create an entry with threshold restriction', async () => {
+  it('creates entry with threshold restriction', async (context) => {
+    if (!orm) { context.skip(); return; }
     const em = orm.em.fork();
 
-    const listRef = await em.findOneOrFail(RegulatoryList, { code: 'TEST_LIST' });
-    const substanceRef = await em.findOneOrFail(Substance, { casNumber: '50-00-0' });
+    const listRef = await em.findOneOrFail(RegulatoryList, { id: listId });
+    const substanceRef = await em.findOneOrFail(Substance, { id: substanceId });
 
     const entry = em.create(RegulatoryListEntry, {
       list: listRef,
@@ -461,11 +514,12 @@ describe('RegulatoryListEntry Entity', () => {
     expect(found.thresholdPct).toBe('0.1');
   });
 
-  it('should create an entry with conditional restriction', async () => {
+  it('creates entry with conditional restriction', async (context) => {
+    if (!orm) { context.skip(); return; }
     const em = orm.em.fork();
 
-    const listRef = await em.findOneOrFail(RegulatoryList, { code: 'TEST_LIST' });
-    const substanceRef = await em.findOneOrFail(Substance, { casNumber: '50-00-0' });
+    const listRef = await em.findOneOrFail(RegulatoryList, { id: listId });
+    const substanceRef = await em.findOneOrFail(Substance, { id: substanceId });
 
     const entry = em.create(RegulatoryListEntry, {
       list: listRef,
@@ -491,11 +545,12 @@ describe('RegulatoryListEntry Entity', () => {
     });
   });
 
-  it('should enforce unique constraint on list + substance', async () => {
+  it('enforces unique constraint on list + substance', async (context) => {
+    if (!orm) { context.skip(); return; }
     const em = orm.em.fork();
 
-    const listRef = await em.findOneOrFail(RegulatoryList, { code: 'TEST_LIST' });
-    const substanceRef = await em.findOneOrFail(Substance, { casNumber: '50-00-0' });
+    const listRef = await em.findOneOrFail(RegulatoryList, { id: listId });
+    const substanceRef = await em.findOneOrFail(Substance, { id: substanceId });
 
     const entry1 = em.create(RegulatoryListEntry, {
       list: listRef,
@@ -506,23 +561,28 @@ describe('RegulatoryListEntry Entity', () => {
     });
     await em.persistAndFlush(entry1);
 
-    const entry2 = em.create(RegulatoryListEntry, {
-      list: listRef,
-      substance: substanceRef,  // Same list + substance - should fail
+    const em2 = orm.em.fork();
+    const listRef2 = await em2.findOneOrFail(RegulatoryList, { id: listId });
+    const substanceRef2 = await em2.findOneOrFail(Substance, { id: substanceId });
+
+    const entry2 = em2.create(RegulatoryListEntry, {
+      list: listRef2,
+      substance: substanceRef2,  // Same list + substance - should fail
       casNumberSnapshot: '50-00-0',
       substanceNameSnapshot: 'Formaldehyde',
       restrictionType: RestrictionType.THRESHOLD,
       thresholdPct: '0.1',
     });
 
-    await expect(em.persistAndFlush(entry2)).rejects.toThrow();
+    await expect(em2.persistAndFlush(entry2)).rejects.toThrow();
   });
 
-  it('should preserve snapshot even if substance is updated', async () => {
+  it('preserves snapshot when substance is updated', async (context) => {
+    if (!orm) { context.skip(); return; }
     const em = orm.em.fork();
 
-    const listRef = await em.findOneOrFail(RegulatoryList, { code: 'TEST_LIST' });
-    const substanceRef = await em.findOneOrFail(Substance, { casNumber: '50-00-0' });
+    const listRef = await em.findOneOrFail(RegulatoryList, { id: listId });
+    const substanceRef = await em.findOneOrFail(Substance, { id: substanceId });
 
     const entry = em.create(RegulatoryListEntry, {
       list: listRef,
@@ -807,33 +867,28 @@ git commit -m "feat(database): add migration for regulatory_list and regulatory_
 ```typescript
 // packages/database/src/services/RegulatoryListService.test.ts
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { MikroORM, PostgreSqlDriver } from '@mikro-orm/postgresql';
+import type { MikroORM } from '@mikro-orm/postgresql';
 import { RegulatoryList } from '../entities/RegulatoryList.js';
 import { RegulatoryListEntry } from '../entities/RegulatoryListEntry.js';
 import { Substance } from '../entities/Substance.js';
 import { RegulatoryListService } from './RegulatoryListService.js';
 import { RestrictionType } from '../entities/enums/index.js';
-import testConfig from '../mikro-orm.config.test.js';
+import { setupTestDb, teardownTestDb, isDatabaseAvailable } from '../test-utils.js';
 
 describe('RegulatoryListService', () => {
-  let orm: MikroORM<PostgreSqlDriver>;
-  let service: RegulatoryListService;
+  let orm: MikroORM;
 
   beforeAll(async () => {
-    orm = await MikroORM.init<PostgreSqlDriver>({
-      ...testConfig,
-      entities: [RegulatoryList, RegulatoryListEntry, Substance],
-      allowGlobalContext: true,
-    });
-    await orm.getSchemaGenerator().refreshDatabase();
-    service = new RegulatoryListService(orm.em);
+    if (!(await isDatabaseAvailable())) return;
+    orm = await setupTestDb();
   });
 
   afterAll(async () => {
-    await orm.close(true);
+    if (orm) await teardownTestDb();
   });
 
   beforeEach(async () => {
+    if (!orm) return;
     const em = orm.em.fork();
     await em.nativeDelete(RegulatoryListEntry, {});
     await em.nativeDelete(RegulatoryList, {});
@@ -841,7 +896,8 @@ describe('RegulatoryListService', () => {
   });
 
   describe('createList', () => {
-    it('should create a new regulatory list', async () => {
+    it('creates a new regulatory list', async (context) => {
+      if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
       const svc = new RegulatoryListService(em);
 
@@ -861,7 +917,8 @@ describe('RegulatoryListService', () => {
   });
 
   describe('getCurrentVersion', () => {
-    it('should return the current version of a list', async () => {
+    it('returns the current version of a list', async (context) => {
+      if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
       const svc = new RegulatoryListService(em);
 
@@ -888,7 +945,8 @@ describe('RegulatoryListService', () => {
       expect(current?.version).toBe('2024-01');
     });
 
-    it('should return null for non-existent list', async () => {
+    it('returns null for non-existent list', async (context) => {
+      if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
       const svc = new RegulatoryListService(em);
 
@@ -898,7 +956,8 @@ describe('RegulatoryListService', () => {
   });
 
   describe('getListsByCodes', () => {
-    it('should return current versions for multiple codes', async () => {
+    it('returns current versions for multiple codes', async (context) => {
+      if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
       const svc = new RegulatoryListService(em);
 
@@ -925,7 +984,8 @@ describe('RegulatoryListService', () => {
   });
 
   describe('getVersionHistory', () => {
-    it('should return all versions of a list ordered by effective date', async () => {
+    it('returns all versions ordered by effective date', async (context) => {
+      if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
       const svc = new RegulatoryListService(em);
 
@@ -964,7 +1024,8 @@ describe('RegulatoryListService', () => {
   });
 
   describe('getEntriesForList', () => {
-    it('should return all entries for a list', async () => {
+    it('returns all entries for a list', async (context) => {
+      if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
       const svc = new RegulatoryListService(em);
 
@@ -1002,7 +1063,8 @@ describe('RegulatoryListService', () => {
   });
 
   describe('getVersionAtDate', () => {
-    it('should return the version effective at a specific date', async () => {
+    it('returns version effective at a specific date', async (context) => {
+      if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
       const svc = new RegulatoryListService(em);
 
@@ -1255,28 +1317,50 @@ git commit -m "feat(database): add RegulatoryListService with version management
 ```typescript
 // apps/api/src/routes/taxonomy/regulatory-lists.ts
 import { Hono } from 'hono';
-import { EntityManager } from '@mikro-orm/postgresql';
-import { RegulatoryListService } from '@eurocomply/database';
+import { z } from 'zod';
+import { zValidator } from '@hono/zod-validator';
+import type { MikroORM } from '@mikro-orm/postgresql';
+import { RegulatoryList, RegulatoryListService } from '@eurocomply/database';
 import type { Env } from '../../app.js';
 
-interface RouterDeps {
-  em: EntityManager;
+// ============================================================================
+// Types
+// ============================================================================
+
+export interface RegulatoryListsRouterOptions {
+  orm: MikroORM;
 }
 
-export function createRegulatoryListsRouter(deps: RouterDeps): Hono<Env> {
+// ============================================================================
+// Schemas
+// ============================================================================
+
+const listQuery = z.object({
+  source: z.string().optional(),
+});
+
+const entriesQuery = z.object({
+  restrictionType: z.enum(['PROHIBITED', 'THRESHOLD', 'RESTRICTED_WITH_CONDITIONS']).optional(),
+});
+
+// ============================================================================
+// Router
+// ============================================================================
+
+export function createRegulatoryListsRouter(options: RegulatoryListsRouterOptions): Hono<Env> {
+  const { orm } = options;
   const router = new Hono<Env>();
 
   // GET /taxonomy/regulatory-lists
   // List all current regulatory lists
-  router.get('/', async (c) => {
-    const em = deps.em.fork();
-    const service = new RegulatoryListService(em);
+  router.get('/', zValidator('query', listQuery), async (c) => {
+    const query = c.req.valid('query');
+    const em = orm.em.fork();
 
-    const lists = await em.find(
-      RegulatoryList,
-      { isCurrentVersion: true },
-      { orderBy: { code: 'ASC' } }
-    );
+    const where: Record<string, unknown> = { isCurrentVersion: true };
+    if (query.source) where.source = query.source;
+
+    const lists = await em.find(RegulatoryList, where, { orderBy: { code: 'ASC' } });
 
     return c.json({
       data: lists.map(l => ({
@@ -1295,8 +1379,8 @@ export function createRegulatoryListsRouter(deps: RouterDeps): Hono<Env> {
   // GET /taxonomy/regulatory-lists/:code
   // Get current version of a specific list
   router.get('/:code', async (c) => {
-    const code = c.req.param('code');
-    const em = deps.em.fork();
+    const code = c.req.param('code').toUpperCase();
+    const em = orm.em.fork();
     const service = new RegulatoryListService(em);
 
     const list = await service.getCurrentVersion(code);
@@ -1325,8 +1409,8 @@ export function createRegulatoryListsRouter(deps: RouterDeps): Hono<Env> {
   // GET /taxonomy/regulatory-lists/:code/versions
   // Get version history for a list
   router.get('/:code/versions', async (c) => {
-    const code = c.req.param('code');
-    const em = deps.em.fork();
+    const code = c.req.param('code').toUpperCase();
+    const em = orm.em.fork();
     const service = new RegulatoryListService(em);
 
     const versions = await service.getVersionHistory(code);
@@ -1351,9 +1435,10 @@ export function createRegulatoryListsRouter(deps: RouterDeps): Hono<Env> {
 
   // GET /taxonomy/regulatory-lists/:code/entries
   // Get entries for current version of a list
-  router.get('/:code/entries', async (c) => {
-    const code = c.req.param('code');
-    const em = deps.em.fork();
+  router.get('/:code/entries', zValidator('query', entriesQuery), async (c) => {
+    const code = c.req.param('code').toUpperCase();
+    const query = c.req.valid('query');
+    const em = orm.em.fork();
     const service = new RegulatoryListService(em);
 
     const list = await service.getCurrentVersion(code);
@@ -1364,7 +1449,12 @@ export function createRegulatoryListsRouter(deps: RouterDeps): Hono<Env> {
       );
     }
 
-    const entries = await service.getEntriesForList(list.id, { populate: true });
+    let entries = await service.getEntriesForList(list.id, { populate: true });
+
+    // Filter by restriction type if provided
+    if (query.restrictionType) {
+      entries = entries.filter(e => e.restrictionType === query.restrictionType);
+    }
 
     return c.json({
       data: entries.map(e => ({
@@ -1384,14 +1474,7 @@ export function createRegulatoryListsRouter(deps: RouterDeps): Hono<Env> {
 }
 ```
 
-**Step 2: Add import to RegulatoryList entity**
-
-Add at the top of the file:
-```typescript
-import { RegulatoryList } from '@eurocomply/database';
-```
-
-**Step 3: Register in taxonomy routes**
+**Step 2: Register in taxonomy routes**
 
 ```typescript
 // apps/api/src/routes/taxonomy/index.ts
@@ -1399,7 +1482,7 @@ import { RegulatoryList } from '@eurocomply/database';
 import { createRegulatoryListsRouter } from './regulatory-lists.js';
 
 // Add route registration (after existing taxonomy routes):
-taxonomy.route('/regulatory-lists', createRegulatoryListsRouter({ em }));
+taxonomy.route('/regulatory-lists', createRegulatoryListsRouter({ orm }));
 ```
 
 **Step 4: Verify build**
@@ -1427,24 +1510,51 @@ git commit -m "feat(api): add regulatory-lists public taxonomy routes"
 **Step 1: Write integration test**
 
 ```typescript
-// apps/api/src/routes/taxonomy/regulatory-lists.test.ts
+// apps/api/src/routes/taxonomy/regulatory-lists.integration.test.ts
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { app } from '../../app.js';
-import { MikroORM } from '@mikro-orm/postgresql';
+import { Hono } from 'hono';
+import type { MikroORM } from '@mikro-orm/postgresql';
 import { RegulatoryList, RegulatoryListEntry, Substance, RestrictionType } from '@eurocomply/database';
+import { setupTestDb, teardownTestDb, isDatabaseAvailable } from '@eurocomply/database/test-utils';
+import { createRegulatoryListsRouter } from './regulatory-lists.js';
 
-describe('Regulatory Lists API', () => {
+interface ListResponse {
+  data: Array<{ code: string; name: string; version: string }>;
+  meta: { total: number };
+}
+
+interface SingleResponse {
+  data: { code: string; name: string; version: string };
+}
+
+interface EntriesResponse {
+  data: Array<{ casNumber: string; substanceName: string; restrictionType: string }>;
+  meta: { total: number };
+}
+
+interface ErrorResponse {
+  error: string;
+  message: string;
+}
+
+describe('Regulatory Lists API Integration', () => {
   let orm: MikroORM;
+  let app: Hono;
 
   beforeAll(async () => {
-    orm = await MikroORM.init();
+    if (!(await isDatabaseAvailable())) return;
+
+    orm = await setupTestDb();
+    app = new Hono();
+    app.route('/regulatory-lists', createRegulatoryListsRouter({ orm }));
   });
 
   afterAll(async () => {
-    await orm.close(true);
+    if (orm) await teardownTestDb();
   });
 
   beforeEach(async () => {
+    if (!orm) return;
     const em = orm.em.fork();
     await em.nativeDelete(RegulatoryListEntry, {});
     await em.nativeDelete(RegulatoryList, {});
@@ -1479,48 +1589,88 @@ describe('Regulatory Lists API', () => {
     await em.persistAndFlush(entry);
   });
 
-  describe('GET /api/v1/taxonomy/regulatory-lists', () => {
-    it('should return all current regulatory lists', async () => {
-      const res = await app.request('/api/v1/taxonomy/regulatory-lists');
+  describe('GET /regulatory-lists', () => {
+    it('returns all current regulatory lists', async (context) => {
+      if (!orm) { context.skip(); return; }
+
+      const res = await app.request('/regulatory-lists');
       expect(res.status).toBe(200);
 
-      const body = await res.json();
+      const body = (await res.json()) as ListResponse;
       expect(body.data).toHaveLength(1);
       expect(body.data[0].code).toBe('TEST_COSING');
       expect(body.meta.total).toBe(1);
     });
-  });
 
-  describe('GET /api/v1/taxonomy/regulatory-lists/:code', () => {
-    it('should return a specific list by code', async () => {
-      const res = await app.request('/api/v1/taxonomy/regulatory-lists/TEST_COSING');
+    it('filters by source', async (context) => {
+      if (!orm) { context.skip(); return; }
+
+      const res = await app.request('/regulatory-lists?source=EU_COSING');
       expect(res.status).toBe(200);
 
-      const body = await res.json();
+      const body = (await res.json()) as ListResponse;
+      expect(body.data).toHaveLength(1);
+
+      const res2 = await app.request('/regulatory-lists?source=NONEXISTENT');
+      expect(res2.status).toBe(200);
+
+      const body2 = (await res2.json()) as ListResponse;
+      expect(body2.data).toHaveLength(0);
+    });
+  });
+
+  describe('GET /regulatory-lists/:code', () => {
+    it('returns a specific list by code', async (context) => {
+      if (!orm) { context.skip(); return; }
+
+      const res = await app.request('/regulatory-lists/TEST_COSING');
+      expect(res.status).toBe(200);
+
+      const body = (await res.json()) as SingleResponse;
       expect(body.data.code).toBe('TEST_COSING');
       expect(body.data.name).toBe('Test CosIng List');
       expect(body.data.version).toBe('2024-06');
     });
 
-    it('should return 404 for non-existent list', async () => {
-      const res = await app.request('/api/v1/taxonomy/regulatory-lists/NONEXISTENT');
+    it('returns 404 for non-existent list', async (context) => {
+      if (!orm) { context.skip(); return; }
+
+      const res = await app.request('/regulatory-lists/NONEXISTENT');
       expect(res.status).toBe(404);
 
-      const body = await res.json();
+      const body = (await res.json()) as ErrorResponse;
       expect(body.error).toBe('Not Found');
     });
   });
 
-  describe('GET /api/v1/taxonomy/regulatory-lists/:code/entries', () => {
-    it('should return entries for a list', async () => {
-      const res = await app.request('/api/v1/taxonomy/regulatory-lists/TEST_COSING/entries');
+  describe('GET /regulatory-lists/:code/entries', () => {
+    it('returns entries for a list', async (context) => {
+      if (!orm) { context.skip(); return; }
+
+      const res = await app.request('/regulatory-lists/TEST_COSING/entries');
       expect(res.status).toBe(200);
 
-      const body = await res.json();
+      const body = (await res.json()) as EntriesResponse;
       expect(body.data).toHaveLength(1);
       expect(body.data[0].casNumber).toBe('50-00-0');
       expect(body.data[0].substanceName).toBe('Formaldehyde');
       expect(body.data[0].restrictionType).toBe('PROHIBITED');
+    });
+
+    it('filters entries by restriction type', async (context) => {
+      if (!orm) { context.skip(); return; }
+
+      const res = await app.request('/regulatory-lists/TEST_COSING/entries?restrictionType=PROHIBITED');
+      expect(res.status).toBe(200);
+
+      const body = (await res.json()) as EntriesResponse;
+      expect(body.data).toHaveLength(1);
+
+      const res2 = await app.request('/regulatory-lists/TEST_COSING/entries?restrictionType=THRESHOLD');
+      expect(res2.status).toBe(200);
+
+      const body2 = (await res2.json()) as EntriesResponse;
+      expect(body2.data).toHaveLength(0);
     });
   });
 });

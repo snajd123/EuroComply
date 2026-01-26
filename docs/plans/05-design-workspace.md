@@ -144,8 +144,17 @@ export class Category extends BaseEntity {
   @Property({ columnType: 'ltree' })
   path!: string; // "products.apparel.tops"
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // DEPRECATED: Use CategoryRegulatoryList instead
+  // This field provided informational display only (e.g., "This category is
+  // subject to ESPR, WEEE, RoHS"). For actual compliance evaluation, the system
+  // uses CategoryRegulatoryList in public schema, which links category LTREE
+  // paths to RegulatoryList entities with proper inheritance via @> operator.
+  // See: docs/plans/02-data-model.md (CategoryRegulatoryList section)
+  // ═══════════════════════════════════════════════════════════════════════════
   @Property({ type: 'jsonb', nullable: true })
-  regulationRefs?: string[]; // ["ESPR", "WEEE", "RoHS"]
+  /** @deprecated Use CategoryRegulatoryList for compliance evaluation */
+  regulationRefs?: string[]; // ["ESPR", "WEEE", "RoHS"] - display only
 
   // ─────────────────────────────────────────────────────────────
   // DEFAULT COMPLIANCE PROFILE (Approval Gate Workflow)

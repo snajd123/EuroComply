@@ -525,9 +525,13 @@ export class RuleTemplate extends BaseEntity {
   activeUntil?: Date; // Optional sunset date
 
   // --- Validation ---
+  // See Section 4.5 for detailed config interfaces per type
   @Property({ type: 'jsonb', nullable: true })
   validationLogic?: {
     type: 'required' | 'pattern' | 'range' | 'custom' |
+          // Data-driven regulatory list checking (PREFERRED for substance compliance)
+          'regulatory_list_check' | 'aggregate_metric_threshold' |
+          // Legacy substance types (kept for backward compatibility)
           'substance_threshold' | 'substance_presence' | 'substance_authorization';
     config: Record<string, unknown>;
   };
@@ -537,48 +541,16 @@ export class RuleTemplate extends BaseEntity {
 }
 ```
 
-### 4.5 Substance Rule Templates (System Rules)
+### 4.5 Substance Rule Templates
 
-Example system rules for substance compliance:
+#### 4.5.1 Data-Driven Approach (PREFERRED)
+
+**RECOMMENDED:** Use `regulatory_list_check` type with external RegulatoryList entities for maintainability and versioning.
+
+> **Reference:** See `docs/plans/02-data-model.md` for RegulatoryList, RegulatoryListEntry, and CategoryRegulatoryList entity definitions.
 
 ```typescript
-// REACH SVHC Declaration Rule
-const REACH_SVHC_DECLARATION: Partial<RuleTemplate> = {
-  code: 'REACH_SVHC_DECLARATION',
-  name: 'SVHC Declaration Requirement',
-  scope: RuleScope.SYSTEM,
-  type: RuleType.PROCESS,
-  ruleCategory: RuleCategory.COMPLIANCE,
-  severity: RuleSeverity.WARNING,
-  validationLogic: {
-    type: 'substance_threshold',
-    config: {
-      filter: { isSvhc: true },
-      thresholdPct: 0.1,  // 0.1% w/w
-      message: 'Product contains SVHC above 0.1% - declaration required per REACH Article 33',
-    },
-  },
-  // legalAnchor: linked to REACH Article 33 PDF highlight
-};
-
-// REACH Authorization Required Rule
-const REACH_AUTHORIZATION_REQUIRED: Partial<RuleTemplate> = {
-  code: 'REACH_AUTHORIZATION_REQUIRED',
-  name: 'Authorization Required Substance',
-  scope: RuleScope.SYSTEM,
-  type: RuleType.PROCESS,
-  ruleCategory: RuleCategory.DESIGN,
-  severity: RuleSeverity.BLOCKER,
-  validationLogic: {
-    type: 'substance_authorization',
-    config: {
-      message: 'Product contains substance requiring REACH authorization (Annex XIV)',
-    },
-  },
-  // legalAnchor: linked to REACH Annex XIV PDF highlight
-};
-
-// RoHS Restricted Substances Rule
+// RoHS Restricted Substances (data-driven)
 const ROHS_RESTRICTED_SUBSTANCES: Partial<RuleTemplate> = {
   code: 'ROHS_RESTRICTED_SUBSTANCES',
   name: 'RoHS Restricted Substance Check',
@@ -587,29 +559,172 @@ const ROHS_RESTRICTED_SUBSTANCES: Partial<RuleTemplate> = {
   ruleCategory: RuleCategory.DESIGN,
   severity: RuleSeverity.BLOCKER,
   validationLogic: {
-    type: 'substance_presence',
+    type: 'regulatory_list_check',
+    config: {
+      // References external RegulatoryList entity - no hardcoded CAS numbers!
+      listCodes: ['ROHS_RESTRICTED'],
+      checkType: 'THRESHOLD',
+      // RoHS evaluates per homogeneous material, not whole article
+      scope: 'HOMOGENEOUS_MATERIAL',
+    },
+  },
+  // legalAnchor: linked to RoHS Directive Annex II PDF highlight
+};
+
+// COSING Annex II - Prohibited Cosmetic Substances (data-driven)
+const COSING_PROHIBITED: Partial<RuleTemplate> = {
+  code: 'COSING_ANNEX_II_CHECK',
+  name: 'CosIng Prohibited Substances',
+  scope: RuleScope.SYSTEM,
+  type: RuleType.PROCESS,
+  ruleCategory: RuleCategory.DESIGN,
+  severity: RuleSeverity.BLOCKER,
+  validationLogic: {
+    type: 'regulatory_list_check',
+    config: {
+      listCodes: ['COSING_ANNEX_II'],
+      checkType: 'PROHIBITED',
+      scope: 'ARTICLE',  // Cosmetics evaluate whole product
+    },
+  },
+};
+
+// Category-inherited regulatory list check (uses CategoryRegulatoryList)
+const CATEGORY_SUBSTANCE_CHECK: Partial<RuleTemplate> = {
+  code: 'CATEGORY_SUBSTANCE_CHECK',
+  name: 'Category-Based Substance Compliance',
+  scope: RuleScope.SYSTEM,
+  type: RuleType.PROCESS,
+  ruleCategory: RuleCategory.DESIGN,
+  severity: RuleSeverity.BLOCKER,
+  validationLogic: {
+    type: 'regulatory_list_check',
+    config: {
+      // null = inherit lists from CategoryRegulatoryList based on product category
+      listCodes: null,
+      checkType: 'PROHIBITED',
+      scope: 'ARTICLE',
+    },
+  },
+};
+```
+
+**RegulatoryListCheck Config Interface:**
+
+```typescript
+interface RegulatoryListCheckConfig {
+  /**
+   * Explicit list codes to check against.
+   * If null, inherits from CategoryRegulatoryList based on product category.
+   */
+  listCodes: string[] | null;
+
+  /**
+   * Type of check: PROHIBITED, THRESHOLD, or RESTRICTED_WITH_CONDITIONS
+   */
+  checkType: 'PROHIBITED' | 'THRESHOLD' | 'RESTRICTED_WITH_CONDITIONS';
+
+  /**
+   * Evaluation scope:
+   * - ARTICLE: Check rolled-up concentration (whole product) - used by REACH, COSING
+   * - HOMOGENEOUS_MATERIAL: Check each material individually - used by RoHS
+   */
+  scope: 'ARTICLE' | 'HOMOGENEOUS_MATERIAL';
+
+  /**
+   * Override the threshold from RegulatoryListEntry.
+   * If null, uses the threshold defined in the list entry.
+   */
+  thresholdOverridePct?: string;
+
+  /**
+   * For RESTRICTED_WITH_CONDITIONS checks, which condition key to evaluate.
+   */
+  conditionKey?: string;
+}
+```
+
+**How It Works:**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    DATA-DRIVEN SUBSTANCE EVALUATION FLOW                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  1. PreFlight receives product with category 'products.cosmetics.skincare' │
+│                                                                             │
+│  2. If listCodes is null, query CategoryRegulatoryList:                     │
+│     SELECT rl.* FROM category_regulatory_list crl                          │
+│     JOIN regulatory_list rl ON crl.list_id = rl.id                         │
+│     WHERE crl.category_path @> 'products.cosmetics.skincare'::ltree        │
+│       AND rl.is_current_version = TRUE                                     │
+│     → Returns: [COSING_ANNEX_II, COSING_ANNEX_III, REACH_SVHC]             │
+│                                                                             │
+│  3. For each list, query RegulatoryListEntry for restricted substances     │
+│                                                                             │
+│  4. Roll up substances from product materials (SubstanceRollupService)     │
+│                                                                             │
+│  5. Cross-reference rolled-up substances against list entries              │
+│                                                                             │
+│  6. Generate SubstanceFinding with full traceability                       │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 4.5.2 Legacy Approach (Backward Compatibility)
+
+The following hardcoded substance rule types are retained for backward compatibility but are **NOT RECOMMENDED** for new rules.
+
+```typescript
+// LEGACY: REACH SVHC Declaration Rule (hardcoded)
+const REACH_SVHC_DECLARATION_LEGACY: Partial<RuleTemplate> = {
+  code: 'REACH_SVHC_DECLARATION',
+  name: 'SVHC Declaration Requirement',
+  scope: RuleScope.SYSTEM,
+  type: RuleType.PROCESS,
+  ruleCategory: RuleCategory.COMPLIANCE,
+  severity: RuleSeverity.WARNING,
+  validationLogic: {
+    type: 'substance_threshold',  // LEGACY TYPE
+    config: {
+      filter: { isSvhc: true },
+      thresholdPct: 0.1,  // 0.1% w/w
+      message: 'Product contains SVHC above 0.1% - declaration required per REACH Article 33',
+    },
+  },
+};
+
+// LEGACY: RoHS Restricted Substances (hardcoded CAS numbers)
+const ROHS_RESTRICTED_LEGACY: Partial<RuleTemplate> = {
+  code: 'ROHS_RESTRICTED_LEGACY',
+  name: 'RoHS Restricted Substance Check (Legacy)',
+  scope: RuleScope.SYSTEM,
+  type: RuleType.PROCESS,
+  ruleCategory: RuleCategory.DESIGN,
+  severity: RuleSeverity.BLOCKER,
+  validationLogic: {
+    type: 'substance_presence',  // LEGACY TYPE
     config: {
       forbiddenCasNumbers: [
         '7439-92-1',  // Lead
         '7440-43-9',  // Cadmium
         '7439-97-6',  // Mercury
         '18540-29-9', // Chromium VI
-        // ... other RoHS restricted substances
       ],
       thresholds: {
-        default: 0.1,      // 0.1% for most
-        '7440-43-9': 0.01, // 0.01% for Cadmium
+        default: 0.1,
+        '7440-43-9': 0.01,
       },
       message: 'Product contains RoHS restricted substance',
     },
   },
-  // legalAnchor: linked to RoHS Directive Annex II PDF highlight
 };
 ```
 
-**Substance Rule Config Interface:**
+**Legacy Substance Rule Config Interface:**
 
 ```typescript
+/** @deprecated Use RegulatoryListCheckConfig instead */
 interface SubstanceRuleConfig {
   filter?: {
     isSvhc?: boolean;
@@ -617,8 +732,8 @@ interface SubstanceRuleConfig {
     requiresAuthorization?: boolean;
   };
   thresholdPct?: number;
-  forbiddenCasNumbers?: string[];
-  thresholds?: Record<string, number>; // CAS-specific thresholds
+  forbiddenCasNumbers?: string[];  // HARDCODED - difficult to maintain!
+  thresholds?: Record<string, number>;
   message: string;
 }
 ```
@@ -1093,6 +1208,71 @@ export interface AuditFinding {
   // Per-rule enforcement mode at evaluation time
   // Resolved from: ReadinessProfileRule.overrideMode → Organization.enforcementMode
   effectiveMode: 'ENFORCING' | 'SILENT' | 'DISABLED';
+
+  // ─────────────────────────────────────────────────────────────
+  // SUBSTANCE-SPECIFIC FINDINGS (for regulatory_list_check rules)
+  // Provides full traceability from material to product
+  // ─────────────────────────────────────────────────────────────
+  substanceFindings?: SubstanceFinding[];
+}
+
+/**
+ * Substance finding with full traceability for regulatory_list_check rules.
+ * Shows exactly which substance violated which list and where it came from.
+ */
+export interface SubstanceFinding {
+  substance: {
+    id: string;
+    casNumber: string;
+    name: string;
+  };
+
+  /** The regulatory list that was violated */
+  appliedList: {
+    code: string;           // 'COSING_ANNEX_II'
+    name: string;           // 'CosIng Annex II - Prohibited Substances'
+    version: string;        // '2024-06'
+    sourceUrl?: string;     // Deep link to official source
+  };
+
+  /** Entry details from RegulatoryListEntry */
+  listEntry: {
+    restrictionType: 'PROHIBITED' | 'THRESHOLD' | 'RESTRICTED_WITH_CONDITIONS';
+    thresholdPct?: string;  // e.g., "0.1000"
+    legalReference?: string; // 'Entry 1577'
+    conditions?: Record<string, string>;
+  };
+
+  /** Why this list applied to this product */
+  categoryTrigger: {
+    productCategoryPath: string;  // 'products.cosmetics.skincare'
+    matchedRulePath: string;       // 'products.cosmetics'
+    priority: number;
+  };
+
+  /** Evaluation result */
+  evaluation: {
+    scope: 'ARTICLE' | 'HOMOGENEOUS_MATERIAL';
+    actualConcentrationPct: string;  // Rolled-up or per-material
+    thresholdPct: string;            // Applied threshold
+    exceeded: boolean;
+  };
+
+  /**
+   * Full traceability showing where the substance came from.
+   * For ARTICLE scope: shows all contributing materials.
+   * For HOMOGENEOUS_MATERIAL scope: shows the specific material.
+   */
+  traceability: Array<{
+    material: {
+      id: string;
+      name: string;
+      percentageInProduct: string;  // e.g., "2.5000"
+    };
+    concentrationInMaterial: string;  // e.g., "0.0500"
+    contributionToProduct: string;    // material% × concentration%
+    lineage?: string[];               // BOM path if nested
+  }>;
 }
 ```
 
@@ -1384,18 +1564,34 @@ export class PreFlightAuditService {
   /**
    * Evaluate substance-specific rules against rolled-up substances from BOM.
    * See Taxonomy Engine Design (Section 6.7) for rollup calculation.
+   *
+   * Supports two approaches:
+   * 1. PREFERRED: regulatory_list_check - data-driven via RegulatoryList entities
+   * 2. LEGACY: substance_threshold/presence/authorization - hardcoded rules
    */
   private async evaluateSubstanceRule(
     dpp: DPPSnapshot,
     rule: EffectiveRule
-  ): Promise<'PASSED' | 'FAILED' | 'NOT_APPLICABLE'> {
+  ): Promise<{ status: 'PASSED' | 'FAILED' | 'NOT_APPLICABLE'; substanceFindings?: SubstanceFinding[] }> {
     const substances = dpp.designData?.rolledUpSubstances || [];
-    const config = rule.template.validationLogic?.config as SubstanceRuleConfig;
 
     switch (rule.template.validationLogic?.type) {
+      // ═══════════════════════════════════════════════════════════════════════════
+      // DATA-DRIVEN APPROACH (PREFERRED)
+      // Uses RegulatoryList entities from public schema
+      // See: docs/plans/02-data-model.md (RegulatoryList, CategoryRegulatoryList)
+      // ═══════════════════════════════════════════════════════════════════════════
+      case 'regulatory_list_check':
+        return this.evaluateRegulatoryListCheck(dpp, rule);
+
+      // ═══════════════════════════════════════════════════════════════════════════
+      // LEGACY APPROACH (Backward Compatibility)
+      // Uses hardcoded rules in validationLogic.config
+      // ═══════════════════════════════════════════════════════════════════════════
       case 'substance_threshold':
         // Check if any substance exceeds concentration threshold
         // Example: SVHC > 0.1% requires declaration
+        const config = rule.template.validationLogic?.config as SubstanceRuleConfig;
         const filtered = substances.filter(s => {
           if (config.filter?.isSvhc !== undefined && s.isSvhc !== config.filter.isSvhc) return false;
           if (config.filter?.isRestricted !== undefined && s.isRestricted !== config.filter.isRestricted) return false;
@@ -1405,24 +1601,155 @@ export class PreFlightAuditService {
         const exceeds = filtered.some(
           s => parseFloat(s.effectiveConcentrationPct) > config.thresholdPct
         );
-        return exceeds ? 'FAILED' : 'PASSED';
+        return { status: exceeds ? 'FAILED' : 'PASSED' };
 
       case 'substance_presence':
         // Check if any forbidden substance is present at all
         // Example: RoHS restricted substances
+        const presenceConfig = rule.template.validationLogic?.config as SubstanceRuleConfig;
         const forbidden = substances.some(s =>
-          config.forbiddenCasNumbers?.includes(s.casNumber)
+          presenceConfig.forbiddenCasNumbers?.includes(s.casNumber)
         );
-        return forbidden ? 'FAILED' : 'PASSED';
+        return { status: forbidden ? 'FAILED' : 'PASSED' };
 
       case 'substance_authorization':
         // Check if any substance requires authorization
         const needsAuth = substances.some(s => s.requiresAuthorization);
-        return needsAuth ? 'FAILED' : 'PASSED';
+        return { status: needsAuth ? 'FAILED' : 'PASSED' };
 
       default:
-        return 'NOT_APPLICABLE';
+        return { status: 'NOT_APPLICABLE' };
     }
+  }
+
+  /**
+   * Evaluate regulatory list check using data-driven RegulatoryList entities.
+   * Cross-references rolled-up substances against RegulatoryListEntry.
+   *
+   * @see docs/plans/2026-01-26-regulatory-vertical-system-design.md
+   */
+  private async evaluateRegulatoryListCheck(
+    dpp: DPPSnapshot,
+    rule: EffectiveRule
+  ): Promise<{ status: 'PASSED' | 'FAILED' | 'NOT_APPLICABLE'; substanceFindings: SubstanceFinding[] }> {
+    const config = rule.template.validationLogic?.config as RegulatoryListCheckConfig;
+    const product = dpp.serial.batch.designVersion.product;
+    const categoryPath = product.category?.path;
+
+    // 1. Resolve applicable regulatory lists
+    let listCodes: string[];
+    if (config.listCodes === null) {
+      // Inherit from CategoryRegulatoryList based on product category
+      const categoryLists = await this.em.find(
+        CategoryRegulatoryList,
+        {
+          // LTREE @> query: find all rules where category_path is ancestor of product category
+          categoryPath: { $contained: categoryPath },
+          isExcluded: false,
+        },
+        { populate: ['list'], orderBy: { priority: 'DESC' } }
+      );
+      listCodes = categoryLists
+        .filter(cl => cl.list.isCurrentVersion)
+        .map(cl => cl.list.code);
+    } else {
+      listCodes = config.listCodes;
+    }
+
+    if (listCodes.length === 0) {
+      return { status: 'NOT_APPLICABLE', substanceFindings: [] };
+    }
+
+    // 2. Get all entries from applicable lists
+    const lists = await this.em.find(RegulatoryList, {
+      code: { $in: listCodes },
+      isCurrentVersion: true,
+    }, { populate: ['entries', 'entries.substance'] });
+
+    // 3. Get rolled-up substances (or per-material for HOMOGENEOUS_MATERIAL scope)
+    const rolledUpSubstances = dpp.designData?.rolledUpSubstances || [];
+    const materialSubstances = dpp.designData?.bomSnapshot?.flatMap(
+      bom => bom.substances || []
+    ) || [];
+
+    const substancesToCheck = config.scope === 'ARTICLE'
+      ? rolledUpSubstances
+      : materialSubstances;
+
+    // 4. Cross-reference and build findings
+    const substanceFindings: SubstanceFinding[] = [];
+
+    for (const list of lists) {
+      for (const entry of list.entries) {
+        // Find matching substance in product
+        const match = substancesToCheck.find(
+          s => s.casNumber === entry.casNumberSnapshot
+        );
+
+        if (!match) continue;
+
+        // Check restriction type
+        const concentrationPct = parseFloat(match.effectiveConcentrationPct || '0');
+        const thresholdPct = config.thresholdOverridePct
+          ? parseFloat(config.thresholdOverridePct)
+          : parseFloat(entry.thresholdPct || '0');
+
+        let exceeded = false;
+        switch (entry.restrictionType) {
+          case 'PROHIBITED':
+            exceeded = concentrationPct > 0;
+            break;
+          case 'THRESHOLD':
+            exceeded = concentrationPct > thresholdPct;
+            break;
+          case 'RESTRICTED_WITH_CONDITIONS':
+            // Check condition (if conditionKey specified)
+            if (config.conditionKey && entry.conditions?.[config.conditionKey]) {
+              exceeded = true; // Condition applies - needs manual review
+            }
+            break;
+        }
+
+        if (exceeded) {
+          substanceFindings.push({
+            substance: {
+              id: entry.substance.id,
+              casNumber: entry.casNumberSnapshot,
+              name: entry.substanceNameSnapshot,
+            },
+            appliedList: {
+              code: list.code,
+              name: list.name,
+              version: list.version,
+              sourceUrl: list.sourceUrl,
+            },
+            listEntry: {
+              restrictionType: entry.restrictionType,
+              thresholdPct: entry.thresholdPct,
+              legalReference: entry.legalReference,
+              conditions: entry.conditions,
+            },
+            categoryTrigger: {
+              productCategoryPath: categoryPath,
+              matchedRulePath: categoryPath, // Simplified
+              priority: 0,
+            },
+            evaluation: {
+              scope: config.scope,
+              actualConcentrationPct: match.effectiveConcentrationPct,
+              thresholdPct: thresholdPct.toString(),
+              exceeded,
+            },
+            traceability: match.traceability || [],
+          });
+        }
+      }
+    }
+
+    return {
+      status: substanceFindings.length > 0 ? 'FAILED' : 'PASSED',
+      substanceFindings,
+    };
   }
 
   private formatLegalAnchor(anchor: RegulationAnchor): AuditFinding['legalAnchor'] {

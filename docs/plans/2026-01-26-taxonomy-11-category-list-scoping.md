@@ -69,47 +69,44 @@ git commit -m "feat(database): add ListRequirement enum (PROHIBITION, RESTRICTIO
 ```typescript
 // packages/database/src/entities/CategoryRegulatoryList.test.ts
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { MikroORM, PostgreSqlDriver } from '@mikro-orm/postgresql';
+import type { MikroORM } from '@mikro-orm/postgresql';
 import { Category, CategoryType } from './Category.js';
 import { RegulatoryList } from './RegulatoryList.js';
 import { CategoryRegulatoryList } from './CategoryRegulatoryList.js';
 import { ListRequirement } from './enums/index.js';
-import testConfig from '../mikro-orm.config.test.js';
+import { setupTestDb, teardownTestDb, isDatabaseAvailable } from '../test-utils.js';
 
 describe('CategoryRegulatoryList Entity', () => {
-  let orm: MikroORM<PostgreSqlDriver>;
-  let rootCategory: Category;
-  let childCategory: Category;
-  let regulatoryList: RegulatoryList;
+  let orm: MikroORM;
+  let rootCategoryId: string;
+  let childCategoryId: string;
+  let regulatoryListId: string;
 
   beforeAll(async () => {
-    orm = await MikroORM.init<PostgreSqlDriver>({
-      ...testConfig,
-      entities: [Category, RegulatoryList, CategoryRegulatoryList],
-      allowGlobalContext: true,
-    });
-    await orm.getSchemaGenerator().refreshDatabase();
+    if (!(await isDatabaseAvailable())) return;
+    orm = await setupTestDb();
   });
 
   afterAll(async () => {
-    await orm.close(true);
+    if (orm) await teardownTestDb();
   });
 
   beforeEach(async () => {
+    if (!orm) return;
     const em = orm.em.fork();
     await em.nativeDelete(CategoryRegulatoryList, {});
     await em.nativeDelete(RegulatoryList, {});
     await em.nativeDelete(Category, {});
 
     // Create category hierarchy
-    rootCategory = em.create(Category, {
+    const rootCategory = em.create(Category, {
       name: 'Products',
       path: 'products',
       type: CategoryType.ROOT,
       depth: 0,
     });
 
-    childCategory = em.create(Category, {
+    const childCategory = em.create(Category, {
       name: 'Cosmetics',
       path: 'products.cosmetics',
       type: CategoryType.BRANCH,
@@ -118,7 +115,7 @@ describe('CategoryRegulatoryList Entity', () => {
     });
 
     // Create regulatory list
-    regulatoryList = em.create(RegulatoryList, {
+    const regulatoryList = em.create(RegulatoryList, {
       code: 'REACH_SVHC',
       name: 'REACH SVHC Candidate List',
       source: 'ECHA',
@@ -127,13 +124,17 @@ describe('CategoryRegulatoryList Entity', () => {
     });
 
     await em.persistAndFlush([rootCategory, childCategory, regulatoryList]);
+    rootCategoryId = rootCategory.id;
+    childCategoryId = childCategory.id;
+    regulatoryListId = regulatoryList.id;
   });
 
-  it('should create a category-list mapping', async () => {
+  it('creates a category-list mapping', async (context) => {
+    if (!orm) { context.skip(); return; }
     const em = orm.em.fork();
 
-    const catRef = await em.findOneOrFail(Category, { path: 'products' });
-    const listRef = await em.findOneOrFail(RegulatoryList, { code: 'REACH_SVHC' });
+    const catRef = await em.findOneOrFail(Category, { id: rootCategoryId });
+    const listRef = await em.findOneOrFail(RegulatoryList, { id: regulatoryListId });
 
     const mapping = em.create(CategoryRegulatoryList, {
       category: catRef,
@@ -153,11 +154,12 @@ describe('CategoryRegulatoryList Entity', () => {
     expect(found.isExclusion).toBe(false);
   });
 
-  it('should support priority for same-depth ordering', async () => {
+  it('supports priority for same-depth ordering', async (context) => {
+    if (!orm) { context.skip(); return; }
     const em = orm.em.fork();
 
-    const catRef = await em.findOneOrFail(Category, { path: 'products' });
-    const listRef = await em.findOneOrFail(RegulatoryList, { code: 'REACH_SVHC' });
+    const catRef = await em.findOneOrFail(Category, { id: rootCategoryId });
+    const listRef = await em.findOneOrFail(RegulatoryList, { id: regulatoryListId });
 
     const mapping = em.create(CategoryRegulatoryList, {
       category: catRef,
@@ -172,11 +174,12 @@ describe('CategoryRegulatoryList Entity', () => {
     expect(found.priority).toBe(10);
   });
 
-  it('should support exclusion flag', async () => {
+  it('supports exclusion flag', async (context) => {
+    if (!orm) { context.skip(); return; }
     const em = orm.em.fork();
 
-    const catRef = await em.findOneOrFail(Category, { path: 'products.cosmetics' });
-    const listRef = await em.findOneOrFail(RegulatoryList, { code: 'REACH_SVHC' });
+    const catRef = await em.findOneOrFail(Category, { id: childCategoryId });
+    const listRef = await em.findOneOrFail(RegulatoryList, { id: regulatoryListId });
 
     const mapping = em.create(CategoryRegulatoryList, {
       category: catRef,
@@ -191,11 +194,12 @@ describe('CategoryRegulatoryList Entity', () => {
     expect(found.isExclusion).toBe(true);
   });
 
-  it('should support threshold override', async () => {
+  it('supports threshold override', async (context) => {
+    if (!orm) { context.skip(); return; }
     const em = orm.em.fork();
 
-    const catRef = await em.findOneOrFail(Category, { path: 'products.cosmetics' });
-    const listRef = await em.findOneOrFail(RegulatoryList, { code: 'REACH_SVHC' });
+    const catRef = await em.findOneOrFail(Category, { id: childCategoryId });
+    const listRef = await em.findOneOrFail(RegulatoryList, { id: regulatoryListId });
 
     const mapping = em.create(CategoryRegulatoryList, {
       category: catRef,
@@ -210,11 +214,12 @@ describe('CategoryRegulatoryList Entity', () => {
     expect(found.thresholdOverridePct).toBe('0.01');
   });
 
-  it('should enforce unique constraint on category + list', async () => {
+  it('enforces unique constraint on category + list', async (context) => {
+    if (!orm) { context.skip(); return; }
     const em = orm.em.fork();
 
-    const catRef = await em.findOneOrFail(Category, { path: 'products' });
-    const listRef = await em.findOneOrFail(RegulatoryList, { code: 'REACH_SVHC' });
+    const catRef = await em.findOneOrFail(Category, { id: rootCategoryId });
+    const listRef = await em.findOneOrFail(RegulatoryList, { id: regulatoryListId });
 
     const mapping1 = em.create(CategoryRegulatoryList, {
       category: catRef,
@@ -223,13 +228,17 @@ describe('CategoryRegulatoryList Entity', () => {
     });
     await em.persistAndFlush(mapping1);
 
-    const mapping2 = em.create(CategoryRegulatoryList, {
-      category: catRef,
-      regulatoryList: listRef,  // Same category + list
+    const em2 = orm.em.fork();
+    const catRef2 = await em2.findOneOrFail(Category, { id: rootCategoryId });
+    const listRef2 = await em2.findOneOrFail(RegulatoryList, { id: regulatoryListId });
+
+    const mapping2 = em2.create(CategoryRegulatoryList, {
+      category: catRef2,
+      regulatoryList: listRef2,  // Same category + list
       requirement: ListRequirement.PROHIBITION,
     });
 
-    await expect(em.persistAndFlush(mapping2)).rejects.toThrow();
+    await expect(em2.persistAndFlush(mapping2)).rejects.toThrow();
   });
 });
 ```
@@ -412,31 +421,28 @@ git commit -m "feat(database): add migration for category_regulatory_list table"
 ```typescript
 // packages/database/src/services/CategoryRegulatoryListService.test.ts
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { MikroORM, PostgreSqlDriver } from '@mikro-orm/postgresql';
+import type { MikroORM } from '@mikro-orm/postgresql';
 import { Category, CategoryType } from '../entities/Category.js';
 import { RegulatoryList } from '../entities/RegulatoryList.js';
 import { CategoryRegulatoryList } from '../entities/CategoryRegulatoryList.js';
 import { CategoryRegulatoryListService } from './CategoryRegulatoryListService.js';
 import { ListRequirement } from '../entities/enums/index.js';
-import testConfig from '../mikro-orm.config.test.js';
+import { setupTestDb, teardownTestDb, isDatabaseAvailable } from '../test-utils.js';
 
 describe('CategoryRegulatoryListService', () => {
-  let orm: MikroORM<PostgreSqlDriver>;
+  let orm: MikroORM;
 
   beforeAll(async () => {
-    orm = await MikroORM.init<PostgreSqlDriver>({
-      ...testConfig,
-      entities: [Category, RegulatoryList, CategoryRegulatoryList],
-      allowGlobalContext: true,
-    });
-    await orm.getSchemaGenerator().refreshDatabase();
+    if (!(await isDatabaseAvailable())) return;
+    orm = await setupTestDb();
   });
 
   afterAll(async () => {
-    await orm.close(true);
+    if (orm) await teardownTestDb();
   });
 
   beforeEach(async () => {
+    if (!orm) return;
     const em = orm.em.fork();
     await em.nativeDelete(CategoryRegulatoryList, {});
     await em.nativeDelete(RegulatoryList, {});
@@ -557,7 +563,8 @@ describe('CategoryRegulatoryListService', () => {
   });
 
   describe('getListsForCategory', () => {
-    it('should return lists inherited from ancestors', async () => {
+    it('returns lists inherited from ancestors', async (context) => {
+      if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
       const service = new CategoryRegulatoryListService(em);
 
@@ -569,7 +576,8 @@ describe('CategoryRegulatoryListService', () => {
       expect(codes).toEqual(['COSING_ANNEX_II', 'COSING_ANNEX_III', 'REACH_SVHC']);
     });
 
-    it('should return only applicable lists for electronics', async () => {
+    it('returns only applicable lists for electronics', async (context) => {
+      if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
       const service = new CategoryRegulatoryListService(em);
 
@@ -581,7 +589,8 @@ describe('CategoryRegulatoryListService', () => {
       expect(codes).toEqual(['REACH_SVHC', 'ROHS_RESTRICTED']);
     });
 
-    it('should return lists ordered by depth (most specific first)', async () => {
+    it('returns lists ordered by depth (most specific first)', async (context) => {
+      if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
       const service = new CategoryRegulatoryListService(em);
 
@@ -602,7 +611,8 @@ describe('CategoryRegulatoryListService', () => {
   });
 
   describe('getListsForCategory with exclusions', () => {
-    it('should respect exclusions from child categories', async () => {
+    it('respects exclusions from child categories', async (context) => {
+      if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
       const service = new CategoryRegulatoryListService(em);
 
@@ -628,7 +638,8 @@ describe('CategoryRegulatoryListService', () => {
   });
 
   describe('getListsForCategory with threshold override', () => {
-    it('should return threshold override when set', async () => {
+    it('returns threshold override when set', async (context) => {
+      if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
       const service = new CategoryRegulatoryListService(em);
 
@@ -652,7 +663,8 @@ describe('CategoryRegulatoryListService', () => {
   });
 
   describe('getCurrentListsWithEntries', () => {
-    it('should return lists with their entries populated', async () => {
+    it('returns lists with entries populated', async (context) => {
+      if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
       const service = new CategoryRegulatoryListService(em);
 
@@ -884,22 +896,41 @@ git commit -m "feat(database): add CategoryRegulatoryListService with LTREE inhe
 ```typescript
 // apps/api/src/routes/taxonomy/category-lists.ts
 import { Hono } from 'hono';
-import { EntityManager } from '@mikro-orm/postgresql';
+import { z } from 'zod';
+import { zValidator } from '@hono/zod-validator';
+import type { MikroORM } from '@mikro-orm/postgresql';
 import { CategoryRegulatoryListService } from '@eurocomply/database';
 import type { Env } from '../../app.js';
 
-interface RouterDeps {
-  em: EntityManager;
+// ============================================================================
+// Types
+// ============================================================================
+
+export interface CategoryListsRouterOptions {
+  orm: MikroORM;
 }
 
-export function createCategoryListsRouter(deps: RouterDeps): Hono<Env> {
+// ============================================================================
+// Schemas
+// ============================================================================
+
+const pathParam = z.object({
+  path: z.string().min(1).regex(/^[a-z0-9_.]+$/, 'Invalid LTREE path format'),
+});
+
+// ============================================================================
+// Router
+// ============================================================================
+
+export function createCategoryListsRouter(options: CategoryListsRouterOptions): Hono<Env> {
+  const { orm } = options;
   const router = new Hono<Env>();
 
   // GET /taxonomy/categories/:path/regulatory-lists
   // Get all regulatory lists applicable to a category (with inheritance)
   router.get('/:path/regulatory-lists', async (c) => {
     const categoryPath = c.req.param('path');
-    const em = deps.em.fork();
+    const em = orm.em.fork();
     const service = new CategoryRegulatoryListService(em);
 
     try {
@@ -941,7 +972,7 @@ export function createCategoryListsRouter(deps: RouterDeps): Hono<Env> {
 import { createCategoryListsRouter } from './category-lists.js';
 
 // Add route registration:
-taxonomy.route('/categories', createCategoryListsRouter({ em }));
+taxonomy.route('/categories', createCategoryListsRouter({ orm }));
 ```
 
 **Step 3: Verify build**

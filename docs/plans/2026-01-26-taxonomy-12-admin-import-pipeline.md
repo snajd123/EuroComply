@@ -26,28 +26,31 @@
 
 ```typescript
 // packages/database/src/entities/RegulatoryImportLog.test.ts
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { MikroORM, PostgreSqlDriver } from '@mikro-orm/postgresql';
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import type { MikroORM } from '@mikro-orm/postgresql';
 import { RegulatoryImportLog } from './RegulatoryImportLog.js';
-import testConfig from '../mikro-orm.config.test.js';
+import { setupTestDb, teardownTestDb, isDatabaseAvailable } from '../test-utils.js';
 
 describe('RegulatoryImportLog Entity', () => {
-  let orm: MikroORM<PostgreSqlDriver>;
+  let orm: MikroORM;
 
   beforeAll(async () => {
-    orm = await MikroORM.init<PostgreSqlDriver>({
-      ...testConfig,
-      entities: [RegulatoryImportLog],
-      allowGlobalContext: true,
-    });
-    await orm.getSchemaGenerator().refreshDatabase();
+    if (!(await isDatabaseAvailable())) return;
+    orm = await setupTestDb();
   });
 
   afterAll(async () => {
-    await orm.close(true);
+    if (orm) await teardownTestDb();
   });
 
-  it('should create an import log entry', async () => {
+  beforeEach(async () => {
+    if (!orm) return;
+    const em = orm.em.fork();
+    await em.nativeDelete(RegulatoryImportLog, {});
+  });
+
+  it('creates an import log entry', async (context) => {
+    if (!orm) { context.skip(); return; }
     const em = orm.em.fork();
 
     const log = em.create(RegulatoryImportLog, {
@@ -72,7 +75,8 @@ describe('RegulatoryImportLog Entity', () => {
     expect(found.changes.unmatchedCas).toHaveLength(2);
   });
 
-  it('should store JSONB changes correctly', async () => {
+  it('stores JSONB changes correctly', async (context) => {
+    if (!orm) { context.skip(); return; }
     const em = orm.em.fork();
 
     const log = em.create(RegulatoryImportLog, {
@@ -765,31 +769,28 @@ git commit -m "feat(database): add import validator with CAS checksum and schema
 ```typescript
 // packages/database/src/services/RegulatoryImportService.test.ts
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { MikroORM, PostgreSqlDriver } from '@mikro-orm/postgresql';
+import type { MikroORM } from '@mikro-orm/postgresql';
 import { RegulatoryList } from '../entities/RegulatoryList.js';
 import { RegulatoryListEntry } from '../entities/RegulatoryListEntry.js';
 import { RegulatoryImportLog } from '../entities/RegulatoryImportLog.js';
 import { Substance } from '../entities/Substance.js';
 import { RegulatoryImportService } from './RegulatoryImportService.js';
-import testConfig from '../mikro-orm.config.test.js';
+import { setupTestDb, teardownTestDb, isDatabaseAvailable } from '../test-utils.js';
 
 describe('RegulatoryImportService', () => {
-  let orm: MikroORM<PostgreSqlDriver>;
+  let orm: MikroORM;
 
   beforeAll(async () => {
-    orm = await MikroORM.init<PostgreSqlDriver>({
-      ...testConfig,
-      entities: [RegulatoryList, RegulatoryListEntry, RegulatoryImportLog, Substance],
-      allowGlobalContext: true,
-    });
-    await orm.getSchemaGenerator().refreshDatabase();
+    if (!(await isDatabaseAvailable())) return;
+    orm = await setupTestDb();
   });
 
   afterAll(async () => {
-    await orm.close(true);
+    if (orm) await teardownTestDb();
   });
 
   beforeEach(async () => {
+    if (!orm) return;
     const em = orm.em.fork();
     await em.nativeDelete(RegulatoryListEntry, {});
     await em.nativeDelete(RegulatoryList, {});
@@ -810,7 +811,8 @@ describe('RegulatoryImportService', () => {
   });
 
   describe('previewImport', () => {
-    it('should return preview with matched substances', async () => {
+    it('returns preview with matched substances', async (context) => {
+      if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
       const service = new RegulatoryImportService(em);
 
@@ -833,7 +835,8 @@ describe('RegulatoryImportService', () => {
       expect(preview.previewId).toBeDefined();
     });
 
-    it('should warn on unmatched CAS numbers', async () => {
+    it('warns on unmatched CAS numbers', async (context) => {
+      if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
       const service = new RegulatoryImportService(em);
 
@@ -854,7 +857,8 @@ describe('RegulatoryImportService', () => {
       expect(preview.diff.toAdd).toBe(1);  // Only matched entry
     });
 
-    it('should calculate diff for updates', async () => {
+    it('calculates diff for updates', async (context) => {
+      if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
       const service = new RegulatoryImportService(em);
 
@@ -898,7 +902,8 @@ describe('RegulatoryImportService', () => {
   });
 
   describe('applyImport', () => {
-    it('should create new list version and entries', async () => {
+    it('creates new list version and entries', async (context) => {
+      if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
       const service = new RegulatoryImportService(em);
 
@@ -932,7 +937,8 @@ describe('RegulatoryImportService', () => {
       expect(entries[0].substanceNameSnapshot).toBe('Formaldehyde');
     });
 
-    it('should supersede previous version', async () => {
+    it('supersedes previous version', async (context) => {
+      if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
       const service = new RegulatoryImportService(em);
 
@@ -974,7 +980,8 @@ describe('RegulatoryImportService', () => {
       expect(v2?.previousVersion?.id).toBe(v1?.id);
     });
 
-    it('should create audit log entry', async () => {
+    it('creates audit log entry', async (context) => {
+      if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
       const service = new RegulatoryImportService(em);
 
@@ -1276,27 +1283,48 @@ git commit -m "feat(database): add RegulatoryImportService with preview and immu
 ```typescript
 // apps/api/src/routes/admin/regulatory-import.ts
 import { Hono } from 'hono';
-import { EntityManager } from '@mikro-orm/postgresql';
+import { z } from 'zod';
+import { zValidator } from '@hono/zod-validator';
+import type { MikroORM } from '@mikro-orm/postgresql';
 import {
   RegulatoryImportService,
+  RegulatoryImportLog,
   parseCSV,
   parseJSON,
   validateImport,
 } from '@eurocomply/database';
 import type { Env } from '../../app.js';
 
-interface RouterDeps {
-  em: EntityManager;
+// ============================================================================
+// Types
+// ============================================================================
+
+export interface RegulatoryImportRouterOptions {
+  orm: MikroORM;
 }
 
-export function createRegulatoryImportRouter(deps: RouterDeps): Hono<Env> {
+// ============================================================================
+// Schemas
+// ============================================================================
+
+const logsQuery = z.object({
+  listCode: z.string().optional(),
+  limit: z.string().transform(v => parseInt(v, 10)).pipe(z.number().min(1).max(100)).optional(),
+});
+
+// ============================================================================
+// Router
+// ============================================================================
+
+export function createRegulatoryImportRouter(options: RegulatoryImportRouterOptions): Hono<Env> {
+  const { orm } = options;
   const router = new Hono<Env>();
 
   // POST /admin/regulatory-import/preview
   // Upload and preview an import (CSV or JSON)
   router.post('/preview', async (c) => {
     const contentType = c.req.header('Content-Type') || '';
-    const em = deps.em.fork();
+    const em = orm.em.fork();
     const service = new RegulatoryImportService(em);
 
     // Get admin ID from auth context
@@ -1356,7 +1384,7 @@ export function createRegulatoryImportRouter(deps: RouterDeps): Hono<Env> {
   // Apply a previewed import
   router.post('/apply/:previewId', async (c) => {
     const previewId = c.req.param('previewId');
-    const em = deps.em.fork();
+    const em = orm.em.fork();
     const service = new RegulatoryImportService(em);
     const adminId = c.get('userId') || 'unknown';
 
@@ -1364,6 +1392,7 @@ export function createRegulatoryImportRouter(deps: RouterDeps): Hono<Env> {
       const result = await service.applyImport(previewId, adminId);
 
       return c.json({
+        success: true,
         data: result,
       });
     } catch (error) {
@@ -1383,15 +1412,17 @@ export function createRegulatoryImportRouter(deps: RouterDeps): Hono<Env> {
 
   // GET /admin/regulatory-import/logs
   // Get import history
-  router.get('/logs', async (c) => {
-    const em = deps.em.fork();
-    const listCode = c.req.query('listCode');
+  router.get('/logs', zValidator('query', logsQuery), async (c) => {
+    const query = c.req.valid('query');
+    const em = orm.em.fork();
 
-    const where = listCode ? { listCode } : {};
+    const where = query.listCode ? { listCode: query.listCode } : {};
+    const limit = query.limit ?? 50;
+
     const logs = await em.find(
       RegulatoryImportLog,
       where,
-      { orderBy: { appliedAt: 'DESC' }, limit: 50 }
+      { orderBy: { appliedAt: 'DESC' }, limit }
     );
 
     return c.json({
@@ -1412,14 +1443,7 @@ export function createRegulatoryImportRouter(deps: RouterDeps): Hono<Env> {
 }
 ```
 
-**Step 2: Add missing import**
-
-```typescript
-// Add at top of file
-import { RegulatoryImportLog } from '@eurocomply/database';
-```
-
-**Step 3: Register in admin routes**
+**Step 2: Register in admin routes**
 
 ```typescript
 // apps/api/src/routes/admin/index.ts
@@ -1427,7 +1451,7 @@ import { RegulatoryImportLog } from '@eurocomply/database';
 import { createRegulatoryImportRouter } from './regulatory-import.js';
 
 // Add route registration (requires admin auth middleware):
-admin.route('/regulatory-import', createRegulatoryImportRouter({ em }));
+admin.route('/regulatory-import', createRegulatoryImportRouter({ orm }));
 ```
 
 **Step 4: Verify build**

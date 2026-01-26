@@ -554,7 +554,7 @@ git commit -m "feat(database): add SubstanceFinding and MetricFinding types with
 ```typescript
 // packages/database/src/services/evaluators/RegulatoryListCheckEvaluator.test.ts
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { MikroORM, PostgreSqlDriver } from '@mikro-orm/postgresql';
+import type { MikroORM } from '@mikro-orm/postgresql';
 import { RegulatoryList } from '../../entities/RegulatoryList.js';
 import { RegulatoryListEntry } from '../../entities/RegulatoryListEntry.js';
 import { Substance } from '../../entities/Substance.js';
@@ -563,25 +563,22 @@ import { CategoryRegulatoryList } from '../../entities/CategoryRegulatoryList.js
 import { RegulatoryListCheckEvaluator } from './RegulatoryListCheckEvaluator.js';
 import { RestrictionType, ListRequirement } from '../../entities/enums/index.js';
 import { RegulatoryListCheckConfig } from '../../types/validation-logic.js';
-import testConfig from '../../mikro-orm.config.test.js';
+import { setupTestDb, teardownTestDb, isDatabaseAvailable } from '../../test-utils.js';
 
 describe('RegulatoryListCheckEvaluator', () => {
-  let orm: MikroORM<PostgreSqlDriver>;
+  let orm: MikroORM;
 
   beforeAll(async () => {
-    orm = await MikroORM.init<PostgreSqlDriver>({
-      ...testConfig,
-      entities: [RegulatoryList, RegulatoryListEntry, Substance, Category, CategoryRegulatoryList],
-      allowGlobalContext: true,
-    });
-    await orm.getSchemaGenerator().refreshDatabase();
+    if (!(await isDatabaseAvailable())) return;
+    orm = await setupTestDb();
   });
 
   afterAll(async () => {
-    await orm.close(true);
+    if (orm) await teardownTestDb();
   });
 
   beforeEach(async () => {
+    if (!orm) return;
     const em = orm.em.fork();
     await em.nativeDelete(CategoryRegulatoryList, {});
     await em.nativeDelete(RegulatoryListEntry, {});
@@ -644,7 +641,8 @@ describe('RegulatoryListCheckEvaluator', () => {
   });
 
   describe('evaluate with PROHIBITED check', () => {
-    it('should fail when prohibited substance is present', async () => {
+    it('fails when prohibited substance is present', async (context) => {
+      if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
       const evaluator = new RegulatoryListCheckEvaluator(em);
 
@@ -673,7 +671,8 @@ describe('RegulatoryListCheckEvaluator', () => {
       expect(findings[0].substance?.casNumber).toBe('50-00-0');
     });
 
-    it('should pass when no prohibited substances present', async () => {
+    it('passes when no prohibited substances present', async (context) => {
+      if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
       const evaluator = new RegulatoryListCheckEvaluator(em);
 
@@ -699,7 +698,8 @@ describe('RegulatoryListCheckEvaluator', () => {
   });
 
   describe('evaluate with THRESHOLD check', () => {
-    it('should fail when concentration exceeds threshold', async () => {
+    it('fails when concentration exceeds threshold', async (context) => {
+      if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
       const evaluator = new RegulatoryListCheckEvaluator(em);
 
@@ -725,7 +725,8 @@ describe('RegulatoryListCheckEvaluator', () => {
       expect(findings[0].issueType).toBe('CHEMICAL_LIMIT_EXCEEDED');
     });
 
-    it('should pass when concentration below threshold', async () => {
+    it('passes when concentration below threshold', async (context) => {
+      if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
       const evaluator = new RegulatoryListCheckEvaluator(em);
 
@@ -751,7 +752,8 @@ describe('RegulatoryListCheckEvaluator', () => {
   });
 
   describe('evaluate with null listCodes (category inheritance)', () => {
-    it('should use lists from category when listCodes is null', async () => {
+    it('uses lists from category when listCodes is null', async (context) => {
+      if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
       const evaluator = new RegulatoryListCheckEvaluator(em);
 
