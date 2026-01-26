@@ -1,8 +1,8 @@
-# Postman Webhook & API Tests
+# Postman API Tests
 
-## Quick Start (Recommended)
+## Quick Start
 
-**Import the complete collection for a seamless experience:**
+**Import the collection:**
 
 ```
 eurocomply-complete.postman_collection.json
@@ -14,8 +14,8 @@ Set these in the **Variables** tab after importing:
 
 | Variable | Value | Required |
 |----------|-------|----------|
-| `webhookSecret` | `whsec_Wx4vOyadXO+o3wbuEGcm4wLlsKGfkbmO` | Yes - for webhook tests |
-| `adminApiKey` | `6fRoO4fpVQkVMsO39_9wvaZzPz1lF4ZSxCH3YPA3v_Q` | Optional - for admin tests |
+| `webhookSecret` | `whsec_Wx4vOyadXO+o3wbuEGcm4wLlsKGfkbmO` | Yes |
+| `adminApiKey` | `6fRoO4fpVQkVMsO39_9wvaZzPz1lF4ZSxCH3YPA3v_Q` | Optional |
 
 ### Run Order
 
@@ -27,127 +27,94 @@ All other variables are auto-generated and shared between requests.
 
 ---
 
-## Individual Collections
+## Collection Structure
 
-For targeted testing, individual collections are also available.
+### 1. Setup (Webhooks)
 
-### Setup
+Creates organization and users via Clerk webhook simulation.
 
-1. Import any file into Postman
-2. Set `webhookSecret` in collection variables (your `CLERK_WEBHOOK_SECRET`)
-3. For admin tests, set `adminApiKey` (your `ADMIN_API_KEY`)
-4. Run requests in order
+| Request | Description |
+|---------|-------------|
+| 1.1 Create Organization | Creates org + provisions tenant schema |
+| 1.2 Create First User | Adds first user (MANAGER + isOrgAdmin) |
+| 1.3 Create Second User | Adds second user (NONE permissions) |
 
-## Files
+### 2. Public API (No Auth)
 
-### Webhook Tests (1-6)
+Endpoints accessible without authentication.
 
-| File | Description |
-|------|-------------|
-| `1-organization-created.json` | Creates org + provisions tenant schema |
-| `2-membership-created-first-user.json` | Adds first user (MANAGER + isOrgAdmin) |
-| `3-membership-created-second-user.json` | Adds second user (NONE permissions) |
-| `4-user-updated.json` | Updates user profile |
-| `5-membership-deleted.json` | Removes second user (soft delete) |
-| `6-organization-deleted.json` | Deletes org + drops schema |
+| Request | Description |
+|---------|-------------|
+| 2.1 Health Check | `/health` |
+| 2.2 API Version | `/api/v1` |
+| 2.3 List Units | `/api/v1/taxonomy/units` |
+| 2.4 Get Unit (KGM) | `/api/v1/taxonomy/units/KGM` |
+| 2.5 Convert Units | `/api/v1/taxonomy/units/convert` |
 
-### API Key Tests (7)
+### 3. Admin API (X-Admin-Key)
 
-| File | Description |
-|------|-------------|
-| `7-api-key-workspace-authorization.json` | Tests API key workspace scoping |
+Organization management endpoints. Requires `adminApiKey`.
 
-**Prerequisite:** Run `1-organization-created` and `2-membership-created-first-user` first to set up the tenant.
+| Request | Description |
+|---------|-------------|
+| 3.1 List Organizations | List all orgs |
+| 3.2 Get Organization | Get org by ID |
+| 3.3 Get Org Status | Check provisioning status |
+| 3.4 Admin - No Auth | Verify 401 without key |
 
-### Public API Tests (8)
+### 4. API Keys (JWT Auth)
 
-| File | Description |
-|------|-------------|
-| `8-public-api.json` | Health check, API version, taxonomy/units (no auth required) |
+Create and manage API keys with different authority levels.
 
-Tests endpoints that are publicly accessible without authentication:
-- Health check (`/health`)
-- API version (`/api/v1`)
-- Unit listing and conversion (`/api/v1/taxonomy/units`)
+| Request | Description |
+|---------|-------------|
+| 4.1 Create EDITOR API Key | Design workspace editor |
+| 4.2 Create VIEWER API Key | Design workspace viewer |
+| 4.3 Create Org Admin API Key | Full admin access |
+| 4.4 List API Keys | List all keys (requires Org Admin) |
+| 4.5 Non-Admin Cannot List | Verify 403 for non-admin |
 
-### Admin API Tests (9)
+### 5. Products (API Key Auth)
 
-| File | Description |
-|------|-------------|
-| `9-admin-api.json` | Organization management with X-Admin-Key |
+Test workspace authorization with products.
 
-**Prerequisite:** Set `adminApiKey` variable to your `ADMIN_API_KEY` from environment.
+| Request | Description |
+|---------|-------------|
+| 5.1 Create Category | EDITOR creates category |
+| 5.2 EDITOR Creates Product | 201 success |
+| 5.3 VIEWER Lists Products | 200 success (read allowed) |
+| 5.4 VIEWER Cannot Create | 403 forbidden |
+| 5.5 No Auth | 401 unauthorized |
+| 5.6 Get Product | Get by ID |
+| 5.7 Product Not Found | 404 error |
 
-Tests admin-only endpoints:
-- List organizations
-- Get organization by ID or Clerk ID
-- Get organization provisioning status
-- Re-provision organization
-- Delete organization and schema
+### 6. Cleanup
 
-### Products CRUD Tests (10)
+Delete test data. Run last.
 
-| File | Description |
-|------|-------------|
-| `10-products-crud.json` | Product CRUD with workspace authorization |
+| Request | Description |
+|---------|-------------|
+| 6.1 Delete Product | Remove test product |
+| 6.2 Delete Category | Remove test category |
+| 6.3 Delete Member | Remove second user via webhook |
+| 6.4 Delete Organization | Remove org and schema (requires adminApiKey) |
 
-**Prerequisite:** Run webhooks 1-2 to create org/user, then set `categoryId` for product creation.
+---
 
-Tests product endpoints with different authority levels:
-- EDITOR can create/read/update/delete
-- VIEWER can only read
-- No auth returns 401
+## Variable Flow
 
-### E2E Integration Flow (11)
-
-| File | Description |
-|------|-------------|
-| `11-e2e-integration-flow.json` | Complete end-to-end test flow |
-
-Self-contained test that runs the entire flow:
-1. **Phase 1:** Create organization and member via webhooks
-2. **Phase 2:** Create API key and verify authentication
-3. **Phase 3:** Create category and product
-4. **Phase 4:** Verify tenant isolation and auth errors
-5. **Phase 5:** Cleanup (delete product, category, API key, org)
-
-**No prerequisites** - generates unique IDs for each run.
-
-## Variable Passing
-
-Each file stores variables that subsequent files need:
+Variables are automatically passed between requests:
 
 ```
-1-organization-created → sets clerkOrgId, schemaName
-2-membership-first    → needs clerkOrgId, sets clerkUserId
-3-membership-second   → needs clerkOrgId, sets clerkUserId2
-4-user-updated        → needs clerkOrgId, clerkUserId
-5-membership-deleted  → needs clerkOrgId, clerkUserId2
-6-organization-deleted→ needs clerkOrgId
-7-api-key-auth        → needs schemaName, clerkUserId
-10-products-crud      → needs schemaName, clerkUserId, categoryId
+1.1 Create Organization  → sets clerkOrgId, orgId, schemaName
+1.2 Create First User    → sets clerkUserId, membershipId
+1.3 Create Second User   → sets clerkUserId2
+4.1-4.3 API Keys         → sets editorApiKey, viewerApiKey, orgAdminApiKey
+5.1 Create Category      → sets categoryId
+5.2 Create Product       → sets productId
 ```
 
-**Important:** If you import files separately, you must manually copy variable values between collections, or import all files you need together.
-
-## Quick Test Flows
-
-### Basic Webhook Test
-1. Import files 1-2
-2. Set `webhookSecret`
-3. Run in sequence
-
-### Full API Test
-1. Import files 1-2, then 7-10
-2. Set `webhookSecret`
-3. Run webhooks first
-4. Copy `schemaName`, `clerkUserId` to API test collections
-5. Run API tests
-
-### Standalone E2E Test
-1. Import file 11 only
-2. Set `adminApiKey` (optional, for cleanup)
-3. Run entire collection - fully self-contained
+---
 
 ## Running with Newman (CLI)
 
@@ -155,27 +122,27 @@ Each file stores variables that subsequent files need:
 # Install newman
 npm install -g newman
 
-# Run public API tests (no setup needed)
-newman run docs/testing/postman/8-public-api.json
+# Run complete collection
+newman run docs/testing/postman/eurocomply-complete.postman_collection.json \
+  --env-var "webhookSecret=whsec_Wx4vOyadXO+o3wbuEGcm4wLlsKGfkbmO" \
+  --env-var "adminApiKey=6fRoO4fpVQkVMsO39_9wvaZzPz1lF4ZSxCH3YPA3v_Q"
 
-# Run E2E flow
-newman run docs/testing/postman/11-e2e-integration-flow.json
-
-# Run with environment variables
-newman run docs/testing/postman/9-admin-api.json \
-  --env-var "adminApiKey=your-admin-key"
+# Run specific folder
+newman run docs/testing/postman/eurocomply-complete.postman_collection.json \
+  --folder "2. Public API (No Auth)"
 ```
+
+---
 
 ## Test Coverage
 
-| Category | Endpoints | Collection |
-|----------|-----------|------------|
-| Health | `/health` | 8 |
-| Version | `/api/v1` | 8 |
-| Units | `/api/v1/taxonomy/units/*` | 8 |
-| Webhooks | `/webhooks/clerk` | 1-6 |
-| API Keys | `/api/v1/api-keys/*` | 7 |
-| Admin | `/api/v1/admin/*` | 9 |
-| Products | `/api/v1/products/*` | 10 |
-| Categories | `/api/v1/categories/*` | 10, 11 |
-| E2E | All of the above | 11 |
+| Category | Endpoints | Folder |
+|----------|-----------|--------|
+| Health | `/health` | 2 |
+| Version | `/api/v1` | 2 |
+| Units | `/api/v1/taxonomy/units/*` | 2 |
+| Webhooks | `/webhooks/clerk` | 1, 6 |
+| API Keys | `/api/v1/api-keys/*` | 4 |
+| Admin | `/api/v1/admin/*` | 3 |
+| Products | `/api/v1/products/*` | 5 |
+| Categories | `/api/v1/categories/*` | 5 |
