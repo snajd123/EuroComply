@@ -1,7 +1,7 @@
 # Architecture Design
 
 **Status:** Active
-**Last Updated:** 2026-01-24
+**Last Updated:** 2026-01-26
 
 ---
 
@@ -174,10 +174,30 @@ eurocomply database
 
 ### Schema Split
 
-**Public Schema (minimal - tenant registry only):**
+**Public Schema (shared reference data):**
 
 ```sql
-public.organizations        -- Tenant registry, billing tier, schema name
+-- Tenant Registry
+public.organizations              -- Tenant registry, billing tier, schema name
+
+-- Regulation Documents (see 13-regulatory-advisor.md)
+public.regulation_documents       -- Official regulation PDFs
+public.regulation_anchors         -- Highlighted text coordinates
+public.marketplace_listings       -- Published templates (profiles, rules)
+
+-- Taxonomy Foundation (see Taxonomy Plans 1-4, 9-12)
+public.seed_version               -- Reference data version tracking
+public.unit_definition            -- UNECE Rec 20 units
+public.product_classification     -- HS/CN/TARIC codes
+public.substance                  -- ECHA substance registry
+public.substance_alias            -- Substance alternative names
+public.raw_material               -- EU RMIS raw materials (CRM compliance)
+
+-- Regulatory Lists (see Taxonomy Plans 10-12)
+public.regulatory_list            -- Versioned lists (COSING, RoHS, REACH SVHC)
+public.regulatory_list_entry      -- Substance restrictions per list
+public.category_regulatory_list   -- LTREE-based category-to-list mapping
+public.regulatory_import_log      -- Admin import audit trail
 ```
 
 **Tenant Schema (all organization data):**
@@ -683,16 +703,28 @@ The Regulation Layer provides compliance guidance across all workspaces, transfo
 │                                                                              │
 │  PUBLIC SCHEMA (Platform-Managed)                                           │
 │  ═══════════════════════════════                                             │
+│                                                                              │
+│  Legal References:                                                           │
 │  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐          │
 │  │ Regulation       │  │ Regulation       │  │ Marketplace      │          │
 │  │ Documents        │──│ Anchors          │  │ Listings         │          │
 │  │ (PDFs, versions) │  │ (highlighted     │  │ (published       │          │
 │  │                  │  │  text coords)    │  │  templates)      │          │
 │  └──────────────────┘  └──────────────────┘  └──────────────────┘          │
+│                                                                              │
+│  Substance Compliance (Data-Driven):                                        │
+│  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐          │
+│  │ RegulatoryList   │  │ RegulatoryList   │  │ CategoryRegula-  │          │
+│  │ (versioned lists │──│ Entry            │  │ toryList         │          │
+│  │  COSING, RoHS,   │  │ (substance       │  │ (LTREE path      │          │
+│  │  REACH SVHC)     │  │  restrictions)   │  │  mapping)        │          │
+│  └──────────────────┘  └──────────────────┘  └──────────────────┘          │
 │           │                     │                     │                     │
 │           └─────────────────────┴─────────────────────┘                     │
 │                                 │                                           │
-│                    (ID references to public schema)                         │
+│             ┌───────────────────┴────────────────────┐                      │
+│             │  Cross-references via IDs + LTREE @>   │                      │
+│             └───────────────────┬────────────────────┘                      │
 │                                 │                                           │
 │  TENANT SCHEMA (Organization-Specific)                                      │
 │  ═════════════════════════════════════                                       │
@@ -708,6 +740,8 @@ The Regulation Layer provides compliance guidance across all workspaces, transfo
 │  │  • Evaluates products/batches against readiness profiles             │  │
 │  │  • Returns findings with severity (BLOCKER/WARNING/INFO)             │  │
 │  │  • Links findings to regulation anchors (PDF highlights)             │  │
+│  │  • Cross-references substances against RegulatoryListEntry           │  │
+│  │  • Uses CategoryRegulatoryList LTREE queries for list inheritance    │  │
 │  └──────────────────────────────────────────────────────────────────────┘  │
 │           │                                                                  │
 │           ▼                                                                  │
@@ -721,6 +755,8 @@ The Regulation Layer provides compliance guidance across all workspaces, transfo
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+> **Data-Driven Substance Compliance:** See [Taxonomy Plans 10-12](./2026-01-26-taxonomy-10-regulatory-list-registry.md) for RegulatoryList entities and [13-regulatory-advisor.md](./13-regulatory-advisor.md) Section 4.5.1 for `regulatory_list_check` validation type.
 
 ### Integration Points
 

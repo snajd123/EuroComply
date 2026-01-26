@@ -1,7 +1,7 @@
 # Operations Workspace (Evidence Engine)
 
 **Status:** Active
-**Last Updated:** 2026-01-21
+**Last Updated:** 2026-01-26
 
 ---
 
@@ -255,7 +255,51 @@ export class CountryRiskIndex {
 }
 ```
 
-### 4.3 Risk Calculation Service
+### 4.3 Raw Material Supply Risk (CRM Compliance)
+
+For supply chain risk assessment involving Critical Raw Materials (CRM), the Operations workspace integrates with the **RawMaterial** entity from the public schema.
+
+> **Reference:** See [Taxonomy Plan 9](./2026-01-26-taxonomy-09-raw-material-registry.md) for RawMaterial entity definition.
+
+```typescript
+// Integration with public.raw_material for CRM compliance
+interface MaterialSupplyRisk {
+  materialId: string;
+  materialName: string;
+  isCriticalRawMaterial: boolean;  // EU CRM list 2023
+  supplyRiskScore?: number;        // Economic importance × supply risk
+  primarySourceCountries: string[];
+  recyclingRate?: number;
+  substitutionIndex?: number;
+}
+
+// Example: Check if BOM contains CRM materials
+async function assessBomCrmRisk(bomEntries: BomEntry[]): Promise<MaterialSupplyRisk[]> {
+  const rawMaterials = await em.find(RawMaterial, {
+    isCriticalRawMaterial: true,
+  });
+
+  return bomEntries
+    .filter(entry => rawMaterials.some(rm => rm.id === entry.materialId))
+    .map(entry => ({
+      materialId: entry.materialId,
+      materialName: entry.materialName,
+      isCriticalRawMaterial: true,
+      // ... additional risk metrics
+    }));
+}
+```
+
+**CRM Risk Factors:**
+
+| Factor | Source | Weight |
+|--------|--------|--------|
+| EU CRM List Status | EU RMIS 2023 | HIGH |
+| Primary Source Countries | CountryRiskIndex | MEDIUM |
+| Recycling Rate | EU RMIS | LOW |
+| Substitution Difficulty | EU RMIS | MEDIUM |
+
+### 4.4 Risk Calculation Service
 
 ```typescript
 // src/modules/operations/services/risk-calculation.service.ts

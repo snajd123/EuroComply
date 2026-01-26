@@ -1,7 +1,7 @@
 # Compliance Workspace (DPP Snapshot Engine)
 
 **Status:** Active
-**Last Updated:** 2026-01-21
+**Last Updated:** 2026-01-26
 
 ---
 
@@ -442,6 +442,41 @@ interface RuleEvaluationSnapshot {
   // Per-rule enforcement mode at evaluation time
   // Resolved from: ReadinessProfileRule.overrideMode → Organization.enforcementMode
   effectiveMode: 'ENFORCING' | 'SILENT' | 'DISABLED';
+
+  // ─────────────────────────────────────────────────────────────
+  // SUBSTANCE-SPECIFIC FINDINGS (for regulatory_list_check rules)
+  // See: docs/plans/13-regulatory-advisor.md Section 4.5.1
+  // ─────────────────────────────────────────────────────────────
+  substanceFindings?: SubstanceFindingSnapshot[];
+}
+
+/**
+ * Snapshot of a substance compliance finding for forensic audit.
+ * Captures full traceability from material to product.
+ *
+ * @see docs/plans/13-regulatory-advisor.md (SubstanceFinding interface)
+ * @see docs/plans/2026-01-26-taxonomy-14-vertical-rule-evaluation.md
+ */
+interface SubstanceFindingSnapshot {
+  substance: {
+    casNumber: string;
+    name: string;
+  };
+  appliedList: {
+    code: string;           // 'COSING_ANNEX_II'
+    name: string;           // 'CosIng Annex II - Prohibited Substances'
+    version: string;        // '2024-06'
+  };
+  restrictionType: 'PROHIBITED' | 'THRESHOLD' | 'RESTRICTED_WITH_CONDITIONS';
+  thresholdPct?: string;
+  actualConcentrationPct: string;
+  exceeded: boolean;
+  evaluationScope: 'ARTICLE' | 'HOMOGENEOUS_MATERIAL';
+  traceability: Array<{
+    materialName: string;
+    percentageInProduct: string;
+    concentrationInMaterial: string;
+  }>;
 }
 ```
 
