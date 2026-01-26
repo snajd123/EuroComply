@@ -178,9 +178,10 @@ describe('MaterialSubstance', () => {
     await em.persistAndFlush(materialVersion);
 
     // Create test substance (in public schema)
+    // NOTE: Substance entity uses `primaryName` per Plan 4
     substance = em.create(Substance, {
       casNumber: '127-19-5',
-      name: 'N,N-Dimethylacetamide',
+      primaryName: 'N,N-Dimethylacetamide',
     });
     await em.persistAndFlush(substance);
   });
@@ -208,7 +209,7 @@ describe('MaterialSubstance', () => {
     expect(found?.concentrationPct).toBe('8.000000');
     expect(found?.basis).toBe(ConcentrationBasis.WEIGHT);
     expect(found?.substance.casNumber).toBe('127-19-5');
-    expect(found?.substance.name).toBe('N,N-Dimethylacetamide');
+    expect(found?.substance.primaryName).toBe('N,N-Dimethylacetamide');
   });
 
   it('should enforce unique material+substance constraint', async () => {
@@ -451,11 +452,23 @@ export class MaterialSubstanceService {
   /**
    * Add a substance declaration to a material version.
    * Validates CAS number and checks for duplicates.
+   *
+   * Regulatory Note: For chemical compliance (REACH, SCIP, etc.),
+   * WEIGHT basis (% w/w) is almost always required. Consider warning
+   * users if they select a different basis.
    */
   async addSubstance(input: AddSubstanceInput): Promise<MaterialSubstance> {
     // Validate CAS number
     if (!isValidCasNumber(input.casNumber)) {
       throw new Error(`Invalid CAS number: ${input.casNumber}`);
+    }
+
+    // Basis validation: warn if not WEIGHT (regulatory standard)
+    if (input.basis && input.basis !== ConcentrationBasis.WEIGHT) {
+      console.warn(
+        `[MaterialSubstance] Non-standard basis "${input.basis}" for ${input.casNumber}. ` +
+        `Most regulatory frameworks (REACH, SCIP) require WEIGHT (% w/w).`
+      );
     }
 
     // Find material version
@@ -659,11 +672,11 @@ export function createMaterialSubstancesRouter(options: MaterialSubstancesRouter
     return c.json({
       data: declarations.map(d => ({
         id: d.id,
-        // Substance details (populated)
+        // Substance details (populated from public.substance)
         substance: {
           id: d.substance.id,
           casNumber: d.substance.casNumber,
-          name: d.substance.name,
+          primaryName: d.substance.primaryName,  // Per Plan 4 Substance entity
           ecNumber: d.substance.ecNumber,
         },
         // Concentration (as strings to preserve precision)
@@ -740,7 +753,7 @@ export function createMaterialSubstancesRouter(options: MaterialSubstancesRouter
         substance: {
           id: result.substance.id,
           casNumber: result.substance.casNumber,
-          name: result.substance.name,
+          primaryName: result.substance.primaryName,  // Per Plan 4 Substance entity
         },
         concentrationPct: result.declaration.concentrationPct,
         basis: result.declaration.basis,
