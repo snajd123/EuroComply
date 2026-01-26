@@ -21,6 +21,10 @@ export {
   type UnitInfo,
   type ConversionResult,
   OutboxProcessorService,
+  BulkImportService,
+  type UpsertData,
+  type CopyRecord,
+  SeedService,
 } from './services/index.js';
 
 // Re-export common MikroORM types for convenience
