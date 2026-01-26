@@ -39,12 +39,11 @@ import {
 
 describe('ValidationLogic Types', () => {
   describe('RegulatoryListCheck', () => {
-    it('should validate a regulatory_list_check config', () => {
+    it('should validate a regulatory_list_check config with ARTICLE scope', () => {
       const logic: ValidationLogic = {
         type: 'regulatory_list_check',
         config: {
           listCodes: ['COSING_ANNEX_II'],
-          checkType: 'PROHIBITED',
           scope: 'ARTICLE',
         },
       };
@@ -60,23 +59,22 @@ describe('ValidationLogic Types', () => {
         type: 'regulatory_list_check',
         config: {
           listCodes: null,
-          checkType: 'THRESHOLD',
           scope: 'HOMOGENEOUS_MATERIAL',
-          thresholdOverridePct: '0.01',
+          compareValueOverride: '0.01',
         },
       };
 
       expect(isRegulatoryListCheck(logic)).toBe(true);
       const config = logic.config as RegulatoryListCheckConfig;
       expect(config.listCodes).toBeNull();
+      expect(config.compareValueOverride).toBe('0.01');
     });
 
-    it('should support conditionKey for restricted_with_conditions', () => {
+    it('should support conditionKey for conditional restrictions', () => {
       const logic: ValidationLogic = {
         type: 'regulatory_list_check',
         config: {
           listCodes: ['COSING_ANNEX_III'],
-          checkType: 'RESTRICTED_WITH_CONDITIONS',
           scope: 'ARTICLE',
           conditionKey: 'application_area',
         },
@@ -175,6 +173,10 @@ export interface CustomConfig {
 /**
  * Configuration for regulatory list compliance checks.
  * Used with type: 'regulatory_list_check'
+ *
+ * IMPORTANT: This config is AGNOSTIC. The actual evaluation logic
+ * (operator, compareValue, issueType, severity) comes from RegulatoryListEntry.
+ * This config only specifies WHICH lists to check and HOW to scope the evaluation.
  */
 export interface RegulatoryListCheckConfig {
   /**
@@ -184,11 +186,6 @@ export interface RegulatoryListCheckConfig {
   listCodes: string[] | null;
 
   /**
-   * Type of check to perform.
-   */
-  checkType: 'PROHIBITED' | 'THRESHOLD' | 'RESTRICTED_WITH_CONDITIONS';
-
-  /**
    * Evaluation scope.
    * ARTICLE: Check rolled-up concentration (whole product) - used by REACH
    * HOMOGENEOUS_MATERIAL: Check each material individually - used by RoHS
@@ -196,13 +193,13 @@ export interface RegulatoryListCheckConfig {
   scope: 'ARTICLE' | 'HOMOGENEOUS_MATERIAL';
 
   /**
-   * Override the threshold from RegulatoryListEntry.
-   * If null, uses the threshold defined in the list entry.
+   * Override the compareValue from RegulatoryListEntry (category-specific stricter thresholds).
+   * If null, uses the compareValue defined in the list entry.
    */
-  thresholdOverridePct?: string | null;
+  compareValueOverride?: string | null;
 
   /**
-   * For RESTRICTED_WITH_CONDITIONS: key to check in entry.conditions
+   * For conditional restrictions: key to check in entry.conditions
    */
   conditionKey?: string;
 }
@@ -564,7 +561,7 @@ import {
   RegulatoryListCheckEvaluator,
   EvaluatorInput,
 } from './RegulatoryListCheckEvaluator.js';
-import { RestrictionType, ListRequirement } from '../../entities/enums/index.js';
+import { ComparisonOperator, Severity, ListRequirement } from '../../entities/enums/index.js';
 import { RegulatoryListCheckConfig } from '../../types/validation-logic.js';
 import { setupTestDb, teardownTestDb, isDatabaseAvailable } from '../../test-utils.js';
 
@@ -613,13 +610,15 @@ describe('RegulatoryListCheckEvaluator', () => {
 
     await em.persistAndFlush([formaldehyde, lead, zinc, cosmetics, cosingII]);
 
-    // Create list entries
+    // Create list entries with agnostic evaluation data
     em.create(RegulatoryListEntry, {
       list: cosingII,
       substance: formaldehyde,
       casNumberSnapshot: '50-00-0',
       substanceNameSnapshot: 'Formaldehyde',
-      restrictionType: RestrictionType.PROHIBITED,
+      operator: ComparisonOperator.PRESENT,  // Any concentration > 0 is a violation
+      issueType: 'PROHIBITED_SUBSTANCE',
+      severity: Severity.BLOCKER,
       legalReference: 'Entry 1577',
     });
 
@@ -628,8 +627,10 @@ describe('RegulatoryListCheckEvaluator', () => {
       substance: lead,
       casNumberSnapshot: '7439-92-1',
       substanceNameSnapshot: 'Lead',
-      restrictionType: RestrictionType.THRESHOLD,
-      thresholdPct: '0.001',
+      operator: ComparisonOperator.GT,  // Fails if concentration > compareValue
+      compareValue: '0.001',
+      issueType: 'CHEMICAL_LIMIT_EXCEEDED',
+      severity: Severity.WARNING,
       legalReference: 'Entry 1234',
     });
 
@@ -643,15 +644,14 @@ describe('RegulatoryListCheckEvaluator', () => {
     await em.flush();
   });
 
-  describe('evaluate with PROHIBITED check (ARTICLE scope)', () => {
-    it('fails when prohibited substance is present', async (context) => {
+  describe('evaluate with ARTICLE scope - agnostic operator', () => {
+    it('fails when prohibited substance is present (PRESENT operator)', async (context) => {
       if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
       const evaluator = new RegulatoryListCheckEvaluator(em);
 
       const config: RegulatoryListCheckConfig = {
         listCodes: ['COSING_ANNEX_II'],
-        checkType: 'PROHIBITED',
         scope: 'ARTICLE',
       };
 
@@ -659,7 +659,7 @@ describe('RegulatoryListCheckEvaluator', () => {
         scope: 'ARTICLE',
         substances: [
           {
-            casNumber: '50-00-0',
+            casNumber: '50-00-0',  // Formaldehyde - PRESENT operator in entry
             primaryName: 'Formaldehyde',
             effectiveConcentrationPct: '0.05',
             traceability: [
@@ -673,18 +673,18 @@ describe('RegulatoryListCheckEvaluator', () => {
 
       expect(findings).toHaveLength(1);
       expect(findings[0].status).toBe('FAILED');
-      expect(findings[0].issueType).toBe('PROHIBITED_SUBSTANCE');
+      expect(findings[0].issueType).toBe('PROHIBITED_SUBSTANCE');  // From entry.issueType
+      expect(findings[0].severity).toBe('BLOCKER');  // From entry.severity
       expect(findings[0].substance?.casNumber).toBe('50-00-0');
     });
 
-    it('passes when no prohibited substances present', async (context) => {
+    it('passes when substance not in list', async (context) => {
       if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
       const evaluator = new RegulatoryListCheckEvaluator(em);
 
       const config: RegulatoryListCheckConfig = {
         listCodes: ['COSING_ANNEX_II'],
-        checkType: 'PROHIBITED',
         scope: 'ARTICLE',
       };
 
@@ -702,19 +702,16 @@ describe('RegulatoryListCheckEvaluator', () => {
 
       const findings = await evaluator.evaluate(config, input, 'products.cosmetics');
 
-      expect(findings).toHaveLength(0);  // No violations
+      expect(findings).toHaveLength(0);  // No violations - substance not in list
     });
-  });
 
-  describe('evaluate with THRESHOLD check (ARTICLE scope)', () => {
-    it('fails when concentration exceeds threshold', async (context) => {
+    it('fails when concentration exceeds threshold (GT operator)', async (context) => {
       if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
       const evaluator = new RegulatoryListCheckEvaluator(em);
 
       const config: RegulatoryListCheckConfig = {
         listCodes: ['COSING_ANNEX_II'],
-        checkType: 'THRESHOLD',
         scope: 'ARTICLE',
       };
 
@@ -722,9 +719,9 @@ describe('RegulatoryListCheckEvaluator', () => {
         scope: 'ARTICLE',
         substances: [
           {
-            casNumber: '7439-92-1',  // Lead - threshold 0.001%
+            casNumber: '7439-92-1',  // Lead - GT operator with compareValue '0.001'
             primaryName: 'Lead',
-            effectiveConcentrationPct: '0.01',  // Above threshold
+            effectiveConcentrationPct: '0.01',  // 0.01 > 0.001 = violation
             traceability: [],
           },
         ],
@@ -734,7 +731,8 @@ describe('RegulatoryListCheckEvaluator', () => {
 
       expect(findings).toHaveLength(1);
       expect(findings[0].status).toBe('FAILED');
-      expect(findings[0].issueType).toBe('CHEMICAL_LIMIT_EXCEEDED');
+      expect(findings[0].issueType).toBe('CHEMICAL_LIMIT_EXCEEDED');  // From entry.issueType
+      expect(findings[0].severity).toBe('WARNING');  // From entry.severity
     });
 
     it('passes when concentration below threshold', async (context) => {
@@ -744,7 +742,6 @@ describe('RegulatoryListCheckEvaluator', () => {
 
       const config: RegulatoryListCheckConfig = {
         listCodes: ['COSING_ANNEX_II'],
-        checkType: 'THRESHOLD',
         scope: 'ARTICLE',
       };
 
@@ -752,9 +749,9 @@ describe('RegulatoryListCheckEvaluator', () => {
         scope: 'ARTICLE',
         substances: [
           {
-            casNumber: '7439-92-1',  // Lead - threshold 0.001%
+            casNumber: '7439-92-1',  // Lead - GT operator with compareValue '0.001'
             primaryName: 'Lead',
-            effectiveConcentrationPct: '0.0005',  // Below threshold
+            effectiveConcentrationPct: '0.0005',  // 0.0005 is NOT > 0.001 = pass
             traceability: [],
           },
         ],
@@ -774,7 +771,6 @@ describe('RegulatoryListCheckEvaluator', () => {
 
       const config: RegulatoryListCheckConfig = {
         listCodes: null,  // Inherit from category
-        checkType: 'PROHIBITED',
         scope: 'ARTICLE',
       };
 
@@ -805,7 +801,6 @@ describe('RegulatoryListCheckEvaluator', () => {
 
       const config: RegulatoryListCheckConfig = {
         listCodes: ['COSING_ANNEX_II'],
-        checkType: 'THRESHOLD',
         scope: 'HOMOGENEOUS_MATERIAL',
       };
 
@@ -826,7 +821,7 @@ describe('RegulatoryListCheckEvaluator', () => {
             materialVersionId: 'screw-abc-123',
             supplier: 'Fastener Co',
             substances: [
-              { casNumber: '7439-92-1', primaryName: 'Lead', concentrationPct: '0.2' },  // 0.2% - ABOVE 0.001% threshold!
+              { casNumber: '7439-92-1', primaryName: 'Lead', concentrationPct: '0.2' },  // 0.2 > 0.001 = violation!
             ],
           },
           {
@@ -842,10 +837,11 @@ describe('RegulatoryListCheckEvaluator', () => {
 
       const findings = await evaluator.evaluate(config, input, 'products.electronics');
 
-      // Only the M3 Screw should fail (0.2% > 0.001% threshold)
+      // Only the M3 Screw should fail (Lead entry has GT operator with compareValue 0.001)
       expect(findings).toHaveLength(1);
       expect(findings[0].status).toBe('FAILED');
-      expect(findings[0].issueType).toBe('CHEMICAL_LIMIT_EXCEEDED');
+      expect(findings[0].issueType).toBe('CHEMICAL_LIMIT_EXCEEDED');  // From entry.issueType
+      expect(findings[0].severity).toBe('WARNING');  // From entry.severity
       expect(findings[0].evaluationContext.traceability[0].materialName).toBe('M3 Screw');
       expect(findings[0].evaluationContext.traceability[0].supplier).toBe('Fastener Co');
       expect(findings[0].evaluationContext.reason).toContain('M3 Screw');
@@ -859,7 +855,6 @@ describe('RegulatoryListCheckEvaluator', () => {
 
       const config: RegulatoryListCheckConfig = {
         listCodes: ['COSING_ANNEX_II'],
-        checkType: 'THRESHOLD',
         scope: 'HOMOGENEOUS_MATERIAL',
       };
 
@@ -871,7 +866,7 @@ describe('RegulatoryListCheckEvaluator', () => {
             materialVersionId: 'pcb-001',
             supplier: 'PCB Corp',
             substances: [
-              { casNumber: '7439-92-1', primaryName: 'Lead', concentrationPct: '0.0005' },  // Below 0.001%
+              { casNumber: '7439-92-1', primaryName: 'Lead', concentrationPct: '0.0005' },  // 0.0005 is NOT > 0.001
             ],
           },
           {
@@ -879,7 +874,7 @@ describe('RegulatoryListCheckEvaluator', () => {
             materialVersionId: 'screw-abc-123',
             supplier: 'Fastener Co',
             substances: [
-              { casNumber: '7439-92-1', primaryName: 'Lead', concentrationPct: '0.0008' },  // Below 0.001%
+              { casNumber: '7439-92-1', primaryName: 'Lead', concentrationPct: '0.0008' },  // 0.0008 is NOT > 0.001
             ],
           },
         ],
@@ -897,7 +892,6 @@ describe('RegulatoryListCheckEvaluator', () => {
 
       const config: RegulatoryListCheckConfig = {
         listCodes: ['COSING_ANNEX_II'],
-        checkType: 'PROHIBITED',
         scope: 'HOMOGENEOUS_MATERIAL',
       };
 
@@ -909,7 +903,7 @@ describe('RegulatoryListCheckEvaluator', () => {
             materialVersionId: 'pres-001',
             supplier: 'ChemCo',
             substances: [
-              { casNumber: '50-00-0', primaryName: 'Formaldehyde', concentrationPct: '0.1' },
+              { casNumber: '50-00-0', primaryName: 'Formaldehyde', concentrationPct: '0.1' },  // PRESENT operator
             ],
           },
           {
@@ -917,7 +911,7 @@ describe('RegulatoryListCheckEvaluator', () => {
             materialVersionId: 'pres-002',
             supplier: 'ChemCo',
             substances: [
-              { casNumber: '50-00-0', primaryName: 'Formaldehyde', concentrationPct: '0.2' },
+              { casNumber: '50-00-0', primaryName: 'Formaldehyde', concentrationPct: '0.2' },  // PRESENT operator
             ],
           },
         ],
@@ -925,7 +919,7 @@ describe('RegulatoryListCheckEvaluator', () => {
 
       const findings = await evaluator.evaluate(config, input, 'products.cosmetics');
 
-      // Both materials contain prohibited Formaldehyde
+      // Both materials contain prohibited Formaldehyde (PRESENT operator triggers on any > 0)
       expect(findings).toHaveLength(2);
       expect(findings[0].evaluationContext.traceability[0].materialName).toBe('Preservative A');
       expect(findings[1].evaluationContext.traceability[0].materialName).toBe('Preservative B');
@@ -953,8 +947,8 @@ import { RegulatoryListEntry } from '../../entities/RegulatoryListEntry.js';
 import { CategoryRegulatoryListService } from '../CategoryRegulatoryListService.js';
 import { RegulatoryListService } from '../RegulatoryListService.js';
 import { RegulatoryListCheckConfig } from '../../types/validation-logic.js';
-import { SubstanceFinding, IssueType, SubstanceTraceability } from '../../types/audit-finding.js';
-import { RestrictionType } from '../../entities/enums/index.js';
+import { SubstanceFinding, SubstanceTraceability } from '../../types/audit-finding.js';
+import { ComparisonOperator, Severity } from '../../entities/enums/index.js';
 
 /**
  * For ARTICLE scope: pre-rolled substance totals for the whole product
@@ -1057,10 +1051,11 @@ export class RegulatoryListCheckEvaluator {
       if (!match) continue;
 
       const { entry, list } = match;
-      const violation = this.checkViolation(substance.effectiveConcentrationPct, entry, config);
+      const isViolation = this.checkViolation(substance.effectiveConcentrationPct, entry, config);
 
-      if (violation) {
-        findings.push(this.buildFinding(substance, entry, list, config, violation));
+      if (isViolation) {
+        // entry.issueType and entry.severity are used in buildFinding (agnostic)
+        findings.push(this.buildFinding(substance, entry, list, config));
       }
     }
 
@@ -1088,17 +1083,16 @@ export class RegulatoryListCheckEvaluator {
 
         const { entry, list } = match;
         // Check concentration WITHIN THIS MATERIAL, not product total
-        const violation = this.checkViolation(substance.concentrationPct, entry, config);
+        const isViolation = this.checkViolation(substance.concentrationPct, entry, config);
 
-        if (violation) {
-          // Build finding with material-specific traceability
+        if (isViolation) {
+          // entry.issueType and entry.severity are used in buildHomogeneousMaterialFinding (agnostic)
           findings.push(this.buildHomogeneousMaterialFinding(
             substance,
             material,
             entry,
             list,
-            config,
-            violation
+            config
           ));
         }
       }
@@ -1123,15 +1117,19 @@ export class RegulatoryListCheckEvaluator {
   /**
    * Check if a concentration violates the regulatory entry.
    *
+   * AGNOSTIC EVALUATION: The entry itself defines the operator and compareValue.
+   * This method just executes the comparison - no hardcoded rule types.
+   *
    * @param concentrationPct - The concentration to check (string for precision)
-   * @param entry - The regulatory list entry with thresholds
-   * @param config - Validation config with checkType
+   * @param entry - The regulatory list entry with operator/compareValue
+   * @param config - Validation config (for compareValueOverride)
+   * @returns true if violation detected, false otherwise
    */
   private checkViolation(
     concentrationPct: string,
     entry: RegulatoryListEntry,
     config: RegulatoryListCheckConfig
-  ): IssueType | null {
+  ): boolean {
     const rawConcentration = new Decimal(concentrationPct);
 
     // Apply stoichiometric factor if present (element-based regulations)
@@ -1141,53 +1139,63 @@ export class RegulatoryListCheckEvaluator {
       ? rawConcentration.mul(entry.stoichiometricFactor)
       : rawConcentration;
 
-    switch (config.checkType) {
-      case 'PROHIBITED':
-        if (entry.restrictionType === RestrictionType.PROHIBITED && concentration.gt(0)) {
-          return 'PROHIBITED_SUBSTANCE';
-        }
-        break;
+    // Get compareValue: config override takes precedence (category-specific stricter thresholds)
+    const compareValue = config.compareValueOverride
+      ? new Decimal(config.compareValueOverride)
+      : entry.compareValue
+        ? new Decimal(entry.compareValue)
+        : null;
 
-      case 'THRESHOLD':
-        if (entry.restrictionType === RestrictionType.THRESHOLD && entry.thresholdPct) {
-          const threshold = config.thresholdOverridePct
-            ? new Decimal(config.thresholdOverridePct)
-            : new Decimal(entry.thresholdPct);
-
-          if (concentration.gt(threshold)) {
-            return 'CHEMICAL_LIMIT_EXCEEDED';
-          }
-        }
-        break;
-
-      case 'RESTRICTED_WITH_CONDITIONS':
-        if (entry.restrictionType === RestrictionType.RESTRICTED_WITH_CONDITIONS) {
-          // Check conditions - simplified for now
-          // In full implementation, check substance metadata against entry.conditions
-          if (concentration.gt(0)) {
-            return 'RESTRICTED_CONDITIONS';
-          }
-        }
-        break;
-    }
-
-    return null;
+    // Execute the agnostic comparison based on entry.operator
+    return this.compare(concentration, entry.operator, compareValue);
   }
 
+  /**
+   * Execute agnostic comparison.
+   * The operator comes from the database - no hardcoded rule types.
+   */
+  private compare(
+    value: Decimal,
+    operator: ComparisonOperator,
+    compareValue: Decimal | null
+  ): boolean {
+    switch (operator) {
+      case ComparisonOperator.GT:
+        return compareValue !== null && value.gt(compareValue);
+      case ComparisonOperator.GTE:
+        return compareValue !== null && value.gte(compareValue);
+      case ComparisonOperator.LT:
+        return compareValue !== null && value.lt(compareValue);
+      case ComparisonOperator.LTE:
+        return compareValue !== null && value.lte(compareValue);
+      case ComparisonOperator.EQ:
+        return compareValue !== null && value.eq(compareValue);
+      case ComparisonOperator.PRESENT:
+        return value.gt(0);  // Any concentration > 0 is a violation
+      case ComparisonOperator.ABSENT:
+        return !value.eq(0);  // Violation if NOT zero (must be absent)
+      default:
+        return false;
+    }
+  }
+
+  /**
+   * Build finding for ARTICLE scope violations.
+   * Uses entry.issueType and entry.severity from the database (agnostic).
+   */
   private buildFinding(
     substance: RolledUpSubstance,
     entry: RegulatoryListEntry,
     list: RegulatoryList,
-    config: RegulatoryListCheckConfig,
-    issueType: IssueType
+    config: RegulatoryListCheckConfig
   ): SubstanceFinding {
     return {
-      ruleCode: `VERTICAL_${config.checkType}_CHECK`,
+      ruleCode: `VERTICAL_${list.code}_CHECK`,
       ruleName: `${list.name} Compliance Check`,
-      severity: issueType === 'PROHIBITED_SUBSTANCE' ? 'BLOCKER' : 'WARNING',
+      severity: entry.severity,  // From database - agnostic
       status: 'FAILED',
       effectiveMode: 'ENFORCING',
-      issueType,
+      issueType: entry.issueType,  // From database - agnostic
       substance: {
         casNumber: substance.casNumber,
         primaryName: substance.primaryName,
@@ -1203,7 +1211,7 @@ export class RegulatoryListCheckEvaluator {
         },
         legalReference: entry.legalReference || '',
         categoryTrigger: '', // Set by caller
-        reason: this.buildReason(issueType, substance, entry),
+        reason: this.buildReason(entry.issueType, substance, entry),
         traceability: substance.traceability.map(t => ({
           materialName: t.materialName,
           materialVersionId: t.materialVersionId,
@@ -1213,7 +1221,7 @@ export class RegulatoryListCheckEvaluator {
         })),
       },
       remediation: {
-        suggestion: this.buildSuggestion(issueType, substance.primaryName),
+        suggestion: this.buildSuggestion(entry.issueType, substance.primaryName),
         alternativeCas: entry.alternativeCas || [],
       },
     };
@@ -1222,22 +1230,27 @@ export class RegulatoryListCheckEvaluator {
   /**
    * Build finding for HOMOGENEOUS_MATERIAL scope violations.
    * The traceability pinpoints the EXACT material causing the violation.
+   * Uses entry.issueType and entry.severity from the database (agnostic).
    */
   private buildHomogeneousMaterialFinding(
     substance: { casNumber: string; primaryName: string; concentrationPct: string },
     material: MaterialSubstanceData,
     entry: RegulatoryListEntry,
     list: RegulatoryList,
-    config: RegulatoryListCheckConfig,
-    issueType: IssueType
+    config: RegulatoryListCheckConfig
   ): SubstanceFinding {
+    // Build reason based on entry.issueType
+    const reason = entry.issueType === 'PROHIBITED_SUBSTANCE'
+      ? `Product blocked because ${substance.primaryName} in '${material.materialName}' from '${material.supplier || 'Unknown Supplier'}' is prohibited.`
+      : `Product blocked because ${substance.primaryName} in '${material.materialName}' from '${material.supplier || 'Unknown Supplier'}' exceeds ${entry.compareValue}% threshold (found ${substance.concentrationPct}%).`;
+
     return {
-      ruleCode: `VERTICAL_${config.checkType}_CHECK`,
+      ruleCode: `VERTICAL_${list.code}_CHECK`,
       ruleName: `${list.name} Compliance Check`,
-      severity: issueType === 'PROHIBITED_SUBSTANCE' ? 'BLOCKER' : 'WARNING',
+      severity: entry.severity,  // From database - agnostic
       status: 'FAILED',
       effectiveMode: 'ENFORCING',
-      issueType,
+      issueType: entry.issueType,  // From database - agnostic
       substance: {
         casNumber: substance.casNumber,
         primaryName: substance.primaryName,
@@ -1253,12 +1266,7 @@ export class RegulatoryListCheckEvaluator {
         },
         legalReference: entry.legalReference || '',
         categoryTrigger: '',
-        // Pinpoint the EXACT material causing the violation
-        reason: `Product blocked because ${substance.primaryName} in '${material.materialName}' from '${material.supplier || 'Unknown Supplier'}' ${
-          issueType === 'PROHIBITED_SUBSTANCE'
-            ? 'is prohibited'
-            : `exceeds ${entry.thresholdPct}% threshold (found ${substance.concentrationPct}%)`
-        }.`,
+        reason,
         traceability: [{
           materialName: material.materialName,
           materialVersionId: material.materialVersionId,
@@ -1274,27 +1282,37 @@ export class RegulatoryListCheckEvaluator {
     };
   }
 
-  private buildReason(issueType: IssueType, substance: RolledUpSubstance, entry: RegulatoryListEntry): string {
+  /**
+   * Build human-readable reason string.
+   * issueType comes from the database (entry.issueType) - agnostic.
+   */
+  private buildReason(issueType: string, substance: RolledUpSubstance, entry: RegulatoryListEntry): string {
     switch (issueType) {
       case 'PROHIBITED_SUBSTANCE':
         return `${substance.primaryName} is prohibited.`;
       case 'CHEMICAL_LIMIT_EXCEEDED':
-        return `${substance.primaryName} exceeds threshold of ${entry.thresholdPct}%.`;
+        return `${substance.primaryName} exceeds threshold of ${entry.compareValue}%.`;
       case 'RESTRICTED_CONDITIONS':
         return `${substance.primaryName} is restricted under specific conditions.`;
       default:
-        return 'Compliance violation detected.';
+        // Agnostic: any issueType string from the database is valid
+        return `${substance.primaryName} violates regulation (${issueType}).`;
     }
   }
 
-  private buildSuggestion(issueType: IssueType, substanceName: string): string {
+  /**
+   * Build remediation suggestion.
+   * issueType comes from the database (entry.issueType) - agnostic.
+   */
+  private buildSuggestion(issueType: string, substanceName: string): string {
     switch (issueType) {
       case 'PROHIBITED_SUBSTANCE':
         return `Remove ${substanceName} or use an approved alternative.`;
       case 'CHEMICAL_LIMIT_EXCEEDED':
         return `Reduce concentration of ${substanceName} below threshold.`;
       default:
-        return 'Review compliance requirements.';
+        // Agnostic: generic suggestion for any issueType
+        return `Review compliance requirements for ${substanceName}.`;
     }
   }
 }
@@ -1559,9 +1577,19 @@ git commit -m "feat(database): add MetricThresholdEvaluator for supply risk chec
 **Plan 14 delivers:**
 - Extended `ValidationLogic` types with `regulatory_list_check` and `aggregate_metric_threshold`
 - `SubstanceFinding` and `MetricFinding` interfaces with traceability
-- `RegulatoryListCheckEvaluator` for vertical compliance checks with dual-scope support
+- `RegulatoryListCheckEvaluator` with **agnostic** operator-based evaluation
 - `MetricThresholdEvaluator` for supply risk threshold checks
 - Full test coverage including HOMOGENEOUS_MATERIAL scenarios
+
+**Agnostic Evaluation Model:**
+
+The evaluator does NOT contain hardcoded rule types. Instead, it reads:
+- `entry.operator` (GT, GTE, LT, LTE, EQ, PRESENT, ABSENT) from the database
+- `entry.compareValue` (threshold) from the database
+- `entry.issueType` (string) from the database
+- `entry.severity` (BLOCKER, WARNING, INFO) from the database
+
+This means new rule types can be added via admin import **without code changes**.
 
 **Scope-Aware Evaluation:**
 
@@ -1573,11 +1601,11 @@ git commit -m "feat(database): add MetricThresholdEvaluator for supply risk chec
 **RoHS Example:** A laptop with 500 components where one M3 screw has 0.2% Lead is a violation, even if total laptop is 0.000001% Lead. The traceability array pinpoints the exact violating component.
 
 **Stoichiometry Support:**
-When `RegulatoryListEntry.stoichiometricFactor` is present (from Plan 10), the evaluator applies it before threshold comparison. Example: Cobalt Sulfate at 1% with factor 0.38 → effective 0.38% Cobalt.
+When `RegulatoryListEntry.stoichiometricFactor` is present (from Plan 10), the evaluator applies it before comparison. Example: Cobalt Sulfate at 1% with factor 0.38 → effective 0.38% Cobalt.
 
-**Threshold Resolution Hierarchy:**
-1. `CategoryRegulatoryList.thresholdOverridePct` (category-specific stricter threshold from Plan 11)
-2. `RegulatoryListEntry.thresholdPct` (default list entry threshold from Plan 10)
+**CompareValue Resolution Hierarchy:**
+1. `config.compareValueOverride` (category-specific stricter threshold from Plan 11)
+2. `RegulatoryListEntry.compareValue` (default list entry compareValue from Plan 10)
 
 **Integration Points:**
 - Evaluators receive input from Plan 8 (SubstanceRollupService) - caller decides scope
