@@ -2818,6 +2818,8 @@ interface SetCategoryDefaultProfileResponse {
 | [Verifiable Credentials](./09-verifiable-credentials.md) | VC issuance, DID management |
 | [Billing](./12-billing.md) | DPP pricing, recall fees |
 | [Regulatory Advisor](./13-regulatory-advisor.md) | Rule templates, soft gates, forensic seal |
+| [Taxonomy Plan 10 - Regulatory List Registry](./2026-01-26-taxonomy-10-regulatory-list-registry.md) | RegulatoryList versioning for forensic snapshots |
+| [Taxonomy Plan 14 - Vertical Rule Evaluation](./2026-01-26-taxonomy-14-vertical-rule-evaluation.md) | SubstanceFinding traceability |
 
 ---
 
