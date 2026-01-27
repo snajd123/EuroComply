@@ -26,32 +26,32 @@ import { describe, it, expect } from 'vitest';
 import { slugify } from './slugify.js';
 
 describe('slugify', () => {
-  it('converts name to lowercase with underscores', () => {
+  it('should convert to lowercase with underscores when name has hyphens', () => {
     expect(slugify('T-Shirts')).toBe('t_shirts');
   });
 
-  it('handles spaces', () => {
+  it('should replace spaces with underscores when name has spaces', () => {
     expect(slugify('Product Category')).toBe('product_category');
   });
 
-  it('handles multiple special characters', () => {
+  it('should collapse multiple special chars when name has symbols', () => {
     expect(slugify('Apparel & Accessories')).toBe('apparel_accessories');
   });
 
-  it('trims leading and trailing underscores', () => {
+  it('should trim leading and trailing underscores when present', () => {
     expect(slugify('--Test--')).toBe('test');
   });
 
-  it('limits length to 50 characters', () => {
+  it('should truncate to 50 chars when name exceeds limit', () => {
     const longName = 'A'.repeat(100);
     expect(slugify(longName).length).toBe(50);
   });
 
-  it('handles empty string', () => {
+  it('should return empty string when input is empty', () => {
     expect(slugify('')).toBe('');
   });
 
-  it('handles unicode characters', () => {
+  it('should strip unicode chars when name has non-ASCII', () => {
     expect(slugify('Möbel & Einrichtung')).toBe('m_bel_einrichtung');
   });
 });
@@ -143,7 +143,7 @@ Add this test to `category-adoption.e2e.test.ts`:
 ```typescript
 // Add to describe('POST /category-adoption/:categoryId', () => { ... })
 
-it('auto-creates TenantCategory with system.* path prefix', async (context) => {
+it('should auto-create TenantCategory with system prefix when adopting', async (context) => {
   if (!(await isDatabaseAvailable())) {
     context.skip();
     return;
@@ -174,7 +174,7 @@ it('auto-creates TenantCategory with system.* path prefix', async (context) => {
   expect(data.data.tenantCategory.linkMode).toBe('LIVE');
 });
 
-it('records adoptedVersion from system category', async (context) => {
+it('should record adoptedVersion when system category has version', async (context) => {
   if (!(await isDatabaseAvailable())) {
     context.skip();
     return;
@@ -369,7 +369,7 @@ Add to `category-adoption.e2e.test.ts`:
 // ============================================================================
 
 describe('PATCH /category-adoption/:categoryId', () => {
-  it('changes mode from LIVE to FROZEN', async (context) => {
+  it('should capture frozenAtVersion when changing from LIVE to FROZEN', async (context) => {
     if (!(await isDatabaseAvailable())) {
       context.skip();
       return;
@@ -397,7 +397,7 @@ describe('PATCH /category-adoption/:categoryId', () => {
     expect(data.data.frozenAtVersion).toBe(1);
   });
 
-  it('changes mode from FROZEN to LIVE and syncs to latest', async (context) => {
+  it('should sync to latest version when changing from FROZEN to LIVE', async (context) => {
     if (!(await isDatabaseAvailable())) {
       context.skip();
       return;
@@ -447,7 +447,7 @@ describe('PATCH /category-adoption/:categoryId', () => {
     );
   });
 
-  it('changes mode to DETACHED and clears systemCategoryId on TenantCategory', async (context) => {
+  it('should clear systemCategoryId when changing to DETACHED', async (context) => {
     if (!(await isDatabaseAvailable())) {
       context.skip();
       return;
@@ -480,7 +480,7 @@ describe('PATCH /category-adoption/:categoryId', () => {
     expect(tenantCat?.systemCategoryId).toBeNull();
   });
 
-  it('returns 400 when trying to change from DETACHED', async (context) => {
+  it('should return 400 when trying to change from DETACHED', async (context) => {
     if (!(await isDatabaseAvailable())) {
       context.skip();
       return;
@@ -510,7 +510,7 @@ describe('PATCH /category-adoption/:categoryId', () => {
     expect(data.error.code).toBe('INVALID_TRANSITION');
   });
 
-  it('returns 404 if adoption not found', async (context) => {
+  it('should return 404 when adoption not found', async (context) => {
     if (!(await isDatabaseAvailable())) {
       context.skip();
       return;
@@ -526,7 +526,7 @@ describe('PATCH /category-adoption/:categoryId', () => {
     expect(res.status).toBe(404);
   });
 
-  it('denies user with VIEWER authority', async (context) => {
+  it('should return 403 when user has VIEWER authority', async (context) => {
     if (!(await isDatabaseAvailable())) {
       context.skip();
       return;
@@ -693,7 +693,7 @@ Add to `category-adoption.e2e.test.ts`:
 // ============================================================================
 
 describe('POST /category-adoption/:categoryId/sync', () => {
-  it('returns diff in dry run mode without applying changes', async (context) => {
+  it('should return diff without applying when dryRun is true', async (context) => {
     if (!(await isDatabaseAvailable())) {
       context.skip();
       return;
@@ -751,7 +751,7 @@ describe('POST /category-adoption/:categoryId/sync', () => {
     );
   });
 
-  it('applies sync and returns diff when not dry run', async (context) => {
+  it('should apply changes and return diff when dryRun is false', async (context) => {
     if (!(await isDatabaseAvailable())) {
       context.skip();
       return;
@@ -810,7 +810,7 @@ describe('POST /category-adoption/:categoryId/sync', () => {
     );
   });
 
-  it('returns 404 if adoption not found', async (context) => {
+  it('should return 404 when adoption not found', async (context) => {
     if (!(await isDatabaseAvailable())) {
       context.skip();
       return;
@@ -824,7 +824,7 @@ describe('POST /category-adoption/:categoryId/sync', () => {
     expect(res.status).toBe(404);
   });
 
-  it('denies user with VIEWER authority', async (context) => {
+  it('should return 403 when user has VIEWER authority', async (context) => {
     if (!(await isDatabaseAvailable())) {
       context.skip();
       return;
@@ -1019,6 +1019,50 @@ If any tests fail, investigate and fix.
 ```bash
 git add -A
 git commit -m "fix: resolve test failures from category adoption changes"
+```
+
+---
+
+## Task 8: Update Documentation
+
+**Files:**
+- Modify: `docs/plans/2026-01-27-category-adoption-sync-design.md`
+
+**Step 1: Update design doc status**
+
+Change the status from "Approved" to "Implemented":
+
+```markdown
+**Status:** Implemented
+```
+
+**Step 2: Add implementation notes**
+
+Add a section at the bottom of the design doc:
+
+```markdown
+---
+
+## Implementation Notes
+
+**Completed:** 2026-01-27
+
+**Commits:**
+- `feat(database): add slugify utility for tenant category paths`
+- `feat(api): auto-create TenantCategory on category adoption`
+- `feat(api): add PATCH endpoint for category adoption link mode changes`
+- `feat(api): add POST /sync endpoint for manual category sync`
+- `docs(postman): add link mode and sync endpoints to tenant-api collection`
+
+**Deferred:**
+- Async worker for propagating system category updates (requires event bus infrastructure)
+```
+
+**Step 3: Commit**
+
+```bash
+git add docs/plans/2026-01-27-category-adoption-sync-design.md
+git commit -m "docs: mark category adoption sync design as implemented"
 ```
 
 ---
