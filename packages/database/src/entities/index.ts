@@ -13,6 +13,7 @@ export {
 export { ApiKey } from './ApiKey.js';
 export { Category, CategoryType } from './Category.js';
 export { CategoryAdoption, LinkMode } from './CategoryAdoption.js';
+export { TenantCategory } from './TenantCategory.js';
 export { UnitDefinition } from './UnitDefinition.js';
 export {
   AttributeTemplate,
@@ -36,6 +37,7 @@ import { OutboxEvent } from './OutboxEvent.js';
 import { WebhookEvent } from './WebhookEvent.js';
 import { Category } from './Category.js';
 import { CategoryAdoption } from './CategoryAdoption.js';
+import { TenantCategory } from './TenantCategory.js';
 import { UnitDefinition } from './UnitDefinition.js';
 import { AttributeTemplate } from './AttributeTemplate.js';
 import { Product } from './Product.js';
@@ -68,6 +70,7 @@ export const publicOnlyEntities = [
 export const tenantOnlyEntities = [
   Category,
   CategoryAdoption,
+  TenantCategory,
   AttributeTemplate,
   Product,
   ProductVersion,
