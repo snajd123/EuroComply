@@ -128,6 +128,14 @@ export function createTenantCategoryRegulatoryListsRouter(options: TenantCategor
         return { error: 'not_found' as const, message: 'Tenant category not found' };
       }
 
+      // Verify the regulatory list exists
+      const [listCheck] = await txEm.execute<Array<{ id: string }>>(`
+        SELECT id FROM public.regulatory_list WHERE id = ? AND is_current_version = true
+      `, [listId]);
+      if (!listCheck) {
+        return { error: 'not_found' as const, message: 'Regulatory list not found' };
+      }
+
       const [systemMapping] = await txEm.execute<Array<{ allow_tenant_exemption: boolean }>>(`
         SELECT crl.allow_tenant_exemption
         FROM public.category_regulatory_list crl
