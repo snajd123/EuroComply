@@ -230,6 +230,28 @@ export class Migration20260122000000 extends Migration {
     this.addSql('CREATE INDEX "idx_regulatory_list_entry_issue_type" ON "public"."regulatory_list_entry" ("issue_type");');
 
     // =====================================================
+    // Category Regulatory List table - links categories to lists
+    // =====================================================
+    this.addSql(`
+      CREATE TABLE IF NOT EXISTS "public"."category_regulatory_list" (
+        "id" text NOT NULL,
+        "created_at" timestamptz NOT NULL DEFAULT now(),
+        "updated_at" timestamptz NOT NULL DEFAULT now(),
+        "category_id" text NOT NULL REFERENCES "public"."category"("id") ON DELETE CASCADE,
+        "regulatory_list_id" text NOT NULL REFERENCES "public"."regulatory_list"("id") ON DELETE CASCADE,
+        "requirement" text NOT NULL CHECK ("requirement" IN ('MANDATORY', 'RECOMMENDED', 'INFORMATIONAL')),
+        "priority" smallint NOT NULL DEFAULT 0,
+        "is_exclusion" boolean NOT NULL DEFAULT false,
+        "compare_value_override" numeric(5,4),
+        "allow_tenant_exemption" boolean NOT NULL DEFAULT true,
+        CONSTRAINT "category_regulatory_list_pkey" PRIMARY KEY ("id"),
+        CONSTRAINT "uq_category_regulatory_list" UNIQUE ("category_id", "regulatory_list_id")
+      );
+    `);
+    this.addSql('CREATE INDEX IF NOT EXISTS "idx_cat_reg_list_category" ON "public"."category_regulatory_list" ("category_id");');
+    this.addSql('CREATE INDEX IF NOT EXISTS "idx_cat_reg_list_list" ON "public"."category_regulatory_list" ("regulatory_list_id");');
+
+    // =====================================================
     // Seed Version table - tracks seeded data versions
     // =====================================================
     this.addSql(`
@@ -275,6 +297,7 @@ export class Migration20260122000000 extends Migration {
     // Drop in reverse dependency order
     this.addSql('DROP TABLE IF EXISTS "public"."outbox_event" CASCADE;');
     this.addSql('DROP TABLE IF EXISTS "public"."seed_version" CASCADE;');
+    this.addSql('DROP TABLE IF EXISTS "public"."category_regulatory_list" CASCADE;');
     this.addSql('DROP TABLE IF EXISTS "public"."regulatory_list_entry" CASCADE;');
     this.addSql('DROP TABLE IF EXISTS "public"."regulatory_list" CASCADE;');
     this.addSql('DROP TABLE IF EXISTS "public"."substance_alias" CASCADE;');
