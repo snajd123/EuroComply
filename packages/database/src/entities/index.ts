@@ -1,5 +1,5 @@
 export { BaseEntity } from './BaseEntity.js';
-export { UnitSystem, TargetType, AliasType, ComparisonOperator, Severity, ListRequirement } from './enums/index.js';
+export { UnitSystem, TargetType, AliasType, ComparisonOperator, Severity, ListRequirement, RegulationSource } from './enums/index.js';
 export { Substance } from './Substance.js';
 export { SubstanceAlias } from './SubstanceAlias.js';
 export { SeedVersion } from './SeedVersion.js';
@@ -17,6 +17,7 @@ export { Category, CategoryType } from './Category.js';
 export { CategoryAdoption, LinkMode } from './CategoryAdoption.js';
 export { CategoryRegulatoryList } from './CategoryRegulatoryList.js';
 export { TenantCategory } from './TenantCategory.js';
+export { TenantCategoryRegulatoryList } from './TenantCategoryRegulatoryList.js';
 export { UnitDefinition } from './UnitDefinition.js';
 export {
   AttributeTemplate,
@@ -42,6 +43,7 @@ import { Category } from './Category.js';
 import { CategoryAdoption } from './CategoryAdoption.js';
 import { CategoryRegulatoryList } from './CategoryRegulatoryList.js';
 import { TenantCategory } from './TenantCategory.js';
+import { TenantCategoryRegulatoryList } from './TenantCategoryRegulatoryList.js';
 import { UnitDefinition } from './UnitDefinition.js';
 import { AttributeTemplate } from './AttributeTemplate.js';
 import { Product } from './Product.js';
@@ -80,6 +82,7 @@ export const publicOnlyEntities = [
 export const tenantOnlyEntities = [
   CategoryAdoption,
   TenantCategory,
+  TenantCategoryRegulatoryList,
   AttributeTemplate,
   Product,
   ProductVersion,

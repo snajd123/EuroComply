@@ -7,6 +7,7 @@ import { assertValidSchemaName } from '../utils/schema-validation.js';
  */
 const EXPECTED_TENANT_TABLES = [
   'tenant_category',
+  'tenant_category_regulatory_list',
   'category_adoption',
   'attribute_template',
   'product',
