@@ -10,6 +10,7 @@ import { createProductsRouter } from './routes/products.js';
 import { createApiKeysRouter } from './routes/api-keys.js';
 import { createCategoryAdoptionRouter } from './routes/category-adoption.js';
 import { createTenantCategoriesRouter } from './routes/tenant-categories.js';
+import { createCategoryRegulatoryListsRouter } from './routes/admin/category-regulatory-lists.js';
 import { createUnitsRouter, type UnitsRepository, createSubstancesRouter, type SubstancesRepository } from './routes/taxonomy/index.js';
 import { tenantMiddleware, createTenantMiddlewareWithApiKeys } from './middleware/tenant.js';
 import { adminAuthMiddleware } from './middleware/admin-auth.js';
@@ -94,6 +95,11 @@ export function createApp(deps?: AppDependencies): Hono<Env> {
   // Additional admin operations (status, provision, delete)
   if (deps?.organizationsAdminRouter) {
     v1.route('/admin/organizations', deps.organizationsAdminRouter);
+  }
+
+  // Category regulatory list management - admin only (requires ORM)
+  if (deps?.orm) {
+    v1.route('/admin/categories', createCategoryRegulatoryListsRouter({ orm: deps.orm }));
   }
 
   // API key management routes (JWT-only authentication)
