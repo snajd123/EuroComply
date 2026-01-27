@@ -1,0 +1,357 @@
+{
+  "version": "SystemCategories-v1",
+  "generatedAt": "2026-01-26T00:00:00.000Z",
+  "totalCategories": 50,
+  "categories": [
+    {
+      "path": "apparel",
+      "name": "Apparel",
+      "description": "Clothing and textile products",
+      "type": "ROOT",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "apparel.tops",
+      "name": "Tops",
+      "description": "Upper body garments",
+      "type": "BRANCH",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "apparel.tops.tshirts",
+      "name": "T-Shirts",
+      "description": "Short-sleeved casual shirts",
+      "type": "LEAF",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "apparel.tops.blouses",
+      "name": "Blouses",
+      "description": "Formal or semi-formal tops",
+      "type": "LEAF",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "apparel.tops.sweaters",
+      "name": "Sweaters",
+      "description": "Knitted upper body garments",
+      "type": "LEAF",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "apparel.bottoms",
+      "name": "Bottoms",
+      "description": "Lower body garments",
+      "type": "BRANCH",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "apparel.bottoms.pants",
+      "name": "Pants",
+      "description": "Full-length leg garments",
+      "type": "LEAF",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "apparel.bottoms.shorts",
+      "name": "Shorts",
+      "description": "Short leg garments",
+      "type": "LEAF",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "apparel.bottoms.skirts",
+      "name": "Skirts",
+      "description": "Open lower body garments",
+      "type": "LEAF",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "apparel.outerwear",
+      "name": "Outerwear",
+      "description": "Outer layer garments",
+      "type": "BRANCH",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "apparel.outerwear.jackets",
+      "name": "Jackets",
+      "description": "Light to medium weight outer garments",
+      "type": "LEAF",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "apparel.outerwear.coats",
+      "name": "Coats",
+      "description": "Heavy outer garments",
+      "type": "LEAF",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "electronics",
+      "name": "Electronics",
+      "description": "Electronic devices and components",
+      "type": "ROOT",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "electronics.batteries",
+      "name": "Batteries",
+      "description": "Energy storage devices",
+      "type": "BRANCH",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "electronics.batteries.lithium_ion",
+      "name": "Lithium-Ion Batteries",
+      "description": "Rechargeable lithium-ion cells",
+      "type": "LEAF",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "electronics.batteries.lead_acid",
+      "name": "Lead-Acid Batteries",
+      "description": "Traditional lead-acid cells",
+      "type": "LEAF",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "electronics.displays",
+      "name": "Displays",
+      "description": "Visual output devices",
+      "type": "BRANCH",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "electronics.displays.lcd",
+      "name": "LCD Displays",
+      "description": "Liquid crystal display panels",
+      "type": "LEAF",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "electronics.displays.oled",
+      "name": "OLED Displays",
+      "description": "Organic light-emitting diode displays",
+      "type": "LEAF",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "electronics.computing",
+      "name": "Computing",
+      "description": "Computing devices",
+      "type": "BRANCH",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "electronics.computing.laptops",
+      "name": "Laptops",
+      "description": "Portable computers",
+      "type": "LEAF",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "electronics.computing.smartphones",
+      "name": "Smartphones",
+      "description": "Mobile computing devices",
+      "type": "LEAF",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "furniture",
+      "name": "Furniture",
+      "description": "Furniture and furnishings",
+      "type": "ROOT",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "furniture.seating",
+      "name": "Seating",
+      "description": "Chairs and seating furniture",
+      "type": "BRANCH",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "furniture.seating.office_chairs",
+      "name": "Office Chairs",
+      "description": "Ergonomic office seating",
+      "type": "LEAF",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "furniture.seating.sofas",
+      "name": "Sofas",
+      "description": "Multi-person seating furniture",
+      "type": "LEAF",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "furniture.tables",
+      "name": "Tables",
+      "description": "Flat-surfaced furniture",
+      "type": "BRANCH",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "furniture.tables.desks",
+      "name": "Desks",
+      "description": "Work surface furniture",
+      "type": "LEAF",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "furniture.tables.dining",
+      "name": "Dining Tables",
+      "description": "Eating surface furniture",
+      "type": "LEAF",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "toys",
+      "name": "Toys",
+      "description": "Toys and games",
+      "type": "ROOT",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "toys.construction",
+      "name": "Construction Toys",
+      "description": "Building and construction toys",
+      "type": "LEAF",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "toys.dolls",
+      "name": "Dolls",
+      "description": "Dolls and figurines",
+      "type": "LEAF",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "toys.electronic",
+      "name": "Electronic Toys",
+      "description": "Battery-powered and electronic toys",
+      "type": "LEAF",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "materials",
+      "name": "Materials",
+      "description": "Raw materials and substances",
+      "type": "ROOT",
+      "targetType": "MATERIAL"
+    },
+    {
+      "path": "materials.textiles",
+      "name": "Textiles",
+      "description": "Fabric and textile materials",
+      "type": "BRANCH",
+      "targetType": "MATERIAL"
+    },
+    {
+      "path": "materials.textiles.cotton",
+      "name": "Cotton",
+      "description": "Natural cotton fiber",
+      "type": "LEAF",
+      "targetType": "MATERIAL"
+    },
+    {
+      "path": "materials.textiles.polyester",
+      "name": "Polyester",
+      "description": "Synthetic polyester fiber",
+      "type": "LEAF",
+      "targetType": "MATERIAL"
+    },
+    {
+      "path": "materials.textiles.elastane",
+      "name": "Elastane",
+      "description": "Elastic synthetic fiber",
+      "type": "LEAF",
+      "targetType": "MATERIAL"
+    },
+    {
+      "path": "materials.metals",
+      "name": "Metals",
+      "description": "Metallic materials",
+      "type": "BRANCH",
+      "targetType": "MATERIAL"
+    },
+    {
+      "path": "materials.metals.steel",
+      "name": "Steel",
+      "description": "Iron-based alloy",
+      "type": "LEAF",
+      "targetType": "MATERIAL"
+    },
+    {
+      "path": "materials.metals.aluminum",
+      "name": "Aluminum",
+      "description": "Lightweight metal",
+      "type": "LEAF",
+      "targetType": "MATERIAL"
+    },
+    {
+      "path": "materials.plastics",
+      "name": "Plastics",
+      "description": "Plastic materials",
+      "type": "BRANCH",
+      "targetType": "MATERIAL"
+    },
+    {
+      "path": "materials.plastics.abs",
+      "name": "ABS",
+      "description": "Acrylonitrile butadiene styrene",
+      "type": "LEAF",
+      "targetType": "MATERIAL"
+    },
+    {
+      "path": "materials.plastics.pla",
+      "name": "PLA",
+      "description": "Polylactic acid biodegradable plastic",
+      "type": "LEAF",
+      "targetType": "MATERIAL"
+    },
+    {
+      "path": "facilities",
+      "name": "Facilities",
+      "description": "Manufacturing and storage facilities",
+      "type": "ROOT",
+      "targetType": "FACILITY"
+    },
+    {
+      "path": "facilities.manufacturing",
+      "name": "Manufacturing",
+      "description": "Production facilities",
+      "type": "BRANCH",
+      "targetType": "FACILITY"
+    },
+    {
+      "path": "facilities.manufacturing.assembly",
+      "name": "Assembly Plants",
+      "description": "Product assembly facilities",
+      "type": "LEAF",
+      "targetType": "FACILITY"
+    },
+    {
+      "path": "facilities.manufacturing.processing",
+      "name": "Processing Plants",
+      "description": "Material processing facilities",
+      "type": "LEAF",
+      "targetType": "FACILITY"
+    },
+    {
+      "path": "facilities.warehousing",
+      "name": "Warehousing",
+      "description": "Storage facilities",
+      "type": "BRANCH",
+      "targetType": "FACILITY"
+    },
+    {
+      "path": "facilities.warehousing.distribution",
+      "name": "Distribution Centers",
+      "description": "Distribution hub facilities",
+      "type": "LEAF",
+      "targetType": "FACILITY"
+    }
+  ]
+}
