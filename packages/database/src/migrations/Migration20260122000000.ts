@@ -178,6 +178,58 @@ export class Migration20260122000000 extends Migration {
     this.addSql('CREATE INDEX "substance_alias_name_idx" ON "public"."substance_alias" ("name");');
 
     // =====================================================
+    // Regulatory List table - versioned regulatory lists
+    // =====================================================
+    this.addSql(`
+      CREATE TABLE "public"."regulatory_list" (
+        "id" text PRIMARY KEY,
+        "created_at" timestamptz NOT NULL DEFAULT NOW(),
+        "updated_at" timestamptz NOT NULL DEFAULT NOW(),
+        "code" text NOT NULL,
+        "name" text NOT NULL,
+        "source" text NOT NULL,
+        "version" text NOT NULL,
+        "effective_date" timestamptz NOT NULL,
+        "superseded_date" timestamptz,
+        "is_current_version" boolean NOT NULL DEFAULT true,
+        "allow_tenant_exemption" boolean NOT NULL DEFAULT true,
+        "source_url" text,
+        "description" text,
+        "previous_version_id" text REFERENCES "public"."regulatory_list"("id"),
+        CONSTRAINT "uq_regulatory_list_code_version" UNIQUE ("code", "version")
+      );
+    `);
+    this.addSql('CREATE INDEX "idx_regulatory_list_code" ON "public"."regulatory_list" ("code");');
+    this.addSql('CREATE INDEX "idx_regulatory_list_current" ON "public"."regulatory_list" ("code") WHERE "is_current_version" = true;');
+
+    // =====================================================
+    // Regulatory List Entry table - substances on lists
+    // =====================================================
+    this.addSql(`
+      CREATE TABLE "public"."regulatory_list_entry" (
+        "id" text PRIMARY KEY,
+        "created_at" timestamptz NOT NULL DEFAULT NOW(),
+        "updated_at" timestamptz NOT NULL DEFAULT NOW(),
+        "list_id" text NOT NULL REFERENCES "public"."regulatory_list"("id") ON DELETE CASCADE,
+        "substance_id" text NOT NULL REFERENCES "public"."substance"("id"),
+        "cas_number_snapshot" text NOT NULL,
+        "substance_name_snapshot" text NOT NULL,
+        "operator" text NOT NULL CHECK ("operator" IN ('GT', 'GTE', 'LT', 'LTE', 'EQ', 'PRESENT', 'ABSENT')),
+        "compare_value" decimal(18, 6),
+        "issue_type" text NOT NULL,
+        "severity" text NOT NULL CHECK ("severity" IN ('BLOCKER', 'WARNING', 'INFO')),
+        "stoichiometric_factor" decimal(10, 6),
+        "conditions" jsonb,
+        "legal_reference" text,
+        "notes" text,
+        CONSTRAINT "uq_regulatory_list_entry_list_substance" UNIQUE ("list_id", "substance_id")
+      );
+    `);
+    this.addSql('CREATE INDEX "idx_regulatory_list_entry_list" ON "public"."regulatory_list_entry" ("list_id");');
+    this.addSql('CREATE INDEX "idx_regulatory_list_entry_substance" ON "public"."regulatory_list_entry" ("substance_id");');
+    this.addSql('CREATE INDEX "idx_regulatory_list_entry_issue_type" ON "public"."regulatory_list_entry" ("issue_type");');
+
+    // =====================================================
     // Seed Version table - tracks seeded data versions
     // =====================================================
     this.addSql(`
@@ -223,6 +275,8 @@ export class Migration20260122000000 extends Migration {
     // Drop in reverse dependency order
     this.addSql('DROP TABLE IF EXISTS "public"."outbox_event" CASCADE;');
     this.addSql('DROP TABLE IF EXISTS "public"."seed_version" CASCADE;');
+    this.addSql('DROP TABLE IF EXISTS "public"."regulatory_list_entry" CASCADE;');
+    this.addSql('DROP TABLE IF EXISTS "public"."regulatory_list" CASCADE;');
     this.addSql('DROP TABLE IF EXISTS "public"."substance_alias" CASCADE;');
     this.addSql('DROP TABLE IF EXISTS "public"."substance" CASCADE;');
     this.addSql('DROP TABLE IF EXISTS "public"."category" CASCADE;');
