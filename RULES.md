@@ -208,7 +208,7 @@ const body = CreatePassportSchema.parse(req.body);
 - Hash passwords with bcrypt (min 10 rounds)
 - Hash API keys with SHA256
 - Validate and sanitize all inputs
-- Use parameterized queries (Prisma handles this)
+- Use parameterized queries (MikroORM handles this)
 
 ### API Security
 
@@ -221,15 +221,38 @@ const body = CreatePassportSchema.parse(req.body);
 
 ## 7. Database Rules
 
+### Local Development Setup
+
+**Single PostgreSQL instance, two databases:**
+
+| Database | Port | Purpose | Used By |
+|----------|------|---------|---------|
+| `eurocomply` | 5432 | Development | Dev server, Postman |
+| `eurocomply_test` | 5432 | Automated tests | `npm test` (vitest) |
+
+**Key rules:**
+- **ONE postgres container on port 5432** - never create additional containers on other ports
+- **`.env` always points to `eurocomply`** - not the test database
+- **vitest.config.ts files override to `eurocomply_test`** - tests handle their own DB selection
+- **init-db.sql auto-creates `eurocomply_test`** - on container first start
+
+```
+# .env (ALWAYS use eurocomply, never eurocomply_test)
+DATABASE_PORT=5432
+DATABASE_NAME=eurocomply
+```
+
+If tests fail with "connection refused" or you see databases on multiple ports, the setup is broken. Fix by removing all postgres containers and running `pnpm db:start` fresh.
+
 ### Migrations
 
 - **Never modify production data directly**
-- **All schema changes go through Prisma migrations**
+- **All schema changes go through MikroORM migrations**
 - **Test migrations on staging before production**
 
 ### Queries
 
-- **Use Prisma's type-safe queries**
+- **Use MikroORM's type-safe queries**
 - **Include only needed fields** (use `select`)
 - **Add indexes for frequently queried columns**
 - **Use transactions for multi-step operations**
@@ -731,6 +754,6 @@ These rules are enforced through:
 ---
 
 **Last Updated**: 2026-01-27
-**Version**: 1.5
+**Version**: 1.6
 
 > Note: For Claude-specific workflow instructions, see [CLAUDE.md](./CLAUDE.md)

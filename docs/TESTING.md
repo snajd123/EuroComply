@@ -30,7 +30,56 @@ pnpm dev:local
 
 ---
 
-## Database Setup
+## Database Architecture
+
+### Understanding the Setup
+
+EuroComply uses a **single PostgreSQL container** with **two databases**:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                 PostgreSQL (port 5432)                  │
+├──────────────────────────┬──────────────────────────────┤
+│   eurocomply             │   eurocomply_test            │
+│   (development)          │   (automated tests)          │
+├──────────────────────────┼──────────────────────────────┤
+│  • Used by dev server    │  • Used by `npm test`        │
+│  • Used by Postman       │  • Auto-created on startup   │
+│  • Persistent data       │  • Wiped between test runs   │
+│  • Run `pnpm db:setup`   │  • Tests handle own setup    │
+└──────────────────────────┴──────────────────────────────┘
+```
+
+**Why two databases?**
+- **Isolation**: Tests can freely create/drop data without affecting your development work
+- **Speed**: Tests don't need to preserve data between runs
+- **Safety**: No risk of accidentally testing against your dev data or vice versa
+
+### How It Works
+
+1. **Docker starts PostgreSQL** on port 5432 with database `eurocomply`
+2. **init-db.sql runs automatically** on first container start, creating `eurocomply_test`
+3. **Your `.env` file** points to `eurocomply` (for dev server, Postman)
+4. **vitest.config.ts files** override to use `eurocomply_test` (for automated tests)
+
+```
+                     ┌─────────────────┐
+                     │   .env file     │
+                     │ DATABASE_NAME=  │
+                     │   eurocomply    │
+                     └────────┬────────┘
+                              │
+         ┌────────────────────┴────────────────────┐
+         ▼                                         ▼
+┌─────────────────┐                    ┌────────────────────┐
+│  pnpm dev:local │                    │     npm test       │
+│    (API server) │                    │    (vitest)        │
+├─────────────────┤                    ├────────────────────┤
+│ Uses: eurocomply│                    │ vitest.config.ts   │
+│                 │                    │ overrides to:      │
+│                 │                    │ eurocomply_test    │
+└─────────────────┘                    └────────────────────┘
+```
 
 ### Prerequisites
 
@@ -40,10 +89,10 @@ pnpm dev:local
 ### Initial Setup
 
 ```bash
-# Start PostgreSQL container
+# Start PostgreSQL container (creates both databases)
 pnpm db:start
 
-# Run migrations and seed reference data
+# Run migrations and seed reference data (on eurocomply)
 pnpm db:setup
 ```
 
@@ -51,15 +100,21 @@ The `db:setup` command:
 1. Runs all pending migrations (creates tables)
 2. Seeds reference data (substances, units, etc.)
 
+**Note:** You only need to run `db:setup` for the development database. The test database schema is created automatically by the test setup helpers.
+
 ### Environment Variables
+
+Your `.env` file should have:
 
 ```env
 DATABASE_HOST=localhost
 DATABASE_PORT=5432
-DATABASE_NAME=eurocomply_test
+DATABASE_NAME=eurocomply      # Development database
 DATABASE_USER=postgres
 DATABASE_PASSWORD=postgres
 ```
+
+**Important:** Always use `DATABASE_NAME=eurocomply` (not `eurocomply_test`). The test configuration handles test database selection automatically.
 
 ### Reset Database
 
@@ -68,6 +123,25 @@ DATABASE_PASSWORD=postgres
 pnpm db:reset
 
 # Restart and setup
+pnpm db:start
+pnpm db:setup
+```
+
+### Common Pitfall: Multiple Database Ports
+
+**Never run a second postgres container on a different port.** This project is designed for a single postgres instance on port 5432.
+
+If you find yourself with databases on multiple ports (e.g., 5432 and 5433), you've likely:
+- Started a separate test database container manually
+- Have leftover containers from old configurations
+
+**Solution:**
+```bash
+# Stop all postgres containers
+docker stop eurocomply-postgres
+docker ps -a | grep postgres | awk '{print $1}' | xargs docker rm
+
+# Start fresh with the correct single-container setup
 pnpm db:start
 pnpm db:setup
 ```
