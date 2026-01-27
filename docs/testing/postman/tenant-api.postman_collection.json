@@ -15,7 +15,8 @@
     { "key": "viewerApiKey", "value": "", "type": "string" },
     { "key": "orgAdminApiKey", "value": "", "type": "string" },
     { "key": "categoryId", "value": "", "type": "string" },
-    { "key": "productId", "value": "", "type": "string" }
+    { "key": "productId", "value": "", "type": "string" },
+    { "key": "adoptedCategoryId", "value": "", "type": "string", "description": "System category ID that was adopted" }
   ],
   "item": [
     {
@@ -424,6 +425,325 @@
               }
             }
           ]
+        },
+        {
+          "name": "Category Adoption",
+          "description": "Adopt system categories from the platform taxonomy",
+          "item": [
+            {
+              "name": "List Available System Categories",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status 200', function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "",
+                      "pm.test('Returns available categories', function () {",
+                      "    const r = pm.response.json();",
+                      "    pm.expect(r.data).to.be.an('array');",
+                      "    pm.expect(r.meta.total).to.be.a('number');",
+                      "    console.log('Available categories:', r.meta.total);",
+                      "",
+                      "    // Capture first category ID for adoption test",
+                      "    if (r.data.length > 0) {",
+                      "        pm.collectionVariables.set('adoptedCategoryId', r.data[0].id);",
+                      "        console.log('Will adopt:', r.data[0].name, '(' + r.data[0].id + ')');",
+                      "    }",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [
+                  { "key": "Authorization", "value": "Bearer {{jwtToken}}" }
+                ],
+                "url": "{{baseUrl}}/api/v1/category-adoption/available"
+              }
+            },
+            {
+              "name": "List Available (filter by targetType)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status 200', function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "",
+                      "pm.test('All categories are PRODUCT type', function () {",
+                      "    const r = pm.response.json();",
+                      "    r.data.forEach(cat => {",
+                      "        pm.expect(cat.targetType).to.equal('PRODUCT');",
+                      "    });",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [
+                  { "key": "Authorization", "value": "Bearer {{jwtToken}}" }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/category-adoption/available?targetType=PRODUCT",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "v1", "category-adoption", "available"],
+                  "query": [{ "key": "targetType", "value": "PRODUCT" }]
+                }
+              }
+            },
+            {
+              "name": "List Adopted Categories (empty)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status 200', function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "",
+                      "pm.test('No adoptions yet', function () {",
+                      "    const r = pm.response.json();",
+                      "    pm.expect(r.data).to.be.an('array');",
+                      "    pm.expect(r.meta.total).to.equal(0);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [
+                  { "key": "Authorization", "value": "Bearer {{jwtToken}}" }
+                ],
+                "url": "{{baseUrl}}/api/v1/category-adoption"
+              }
+            },
+            {
+              "name": "Adopt a System Category",
+              "event": [
+                {
+                  "listen": "prerequest",
+                  "script": {
+                    "exec": [
+                      "const catId = pm.collectionVariables.get('adoptedCategoryId');",
+                      "if (!catId) {",
+                      "    throw new Error('Run \"List Available System Categories\" first');",
+                      "}"
+                    ],
+                    "type": "text/javascript"
+                  }
+                },
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status 201', function () {",
+                      "    pm.response.to.have.status(201);",
+                      "});",
+                      "",
+                      "pm.test('Category adopted', function () {",
+                      "    const r = pm.response.json();",
+                      "    pm.expect(r.data.categoryId).to.equal(pm.collectionVariables.get('adoptedCategoryId'));",
+                      "    pm.expect(r.data.adoptedAt).to.be.a('string');",
+                      "    console.log('Adopted:', r.data.categoryName);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Authorization", "value": "Bearer {{jwtToken}}" }
+                ],
+                "url": "{{baseUrl}}/api/v1/category-adoption/{{adoptedCategoryId}}"
+              }
+            },
+            {
+              "name": "Adopt Same Category Again (409)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status 409 Conflict', function () {",
+                      "    pm.response.to.have.status(409);",
+                      "});",
+                      "",
+                      "pm.test('Already adopted error', function () {",
+                      "    const r = pm.response.json();",
+                      "    pm.expect(r.error.code).to.equal('CONFLICT');",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Authorization", "value": "Bearer {{jwtToken}}" }
+                ],
+                "url": "{{baseUrl}}/api/v1/category-adoption/{{adoptedCategoryId}}"
+              }
+            },
+            {
+              "name": "Adopt Nonexistent Category (404)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status 404', function () {",
+                      "    pm.response.to.have.status(404);",
+                      "});",
+                      "",
+                      "pm.test('Category not found', function () {",
+                      "    const r = pm.response.json();",
+                      "    pm.expect(r.error.code).to.equal('NOT_FOUND');",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Authorization", "value": "Bearer {{jwtToken}}" }
+                ],
+                "url": "{{baseUrl}}/api/v1/category-adoption/nonexistent-category-id"
+              }
+            },
+            {
+              "name": "List Adopted Categories (has one)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status 200', function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "",
+                      "pm.test('Has one adoption', function () {",
+                      "    const r = pm.response.json();",
+                      "    pm.expect(r.data.length).to.equal(1);",
+                      "    pm.expect(r.data[0].id).to.equal(pm.collectionVariables.get('adoptedCategoryId'));",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [
+                  { "key": "Authorization", "value": "Bearer {{jwtToken}}" }
+                ],
+                "url": "{{baseUrl}}/api/v1/category-adoption"
+              }
+            },
+            {
+              "name": "Available Excludes Adopted",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status 200', function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "",
+                      "pm.test('Adopted category not in available list', function () {",
+                      "    const r = pm.response.json();",
+                      "    const adoptedId = pm.collectionVariables.get('adoptedCategoryId');",
+                      "    const found = r.data.find(c => c.id === adoptedId);",
+                      "    pm.expect(found).to.be.undefined;",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [
+                  { "key": "Authorization", "value": "Bearer {{jwtToken}}" }
+                ],
+                "url": "{{baseUrl}}/api/v1/category-adoption/available"
+              }
+            },
+            {
+              "name": "Remove Category Adoption",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status 200', function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "",
+                      "pm.test('Adoption removed', function () {",
+                      "    const r = pm.response.json();",
+                      "    pm.expect(r.data.message).to.include('removed');",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "DELETE",
+                "header": [
+                  { "key": "Authorization", "value": "Bearer {{jwtToken}}" }
+                ],
+                "url": "{{baseUrl}}/api/v1/category-adoption/{{adoptedCategoryId}}"
+              }
+            },
+            {
+              "name": "Remove Nonexistent Adoption (404)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status 404', function () {",
+                      "    pm.response.to.have.status(404);",
+                      "});",
+                      "",
+                      "pm.test('Not adopted error', function () {",
+                      "    const r = pm.response.json();",
+                      "    pm.expect(r.error.code).to.equal('NOT_FOUND');",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "DELETE",
+                "header": [
+                  { "key": "Authorization", "value": "Bearer {{jwtToken}}" }
+                ],
+                "url": "{{baseUrl}}/api/v1/category-adoption/not-adopted-category"
+              }
+            }
+          ]
         }
       ]
     },
@@ -769,7 +1089,7 @@
                   "",
                   "    // Clear all variables",
                   "    const vars = ['clerkOrgId', 'orgId', 'schemaName', 'clerkUserId', 'jwtToken',",
-                  "                  'editorApiKey', 'viewerApiKey', 'orgAdminApiKey', 'categoryId', 'productId'];",
+                  "                  'editorApiKey', 'viewerApiKey', 'orgAdminApiKey', 'categoryId', 'productId', 'adoptedCategoryId'];",
                   "    vars.forEach(v => pm.collectionVariables.unset(v));",
                   "    console.log('Cleanup complete');",
                   "});"
