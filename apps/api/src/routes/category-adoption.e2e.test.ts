@@ -18,6 +18,7 @@ import {
   EnforcementMode,
   WorkspaceAuthority,
   TenantCategory,
+  CategoryAdoption,
 } from '@eurocomply/database';
 import type { MikroORM } from '@eurocomply/database';
 import { setupTestDb, teardownTestDb, isDatabaseAvailable } from '@eurocomply/database/test-utils';
@@ -840,6 +841,189 @@ describe('Category Adoption API E2E', () => {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mode: 'FROZEN' }),
+      });
+
+      expect(res.status).toBe(403);
+    });
+  });
+
+  // ============================================================================
+  // POST /:categoryId/sync - Manual sync for FROZEN mode
+  // ============================================================================
+
+  describe('POST /category-adoption/:categoryId/sync', () => {
+    it('should_return_diff_without_applying_when_dryRun_is_true', async (context) => {
+      if (!(await isDatabaseAvailable())) {
+        context.skip();
+        return;
+      }
+
+      const testApp = createTestApp(editorUserId);
+
+      // Adopt the category
+      await testApp.request(`/category-adoption/${categoryIds['apparel']}`, {
+        method: 'POST',
+      });
+
+      // Freeze the category
+      await testApp.request(`/category-adoption/${categoryIds['apparel']}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'FROZEN' }),
+      });
+
+      // Update system category
+      const connection = orm.em.getConnection();
+      await connection.execute(
+        `UPDATE public.category SET name = 'Apparel DryRun Test', version = 2 WHERE id = '${categoryIds['apparel']}'`
+      );
+
+      // Call sync with dryRun=true
+      const res = await testApp.request(`/category-adoption/${categoryIds['apparel']}/sync?dryRun=true`, {
+        method: 'POST',
+      });
+
+      expect(res.status).toBe(200);
+      const data = await res.json() as {
+        data: {
+          synced: boolean;
+          dryRun: boolean;
+          previousVersion: number;
+          currentVersion: number;
+          changes: Record<string, { from: string | null; to: string | null }>;
+        };
+      };
+
+      // Verify dry run response
+      expect(data.data.synced).toBe(false);
+      expect(data.data.dryRun).toBe(true);
+      expect(data.data.previousVersion).toBe(1);
+      expect(data.data.currentVersion).toBe(2);
+      expect(data.data.changes.name).toEqual({ from: 'Apparel', to: 'Apparel DryRun Test' });
+
+      // Verify TenantCategory name unchanged
+      const tenantEm = orm.em.fork({ schema: testSchemaName });
+      await tenantEm.execute(`SET search_path TO "${testSchemaName}", public`);
+      const tenantCat = await tenantEm.findOne(TenantCategory, { systemCategoryId: categoryIds['apparel'] });
+      expect(tenantCat?.name).toBe('Apparel');
+
+      // Reset for other tests
+      await connection.execute(
+        `UPDATE public.category SET name = 'Apparel', version = 1 WHERE id = '${categoryIds['apparel']}'`
+      );
+    });
+
+    it('should_apply_changes_and_return_diff_when_dryRun_is_false', async (context) => {
+      if (!(await isDatabaseAvailable())) {
+        context.skip();
+        return;
+      }
+
+      const testApp = createTestApp(editorUserId);
+
+      // Adopt the category
+      await testApp.request(`/category-adoption/${categoryIds['apparel']}`, {
+        method: 'POST',
+      });
+
+      // Freeze the category
+      await testApp.request(`/category-adoption/${categoryIds['apparel']}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'FROZEN' }),
+      });
+
+      // Update system category
+      const connection = orm.em.getConnection();
+      await connection.execute(
+        `UPDATE public.category SET name = 'Apparel Synced', description = 'New description', version = 3 WHERE id = '${categoryIds['apparel']}'`
+      );
+
+      // Call sync without dryRun (default false)
+      const res = await testApp.request(`/category-adoption/${categoryIds['apparel']}/sync`, {
+        method: 'POST',
+      });
+
+      expect(res.status).toBe(200);
+      const data = await res.json() as {
+        data: {
+          synced: boolean;
+          dryRun: boolean;
+          previousVersion: number;
+          currentVersion: number;
+          changes: Record<string, { from: string | null; to: string | null }>;
+        };
+      };
+
+      // Verify sync response
+      expect(data.data.synced).toBe(true);
+      expect(data.data.dryRun).toBe(false);
+      expect(data.data.previousVersion).toBe(1);
+      expect(data.data.currentVersion).toBe(3);
+      expect(data.data.changes.name).toEqual({ from: 'Apparel', to: 'Apparel Synced' });
+      expect(data.data.changes.description).toEqual({ from: 'Clothing and accessories', to: 'New description' });
+
+      // Verify TenantCategory was updated
+      const tenantEm = orm.em.fork({ schema: testSchemaName });
+      await tenantEm.execute(`SET search_path TO "${testSchemaName}", public`);
+      const tenantCat = await tenantEm.findOne(TenantCategory, { systemCategoryId: categoryIds['apparel'] });
+      expect(tenantCat?.name).toBe('Apparel Synced');
+      expect(tenantCat?.description).toBe('New description');
+
+      // Verify adoption was updated
+      const adoption = await tenantEm.findOne(CategoryAdoption, { systemCategoryId: categoryIds['apparel'] });
+      expect(adoption?.frozenAtVersion).toBe(3);
+      expect(adoption?.adoptedVersion).toBe(3);
+      expect(adoption?.updateAvailable).toBe(false);
+
+      // Reset for other tests
+      await connection.execute(
+        `UPDATE public.category SET name = 'Apparel', description = 'Clothing and accessories', version = 1 WHERE id = '${categoryIds['apparel']}'`
+      );
+    });
+
+    it('should_return_404_when_adoption_not_found', async (context) => {
+      if (!(await isDatabaseAvailable())) {
+        context.skip();
+        return;
+      }
+
+      const testApp = createTestApp(editorUserId);
+
+      // Call sync without adopting first
+      const res = await testApp.request(`/category-adoption/${categoryIds['apparel']}/sync`, {
+        method: 'POST',
+      });
+
+      expect(res.status).toBe(404);
+      const data = await res.json() as ErrorResponse;
+      expect(data.error.code).toBe('NOT_FOUND');
+      expect(data.error.message).toContain('adoption not found');
+    });
+
+    it('should_return_403_when_user_has_VIEWER_authority', async (context) => {
+      if (!(await isDatabaseAvailable())) {
+        context.skip();
+        return;
+      }
+
+      // First adopt as editor
+      const editorApp = createTestApp(editorUserId);
+      await editorApp.request(`/category-adoption/${categoryIds['apparel']}`, {
+        method: 'POST',
+      });
+
+      // Freeze
+      await editorApp.request(`/category-adoption/${categoryIds['apparel']}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'FROZEN' }),
+      });
+
+      // Try to sync as viewer
+      const viewerApp = createTestApp(viewerUserId);
+      const res = await viewerApp.request(`/category-adoption/${categoryIds['apparel']}/sync`, {
+        method: 'POST',
       });
 
       expect(res.status).toBe(403);

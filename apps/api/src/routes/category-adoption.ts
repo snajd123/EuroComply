@@ -44,6 +44,10 @@ const changeModeSchema = z.object({
   mode: z.nativeEnum(LinkMode),
 });
 
+const syncQuerySchema = z.object({
+  dryRun: z.string().optional().transform(val => val === 'true'),
+});
+
 // ============================================================================
 // Router
 // ============================================================================
@@ -351,6 +355,101 @@ export function createCategoryAdoptionRouter(options: CategoryAdoptionRouterOpti
       mode: result.adoption.mode,
       frozenAtVersion: result.adoption.frozenAtVersion ?? null,
       updateAvailable: result.adoption.updateAvailable,
+    });
+  });
+
+  // POST /:categoryId/sync - Manual sync for FROZEN mode
+  router.post('/:categoryId/sync', authorize('design', 'edit'), zValidator('query', syncQuerySchema), async (c) => {
+    const schema = c.get('tenantSchema')!;
+    const categoryId = c.req.param('categoryId');
+    const { dryRun } = c.req.valid('query');
+    const em = orm.em.fork({ schema });
+
+    const result = await em.transactional(async (txEm) => {
+      await txEm.execute(`SET search_path TO "${schema}", public`);
+
+      // Find adoption with TenantCategory
+      const adoption = await txEm.findOne(CategoryAdoption, {
+        systemCategoryId: categoryId,
+      }, { populate: ['localCategory'] });
+
+      if (!adoption) {
+        return { error: 'not_found' as const };
+      }
+
+      const tenantCategory = adoption.localCategory;
+
+      // Get current system category
+      const categoryRows = await txEm.execute<CategoryRow[]>(
+        'SELECT id, name, description, path, target_type, type, depth, version FROM public.category WHERE id = ?',
+        [categoryId]
+      );
+
+      if (categoryRows.length === 0) {
+        return { error: 'system_not_found' as const };
+      }
+
+      const systemCategory = categoryRows[0]!;
+      const previousVersion = adoption.frozenAtVersion ?? adoption.adoptedVersion ?? 1;
+
+      // Calculate diff
+      const changes: Record<string, { from: string | null; to: string | null }> = {};
+
+      if (tenantCategory) {
+        if (tenantCategory.name !== systemCategory.name) {
+          changes['name'] = { from: tenantCategory.name, to: systemCategory.name };
+        }
+        if ((tenantCategory.description ?? null) !== systemCategory.description) {
+          changes['description'] = { from: tenantCategory.description ?? null, to: systemCategory.description };
+        }
+      }
+
+      // If dry run, return diff without applying
+      if (dryRun) {
+        return {
+          success: true as const,
+          synced: false,
+          dryRun: true,
+          previousVersion,
+          currentVersion: systemCategory.version,
+          changes,
+        };
+      }
+
+      // Apply sync
+      if (tenantCategory) {
+        tenantCategory.name = systemCategory.name;
+        tenantCategory.description = systemCategory.description ?? undefined;
+      }
+
+      adoption.frozenAtVersion = systemCategory.version;
+      adoption.adoptedVersion = systemCategory.version;
+      adoption.updateAvailable = false;
+
+      return {
+        success: true as const,
+        synced: true,
+        dryRun: false,
+        previousVersion,
+        currentVersion: systemCategory.version,
+        changes,
+      };
+    });
+
+    if (result.error === 'not_found') {
+      return error(c, 'NOT_FOUND', 'Category adoption not found', 404);
+    }
+
+    if (result.error === 'system_not_found') {
+      return error(c, 'NOT_FOUND', 'System category no longer exists', 404);
+    }
+
+    return success(c, {
+      synced: result.synced,
+      dryRun: result.dryRun,
+      previousVersion: result.previousVersion,
+      currentVersion: result.currentVersion,
+      changes: result.changes,
     });
   });
 
