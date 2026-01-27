@@ -1979,5 +1979,5 @@ Retailers need free access to display DPPs on their product pages.
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 2.2 | 2026-01-26 | Updated ZITADEL references back to Clerk for auth provider |
+| 2.2 | 2026-01-26 | Confirmed Clerk as auth provider throughout |
 | 2.0 | 2026-01-21 | Consolidated from API, EU Integration, EUDI Wallet, E-commerce designs |
