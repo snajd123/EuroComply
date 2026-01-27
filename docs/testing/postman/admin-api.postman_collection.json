@@ -6,7 +6,9 @@
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    { "key": "testOrgId", "value": "", "type": "string", "description": "Captured from list organizations" }
+    { "key": "testOrgId", "value": "", "type": "string", "description": "Captured from list organizations" },
+    { "key": "testCategoryId", "value": "", "type": "string", "description": "System category ID for testing" },
+    { "key": "testRegulatoryListId", "value": "", "type": "string", "description": "Regulatory list ID for testing" }
   ],
   "item": [
     {
@@ -257,6 +259,122 @@
               "path": ["api", "v1", "admin", "organizations"],
               "query": [{ "key": "provisioningStatus", "value": "READY" }]
             }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Categories",
+      "item": [
+        {
+          "name": "List Category Regulatory Links",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const orgId = pm.collectionVariables.get('testOrgId');",
+                  "if (!orgId) {",
+                  "    throw new Error('Run \"List Organizations\" first to capture an org ID');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Returns regulatory links array', function () {",
+                  "    const r = pm.response.json();",
+                  "    pm.expect(r.data).to.be.an('array');",
+                  "    pm.expect(r.meta).to.be.an('object');",
+                  "    pm.expect(r.meta.total).to.be.a('number');",
+                  "    console.log('Total regulatory links:', r.meta.total);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-Admin-Key", "value": "{{adminApiKey}}" }
+            ],
+            "url": "{{baseUrl}}/api/v1/admin/categories/{{testCategoryId}}/regulatory-lists"
+          }
+        },
+        {
+          "name": "Link Regulation to Category",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 201', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test('Returns link details', function () {",
+                  "    const r = pm.response.json();",
+                  "    pm.expect(r.data).to.be.an('object');",
+                  "    pm.expect(r.data.categoryId).to.be.a('string');",
+                  "    pm.expect(r.data.regulatoryListId).to.be.a('string');",
+                  "    pm.expect(r.data.linkedAt).to.be.a('string');",
+                  "    console.log('Linked regulatory list:', r.data.regulatoryListId);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Admin-Key", "value": "{{adminApiKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"regulatoryListId\": \"{{testRegulatoryListId}}\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/admin/categories/{{testCategoryId}}/regulatory-lists"
+          }
+        },
+        {
+          "name": "Unlink Regulation from Category",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200 or 204', function () {",
+                  "    pm.expect([200, 204]).to.include(pm.response.code);",
+                  "});",
+                  "",
+                  "pm.test('Returns success response', function () {",
+                  "    if (pm.response.code === 200) {",
+                  "        const r = pm.response.json();",
+                  "        pm.expect(r.data).to.be.an('object');",
+                  "        pm.expect(r.data.message).to.include('unlinked');",
+                  "    }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "X-Admin-Key", "value": "{{adminApiKey}}" }
+            ],
+            "url": "{{baseUrl}}/api/v1/admin/categories/{{testCategoryId}}/regulatory-lists/{{testRegulatoryListId}}"
           }
         }
       ]
