@@ -152,7 +152,7 @@ pnpm db:setup
 
 ```
 ┌─────────────┐     webhook      ┌─────────────┐
-│   ZITADEL   │ ───────────────► │     API     │
+│    Clerk    │ ───────────────► │     API     │
 └─────────────┘                  └──────┬──────┘
                                         │
                                         │ writes to
@@ -196,12 +196,12 @@ pnpm dev:local --with-tunnel
 
 This starts ngrok and displays the public URL for webhook configuration.
 
-### 3. Configure ZITADEL Webhook
+### 3. Configure Clerk Webhook
 
-- Go to ZITADEL Console → Actions → Webhooks
-- Set endpoint URL to your ngrok URL + `/webhooks/zitadel`
-- Enable `org.created` event
-- Copy signing key to `.env` as `ZITADEL_WEBHOOK_SIGNING_KEY`
+- Go to Clerk Dashboard → Webhooks
+- Set endpoint URL to your ngrok URL + `/webhooks/clerk`
+- Enable `organization.created` event
+- Copy signing secret to `.env` as `CLERK_WEBHOOK_SECRET`
 
 ---
 
