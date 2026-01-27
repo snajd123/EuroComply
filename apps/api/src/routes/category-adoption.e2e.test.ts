@@ -274,8 +274,13 @@ describe('Category Adoption API E2E', () => {
     // Clean up category adoptions and tenant categories before each test
     const tenantEm = orm.em.fork({ schema: testSchemaName });
     await tenantEm.execute(`SET search_path TO "${testSchemaName}", public`);
+    await tenantEm.execute('DELETE FROM tenant_category_regulatory_list');
     await tenantEm.execute('DELETE FROM category_adoption');
     await tenantEm.execute('DELETE FROM tenant_category');
+    // Also clean up public schema regulatory lists and links added by tests
+    const connection = orm.em.getConnection();
+    await connection.execute('DELETE FROM public.category_regulatory_list');
+    await connection.execute('DELETE FROM public.regulatory_list');
   });
 
   /**
@@ -844,6 +849,118 @@ describe('Category Adoption API E2E', () => {
       });
 
       expect(res.status).toBe(403);
+    });
+
+    it('should capture pinnedRegulatoryListIds when changing to FROZEN mode', async (context) => {
+      if (!(await isDatabaseAvailable())) {
+        context.skip();
+        return;
+      }
+
+      const testApp = createTestApp(editorUserId);
+
+      // First adopt
+      await testApp.request(`/category-adoption/${categoryIds['apparel']}`, {
+        method: 'POST',
+      });
+
+      // Set up regulatory list and link it to the system category
+      const connection = orm.em.getConnection();
+      const regListId = createId();
+      const uniqueCode1 = `REACH-TEST-${regListId.slice(0, 8)}`;
+      await connection.execute(`
+        INSERT INTO public.regulatory_list (id, code, name, source, version, effective_date, is_current_version, created_at, updated_at)
+        VALUES ('${regListId}', '${uniqueCode1}', 'REACH Test List', 'ECHA', '1.0', NOW(), true, NOW(), NOW())
+      `);
+      await connection.execute(`
+        INSERT INTO public.category_regulatory_list (id, category_id, regulatory_list_id, requirement, allow_tenant_exemption, is_exclusion, created_at, updated_at)
+        VALUES ('${createId()}', '${categoryIds['apparel']}', '${regListId}', 'MANDATORY', true, false, NOW(), NOW())
+      `);
+
+      // Add a tenant addition via TenantCategoryRegulatoryList
+      const tenantEm = orm.em.fork({ schema: testSchemaName });
+      await tenantEm.execute(`SET search_path TO "${testSchemaName}", public`);
+      const tenantCat = await tenantEm.findOne(TenantCategory, { systemCategoryId: categoryIds['apparel'] });
+      const tenantListId = createId();
+      const uniqueCode2 = `TENANT-LIST-${tenantListId.slice(0, 8)}`;
+      await connection.execute(`
+        INSERT INTO public.regulatory_list (id, code, name, source, version, effective_date, is_current_version, created_at, updated_at)
+        VALUES ('${tenantListId}', '${uniqueCode2}', 'Tenant List', 'INTERNAL', '1.0', NOW(), true, NOW(), NOW())
+      `);
+      await tenantEm.execute(`
+        INSERT INTO tenant_category_regulatory_list (id, tenant_category_id, regulatory_list_id, source, requirement, is_exempted, created_at, updated_at)
+        VALUES ('${createId()}', '${tenantCat!.id}', '${tenantListId}', 'TENANT_ADDED', 'RECOMMENDED', false, NOW(), NOW())
+      `);
+
+      // Change to FROZEN
+      const res = await testApp.request(`/category-adoption/${categoryIds['apparel']}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'FROZEN' }),
+      });
+
+      expect(res.status).toBe(200);
+      const data = await res.json() as {
+        data: { mode: string; frozenAtVersion: number; pinnedRegulatoryListIds: string[] | null };
+      };
+      expect(data.data.mode).toBe('FROZEN');
+      expect(data.data.pinnedRegulatoryListIds).toBeDefined();
+      expect(data.data.pinnedRegulatoryListIds).not.toBeNull();
+      expect(data.data.pinnedRegulatoryListIds).toContain(regListId);
+      expect(data.data.pinnedRegulatoryListIds).toContain(tenantListId);
+
+      // Verify pinnedRegulatoryListIds in database - use fresh EntityManager to avoid cache
+      const verifyEm = orm.em.fork({ schema: testSchemaName });
+      await verifyEm.execute(`SET search_path TO "${testSchemaName}", public`);
+      const adoption = await verifyEm.findOne(CategoryAdoption, { systemCategoryId: categoryIds['apparel'] });
+      expect(adoption?.pinnedRegulatoryListIds).toBeDefined();
+      expect(adoption?.pinnedRegulatoryListIds).toContain(regListId);
+      expect(adoption?.pinnedRegulatoryListIds).toContain(tenantListId);
+
+      // Clean up
+      await tenantEm.execute(`DELETE FROM tenant_category_regulatory_list`);
+      await connection.execute(`DELETE FROM public.category_regulatory_list`);
+      await connection.execute(`DELETE FROM public.regulatory_list`);
+    });
+
+    it('should clear pinnedRegulatoryListIds when changing from FROZEN to LIVE', async (context) => {
+      if (!(await isDatabaseAvailable())) {
+        context.skip();
+        return;
+      }
+
+      const testApp = createTestApp(editorUserId);
+
+      // Adopt and freeze
+      await testApp.request(`/category-adoption/${categoryIds['apparel']}`, {
+        method: 'POST',
+      });
+      await testApp.request(`/category-adoption/${categoryIds['apparel']}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'FROZEN' }),
+      });
+
+      // Change back to LIVE
+      const res = await testApp.request(`/category-adoption/${categoryIds['apparel']}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'LIVE' }),
+      });
+
+      expect(res.status).toBe(200);
+      const data = await res.json() as {
+        data: { mode: string; pinnedRegulatoryListIds: string[] | null };
+      };
+      expect(data.data.mode).toBe('LIVE');
+      expect(data.data.pinnedRegulatoryListIds).toBeNull();
+
+      // Verify pinnedRegulatoryListIds is cleared in database - use fresh EntityManager
+      const verifyEm = orm.em.fork({ schema: testSchemaName });
+      await verifyEm.execute(`SET search_path TO "${testSchemaName}", public`);
+      const adoption = await verifyEm.findOne(CategoryAdoption, { systemCategoryId: categoryIds['apparel'] });
+      // MikroORM may return null or undefined for cleared arrays
+      expect(adoption?.pinnedRegulatoryListIds ?? null).toBeNull();
     });
   });
 

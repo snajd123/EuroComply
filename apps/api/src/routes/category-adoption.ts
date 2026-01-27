@@ -11,7 +11,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import type { MikroORM } from '@eurocomply/database';
-import { CategoryAdoption, LinkMode, TargetType, TenantCategory, CategoryType, slugify } from '@eurocomply/database';
+import { CategoryAdoption, LinkMode, TargetType, TenantCategory, CategoryType, slugify, ComplianceStackResolver } from '@eurocomply/database';
 import type { Env } from '../app.js';
 import { authorize } from '../middleware/authorize.js';
 import { success, error } from '../utils/response.js';
@@ -310,6 +310,14 @@ export function createCategoryAdoptionRouter(options: CategoryAdoptionRouterOpti
         if (tenantCategory) {
           tenantCategory.linkMode = LinkMode.FROZEN;
           tenantCategory.frozenAtVersion = adoption.frozenAtVersion;
+
+          // Capture pinnedRegulatoryListIds from current compliance stack
+          const resolver = new ComplianceStackResolver(txEm);
+          const stackResult = await resolver.resolve(tenantCategory.id);
+          const regulatoryListIds = stackResult.effectiveRegulations
+            .filter(reg => reg.status === 'ACTIVE')
+            .map(reg => reg.regulatoryListId);
+          adoption.pinnedRegulatoryListIds = regulatoryListIds.length > 0 ? regulatoryListIds : undefined;
         }
       } else if (newMode === LinkMode.LIVE) {
         // Sync to latest - need CategoryRow interface
@@ -327,6 +335,8 @@ export function createCategoryAdoptionRouter(options: CategoryAdoptionRouterOpti
         adoption.frozenAtVersion = undefined;
         adoption.updateAvailable = false;
         adoption.adoptedVersion = systemCategory?.version ?? adoption.adoptedVersion;
+        // Clear pinnedRegulatoryListIds when going back to LIVE
+        adoption.pinnedRegulatoryListIds = undefined;
       } else if (newMode === LinkMode.DETACHED) {
         // Clear systemCategoryId on TenantCategory (becomes custom category)
         if (tenantCategory) {
@@ -355,6 +365,7 @@ export function createCategoryAdoptionRouter(options: CategoryAdoptionRouterOpti
       mode: result.adoption.mode,
       frozenAtVersion: result.adoption.frozenAtVersion ?? null,
       updateAvailable: result.adoption.updateAvailable,
+      pinnedRegulatoryListIds: result.adoption.pinnedRegulatoryListIds ?? null,
     });
   });
 
