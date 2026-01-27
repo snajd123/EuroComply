@@ -40,4 +40,25 @@ describe('CategoryAdoption', () => {
 
     expect(adoption.updateAvailable).toBe(true);
   });
+
+  it('should store pinned regulatory list IDs for FROZEN mode', () => {
+    const adoption = new CategoryAdoption();
+    adoption.systemCategoryId = 'sys_cat_123';
+    adoption.mode = LinkMode.FROZEN;
+    adoption.adoptedAt = new Date();
+    adoption.frozenAtVersion = 5;
+    adoption.pinnedRegulatoryListIds = ['reg_list_v1', 'reg_list_v2', 'reg_list_v3'];
+
+    expect(adoption.pinnedRegulatoryListIds).toEqual(['reg_list_v1', 'reg_list_v2', 'reg_list_v3']);
+    expect(adoption.pinnedRegulatoryListIds).toHaveLength(3);
+  });
+
+  it('should allow undefined pinned regulatory list IDs', () => {
+    const adoption = new CategoryAdoption();
+    adoption.systemCategoryId = 'sys_cat_123';
+    adoption.mode = LinkMode.LIVE;
+    adoption.adoptedAt = new Date();
+
+    expect(adoption.pinnedRegulatoryListIds).toBeUndefined();
+  });
 });
