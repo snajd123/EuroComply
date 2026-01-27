@@ -11,7 +11,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import type { MikroORM } from '@eurocomply/database';
-import { CategoryAdoption, LinkMode, TargetType } from '@eurocomply/database';
+import { CategoryAdoption, LinkMode, TargetType, TenantCategory, CategoryType } from '@eurocomply/database';
 import type { Env } from '../app.js';
 import { authorize } from '../middleware/authorize.js';
 import { success, error } from '../utils/response.js';
@@ -25,8 +25,23 @@ interface CategoryRow {
   name: string;
   description: string | null;
   path: string;
+  type: string;
   target_type: string;
   depth: number;
+  version: number;
+}
+
+/**
+ * Converts a string to a URL-friendly slug.
+ * Used to create TenantCategory paths from system category names.
+ */
+function slugify(name: string): string {
+  if (!name) return '';
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .substring(0, 50);
 }
 
 // ============================================================================
@@ -144,9 +159,18 @@ export function createCategoryAdoptionRouter(options: CategoryAdoptionRouterOpti
     const result = await em.transactional(async (txEm) => {
       await txEm.execute(`SET search_path TO "${schema}", public`);
 
-      // First check if category exists in public schema
-      const categoryRows = await txEm.execute<Array<{ id: string; name: string }>>(
-        'SELECT id, name FROM public.category WHERE id = ?',
+      // First check if category exists in public schema with all needed fields
+      const categoryRows = await txEm.execute<Array<{
+        id: string;
+        name: string;
+        description: string | null;
+        path: string;
+        type: string;
+        target_type: string;
+        depth: number;
+        version: number;
+      }>>(
+        'SELECT id, name, description, path, type, target_type, depth, version FROM public.category WHERE id = ?',
         [categoryId]
       );
 
@@ -154,7 +178,7 @@ export function createCategoryAdoptionRouter(options: CategoryAdoptionRouterOpti
         return { error: 'not_found' as const };
       }
 
-      const categoryName = categoryRows[0]!.name;
+      const systemCategory = categoryRows[0]!;
 
       // Check if already adopted in tenant schema
       const existing = await txEm.findOne(CategoryAdoption, {
@@ -165,18 +189,34 @@ export function createCategoryAdoptionRouter(options: CategoryAdoptionRouterOpti
         return { error: 'conflict' as const, message: `Category ${categoryId} is already adopted by tenant` };
       }
 
-      // Create adoption record
+      // Create TenantCategory with system.* prefix path
+      const tenantCategory = new TenantCategory();
+      tenantCategory.name = systemCategory.name;
+      tenantCategory.description = systemCategory.description ?? undefined;
+      tenantCategory.path = `system.${slugify(systemCategory.name)}`;
+      tenantCategory.type = systemCategory.type as CategoryType;
+      tenantCategory.targetType = systemCategory.target_type as TargetType;
+      tenantCategory.depth = 0; // Root in tenant hierarchy
+      tenantCategory.systemCategoryId = categoryId;
+      tenantCategory.linkMode = LinkMode.LIVE;
+      tenantCategory.isActive = true;
+
+      txEm.persist(tenantCategory);
+
+      // Create adoption record linked to the TenantCategory
       const adoption = new CategoryAdoption();
       adoption.systemCategoryId = categoryId;
       adoption.mode = LinkMode.LIVE;
       adoption.adoptedAt = new Date();
+      adoption.adoptedVersion = systemCategory.version;
+      adoption.localCategory = tenantCategory;
 
       txEm.persist(adoption);
 
       return {
         success: true as const,
         adoption,
-        categoryName,
+        tenantCategory,
       };
     });
 
@@ -189,10 +229,20 @@ export function createCategoryAdoptionRouter(options: CategoryAdoptionRouterOpti
     }
 
     return success(c, {
-      id: result.adoption.id,
-      categoryId: result.adoption.systemCategoryId,
-      categoryName: result.categoryName,
-      adoptedAt: result.adoption.adoptedAt.toISOString(),
+      adoption: {
+        id: result.adoption.id,
+        systemCategoryId: result.adoption.systemCategoryId,
+        mode: result.adoption.mode,
+        adoptedAt: result.adoption.adoptedAt.toISOString(),
+        adoptedVersion: result.adoption.adoptedVersion,
+      },
+      tenantCategory: {
+        id: result.tenantCategory.id,
+        name: result.tenantCategory.name,
+        path: result.tenantCategory.path,
+        systemCategoryId: result.tenantCategory.systemCategoryId,
+        linkMode: result.tenantCategory.linkMode,
+      },
     }, { status: 201 });
   });
 

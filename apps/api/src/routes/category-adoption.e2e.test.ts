@@ -25,10 +25,20 @@ import type { Env } from '../app.js';
 
 // Response types for type-safe test assertions
 interface AdoptionData {
-  id: string;
-  categoryId: string;
-  categoryName: string;
-  adoptedAt: string;
+  adoption: {
+    id: string;
+    systemCategoryId: string;
+    mode: string;
+    adoptedAt: string;
+    adoptedVersion: number;
+  };
+  tenantCategory: {
+    id: string;
+    name: string;
+    path: string;
+    systemCategoryId: string;
+    linkMode: string;
+  };
 }
 
 interface CategoryData {
@@ -129,6 +139,7 @@ describe('Category Adoption API E2E', () => {
         parent_id TEXT REFERENCES public.category(id),
         default_profile_id TEXT,
         is_active BOOLEAN DEFAULT true,
+        version INT DEFAULT 1,
         created_at TIMESTAMPTZ DEFAULT now(),
         updated_at TIMESTAMPTZ DEFAULT now()
       )
@@ -258,10 +269,11 @@ describe('Category Adoption API E2E', () => {
       return;
     }
 
-    // Clean up category adoptions before each test
+    // Clean up category adoptions and tenant categories before each test
     const tenantEm = orm.em.fork({ schema: testSchemaName });
     await tenantEm.execute(`SET search_path TO "${testSchemaName}", public`);
     await tenantEm.execute('DELETE FROM category_adoption');
+    await tenantEm.execute('DELETE FROM tenant_category');
   });
 
   /**
@@ -434,9 +446,9 @@ describe('Category Adoption API E2E', () => {
 
       expect(res.status).toBe(201);
       const data = (await res.json()) as AdoptionResponse;
-      expect(data.data.categoryId).toBe(categoryIds['apparel']);
-      expect(data.data.categoryName).toBe('Apparel');
-      expect(data.data.adoptedAt).toBeDefined();
+      expect(data.data.adoption.systemCategoryId).toBe(categoryIds['apparel']);
+      expect(data.data.tenantCategory.name).toBe('Apparel');
+      expect(data.data.adoption.adoptedAt).toBeDefined();
     });
 
     it('denies user with VIEWER authority', async (context) => {
@@ -506,6 +518,63 @@ describe('Category Adoption API E2E', () => {
       const data = (await res.json()) as ErrorResponse;
       expect(data.error.code).toBe('NOT_FOUND');
       expect(data.error.message).toContain('Category not found');
+    });
+
+    it('should auto-create TenantCategory with system prefix when adopting', async (context) => {
+      if (!(await isDatabaseAvailable())) {
+        context.skip();
+        return;
+      }
+
+      const testApp = createTestApp(editorUserId);
+      const res = await testApp.request(`/category-adoption/${categoryIds['apparel']}`, {
+        method: 'POST',
+      });
+
+      expect(res.status).toBe(201);
+      const data = await res.json() as {
+        data: {
+          adoption: { id: string; systemCategoryId: string; mode: string; adoptedVersion: number };
+          tenantCategory: { id: string; name: string; path: string; systemCategoryId: string; linkMode: string };
+        };
+      };
+
+      // Verify adoption record
+      expect(data.data.adoption.systemCategoryId).toBe(categoryIds['apparel']);
+      expect(data.data.adoption.mode).toBe('LIVE');
+      expect(data.data.adoption.adoptedVersion).toBe(1);
+
+      // Verify TenantCategory was created
+      expect(data.data.tenantCategory.name).toBe('Apparel');
+      expect(data.data.tenantCategory.path).toBe('system.apparel');
+      expect(data.data.tenantCategory.systemCategoryId).toBe(categoryIds['apparel']);
+      expect(data.data.tenantCategory.linkMode).toBe('LIVE');
+    });
+
+    it('should record adoptedVersion when system category has version', async (context) => {
+      if (!(await isDatabaseAvailable())) {
+        context.skip();
+        return;
+      }
+
+      // Update system category version first
+      const connection = orm.em.getConnection();
+      await connection.execute(
+        `UPDATE public.category SET version = 5 WHERE id = '${categoryIds['materials']}'`
+      );
+
+      const testApp = createTestApp(editorUserId);
+      const res = await testApp.request(`/category-adoption/${categoryIds['materials']}`, {
+        method: 'POST',
+      });
+
+      expect(res.status).toBe(201);
+      const data = await res.json() as {
+        data: {
+          adoption: { adoptedVersion: number };
+        };
+      };
+      expect(data.data.adoption.adoptedVersion).toBe(5);
     });
   });
 
