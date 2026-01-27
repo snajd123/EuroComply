@@ -601,6 +601,212 @@
               }
             },
             {
+              "name": "Change Mode to FROZEN",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status 200', function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "",
+                      "pm.test('Mode changed to FROZEN', function () {",
+                      "    const r = pm.response.json();",
+                      "    pm.expect(r.data.mode).to.equal('FROZEN');",
+                      "    pm.expect(r.data.frozenAtVersion).to.be.a('number');",
+                      "    console.log('Frozen at version:', r.data.frozenAtVersion);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "Authorization", "value": "Bearer {{jwtToken}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"mode\": \"FROZEN\"\n}"
+                },
+                "url": "{{baseUrl}}/api/v1/category-adoption/{{adoptedCategoryId}}"
+              }
+            },
+            {
+              "name": "Sync (Dry Run)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status 200', function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "",
+                      "pm.test('Returns sync preview', function () {",
+                      "    const r = pm.response.json();",
+                      "    pm.expect(r.data.synced).to.equal(false);",
+                      "    pm.expect(r.data.dryRun).to.equal(true);",
+                      "    pm.expect(r.data.previousVersion).to.be.a('number');",
+                      "    pm.expect(r.data.currentVersion).to.be.a('number');",
+                      "    pm.expect(r.data.changes).to.be.an('object');",
+                      "    console.log('Dry run - changes:', JSON.stringify(r.data.changes));",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Authorization", "value": "Bearer {{jwtToken}}" }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/category-adoption/{{adoptedCategoryId}}/sync?dryRun=true",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "v1", "category-adoption", "{{adoptedCategoryId}}", "sync"],
+                  "query": [{ "key": "dryRun", "value": "true" }]
+                }
+              }
+            },
+            {
+              "name": "Sync (Apply)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status 200', function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "",
+                      "pm.test('Sync applied', function () {",
+                      "    const r = pm.response.json();",
+                      "    pm.expect(r.data.synced).to.equal(true);",
+                      "    pm.expect(r.data.dryRun).to.equal(false);",
+                      "    pm.expect(r.data.currentVersion).to.be.a('number');",
+                      "    console.log('Synced to version:', r.data.currentVersion);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Authorization", "value": "Bearer {{jwtToken}}" }
+                ],
+                "url": "{{baseUrl}}/api/v1/category-adoption/{{adoptedCategoryId}}/sync"
+              }
+            },
+            {
+              "name": "Change Mode to LIVE",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status 200', function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "",
+                      "pm.test('Mode changed to LIVE', function () {",
+                      "    const r = pm.response.json();",
+                      "    pm.expect(r.data.mode).to.equal('LIVE');",
+                      "    pm.expect(r.data.frozenAtVersion).to.be.null;",
+                      "    console.log('Switched to LIVE mode');",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "Authorization", "value": "Bearer {{jwtToken}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"mode\": \"LIVE\"\n}"
+                },
+                "url": "{{baseUrl}}/api/v1/category-adoption/{{adoptedCategoryId}}"
+              }
+            },
+            {
+              "name": "Change Mode to DETACHED",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status 200', function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "",
+                      "pm.test('Mode changed to DETACHED', function () {",
+                      "    const r = pm.response.json();",
+                      "    pm.expect(r.data.mode).to.equal('DETACHED');",
+                      "    console.log('Category permanently detached');",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "Authorization", "value": "Bearer {{jwtToken}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"mode\": \"DETACHED\"\n}"
+                },
+                "url": "{{baseUrl}}/api/v1/category-adoption/{{adoptedCategoryId}}"
+              }
+            },
+            {
+              "name": "Change Mode from DETACHED (400)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status 400 Bad Request', function () {",
+                      "    pm.response.to.have.status(400);",
+                      "});",
+                      "",
+                      "pm.test('Detachment is permanent', function () {",
+                      "    const r = pm.response.json();",
+                      "    pm.expect(r.error.code).to.equal('INVALID_TRANSITION');",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "Authorization", "value": "Bearer {{jwtToken}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"mode\": \"LIVE\"\n}"
+                },
+                "url": "{{baseUrl}}/api/v1/category-adoption/{{adoptedCategoryId}}"
+              }
+            },
+            {
               "name": "Adopt Nonexistent Category (404)",
               "event": [
                 {
