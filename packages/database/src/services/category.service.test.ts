@@ -448,6 +448,85 @@ describe('CategoryService', () => {
       expect(names).toContain('System Electronics');
       expect(names).toContain('System Materials');
     });
+
+    it('should return ancestors when adopting a leaf node', async () => {
+      // Create hierarchy: electronics > batteries > lithium_ion
+      const root = await service.create({
+        name: 'Electronics',
+        type: CategoryType.ROOT,
+        targetType: TargetType.PRODUCT,
+      });
+
+      const branch = await service.create({
+        name: 'Batteries',
+        type: CategoryType.BRANCH,
+        targetType: TargetType.PRODUCT,
+        parentId: root.id,
+      });
+
+      const leaf = await service.create({
+        name: 'Lithium Ion',
+        type: CategoryType.LEAF,
+        targetType: TargetType.PRODUCT,
+        parentId: branch.id,
+      });
+
+      // Adopt only the leaf
+      await service.adoptCategory(testSchema, leaf.id);
+
+      const adopted = await service.getAdoptedCategories(testSchema);
+
+      // Should return all 3: root, branch, and leaf (for tree rendering)
+      expect(adopted).toHaveLength(3);
+      const paths = adopted.map(a => a.path);
+      expect(paths).toContain('electronics');
+      expect(paths).toContain('electronics.batteries');
+      expect(paths).toContain('electronics.batteries.lithium_ion');
+    });
+
+    it('should return empty array when no adoptions', async () => {
+      const adopted = await service.getAdoptedCategories(testSchema);
+      expect(adopted).toHaveLength(0);
+    });
+  });
+
+  describe('getDirectlyAdoptedCategories', () => {
+    it('should return only directly adopted categories without ancestors', async () => {
+      // Create hierarchy: electronics > batteries > lithium_ion
+      const root = await service.create({
+        name: 'Electronics',
+        type: CategoryType.ROOT,
+        targetType: TargetType.PRODUCT,
+      });
+
+      const branch = await service.create({
+        name: 'Batteries',
+        type: CategoryType.BRANCH,
+        targetType: TargetType.PRODUCT,
+        parentId: root.id,
+      });
+
+      const leaf = await service.create({
+        name: 'Lithium Ion',
+        type: CategoryType.LEAF,
+        targetType: TargetType.PRODUCT,
+        parentId: branch.id,
+      });
+
+      // Adopt only the leaf
+      await service.adoptCategory(testSchema, leaf.id);
+
+      const directlyAdopted = await service.getDirectlyAdoptedCategories(testSchema);
+
+      // Should return only the leaf (what was explicitly adopted)
+      expect(directlyAdopted).toHaveLength(1);
+      expect(directlyAdopted[0]!.path).toBe('electronics.batteries.lithium_ion');
+    });
+
+    it('should return empty array when no adoptions', async () => {
+      const adopted = await service.getDirectlyAdoptedCategories(testSchema);
+      expect(adopted).toHaveLength(0);
+    });
   });
 
   describe('unadoptCategory', () => {

@@ -293,11 +293,50 @@ export class CategoryService {
   }
 
   /**
-   * Get categories adopted by a tenant.
+   * Get all categories adopted by a tenant, INCLUDING ancestors for tree rendering.
    *
-   * Returns the Category data for all adopted categories.
+   * If a tenant adopts "electronics.batteries.lithium_ion", we return:
+   * - electronics (ancestor)
+   * - electronics.batteries (ancestor)
+   * - electronics.batteries.lithium_ion (adopted)
    */
   async getAdoptedCategories(tenantSchema: string): Promise<Category[]> {
+    const adoptions = await this.em.find(CategoryAdoption, {});
+
+    if (adoptions.length === 0) return [];
+
+    // Collect all adopted category paths
+    const adoptedIds = adoptions.map(a => a.systemCategoryId);
+    const adoptedCategories = await this.em.find(Category, { id: { $in: adoptedIds } });
+
+    if (adoptedCategories.length === 0) return [];
+
+    const adoptedPaths = adoptedCategories.map(c => c.path);
+
+    // Build individual path queries for ancestors
+    // For each adopted path, find all categories whose path is an ancestor (using @> operator)
+    // Example: if adopted path is 'electronics.batteries.lithium_ion',
+    // we want categories with paths: 'electronics', 'electronics.batteries', 'electronics.batteries.lithium_ion'
+    const pathConditions = adoptedPaths.map((_, i) => `c.path @> ?::ltree`).join(' OR ');
+    const result = await this.em.execute<Array<{ id: string }>>(
+      `SELECT DISTINCT c.id
+       FROM "${this.schema}".category c
+       WHERE ${pathConditions}
+       ORDER BY c.id`,
+      adoptedPaths
+    );
+
+    if (result.length === 0) return adoptedCategories;
+
+    const ids = result.map(r => r.id);
+    return this.em.find(Category, { id: { $in: ids } }, { orderBy: { path: 'ASC' } });
+  }
+
+  /**
+   * Get only directly adopted categories (without ancestors).
+   * Use this when you need to know what the tenant explicitly adopted.
+   */
+  async getDirectlyAdoptedCategories(tenantSchema: string): Promise<Category[]> {
     const adoptions = await this.em.find(CategoryAdoption, {});
 
     if (adoptions.length === 0) {
