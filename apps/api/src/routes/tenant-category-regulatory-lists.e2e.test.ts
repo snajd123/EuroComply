@@ -189,6 +189,7 @@ describe('Tenant Category Regulatory Lists API E2E', () => {
     regulatoryListIds['cosing_annex2'] = createId();
     regulatoryListIds['extra_list'] = createId();
     regulatoryListIds['no_exemption_list'] = createId();
+    regulatoryListIds['unlinked_list'] = createId();
 
     await connection.execute(`
       INSERT INTO public.regulatory_list (id, code, name, source, version, effective_date, is_current_version, allow_tenant_exemption, created_at, updated_at)
@@ -196,7 +197,8 @@ describe('Tenant Category Regulatory Lists API E2E', () => {
         ('${regulatoryListIds['reach_svhc']}', 'REACH_SVHC', 'REACH SVHC Candidate List', 'ECHA', '2024-01', '2024-01-01', true, true, '${now.toISOString()}', '${now.toISOString()}'),
         ('${regulatoryListIds['cosing_annex2']}', 'COSING_ANNEX_II', 'CosIng Annex II', 'EU_COSMETICS', '2024-01', '2024-01-01', true, true, '${now.toISOString()}', '${now.toISOString()}'),
         ('${regulatoryListIds['extra_list']}', 'EXTRA_LIST', 'Extra Regulatory List', 'CUSTOM', '2024-01', '2024-01-01', true, true, '${now.toISOString()}', '${now.toISOString()}'),
-        ('${regulatoryListIds['no_exemption_list']}', 'NO_EXEMPTION', 'List Without Exemptions', 'CUSTOM', '2024-01', '2024-01-01', true, false, '${now.toISOString()}', '${now.toISOString()}')
+        ('${regulatoryListIds['no_exemption_list']}', 'NO_EXEMPTION', 'List Without Exemptions', 'CUSTOM', '2024-01', '2024-01-01', true, false, '${now.toISOString()}', '${now.toISOString()}'),
+        ('${regulatoryListIds['unlinked_list']}', 'UNLINKED_LIST', 'Unlinked Regulatory List', 'CUSTOM', '2024-01', '2024-01-01', true, true, '${now.toISOString()}', '${now.toISOString()}')
       ON CONFLICT (id) DO NOTHING
     `);
 
@@ -490,6 +492,42 @@ describe('Tenant Category Regulatory Lists API E2E', () => {
       expect(extraReg?.requirement).toBe('RECOMMENDED');
     });
 
+    it('should include overrideThreshold in compliance stack when set', async (context) => {
+      if (!(await isDatabaseAvailable())) {
+        context.skip();
+        return;
+      }
+
+      // Add a tenant-specific regulation with threshold override
+      const tenantEm = orm.em.fork({ schema: testSchemaName });
+      await tenantEm.execute(`SET search_path TO "${testSchemaName}", public`);
+
+      const tenantCategory = await tenantEm.findOneOrFail(TenantCategory, { id: tenantCategoryId });
+      const mapping = tenantEm.create(TenantCategoryRegulatoryList, {
+        id: createId(),
+        tenantCategory,
+        regulatoryListId: regulatoryListIds['extra_list'],
+        requirement: ListRequirement.MANDATORY,
+        source: RegulationSource.TENANT_ADDED,
+        isExempted: false,
+        overrideThreshold: '0.0001', // Stricter than default
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      tenantEm.persist(mapping);
+      await tenantEm.flush();
+
+      const testApp = createTestApp(viewerUserId);
+      const res = await testApp.request(`/tenant-categories/${tenantCategoryId}/regulatory-lists`);
+
+      expect(res.status).toBe(200);
+      const data = (await res.json()) as ComplianceStackResponse;
+
+      const extraReg = data.data.effectiveRegulations.find(r => r.regulatoryListCode === 'EXTRA_LIST');
+      expect(extraReg).toBeDefined();
+      expect(extraReg?.overrideThreshold).toBe('0.0001');
+    });
+
     it('should mark exempted regulations with EXEMPTED status when exemption exists', async (context) => {
       if (!(await isDatabaseAvailable())) {
         context.skip();
@@ -660,6 +698,74 @@ describe('Tenant Category Regulatory Lists API E2E', () => {
       );
 
       expect(res.status).toBe(400);
+    });
+
+    it('should allow updating an already-exempted regulation with new reason', async (context) => {
+      if (!(await isDatabaseAvailable())) {
+        context.skip();
+        return;
+      }
+
+      const testApp = createTestApp(editorUserId);
+
+      // Create initial exemption
+      const res1 = await testApp.request(
+        `/tenant-categories/${tenantCategoryId}/regulatory-lists/${regulatoryListIds['reach_svhc']}/exempt`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            reason: 'Initial exemption reason for this regulation',
+            legalRef: 'Initial Legal Reference',
+          }),
+        }
+      );
+      expect(res1.status).toBe(200);
+
+      // Update with new reason
+      const res2 = await testApp.request(
+        `/tenant-categories/${tenantCategoryId}/regulatory-lists/${regulatoryListIds['reach_svhc']}/exempt`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            reason: 'Updated exemption reason with more details',
+            legalRef: 'Updated Legal Reference 2024',
+          }),
+        }
+      );
+      expect(res2.status).toBe(200);
+
+      const data = (await res2.json()) as ExemptionResponse;
+      expect(data.data.exemptionReason).toBe('Updated exemption reason with more details');
+      expect(data.data.exemptionLegalRef).toBe('Updated Legal Reference 2024');
+    });
+
+    it('should create exemption for regulation not linked at system level', async (context) => {
+      if (!(await isDatabaseAvailable())) {
+        context.skip();
+        return;
+      }
+
+      const testApp = createTestApp(editorUserId);
+
+      // Try to exempt a regulatory list that is NOT linked to the system category
+      // The route should allow this by creating an INHERITED mapping
+      // (since there's no system link, we can't check allowTenantExemption - so it defaults to allowed)
+      const res = await testApp.request(
+        `/tenant-categories/${tenantCategoryId}/regulatory-lists/${regulatoryListIds['unlinked_list']}/exempt`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            reason: 'Exempting a regulation not linked at system level',
+          }),
+        }
+      );
+
+      expect(res.status).toBe(200);
+      const data = (await res.json()) as ExemptionResponse;
+      expect(data.data.isExempted).toBe(true);
     });
 
     it('should return 404 when regulatory list does not exist', async (context) => {
