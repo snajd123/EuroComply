@@ -1,7 +1,8 @@
 # Category Adoption Sync Design
 
-**Status:** Approved
+**Status:** Implemented (Phases 1-3)
 **Created:** 2026-01-27
+**Implemented:** 2026-01-27
 **Author:** Brainstorm Session
 
 ---
@@ -401,8 +402,25 @@ ON category_adoption(system_category_id);
 
 ---
 
+## Implementation Notes
+
+**Completed:** 2026-01-27
+
+**Commits:**
+- `feat(database): add slugify utility for tenant category paths`
+- `feat(api): auto-create TenantCategory on category adoption`
+- `feat(api): add PATCH endpoint for category adoption link mode changes`
+- `feat(api): add POST /sync endpoint for manual category sync`
+- `docs(postman): add link mode and sync endpoints to tenant-api collection`
+
+**Deferred:**
+- Phase 4: Async worker for propagating system category updates (requires event bus infrastructure)
+
+---
+
 ## Document Control
 
 | Version | Date | Changes |
 |---------|------|---------|
 | 1.0 | 2026-01-27 | Initial design from brainstorm session |
+| 1.1 | 2026-01-27 | Marked as implemented (Phases 1-3) |
