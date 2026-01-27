@@ -23,3 +23,9 @@ export {
   type CreateCategoryInput,
   type UpdateCategoryInput,
 } from './category.service.js';
+export {
+  RegulatoryListService,
+  type CreateListInput,
+  type AddEntryInput,
+  type GetEntriesOptions,
+} from './RegulatoryListService.js';
