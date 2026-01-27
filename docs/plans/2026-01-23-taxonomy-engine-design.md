@@ -60,48 +60,145 @@ The Taxonomy Engine manages three types of international reference data:
 
 ### 2.1 Dual-Scope Categories
 
-Categories exist in two scopes:
+Categories exist in two separate tables across schemas:
 
 ```
 PUBLIC SCHEMA (System Categories)
-├── categories                    ← Platform-managed, read-only for tenants
-│   ├── Apparel
-│   │   ├── Tops
-│   │   │   ├── T-Shirts
-│   │   │   └── Blouses
-│   │   └── Bottoms
-│   ├── Electronics
-│   │   ├── Batteries
-│   │   └── Displays
-│   └── Furniture
-│       └── Seating
+├── public.category               ← Platform-managed, read-only for tenants
+│   ├── Apparel (path: apparel)
+│   │   ├── Tops (path: apparel.tops)
+│   │   │   ├── T-Shirts (path: apparel.tops.tshirts)
+│   │   │   └── Blouses (path: apparel.tops.blouses)
+│   │   └── Bottoms (path: apparel.bottoms)
+│   ├── Electronics (path: electronics)
+│   └── Furniture (path: furniture)
 
-TENANT SCHEMA (Organization Categories)
-├── categories                    ← Tenant can extend OR create custom
-│   ├── [extends: Apparel.Tops.T-Shirts]
-│   │   └── Premium T-Shirts      ← Tenant extension
-│   └── Internal Prototypes       ← Tenant-only category (no parent)
+TENANT SCHEMA (Tenant Categories)
+├── tenant_xxx.tenant_category    ← Tenant-owned categories
+│   ├── Premium Line (path: premium_line, links to: apparel.tops.tshirts)
+│   ├── Eco Collection (path: eco_collection, links to: apparel)
+│   └── Internal Prototypes (path: internal_prototypes, no system link)
 ```
 
-### 2.2 Adoption Modes
+**Key architecture decisions:**
+- **Separate tables**: System categories in `public.category`, tenant categories in `tenant_xxx.tenant_category`
+- **Tenant-local paths**: Tenant categories have their own LTREE paths, not extending system paths
+- **Soft references**: Tenant categories link to system categories via UUID (no FK constraint)
+- **No cross-schema FK**: Enables cell architecture and schema isolation
 
-When a tenant uses a system category, they choose an adoption mode:
+### 2.2 Link Modes
 
-| Mode | Attributes | Platform Updates | Use Case |
-|------|------------|------------------|----------|
-| **LIVE_LINK** | Inherited from system + tenant extensions | Auto-applied | "Keep me current with regulations" |
-| **FORKED** | Copied at adoption, tenant-owned | Ignored (notified only) | "I need full control" |
-| **CUSTOM** | Tenant-defined only | N/A | "We have unique products" |
+When a tenant creates a category linked to a system category, they choose a link mode:
 
-**Fork notifications:** When platform updates a system category, forked tenants see: *"System category updated - review changes?"* They can manually merge or ignore.
+| Mode | System Updates | Notifications | Use Case |
+|------|----------------|---------------|----------|
+| **LIVE** | Auto-applied to tenant category | Yes | "Keep me current with regulations" |
+| **FROZEN** | Ignored (snapshot at version) | Yes, can review & merge | "I want control over when to update" |
+| **DETACHED** | Ignored permanently | No | "I've diverged, don't notify me" |
+
+**Custom categories** (no system link) have `system_category_id = null` and no link mode.
+
+**Version tracking**: System categories have a `version` field (incremented on updates). Frozen tenant categories store `frozen_at_version` to track which version they snapshotted.
+
+**Notification flow**: When platform updates a system category:
+1. LIVE tenants: Changes auto-applied
+2. FROZEN tenants: See notification "System category updated (v3 → v4) - review changes?"
+3. DETACHED tenants: No notification
 
 ### 2.3 LTREE Paths
 
-Categories use PostgreSQL LTREE extension for fast hierarchical queries:
+Categories use PostgreSQL LTREE extension for hierarchical queries:
 
-- System: `apparel.tops.tshirts`
-- Tenant extension: `apparel.tops.tshirts.premium` (stored in tenant schema)
-- Tenant custom: `custom.prototypes` (no system prefix)
+**System categories** (public schema):
+- Full hierarchy paths: `apparel.tops.tshirts`
+- Supports `@>` (ancestor) and `<@` (descendant) operators
+
+**Tenant categories** (tenant schema):
+- Tenant-local paths: `premium_line` (not `apparel.tops.tshirts.premium_line`)
+- Hierarchy is within tenant's own categories only
+- Link to system category is via `system_category_id` UUID, not path
+
+**Why tenant-local paths?**
+- System path changes don't break tenant categories
+- Simpler cross-schema queries (no path prefix management)
+- Tenant can reorganize their hierarchy without affecting system link
+
+### 2.4 TenantCategory Entity
+
+```typescript
+// packages/database/src/entities/TenantCategory.ts
+@Entity({ tableName: 'tenant_category' })
+export class TenantCategory extends BaseEntity {
+  @Property()
+  name!: string;
+
+  @Property({ nullable: true })
+  description?: string;
+
+  @Index({ type: 'gist' })
+  @Property({ columnType: 'ltree' })
+  path!: string;                          // Tenant-local path
+
+  @Enum(() => CategoryType)
+  type!: CategoryType;                    // ROOT | BRANCH | LEAF
+
+  @Enum(() => TargetType)
+  targetType!: TargetType;                // PRODUCT | MATERIAL | FACILITY | BATCH
+
+  @Property({ default: 0 })
+  depth!: number;
+
+  @ManyToOne(() => TenantCategory, { nullable: true })
+  parent?: TenantCategory;                // FK within tenant schema
+
+  @Property({ nullable: true })
+  systemCategoryId?: string;              // Soft ref to public.category (no FK)
+
+  @Enum(() => LinkMode, { nullable: true })
+  linkMode?: LinkMode;                    // LIVE | FROZEN | DETACHED
+
+  @Property({ nullable: true })
+  frozenAtVersion?: number;               // Version when frozen
+
+  @Property({ default: true })
+  isActive!: boolean;
+}
+
+export enum LinkMode {
+  LIVE = 'LIVE',
+  FROZEN = 'FROZEN',
+  DETACHED = 'DETACHED',
+}
+```
+
+### 2.5 System Category Versioning
+
+Add `version` field to existing `public.category`:
+
+```sql
+ALTER TABLE public.category ADD COLUMN version INT NOT NULL DEFAULT 1;
+```
+
+Increment on any update to name, description, or attributes:
+```typescript
+category.version += 1;
+await em.flush();
+```
+
+### 2.6 Permissions
+
+| Action | Required Permission |
+|--------|---------------------|
+| Browse system categories | Public (no auth) |
+| Adopt system category | `design:edit` |
+| Create/edit/delete tenant category | `design:manager` |
+| View tenant categories | `design:view` |
+
+### 2.7 Deletion Rules
+
+- **Block deletion** if products are assigned to the category
+- Error: `Cannot delete "Premium Line": 12 products assigned. Reassign them first.`
+- API returns 409 Conflict with product count
 
 ---
 

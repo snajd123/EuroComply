@@ -2,15 +2,43 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Implement category service with hierarchy operations, system category seeding, and category adoption for tenant customization.
+**Goal:** Implement category service with hierarchy operations, system category seeding, category adoption, and tenant category management.
 
-**Architecture:** Leverage existing `Category` and `CategoryAdoption` entities. Create `CategoryService` for LTREE-based hierarchy operations. Seed system categories to public schema. Implement adoption API for tenants to use system categories.
+**Architecture:**
+- **System Categories** (public schema): Platform-managed category hierarchy seeded from JSON bundles
+- **Tenant Categories** (tenant schema): Tenant-created categories that can extend or customize system categories
+- **Category Adoption**: Links tenants to system categories with LIVE/FROZEN/DETACHED modes
 
 **Tech Stack:** MikroORM, PostgreSQL LTREE, Hono
 
-**Prerequisites:** Plans 1-4 completed. Category and CategoryAdoption entities already exist.
+**Prerequisites:** Plans 1-4 completed. Category entity exists; TenantCategory and CategoryAdoption need creation.
 
 **Reference:** See `docs/plans/2026-01-23-taxonomy-engine-design.md` Section 2
+
+---
+
+## Tenant Category Model
+
+### Link Modes
+
+When a tenant creates a category linked to a system category, they choose a link mode:
+
+| Mode | System Updates | Notifications | Use Case |
+|------|----------------|---------------|----------|
+| **LIVE** | Auto-applied to tenant category | Yes | "Keep me current with regulations" |
+| **FROZEN** | Ignored (snapshot at version) | Yes, can review & merge | "I want control over when to update" |
+| **DETACHED** | Ignored permanently | No | "I've diverged, don't notify me" |
+
+### Permissions
+
+- `design:manager` required to create, edit, or delete tenant categories
+- `design:view` sufficient for browsing and assigning to products
+
+### Deletion Rules
+
+- Cannot delete a category with assigned products
+- Error returns count of affected products
+- Must reassign products first
 
 ---
 
@@ -297,7 +325,39 @@ describe('CategoryService', () => {
   });
 
   describe('getAdoptedCategories', () => {
-    it('should return only adopted categories for tenant', async () => {
+    it('should return adopted categories WITH ancestors for tree rendering', async () => {
+      // Create hierarchy: electronics > batteries > lithium_ion
+      const electronics = await service.create({
+        name: 'Electronics',
+        type: CategoryType.ROOT,
+        targetType: TargetType.PRODUCT,
+      });
+
+      const batteries = await service.create({
+        name: 'Batteries',
+        parentId: electronics.id,
+        type: CategoryType.BRANCH,
+        targetType: TargetType.PRODUCT,
+      });
+
+      const lithiumIon = await service.create({
+        name: 'Lithium Ion',
+        parentId: batteries.id,
+        type: CategoryType.LEAF,
+        targetType: TargetType.PRODUCT,
+      });
+
+      // Tenant adopts only the leaf node
+      await service.adoptCategory('tenant_acme', lithiumIon.id);
+
+      const adopted = await service.getAdoptedCategories('tenant_acme');
+
+      // Should return 3 categories: the adopted leaf + its 2 ancestors
+      expect(adopted).toHaveLength(3);
+      expect(adopted.map(c => c.name)).toEqual(['Electronics', 'Batteries', 'Lithium Ion']);
+    });
+
+    it('should not include unrelated categories', async () => {
       const electronics = await service.create({
         name: 'Electronics',
         type: CategoryType.ROOT,
@@ -317,6 +377,34 @@ describe('CategoryService', () => {
 
       expect(adopted).toHaveLength(1);
       expect(adopted[0].name).toBe('Electronics');
+      // Apparel should NOT be included
+      expect(adopted.some(c => c.name === 'Apparel')).toBe(false);
+    });
+  });
+
+  describe('getDirectlyAdoptedCategories', () => {
+    it('should return only explicitly adopted categories (no ancestors)', async () => {
+      const electronics = await service.create({
+        name: 'Electronics',
+        type: CategoryType.ROOT,
+        targetType: TargetType.PRODUCT,
+      });
+
+      const batteries = await service.create({
+        name: 'Batteries',
+        parentId: electronics.id,
+        type: CategoryType.BRANCH,
+        targetType: TargetType.PRODUCT,
+      });
+
+      // Tenant adopts only batteries (not root)
+      await service.adoptCategory('tenant_acme', batteries.id);
+
+      const directlyAdopted = await service.getDirectlyAdoptedCategories('tenant_acme');
+
+      // Should return only the directly adopted category
+      expect(directlyAdopted).toHaveLength(1);
+      expect(directlyAdopted[0].name).toBe('Batteries');
     });
   });
 
@@ -605,16 +693,52 @@ export class CategoryService {
   }
 
   /**
-   * Get all categories adopted by a tenant.
-   * Returns system categories that the tenant has explicitly adopted.
+   * Get all categories adopted by a tenant, INCLUDING ancestors for tree rendering.
    *
-   * DAY 2 CONSIDERATION: If a tenant adopts a leaf node like "electronics.batteries.lithium_ion",
-   * the frontend tree-view may break because parent nodes aren't in the list.
-   * Future enhancement: Return UNION of adopted categories AND their ancestors
-   * to ensure frontend can render complete path from root to adopted leaf.
-   * This can be done with: SELECT DISTINCT unnest(string_to_array(path::text, '.'))
+   * If a tenant adopts "electronics.batteries.lithium_ion", we return:
+   * - electronics (ancestor)
+   * - electronics.batteries (ancestor)
+   * - electronics.batteries.lithium_ion (adopted)
+   *
+   * This ensures the frontend tree-view can render complete paths from root to leaves.
    */
   async getAdoptedCategories(tenantSchema: string): Promise<Category[]> {
+    const adoptions = await this.em.find(
+      CategoryAdoption,
+      { tenantSchema, isActive: true },
+      { populate: ['category'] }
+    );
+
+    if (adoptions.length === 0) return [];
+
+    // Collect all adopted category paths
+    const adoptedPaths = adoptions.map(a => a.category.path);
+
+    // Use LTREE to find all ancestors of adopted categories
+    // This query returns adopted categories + all their ancestors
+    const conn = this.em.getConnection();
+    const result = await conn.execute<Array<{ id: string }>>(
+      `SELECT DISTINCT c.id
+       FROM public.category c
+       WHERE EXISTS (
+         SELECT 1 FROM unnest($1::ltree[]) AS adopted_path
+         WHERE c.path @> adopted_path OR c.path = adopted_path
+       )
+       ORDER BY c.path`,
+      [adoptedPaths]
+    );
+
+    if (result.length === 0) return adoptions.map(a => a.category);
+
+    const ids = result.map(r => r.id);
+    return this.em.find(Category, { id: { $in: ids } }, { orderBy: { path: 'ASC' } });
+  }
+
+  /**
+   * Get only directly adopted categories (without ancestors).
+   * Use this when you need to know what the tenant explicitly adopted.
+   */
+  async getDirectlyAdoptedCategories(tenantSchema: string): Promise<Category[]> {
     const adoptions = await this.em.find(
       CategoryAdoption,
       { tenantSchema, isActive: true },
@@ -2173,6 +2297,329 @@ git commit -m "test(database): add category service integration tests"
 
 ---
 
+## Task 6: Tenant Category Entity and CRUD API
+
+> **Note:** This task adds support for tenant-owned categories with LIVE/FROZEN/DETACHED link modes.
+
+**Files:**
+- Create: `packages/database/src/entities/TenantCategory.ts`
+- Modify: `packages/database/src/entities/CategoryAdoption.ts` (update enum)
+- Create: `apps/api/src/routes/tenant-categories.ts`
+- Test: `apps/api/src/routes/tenant-categories.e2e.test.ts`
+
+**Step 1: Create TenantCategory entity**
+
+```typescript
+// packages/database/src/entities/TenantCategory.ts
+import { Entity, Property, Index, ManyToOne, OneToMany, Collection, Enum } from '@mikro-orm/core';
+import { BaseEntity } from './BaseEntity.js';
+import { CategoryType } from './Category.js';
+import { TargetType } from './enums/index.js';
+
+export enum LinkMode {
+  LIVE = 'LIVE',         // Auto-sync with system category updates
+  FROZEN = 'FROZEN',     // Snapshot at version, notifications available
+  DETACHED = 'DETACHED', // Fully independent, no update tracking
+}
+
+@Entity({ tableName: 'tenant_category' })
+export class TenantCategory extends BaseEntity {
+  @Property({ type: 'text' })
+  name!: string;
+
+  @Property({ type: 'text', nullable: true })
+  description?: string;
+
+  @Index({ type: 'gist' })
+  @Property({ columnType: 'ltree' })
+  path!: string;
+
+  @Enum({ items: () => CategoryType, default: CategoryType.BRANCH })
+  type: CategoryType = CategoryType.BRANCH;
+
+  @Enum({ items: () => TargetType, name: 'target_type', default: TargetType.PRODUCT })
+  targetType: TargetType = TargetType.PRODUCT;
+
+  @Property({ type: 'int', default: 0 })
+  depth: number = 0;
+
+  @ManyToOne(() => TenantCategory, { nullable: true, name: 'parent_id' })
+  parent?: TenantCategory;
+
+  @OneToMany(() => TenantCategory, (cat) => cat.parent)
+  children = new Collection<TenantCategory>(this);
+
+  // Soft reference to public.category (no FK for cell scaling)
+  @Property({ type: 'text', nullable: true, name: 'system_category_id' })
+  systemCategoryId?: string;
+
+  @Enum({ items: () => LinkMode, nullable: true, name: 'link_mode' })
+  linkMode?: LinkMode;
+
+  @Property({ type: 'int', nullable: true, name: 'frozen_at_version' })
+  frozenAtVersion?: number;
+
+  @Property({ type: 'boolean', default: true, name: 'is_active' })
+  isActive: boolean = true;
+
+  @Property({ type: 'text', nullable: true, name: 'default_profile_id' })
+  defaultProfileId?: string;
+}
+```
+
+**Step 2: Update CategoryAdoption to use LinkMode**
+
+```typescript
+// packages/database/src/entities/CategoryAdoption.ts
+import { Entity, Property, ManyToOne, Enum } from '@mikro-orm/core';
+import { BaseEntity } from './BaseEntity.js';
+import { TenantCategory, LinkMode } from './TenantCategory.js';
+
+@Entity({ tableName: 'category_adoption' })
+export class CategoryAdoption extends BaseEntity {
+  // Soft link to public.category - NO FK for cell scaling
+  @Property({ type: 'text', name: 'system_category_id' })
+  systemCategoryId!: string;
+
+  @ManyToOne(() => TenantCategory, { nullable: true, name: 'local_category_id' })
+  localCategory?: TenantCategory;
+
+  @Enum({ items: () => LinkMode })
+  mode!: LinkMode;
+
+  @Property({ name: 'adopted_at' })
+  adoptedAt!: Date;
+
+  @Property({ type: 'int', nullable: true, name: 'adopted_version' })
+  adoptedVersion?: number;
+
+  @Property({ type: 'boolean', default: false, name: 'update_available' })
+  updateAvailable: boolean = false;
+}
+```
+
+**Step 3: Create Tenant Categories API Router**
+
+```typescript
+// apps/api/src/routes/tenant-categories.ts
+import { Hono } from 'hono';
+import { z } from 'zod';
+import { zValidator } from '@hono/zod-validator';
+import type { MikroORM } from '@mikro-orm/core';
+import { TenantCategory, LinkMode, CategoryType, TargetType, Product } from '@eurocomply/database';
+import type { Env } from '../app.js';
+import { authorize } from '../middleware/authorize.js';
+
+export interface TenantCategoriesRouterOptions {
+  orm: MikroORM;
+}
+
+const createCategorySchema = z.object({
+  name: z.string().min(1).max(255),
+  description: z.string().optional(),
+  parentId: z.string().optional(),
+  type: z.enum(['ROOT', 'BRANCH', 'LEAF']),
+  targetType: z.enum(['PRODUCT', 'MATERIAL', 'FACILITY', 'BATCH']),
+  systemCategoryId: z.string().optional(),
+  linkMode: z.enum(['LIVE', 'FROZEN', 'DETACHED']).optional(),
+});
+
+const updateCategorySchema = z.object({
+  name: z.string().min(1).max(255).optional(),
+  description: z.string().optional(),
+  isActive: z.boolean().optional(),
+  linkMode: z.enum(['LIVE', 'FROZEN', 'DETACHED']).optional(),
+});
+
+export function createTenantCategoriesRouter(options: TenantCategoriesRouterOptions): Hono<Env> {
+  const { orm } = options;
+  const router = new Hono<Env>();
+
+  // GET / - List tenant categories
+  router.get('/', authorize('design', 'view'), async (c) => {
+    const schema = c.get('tenantSchema')!;
+    const em = orm.em.fork({ schema });
+
+    const categories = await em.find(TenantCategory, { isActive: true });
+
+    return c.json({
+      data: categories.map(cat => ({
+        id: cat.id,
+        name: cat.name,
+        description: cat.description,
+        path: cat.path,
+        type: cat.type,
+        targetType: cat.targetType,
+        depth: cat.depth,
+        parentId: cat.parent?.id,
+        systemCategoryId: cat.systemCategoryId,
+        linkMode: cat.linkMode,
+        frozenAtVersion: cat.frozenAtVersion,
+        isActive: cat.isActive,
+      })),
+      meta: { total: categories.length },
+    });
+  });
+
+  // POST / - Create tenant category (requires design:manager)
+  router.post('/', authorize('design', 'manager'), zValidator('json', createCategorySchema), async (c) => {
+    const schema = c.get('tenantSchema')!;
+    const em = orm.em.fork({ schema });
+    const input = c.req.valid('json');
+
+    // Validate parent exists if provided
+    let parent: TenantCategory | undefined;
+    let path: string;
+    let depth: number;
+
+    if (input.parentId) {
+      parent = await em.findOne(TenantCategory, { id: input.parentId }) ?? undefined;
+      if (!parent) {
+        return c.json({ error: 'Not Found', message: 'Parent category not found' }, 404);
+      }
+      path = `${parent.path}.${slugify(input.name)}`;
+      depth = parent.depth + 1;
+    } else {
+      path = slugify(input.name);
+      depth = 0;
+    }
+
+    // Check for path collision
+    const existing = await em.findOne(TenantCategory, { path });
+    if (existing) {
+      return c.json({
+        error: 'Conflict',
+        message: `Category path "${path}" already exists`,
+      }, 409);
+    }
+
+    // If linking to system category, validate linkMode is provided
+    if (input.systemCategoryId && !input.linkMode) {
+      return c.json({
+        error: 'Bad Request',
+        message: 'linkMode is required when linking to a system category',
+      }, 400);
+    }
+
+    const category = em.create(TenantCategory, {
+      name: input.name,
+      description: input.description,
+      path,
+      type: input.type as CategoryType,
+      targetType: input.targetType as TargetType,
+      depth,
+      parent,
+      systemCategoryId: input.systemCategoryId,
+      linkMode: input.linkMode as LinkMode,
+      isActive: true,
+    });
+
+    await em.persistAndFlush(category);
+
+    return c.json({
+      data: {
+        id: category.id,
+        name: category.name,
+        path: category.path,
+        type: category.type,
+        targetType: category.targetType,
+        depth: category.depth,
+        systemCategoryId: category.systemCategoryId,
+        linkMode: category.linkMode,
+      },
+    }, 201);
+  });
+
+  // PATCH /:id - Update tenant category (requires design:manager)
+  router.patch('/:id', authorize('design', 'manager'), zValidator('json', updateCategorySchema), async (c) => {
+    const schema = c.get('tenantSchema')!;
+    const em = orm.em.fork({ schema });
+    const id = c.req.param('id');
+    const input = c.req.valid('json');
+
+    const category = await em.findOne(TenantCategory, { id });
+    if (!category) {
+      return c.json({ error: 'Not Found', message: 'Category not found' }, 404);
+    }
+
+    if (input.name !== undefined) category.name = input.name;
+    if (input.description !== undefined) category.description = input.description;
+    if (input.isActive !== undefined) category.isActive = input.isActive;
+    if (input.linkMode !== undefined) category.linkMode = input.linkMode as LinkMode;
+
+    await em.flush();
+
+    return c.json({ data: { id: category.id, name: category.name } });
+  });
+
+  // DELETE /:id - Delete tenant category (requires design:manager)
+  router.delete('/:id', authorize('design', 'manager'), async (c) => {
+    const schema = c.get('tenantSchema')!;
+    const em = orm.em.fork({ schema });
+    const id = c.req.param('id');
+
+    const category = await em.findOne(TenantCategory, { id });
+    if (!category) {
+      return c.json({ error: 'Not Found', message: 'Category not found' }, 404);
+    }
+
+    // Check for children
+    const childCount = await em.count(TenantCategory, { parent: { id } });
+    if (childCount > 0) {
+      return c.json({
+        error: 'Conflict',
+        message: `Cannot delete category with ${childCount} children`,
+      }, 409);
+    }
+
+    // Check for assigned products
+    const productCount = await em.count(Product, { categoryId: id });
+    if (productCount > 0) {
+      return c.json({
+        error: 'Conflict',
+        message: `Cannot delete category with ${productCount} assigned products. Reassign products first.`,
+      }, 409);
+    }
+
+    await em.removeAndFlush(category);
+
+    return c.json({ data: { success: true } });
+  });
+
+  return router;
+}
+
+function slugify(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_|_$/g, '');
+}
+```
+
+**Step 4: Register in app.ts**
+
+```typescript
+// apps/api/src/app.ts
+import { createTenantCategoriesRouter } from './routes/tenant-categories.js';
+
+// Tenant-scoped category management routes (REQUIRES full auth stack)
+v1.use('/tenant-categories/*', createTenantMiddlewareWithApiKeys(deps.orm.em as any));
+if (userMiddleware) {
+  v1.use('/tenant-categories/*', userMiddleware);
+}
+v1.route('/tenant-categories', createTenantCategoriesRouter({ orm: deps.orm }));
+```
+
+**Step 5: Commit**
+
+```bash
+git add packages/database/src/entities/TenantCategory.ts packages/database/src/entities/CategoryAdoption.ts apps/api/src/routes/tenant-categories.ts
+git commit -m "feat(database): add TenantCategory entity with LIVE/FROZEN/DETACHED link modes"
+```
+
+---
+
 ## Summary
 
 **Deliverables:**
@@ -2180,17 +2627,28 @@ git commit -m "test(database): add category service integration tests"
 - System categories data bundle (`data/system-categories.json`) with ~50 categories
 - `CategoriesSeeder` service with idempotent seeding
 - Categories API routes (list, roots, get, children, ancestors)
+- Category adoption API with LIVE/FROZEN/DETACHED modes
+- **TenantCategory** entity for tenant-owned categories
+- **Tenant Categories API** for CRUD with manager permission
 - `seed:categories` CLI command
 - Integration tests for hierarchy navigation
 
 **API Routes:**
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/v1/taxonomy/categories` | List with filters (targetType, depth) |
-| GET | `/api/v1/taxonomy/categories/roots` | Get root categories |
-| GET | `/api/v1/taxonomy/categories/:id` | Get by id |
-| GET | `/api/v1/taxonomy/categories/:id/children` | Get direct children |
-| GET | `/api/v1/taxonomy/categories/:id/ancestors` | Get all ancestors |
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/api/v1/taxonomy/categories` | None | List system categories with filters |
+| GET | `/api/v1/taxonomy/categories/roots` | None | Get root system categories |
+| GET | `/api/v1/taxonomy/categories/:id` | None | Get system category by id |
+| GET | `/api/v1/taxonomy/categories/:id/children` | None | Get direct children |
+| GET | `/api/v1/taxonomy/categories/:id/ancestors` | None | Get all ancestors |
+| GET | `/api/v1/category-adoption` | design:view | Get adopted categories |
+| GET | `/api/v1/category-adoption/available` | design:view | Get available for adoption |
+| POST | `/api/v1/category-adoption/:id` | design:edit | Adopt a category |
+| DELETE | `/api/v1/category-adoption/:id` | design:edit | Remove adoption |
+| GET | `/api/v1/tenant-categories` | design:view | List tenant categories |
+| POST | `/api/v1/tenant-categories` | design:manager | Create tenant category |
+| PATCH | `/api/v1/tenant-categories/:id` | design:manager | Update tenant category |
+| DELETE | `/api/v1/tenant-categories/:id` | design:manager | Delete tenant category |
 
 **Updated db:seed:public command:**
 ```bash

@@ -1,7 +1,7 @@
 # Data Model (MikroORM)
 
 **Status:** Active
-**Last Updated:** 2026-01-26
+**Last Updated:** 2026-01-27
 
 ---
 
@@ -27,11 +27,14 @@ eurocomply database
 │   ├── regulatory_list         -- Versioned regulatory lists (COSING, RoHS, etc.)
 │   ├── regulatory_list_entry   -- Substances in regulatory lists
 │   ├── category_regulatory_list -- Category-to-list LTREE mapping
-│   └── regulatory_import_log   -- Admin import audit trail
+│   ├── regulatory_import_log   -- Admin import audit trail
+│   └── category               -- System category hierarchy (LTREE)
 │
 └── tenant_{slug}               -- Per-tenant data
     ├── users
     ├── organization_users
+    ├── tenant_category         -- Tenant-owned categories (extensions & custom)
+    ├── category_adoption       -- Links tenant categories to system categories
     ├── products
     ├── product_identifiers
     ├── product_versions
@@ -70,6 +73,9 @@ eurocomply database
 | RegulatoryListEntry | `public` | Substance restrictions per list (shared) |
 | CategoryRegulatoryList | `public` | Category-to-list LTREE mapping (shared) |
 | RegulatoryImportLog | `public` | Admin import audit trail (shared) |
+| Category | `public` | System category hierarchy (seeded, shared) |
+| TenantCategory | `tenant_{slug}` | Tenant-owned categories (extensions & custom) |
+| CategoryAdoption | `tenant_{slug}` | Links tenant categories to system categories |
 | MaterialSubstance | `tenant_{slug}` | Concentration data is proprietary |
 | RuleTemplate (ORG) | `tenant_{slug}` | Tenant-specific rules |
 | All others | `tenant_{slug}` | Tenant isolation |
@@ -1045,6 +1051,101 @@ CREATE INDEX idx_regulatory_import_log_status ON public.regulatory_import_log(st
 CREATE INDEX idx_regulatory_import_log_hash ON public.regulatory_import_log(file_hash);
 ```
 
+### Category (System)
+
+System-managed category hierarchy using PostgreSQL LTREE for efficient tree queries. Seeded by platform, shared across all tenants.
+
+```typescript
+// packages/database/src/entities/Category.ts
+import { Entity, Property, Index, ManyToOne, OneToMany, Collection, Enum } from '@mikro-orm/core';
+import { BaseEntity } from './BaseEntity.js';
+import { TargetType } from './enums/index.js';
+
+export enum CategoryType {
+  ROOT = 'ROOT',     // Top-level category (e.g., "Apparel")
+  BRANCH = 'BRANCH', // Intermediate node (e.g., "Apparel > Tops")
+  LEAF = 'LEAF',     // Terminal node (e.g., "Apparel > Tops > T-Shirts")
+}
+
+@Entity({ tableName: 'category', schema: 'public' })
+export class Category extends BaseEntity {
+  @Property({ type: 'text' })
+  name!: string;
+
+  @Property({ type: 'text', nullable: true })
+  description?: string;
+
+  @Index({ type: 'gist' })
+  @Property({ columnType: 'ltree' })
+  path!: string;                        // e.g., "apparel.tops.tshirts"
+
+  @Enum({ items: () => CategoryType, default: CategoryType.BRANCH })
+  type: CategoryType = CategoryType.BRANCH;
+
+  @Enum({ items: () => TargetType, name: 'target_type', default: TargetType.PRODUCT })
+  targetType: TargetType = TargetType.PRODUCT;
+
+  @Property({ type: 'int', default: 0 })
+  depth: number = 0;                    // 0 = ROOT, 1+ = descendants
+
+  @ManyToOne(() => Category, { nullable: true, name: 'parent_id' })
+  parent?: Category;
+
+  @OneToMany(() => Category, (cat) => cat.parent)
+  children = new Collection<Category>(this);
+
+  @Property({ type: 'text', nullable: true, name: 'default_profile_id' })
+  defaultProfileId?: string;            // Default ReadinessProfile for this category
+
+  @Property({ type: 'boolean', default: true, name: 'is_active' })
+  isActive: boolean = true;
+
+  @Property({ type: 'int', default: 1 })
+  version: number = 1;                  // Incremented on updates for FROZEN tracking
+}
+```
+
+**DDL:**
+
+```sql
+CREATE TABLE public.category (
+    id VARCHAR(30) PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    path LTREE NOT NULL,
+    type VARCHAR(10) DEFAULT 'BRANCH',  -- ROOT, BRANCH, LEAF
+    target_type VARCHAR(20) DEFAULT 'PRODUCT',  -- PRODUCT, MATERIAL, FACILITY, BATCH
+    depth INT DEFAULT 0,
+    parent_id VARCHAR(30) REFERENCES public.category(id),
+    default_profile_id VARCHAR(30),
+    is_active BOOLEAN DEFAULT true,
+    version INT DEFAULT 1,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_category_path ON public.category USING GIST (path);
+CREATE INDEX idx_category_target_type ON public.category(target_type);
+CREATE INDEX idx_category_parent ON public.category(parent_id);
+```
+
+**LTREE Query Examples:**
+
+```sql
+-- Find all descendants of 'apparel' (children, grandchildren, etc.)
+SELECT * FROM public.category WHERE path <@ 'apparel'::ltree;
+
+-- Find all ancestors of 'apparel.tops.tshirts' (parent, grandparent, etc.)
+SELECT * FROM public.category WHERE path @> 'apparel.tops.tshirts'::ltree;
+
+-- Find direct children of 'apparel'
+SELECT * FROM public.category WHERE path ~ 'apparel.*{1}'::lquery;
+
+-- Find siblings of 'apparel.tops' (same depth, same parent)
+SELECT * FROM public.category
+WHERE nlevel(path) = 2 AND path <@ 'apparel'::ltree AND path != 'apparel.tops'::ltree;
+```
+
 ---
 
 ## 3. Tenant Schema Entities
@@ -1183,6 +1284,168 @@ export class OrganizationUser {
   @Property({ name: 'updated_at', onUpdate: () => new Date() })
   updatedAt: Date = new Date();
 }
+```
+
+### TenantCategory
+
+Tenant-owned categories for extending or customizing the system category hierarchy. Can be:
+- **Extensions**: Linked to a system category (with LIVE/FROZEN/DETACHED modes)
+- **Custom**: Fully tenant-owned categories with no system link
+
+```typescript
+// packages/database/src/entities/TenantCategory.ts
+import { Entity, Property, Index, ManyToOne, OneToMany, Collection, Enum } from '@mikro-orm/core';
+import { BaseEntity } from './BaseEntity.js';
+import { CategoryType } from './Category.js';
+import { TargetType } from './enums/index.js';
+
+export enum LinkMode {
+  LIVE = 'LIVE',         // Auto-sync with system category updates
+  FROZEN = 'FROZEN',     // Snapshot at version, notifications available
+  DETACHED = 'DETACHED', // Fully independent, no update tracking
+}
+
+@Entity({ tableName: 'tenant_category' })
+export class TenantCategory extends BaseEntity {
+  @Property({ type: 'text' })
+  name!: string;
+
+  @Property({ type: 'text', nullable: true })
+  description?: string;
+
+  @Index({ type: 'gist' })
+  @Property({ columnType: 'ltree' })
+  path!: string;                          // Tenant-local path (not extending system paths)
+
+  @Enum({ items: () => CategoryType, default: CategoryType.BRANCH })
+  type: CategoryType = CategoryType.BRANCH;
+
+  @Enum({ items: () => TargetType, name: 'target_type', default: TargetType.PRODUCT })
+  targetType: TargetType = TargetType.PRODUCT;
+
+  @Property({ type: 'int', default: 0 })
+  depth: number = 0;
+
+  @ManyToOne(() => TenantCategory, { nullable: true, name: 'parent_id' })
+  parent?: TenantCategory;                // FK within tenant schema
+
+  @OneToMany(() => TenantCategory, (cat) => cat.parent)
+  children = new Collection<TenantCategory>(this);
+
+  // Soft reference to system category (no FK constraint for cell scaling)
+  @Property({ type: 'text', nullable: true, name: 'system_category_id' })
+  systemCategoryId?: string;              // UUID of public.category (if linked)
+
+  @Enum({ items: () => LinkMode, nullable: true, name: 'link_mode' })
+  linkMode?: LinkMode;                    // Only set if systemCategoryId is set
+
+  @Property({ type: 'int', nullable: true, name: 'frozen_at_version' })
+  frozenAtVersion?: number;               // System category version when frozen
+
+  @Property({ type: 'boolean', default: true, name: 'is_active' })
+  isActive: boolean = true;
+
+  @Property({ type: 'text', nullable: true, name: 'default_profile_id' })
+  defaultProfileId?: string;
+}
+```
+
+**DDL:**
+
+```sql
+CREATE TABLE tenant_category (
+    id VARCHAR(30) PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    path LTREE NOT NULL,
+    type VARCHAR(10) DEFAULT 'BRANCH',        -- ROOT, BRANCH, LEAF
+    target_type VARCHAR(20) DEFAULT 'PRODUCT', -- PRODUCT, MATERIAL, FACILITY, BATCH
+    depth INT DEFAULT 0,
+    parent_id VARCHAR(30) REFERENCES tenant_category(id),
+    system_category_id VARCHAR(30),            -- Soft ref to public.category (no FK)
+    link_mode VARCHAR(10),                     -- LIVE, FROZEN, DETACHED
+    frozen_at_version INT,                     -- Version snapshot for FROZEN mode
+    is_active BOOLEAN DEFAULT true,
+    default_profile_id VARCHAR(30),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_tenant_category_path ON tenant_category USING GIST (path);
+CREATE INDEX idx_tenant_category_system ON tenant_category(system_category_id);
+CREATE INDEX idx_tenant_category_parent ON tenant_category(parent_id);
+```
+
+**Link Mode Behavior:**
+
+| Mode | System Updates | Notifications | Use Case |
+|------|----------------|---------------|----------|
+| **LIVE** | Auto-applied to tenant category | Yes | "Keep me current with regulations" |
+| **FROZEN** | Ignored (snapshot at version) | Yes, can review & merge | "I want control over when to update" |
+| **DETACHED** | Ignored permanently | No | "I've diverged, don't notify me" |
+
+**Permissions:**
+- `design:manager` required to create, edit, or delete tenant categories
+- `design:view` sufficient for browsing and assigning to products
+
+**Deletion Rules:**
+- Cannot delete a category with assigned products
+- Error returns count of affected products
+- Must reassign products first
+
+### CategoryAdoption
+
+Links tenant's adopted system categories. Tracks which system categories a tenant uses and their sync preferences.
+
+```typescript
+// packages/database/src/entities/CategoryAdoption.ts
+import { Entity, Property, ManyToOne, Enum } from '@mikro-orm/core';
+import { BaseEntity } from './BaseEntity.js';
+import { TenantCategory } from './TenantCategory.js';
+import { LinkMode } from './TenantCategory.js';
+
+@Entity({ tableName: 'category_adoption' })
+export class CategoryAdoption extends BaseEntity {
+  // Soft link to public.category - NO FK for cell scaling
+  @Property({ type: 'text', name: 'system_category_id' })
+  systemCategoryId!: string;
+
+  // Optional local category that extends/customizes the system category
+  @ManyToOne(() => TenantCategory, { nullable: true, name: 'local_category_id' })
+  localCategory?: TenantCategory;
+
+  @Enum({ items: () => LinkMode })
+  mode!: LinkMode;
+
+  @Property({ name: 'adopted_at' })
+  adoptedAt!: Date;
+
+  @Property({ type: 'int', nullable: true, name: 'adopted_version' })
+  adoptedVersion?: number;                // System category version at adoption
+
+  @Property({ type: 'boolean', default: false, name: 'update_available' })
+  updateAvailable: boolean = false;       // Set when system category version increases
+}
+```
+
+**DDL:**
+
+```sql
+CREATE TABLE category_adoption (
+    id VARCHAR(30) PRIMARY KEY,
+    system_category_id VARCHAR(30) NOT NULL,  -- Soft ref to public.category
+    local_category_id VARCHAR(30) REFERENCES tenant_category(id),
+    mode VARCHAR(10) NOT NULL,                -- LIVE, FROZEN, DETACHED
+    adopted_at TIMESTAMPTZ NOT NULL,
+    adopted_version INT,
+    update_available BOOLEAN DEFAULT false,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_category_adoption_system ON category_adoption(system_category_id);
+CREATE INDEX idx_category_adoption_local ON category_adoption(local_category_id);
+CREATE UNIQUE INDEX idx_category_adoption_unique ON category_adoption(system_category_id);
 ```
 
 ### Product
