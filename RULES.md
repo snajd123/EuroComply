@@ -725,6 +725,81 @@ logger.info('Passport created', {
 
 ---
 
+## 16. Postman Collection Rules
+
+### Collection Structure
+
+All API endpoints MUST be documented in Postman collections:
+
+| Collection | Auth | Contains |
+|------------|------|----------|
+| `admin-api` | `X-Admin-Key` header | Platform admin endpoints (`/api/v1/admin/*`) |
+| `tenant-api` | Clerk JWT | Tenant-scoped endpoints (`/api/v1/*` requiring auth) |
+| `public-api` | None | Public endpoints (health, public data) |
+| `webhooks` | Webhook signatures | Webhook receivers (Clerk, Stripe) |
+
+### Environment File
+
+`eurocomply-local.postman_environment.json` contains:
+- `baseUrl` - API base URL (default: `http://localhost:3001`)
+- `adminApiKey` - Secret, from `.env` ADMIN_API_KEY
+- `webhookSecret` - Secret, from `.env` CLERK_WEBHOOK_SECRET
+
+### Update Requirements
+
+**MANDATORY: When any API endpoint is added, modified, or removed:**
+
+1. Update the corresponding Postman collection
+2. Include request with all parameters documented
+3. Add test scripts that verify:
+   - Expected status code
+   - Response structure
+   - Error cases (401, 403, 404, 409)
+4. Use `pm.variables.get()` for environment variables (not `pm.collectionVariables`)
+
+### Request Naming Convention
+
+```
+[HTTP Method implied] [Resource] [Action/Qualifier]
+
+Examples:
+- "List Organizations"
+- "Get Organization"
+- "Create Product"
+- "Update Product Status"
+- "Delete Category Adoption"
+- "Sync (Dry Run)"
+```
+
+### Test Script Pattern
+
+```javascript
+pm.test('Status 200', function () {
+    pm.response.to.have.status(200);
+});
+
+pm.test('Returns expected structure', function () {
+    const r = pm.response.json();
+    pm.expect(r.data).to.be.an('array');
+    pm.expect(r.meta.total).to.be.a('number');
+});
+```
+
+### Collection Location
+
+All Postman files live in `docs/testing/postman/`:
+
+```
+docs/testing/postman/
+├── eurocomply-local.postman_environment.json
+├── admin-api.postman_collection.json
+├── tenant-api.postman_collection.json
+├── public-api.postman_collection.json
+└── webhooks.postman_collection.json
+```
+
+---
+
 ## Enforcement
 
 These rules are enforced through:
@@ -762,13 +837,14 @@ These rules are enforced through:
 │  2. No TypeScript errors                            │
 │  3. Code is documented                              │
 │  4. UPDATE DOCS (implementation status, README)     │
-│  5. Commit message follows format                   │
+│  5. UPDATE POSTMAN if API changed                   │
+│  6. Commit message follows format                   │
 └─────────────────────────────────────────────────────┘
 ```
 
 ---
 
 **Last Updated**: 2026-01-27
-**Version**: 1.6
+**Version**: 1.7
 
 > Note: For Claude-specific workflow instructions, see [CLAUDE.md](./CLAUDE.md)
