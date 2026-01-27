@@ -9,7 +9,7 @@ export default defineConfig({
     fileParallelism: false,
     env: {
       DATABASE_HOST: 'localhost',
-      DATABASE_PORT: '5433',
+      DATABASE_PORT: '5432',
       DATABASE_USER: 'postgres',
       DATABASE_PASSWORD: 'postgres',
       DATABASE_NAME: 'eurocomply_test',

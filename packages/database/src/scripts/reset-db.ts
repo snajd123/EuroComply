@@ -10,7 +10,7 @@ import { TenantProvisioner } from '../services/tenant-provisioner.js';
 
 async function main() {
   const dbName = process.env['DATABASE_NAME'] ?? 'eurocomply_test';
-  const port = parseInt(process.env['DATABASE_PORT'] ?? '5433', 10);
+  const port = parseInt(process.env['DATABASE_PORT'] ?? '5432', 10);
 
   console.log(`Connecting to ${dbName} on port ${port}...`);
 
