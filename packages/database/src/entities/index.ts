@@ -4,6 +4,7 @@ export { Substance } from './Substance.js';
 export { SubstanceAlias } from './SubstanceAlias.js';
 export { SeedVersion } from './SeedVersion.js';
 export { RegulatoryList } from './RegulatoryList.js';
+export { RegulatoryListEntry } from './RegulatoryListEntry.js';
 export {
   Organization,
   EnforcementMode,
@@ -50,6 +51,7 @@ import { Substance } from './Substance.js';
 import { SubstanceAlias } from './SubstanceAlias.js';
 import { SeedVersion } from './SeedVersion.js';
 import { RegulatoryList } from './RegulatoryList.js';
+import { RegulatoryListEntry } from './RegulatoryListEntry.js';
 
 /**
  * Entities that belong ONLY in the PUBLIC schema.
@@ -65,6 +67,7 @@ export const publicOnlyEntities = [
   SeedVersion,
   Category,
   RegulatoryList,
+  RegulatoryListEntry,
 ];
 
 /**
