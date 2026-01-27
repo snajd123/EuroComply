@@ -363,7 +363,221 @@ Every request gets a unique ID (`req_xxx`) via the `requestIdMiddleware`. This I
 
 ---
 
-## 9. Documentation Rules
+## 9. Middleware Patterns
+
+### Creating Middleware
+
+Always use `createMiddleware` from Hono with our `Env` type:
+
+```typescript
+import { createMiddleware } from 'hono/factory';
+import type { Env } from '../app.js';
+import { error } from '../utils/response.js';
+
+export function myMiddleware() {
+  return createMiddleware<Env>(async (c, next) => {
+    // Middleware logic here
+
+    // For errors, return early with error() helper
+    if (somethingWrong) {
+      return error(c, 'UNAUTHORIZED', 'Missing required header', 401);
+    }
+
+    // Set context variables for downstream handlers
+    c.set('myValue', extractedValue);
+
+    // Continue to next handler
+    await next();
+  });
+}
+```
+
+### Middleware Rules
+
+- **Use `error()` helper for error responses** - never `c.json()` directly
+- **Return early on errors** - don't call `next()` after returning error
+- **Set context with `c.set()`** - for passing data to handlers
+- **Access context with `c.get()`** - always use `!` assertion when you know it's set
+
+### Context Variables
+
+Standard context variables (defined in `Env` type in `app.ts`):
+
+| Variable | Type | Set By | Description |
+|----------|------|--------|-------------|
+| `requestId` | `string` | request-id middleware | Unique request ID |
+| `tenantSchema` | `string` | tenant middleware | Tenant's database schema |
+| `userId` | `string` | tenant middleware | User ID or `api-key:{id}` |
+| `membership` | `OrganizationUser` | user middleware | Human user's org membership |
+| `apiKeyAuthorities` | `ApiKeyAuthorities` | tenant middleware | API key permissions |
+
+---
+
+## 10. Route Patterns
+
+### Router Factory Pattern
+
+All routers use the factory pattern with dependency injection:
+
+```typescript
+import { Hono } from 'hono';
+import { zValidator } from '@hono/zod-validator';
+import { z } from 'zod';
+import type { MikroORM } from '@eurocomply/database';
+import type { Env } from '../app.js';
+import { authorize } from '../middleware/authorize.js';
+import { success, error } from '../utils/response.js';
+
+export interface MyRouterOptions {
+  orm: MikroORM;
+  // Add other dependencies as needed
+}
+
+export function createMyRouter(options: MyRouterOptions): Hono<Env> {
+  const { orm } = options;
+  const router = new Hono<Env>();
+
+  // Define routes here
+  router.get('/', authorize('design', 'view'), async (c) => {
+    // ...
+  });
+
+  return router;
+}
+```
+
+### Authorization
+
+Use the `authorize()` middleware for workspace-based access control:
+
+```typescript
+import { authorize, requireOrgAdmin } from '../middleware/authorize.js';
+
+// Workspace + action authorization
+router.get('/', authorize('design', 'view'), handler);      // VIEWER+
+router.post('/', authorize('design', 'edit'), handler);     // CONTRIBUTOR+
+router.put('/:id/approve', authorize('design', 'approve'), handler);  // EDITOR+
+router.delete('/:id', authorize('design', 'manage'), handler);        // MANAGER only
+
+// Organization admin only
+router.get('/api-keys', requireOrgAdmin(), handler);
+```
+
+Workspaces: `design`, `operations`, `marketing`, `compliance`
+Actions: `view` (VIEWER+), `edit` (CONTRIBUTOR+), `approve` (EDITOR+), `manage` (MANAGER)
+
+### Request Validation
+
+Use Zod schemas with `zValidator` middleware:
+
+```typescript
+const createSchema = z.object({
+  name: z.string().min(1).max(255),
+  description: z.string().optional(),
+  categoryId: z.string().min(1),
+});
+
+router.post('/',
+  authorize('design', 'edit'),
+  zValidator('json', createSchema),  // Validates and parses body
+  async (c) => {
+    const body = c.req.valid('json');  // Type-safe access
+    // body.name, body.categoryId are guaranteed valid
+  }
+);
+```
+
+---
+
+## 11. Multi-Tenant Database Safety
+
+### CRITICAL: Always Fork with Schema
+
+**NEVER use `orm.em` directly.** Always fork with the tenant schema:
+
+```typescript
+// ✅ GOOD: Fork with schema
+const schema = c.get('tenantSchema')!;
+const em = orm.em.fork({ schema });
+
+// ❌ BAD: Using orm.em directly
+const em = orm.em;  // WRONG - no tenant isolation!
+```
+
+### CRITICAL: Transaction with search_path for JOINs
+
+When MikroORM generates JOINs (via `populate`, relations), it may not schema-qualify table names. **Wrap queries in transactions with SET search_path:**
+
+```typescript
+const schema = c.get('tenantSchema')!;
+const em = orm.em.fork({ schema });
+
+// ✅ GOOD: Transaction with search_path
+const products = await em.transactional(async (txEm) => {
+  await txEm.execute(`SET search_path TO "${schema}", public`);
+  return txEm.find(Product, {}, { populate: ['category'] });
+});
+
+// ❌ BAD: Query without search_path protection
+const products = await em.find(Product, {}, { populate: ['category'] });
+// May query wrong schema on JOINs!
+```
+
+### When to Use Transactions
+
+| Operation | Transaction Required? |
+|-----------|----------------------|
+| Simple find/findOne without relations | Optional but recommended |
+| Any query with `populate` | **REQUIRED** |
+| Multi-step writes | **REQUIRED** |
+| Any query that might JOIN | **REQUIRED** |
+
+### Pattern for Route Handlers
+
+```typescript
+router.get('/', authorize('design', 'view'), async (c) => {
+  const schema = c.get('tenantSchema')!;
+  const em = orm.em.fork({ schema });
+
+  const result = await em.transactional(async (txEm) => {
+    await txEm.execute(`SET search_path TO "${schema}", public`);
+
+    // All queries inside transaction are schema-safe
+    const items = await txEm.find(MyEntity, {});
+    return items;
+  });
+
+  return success(c, result.map(serialize), { total: result.length });
+});
+```
+
+### Error Handling in Transactions
+
+Return error objects from transactions, check after:
+
+```typescript
+const result = await em.transactional(async (txEm) => {
+  await txEm.execute(`SET search_path TO "${schema}", public`);
+
+  const existing = await txEm.findOne(Entity, { id });
+  if (!existing) {
+    return { error: 'not_found' as const };
+  }
+
+  // ... do work
+  return { data: existing };
+});
+
+if ('error' in result) {
+  return error(c, 'NOT_FOUND', 'Entity not found', 404);
+}
+
+return success(c, result.data);
+```
+
+---
+
+## 12. Documentation Rules
 
 ### Documentation After Implementation
 
@@ -410,7 +624,7 @@ counter++;
 
 ---
 
-## 10. Dependency Rules
+## 13. Dependency Rules
 
 ### Adding Dependencies
 
@@ -429,7 +643,7 @@ Before adding a new dependency:
 
 ---
 
-## 11. Performance Rules
+## 14. Performance Rules
 
 ### Database
 
@@ -445,7 +659,7 @@ Before adding a new dependency:
 
 ---
 
-## 12. Monitoring & Logging
+## 15. Monitoring & Logging
 
 ### What to Log
 
@@ -517,6 +731,6 @@ These rules are enforced through:
 ---
 
 **Last Updated**: 2026-01-27
-**Version**: 1.4
+**Version**: 1.5
 
 > Note: For Claude-specific workflow instructions, see [CLAUDE.md](./CLAUDE.md)
