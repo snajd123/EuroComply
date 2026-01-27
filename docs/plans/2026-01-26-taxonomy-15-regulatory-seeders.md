@@ -387,18 +387,68 @@ import { CategoryRegulatoryList } from '../../entities/CategoryRegulatoryList.js
 import { ListRequirement } from '../../entities/enums/index.js';
 
 /**
- * Default category-to-list mappings.
+ * Default category-to-list mappings (CategoryRegulatoryList seeding).
  * These define which regulations apply to which product categories.
+ *
+ * allowTenantExemption:
+ * - true: Tenant can exempt this regulation with documented justification
+ * - false: No exemption allowed (e.g., prohibited substances)
+ *
+ * When a tenant adopts a system category, they automatically inherit
+ * these regulatory list associations as baseline requirements.
  */
 const CATEGORY_LIST_MAPPINGS = [
-  // REACH applies to ALL products (root level)
-  { categoryPath: 'products', listCode: 'REACH_SVHC', requirement: ListRequirement.RESTRICTION },
+  // ═══════════════════════════════════════════════════════════════════
+  // REACH SVHC - applies broadly, exemptions allowed with justification
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    categoryPath: 'products',
+    listCode: 'REACH_SVHC',
+    requirement: ListRequirement.RESTRICTION,
+    allowTenantExemption: true,  // Can be exempted with justification
+  },
 
-  // RoHS applies to electronics
-  { categoryPath: 'products.electronics', listCode: 'ROHS_RESTRICTED', requirement: ListRequirement.RESTRICTION },
+  // ═══════════════════════════════════════════════════════════════════
+  // ELECTRONICS → REACH_SVHC, ROHS_RESTRICTED, WEEE
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    categoryPath: 'products.electronics',
+    listCode: 'ROHS_RESTRICTED',
+    requirement: ListRequirement.RESTRICTION,
+    allowTenantExemption: true,  // RoHS exemptions exist (medical devices, etc.)
+  },
+  {
+    categoryPath: 'products.electronics',
+    listCode: 'WEEE',
+    requirement: ListRequirement.DECLARATION,
+    allowTenantExemption: true,
+  },
 
-  // CosIng applies to cosmetics
-  { categoryPath: 'products.cosmetics', listCode: 'COSING_ANNEX_II', requirement: ListRequirement.PROHIBITION },
+  // ═══════════════════════════════════════════════════════════════════
+  // COSMETICS → COSING_ANNEX_II, COSING_ANNEX_III, REACH_SVHC
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    categoryPath: 'products.cosmetics',
+    listCode: 'COSING_ANNEX_II',
+    requirement: ListRequirement.PROHIBITION,
+    allowTenantExemption: false,  // Prohibited substances - NO exemption allowed
+  },
+  {
+    categoryPath: 'products.cosmetics',
+    listCode: 'COSING_ANNEX_III',
+    requirement: ListRequirement.RESTRICTION,
+    allowTenantExemption: true,  // Restricted with conditions
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // TEXTILES → REACH_SVHC, OEKO_TEX_100
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    categoryPath: 'products.textiles',
+    listCode: 'OEKO_TEX_100',
+    requirement: ListRequirement.CERTIFICATION,
+    allowTenantExemption: true,  // Voluntary certification
+  },
 ];
 
 export async function seedCategoryListMappings(em: EntityManager): Promise<void> {
@@ -436,14 +486,15 @@ export async function seedCategoryListMappings(em: EntityManager): Promise<void>
       continue;
     }
 
-    // Create mapping
+    // Create mapping with allowTenantExemption
     em.create(CategoryRegulatoryList, {
       category,
       regulatoryList: list,
       requirement: mapping.requirement,
+      allowTenantExemption: mapping.allowTenantExemption,
     });
 
-    console.log(`  Added: ${mapping.categoryPath} -> ${mapping.listCode} (${mapping.requirement})`);
+    console.log(`  Added: ${mapping.categoryPath} -> ${mapping.listCode} (${mapping.requirement}, exemption=${mapping.allowTenantExemption})`);
     added++;
   }
 
@@ -599,7 +650,11 @@ git commit -m "feat(database): add regulatory seeder CLI command"
 - REACH SVHC Candidate List seeder (11 sample substances)
 - RoHS Restricted Substances seeder (10 substances)
 - CosIng Annex II seeder (9 sample substances)
-- Category-List mappings seeder
+- **CategoryRegulatoryList seeding** - Links system categories to regulatory lists:
+  - Electronics → REACH_SVHC, ROHS_RESTRICTED, WEEE
+  - Cosmetics → COSING_ANNEX_II, COSING_ANNEX_III
+  - Textiles → OEKO_TEX_100
+  - Includes `allowTenantExemption` flag per mapping (e.g., COSING_ANNEX_II = false)
 - Main entry point and CLI command
 - Idempotent seeders (safe to run multiple times)
 
