@@ -11,7 +11,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import type { MikroORM } from '@eurocomply/database';
-import { CategoryAdoption, AdoptionMode, TargetType } from '@eurocomply/database';
+import { CategoryAdoption, LinkMode, TargetType } from '@eurocomply/database';
 import type { Env } from '../app.js';
 import { authorize } from '../middleware/authorize.js';
 
@@ -173,7 +173,7 @@ export function createCategoryAdoptionRouter(options: CategoryAdoptionRouterOpti
       // Create adoption record
       const adoption = new CategoryAdoption();
       adoption.systemCategoryId = categoryId;
-      adoption.mode = AdoptionMode.LIVE_LINK;
+      adoption.mode = LinkMode.LIVE;
       adoption.adoptedAt = new Date();
 
       txEm.persist(adoption);

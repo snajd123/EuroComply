@@ -8,6 +8,7 @@ import { createOrganizationsRouter } from './routes/organizations.js';
 import { createProductsRouter } from './routes/products.js';
 import { createApiKeysRouter } from './routes/api-keys.js';
 import { createCategoryAdoptionRouter } from './routes/category-adoption.js';
+import { createTenantCategoriesRouter } from './routes/tenant-categories.js';
 import { createUnitsRouter, type UnitsRepository, createSubstancesRouter, type SubstancesRepository } from './routes/taxonomy/index.js';
 import { tenantMiddleware, createTenantMiddlewareWithApiKeys } from './middleware/tenant.js';
 import { adminAuthMiddleware } from './middleware/admin-auth.js';
@@ -129,6 +130,13 @@ export function createApp(deps?: AppDependencies): Hono<Env> {
       v1.use('/category-adoption/*', userMiddleware);
     }
     v1.route('/category-adoption', createCategoryAdoptionRouter({ orm: deps.orm }));
+
+    // Tenant Categories: Apply tenant + user middleware (requires full auth stack)
+    v1.use('/tenant-categories/*', createTenantMiddlewareWithApiKeys(deps.orm.em as any));
+    if (userMiddleware) {
+      v1.use('/tenant-categories/*', userMiddleware);
+    }
+    v1.route('/tenant-categories', createTenantCategoriesRouter({ orm: deps.orm }));
   }
 
   app.route('/api/v1', v1);
