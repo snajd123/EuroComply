@@ -1,0 +1,5 @@
+export enum ListRequirement {
+  MANDATORY = 'MANDATORY',
+  RECOMMENDED = 'RECOMMENDED',
+  INFORMATIONAL = 'INFORMATIONAL',
+}
