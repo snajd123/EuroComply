@@ -3,6 +3,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import { CategoryType, TargetType } from '@eurocomply/database';
+import { success, error } from '../../utils/response.js';
 
 // ============================================================================
 // Types
@@ -61,10 +62,7 @@ export function createCategoriesRouter(repo: CategoriesRepository) {
 
     const categories = await repo.findAll(filter);
 
-    return c.json({
-      data: categories,
-      meta: { total: categories.length },
-    });
+    return success(c, categories, { total: categories.length });
   });
 
   // GET /categories/roots - Get root categories (depth=0)
@@ -73,10 +71,7 @@ export function createCategoriesRouter(repo: CategoriesRepository) {
     const query = c.req.valid('query');
     const categories = await repo.findRoots(query.targetType);
 
-    return c.json({
-      data: categories,
-      meta: { total: categories.length },
-    });
+    return success(c, categories, { total: categories.length });
   });
 
   // GET /categories/:id - Get single category by ID
@@ -85,10 +80,10 @@ export function createCategoriesRouter(repo: CategoriesRepository) {
     const category = await repo.findById(id);
 
     if (!category) {
-      return c.json({ error: 'Category not found' }, 404);
+      return error(c, 'NOT_FOUND', 'Category not found', 404);
     }
 
-    return c.json({ data: category });
+    return success(c, category);
   });
 
   // GET /categories/:id/children - Get direct children of a category
@@ -98,15 +93,12 @@ export function createCategoriesRouter(repo: CategoriesRepository) {
     // First verify the parent exists
     const parent = await repo.findById(id);
     if (!parent) {
-      return c.json({ error: 'Category not found' }, 404);
+      return error(c, 'NOT_FOUND', 'Category not found', 404);
     }
 
     const children = await repo.findChildren(id);
 
-    return c.json({
-      data: children,
-      meta: { total: children.length },
-    });
+    return success(c, children, { total: children.length });
   });
 
   // GET /categories/:id/ancestors - Get breadcrumb trail (ancestors ordered by depth)
@@ -116,15 +108,12 @@ export function createCategoriesRouter(repo: CategoriesRepository) {
     // First verify the category exists
     const category = await repo.findById(id);
     if (!category) {
-      return c.json({ error: 'Category not found' }, 404);
+      return error(c, 'NOT_FOUND', 'Category not found', 404);
     }
 
     const ancestors = await repo.findAncestors(id);
 
-    return c.json({
-      data: ancestors,
-      meta: { total: ancestors.length },
-    });
+    return success(c, ancestors, { total: ancestors.length });
   });
 
   return router;

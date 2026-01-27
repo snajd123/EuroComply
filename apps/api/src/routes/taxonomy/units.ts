@@ -3,6 +3,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import { UnitSystem, UnitConversionService, type UnitLookup, type UnitInfo } from '@eurocomply/database';
+import { success, error } from '../../utils/response.js';
 
 // ============================================================================
 // Types
@@ -81,10 +82,7 @@ export function createUnitsRouter(repo: UnitsRepository) {
       active: query.active,
     });
 
-    return c.json({
-      data: units,
-      meta: { total: units.length },
-    });
+    return success(c, units, { total: units.length });
   });
 
   // GET /units/convert - Convert between units
@@ -95,15 +93,13 @@ export function createUnitsRouter(repo: UnitsRepository) {
     try {
       const result = await conversionService.convert(value, from, to);
 
-      return c.json({
-        data: {
-          from: { val: value, unit: from },
-          to: { val: result.val, unit: result.unit },
-        },
+      return success(c, {
+        from: { val: value, unit: from },
+        to: { val: result.val, unit: result.unit },
       });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Conversion failed';
-      return c.json({ error: 'Bad Request', message }, 400);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Conversion failed';
+      return error(c, 'BAD_REQUEST', message, 400);
     }
   });
 
@@ -113,10 +109,10 @@ export function createUnitsRouter(repo: UnitsRepository) {
     const unit = await repo.findByCode(code);
 
     if (!unit) {
-      return c.json({ error: 'Not Found', message: `Unit not found: ${code}` }, 404);
+      return error(c, 'NOT_FOUND', `Unit not found: ${code}`, 404);
     }
 
-    return c.json({ data: unit });
+    return success(c, unit);
   });
 
   return router;

@@ -14,6 +14,7 @@ import type { MikroORM } from '@eurocomply/database';
 import { CategoryAdoption, LinkMode, TargetType } from '@eurocomply/database';
 import type { Env } from '../app.js';
 import { authorize } from '../middleware/authorize.js';
+import { success, error } from '../utils/response.js';
 
 // ============================================================================
 // Types
@@ -89,10 +90,7 @@ export function createCategoryAdoptionRouter(options: CategoryAdoptionRouterOpti
       }));
     });
 
-    return c.json({
-      data: result,
-      meta: { total: result.length },
-    });
+    return success(c, result, { total: result.length });
   });
 
   // GET /available - List categories available for adoption
@@ -134,10 +132,7 @@ export function createCategoryAdoptionRouter(options: CategoryAdoptionRouterOpti
         }));
     });
 
-    return c.json({
-      data: result,
-      meta: { total: result.length },
-    });
+    return success(c, result, { total: result.length });
   });
 
   // POST /:categoryId - Adopt a system category
@@ -186,30 +181,19 @@ export function createCategoryAdoptionRouter(options: CategoryAdoptionRouterOpti
     });
 
     if (result.error === 'not_found') {
-      return c.json(
-        { error: 'Not Found', message: 'Category not found' },
-        404
-      );
+      return error(c, 'NOT_FOUND', 'Category not found', 404);
     }
 
     if (result.error === 'conflict') {
-      return c.json(
-        { error: 'Conflict', message: result.message },
-        409
-      );
+      return error(c, 'CONFLICT', result.message, 409);
     }
 
-    return c.json(
-      {
-        data: {
-          id: result.adoption.id,
-          categoryId: result.adoption.systemCategoryId,
-          categoryName: result.categoryName,
-          adoptedAt: result.adoption.adoptedAt.toISOString(),
-        },
-      },
-      201
-    );
+    return success(c, {
+      id: result.adoption.id,
+      categoryId: result.adoption.systemCategoryId,
+      categoryName: result.categoryName,
+      adoptedAt: result.adoption.adoptedAt.toISOString(),
+    }, { status: 201 });
   });
 
   // DELETE /:categoryId - Remove category adoption
@@ -235,15 +219,10 @@ export function createCategoryAdoptionRouter(options: CategoryAdoptionRouterOpti
     });
 
     if (result.error === 'not_found') {
-      return c.json(
-        { error: 'Not Found', message: result.message },
-        404
-      );
+      return error(c, 'NOT_FOUND', result.message, 404);
     }
 
-    return c.json({
-      message: 'Category adoption removed successfully',
-    });
+    return success(c, { message: 'Category adoption removed successfully' });
   });
 
   return router;

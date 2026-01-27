@@ -2,6 +2,7 @@
 import { createMiddleware } from 'hono/factory';
 import type { Env } from '../app.js';
 import { User, type MikroORM } from '@eurocomply/database';
+import { error } from '../utils/response.js';
 
 export interface UserMiddlewareOptions {
   orm: MikroORM;
@@ -16,10 +17,7 @@ export function createUserMiddleware(options: UserMiddlewareOptions) {
 
     // Guard: tenantMiddleware must run first
     if (!tenantSchema) {
-      return c.json(
-        { error: 'Unauthorized', message: 'Missing tenant context' },
-        401
-      );
+      return error(c, 'UNAUTHORIZED', 'Missing tenant context', 401);
     }
 
     // Skip for API key auth (already has org-level access)
@@ -43,26 +41,14 @@ export function createUserMiddleware(options: UserMiddlewareOptions) {
 
     // Race condition: user has valid JWT but webhook hasn't synced yet
     if (!user) {
-      return c.json(
-        {
-          error: 'Provisioning',
-          message: 'Setting up your account. Please retry in a moment.',
-          retryAfter: 2,
-        },
-        202,
-        { 'Retry-After': '2' }
-      );
+      const response = error(c, 'PROVISIONING', 'Setting up your account. Please retry in a moment.', 202, { retryAfter: 2 });
+      response.headers.set('Retry-After', '2');
+      return response;
     }
 
     // User was soft-deleted or has no membership
     if (!user.membership) {
-      return c.json(
-        {
-          error: 'Forbidden',
-          message: 'You are no longer a member of this organization',
-        },
-        403
-      );
+      return error(c, 'FORBIDDEN', 'You are no longer a member of this organization', 403);
     }
 
     // Attach to context

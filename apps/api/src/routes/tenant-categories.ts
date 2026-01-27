@@ -5,6 +5,7 @@ import { TenantCategory, LinkMode, CategoryType, TargetType, Product } from '@eu
 import type { MikroORM } from '@eurocomply/database';
 import type { Env } from '../app.js';
 import { authorize } from '../middleware/authorize.js';
+import { success, error } from '../utils/response.js';
 
 export interface TenantCategoriesRouterOptions {
   orm: MikroORM;
@@ -50,23 +51,20 @@ export function createTenantCategoriesRouter(options: TenantCategoriesRouterOpti
       return txEm.find(TenantCategory, { isActive: true }, { orderBy: { path: 'ASC' } });
     });
 
-    return c.json({
-      data: categories.map((cat: TenantCategory) => ({
-        id: cat.id,
-        name: cat.name,
-        description: cat.description,
-        path: cat.path,
-        type: cat.type,
-        targetType: cat.targetType,
-        depth: cat.depth,
-        parentId: cat.parent?.id,
-        systemCategoryId: cat.systemCategoryId,
-        linkMode: cat.linkMode,
-        frozenAtVersion: cat.frozenAtVersion,
-        isActive: cat.isActive,
-      })),
-      meta: { total: categories.length },
-    });
+    return success(c, categories.map((cat: TenantCategory) => ({
+      id: cat.id,
+      name: cat.name,
+      description: cat.description,
+      path: cat.path,
+      type: cat.type,
+      targetType: cat.targetType,
+      depth: cat.depth,
+      parentId: cat.parent?.id,
+      systemCategoryId: cat.systemCategoryId,
+      linkMode: cat.linkMode,
+      frozenAtVersion: cat.frozenAtVersion,
+      isActive: cat.isActive,
+    })), { total: categories.length });
   });
 
   // POST / - Create tenant category (design:manage = MANAGER only)
@@ -125,27 +123,25 @@ export function createTenantCategoriesRouter(options: TenantCategoriesRouterOpti
     });
 
     if (result.error === 'not_found') {
-      return c.json({ error: 'Not Found', message: result.message }, 404);
+      return error(c, 'NOT_FOUND', result.message, 404);
     }
     if (result.error === 'conflict') {
-      return c.json({ error: 'Conflict', message: result.message }, 409);
+      return error(c, 'CONFLICT', result.message, 409);
     }
     if (result.error === 'bad_request') {
-      return c.json({ error: 'Bad Request', message: result.message }, 400);
+      return error(c, 'BAD_REQUEST', result.message, 400);
     }
 
-    return c.json({
-      data: {
-        id: result.category.id,
-        name: result.category.name,
-        path: result.category.path,
-        type: result.category.type,
-        targetType: result.category.targetType,
-        depth: result.category.depth,
-        systemCategoryId: result.category.systemCategoryId,
-        linkMode: result.category.linkMode,
-      },
-    }, 201);
+    return success(c, {
+      id: result.category.id,
+      name: result.category.name,
+      path: result.category.path,
+      type: result.category.type,
+      targetType: result.category.targetType,
+      depth: result.category.depth,
+      systemCategoryId: result.category.systemCategoryId,
+      linkMode: result.category.linkMode,
+    }, { status: 201 });
   });
 
   // GET /:id - Get single category (design:view)
@@ -161,25 +157,23 @@ export function createTenantCategoriesRouter(options: TenantCategoriesRouterOpti
     });
 
     if (!category) {
-      return c.json({ error: 'Not Found', message: 'Category not found' }, 404);
+      return error(c, 'NOT_FOUND', 'Category not found', 404);
     }
 
-    return c.json({
-      data: {
-        id: category.id,
-        name: category.name,
-        description: category.description,
-        path: category.path,
-        type: category.type,
-        targetType: category.targetType,
-        depth: category.depth,
-        parentId: category.parent?.id,
-        systemCategoryId: category.systemCategoryId,
-        linkMode: category.linkMode,
-        frozenAtVersion: category.frozenAtVersion,
-        isActive: category.isActive,
-        defaultProfileId: category.defaultProfileId,
-      },
+    return success(c, {
+      id: category.id,
+      name: category.name,
+      description: category.description,
+      path: category.path,
+      type: category.type,
+      targetType: category.targetType,
+      depth: category.depth,
+      parentId: category.parent?.id,
+      systemCategoryId: category.systemCategoryId,
+      linkMode: category.linkMode,
+      frozenAtVersion: category.frozenAtVersion,
+      isActive: category.isActive,
+      defaultProfileId: category.defaultProfileId,
     });
   });
 
@@ -208,10 +202,10 @@ export function createTenantCategoriesRouter(options: TenantCategoriesRouterOpti
     });
 
     if (result.error === 'not_found') {
-      return c.json({ error: 'Not Found', message: 'Category not found' }, 404);
+      return error(c, 'NOT_FOUND', 'Category not found', 404);
     }
 
-    return c.json({ data: { id: result.category.id, name: result.category.name, updated: true } });
+    return success(c, { id: result.category.id, name: result.category.name, updated: true });
   });
 
   // DELETE /:id - Delete tenant category (design:manage)
@@ -256,13 +250,13 @@ export function createTenantCategoriesRouter(options: TenantCategoriesRouterOpti
     });
 
     if (result.error === 'not_found') {
-      return c.json({ error: 'Not Found', message: result.message }, 404);
+      return error(c, 'NOT_FOUND', result.message, 404);
     }
     if (result.error === 'conflict') {
-      return c.json({ error: 'Conflict', message: result.message }, 409);
+      return error(c, 'CONFLICT', result.message, 409);
     }
 
-    return c.json({ data: { success: true, deleted: result.deleted } });
+    return success(c, { deleted: result.deleted });
   });
 
   return router;

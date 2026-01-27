@@ -7,13 +7,15 @@ import { CategoryType, TargetType } from '@eurocomply/database';
 import { setupTestDb, teardownTestDb, isDatabaseAvailable } from '@eurocomply/database/test-utils';
 
 interface ApiResponse<T> {
+  success: true;
   data: T;
-  meta?: { total: number };
+  meta: { requestId: string; timestamp: string; total?: number };
 }
 
 interface ErrorResponse {
-  error: string;
-  message?: string;
+  success: false;
+  error: { code: string; message: string; details?: unknown };
+  meta: { requestId: string; timestamp: string };
 }
 
 // Check database availability at module level (before test registration)
@@ -297,7 +299,8 @@ describe('Categories API E2E', () => {
       expect(res.status).toBe(404);
 
       const body = await res.json() as ErrorResponse;
-      expect(body.error).toBe('Category not found');
+      expect(body.error.code).toBe('NOT_FOUND');
+      expect(body.error.message).toBe('Category not found');
     });
   });
 
@@ -329,7 +332,8 @@ describe('Categories API E2E', () => {
       expect(res.status).toBe(404);
 
       const body = await res.json() as ErrorResponse;
-      expect(body.error).toBe('Category not found');
+      expect(body.error.code).toBe('NOT_FOUND');
+      expect(body.error.message).toBe('Category not found');
     });
   });
 
@@ -362,7 +366,8 @@ describe('Categories API E2E', () => {
       expect(res.status).toBe(404);
 
       const body = await res.json() as ErrorResponse;
-      expect(body.error).toBe('Category not found');
+      expect(body.error.code).toBe('NOT_FOUND');
+      expect(body.error.message).toBe('Category not found');
     });
   });
 });

@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
+import { success, error } from '../../utils/response.js';
 
 // ============================================================================
 // Types
@@ -77,10 +78,7 @@ export function createSubstancesRouter(repo: SubstancesRepository) {
 
     const substances = await repo.findAll(filter);
 
-    return c.json({
-      data: substances,
-      meta: { total: substances.length },
-    });
+    return success(c, substances, { total: substances.length });
   });
 
   // GET /substances/regulated - Get all regulated substances (SVHC + Auth + Restricted)
@@ -88,15 +86,14 @@ export function createSubstancesRouter(repo: SubstancesRepository) {
   router.get('/regulated', async (c) => {
     const substances = await repo.findRegulated();
 
-    return c.json({
-      data: substances,
-      meta: {
-        total: substances.length,
-        svhcCount: substances.filter(s => s.isSvhc).length,
-        authorizationCount: substances.filter(s => s.requiresAuthorization).length,
-        restrictedCount: substances.filter(s => s.isRestricted).length,
+    return success(c, {
+      substances,
+      counts: {
+        svhc: substances.filter(s => s.isSvhc).length,
+        authorization: substances.filter(s => s.requiresAuthorization).length,
+        restricted: substances.filter(s => s.isRestricted).length,
       },
-    });
+    }, { total: substances.length });
   });
 
   // GET /substances/:casNumber - Get single by CAS number
@@ -105,10 +102,10 @@ export function createSubstancesRouter(repo: SubstancesRepository) {
     const substance = await repo.findByCasNumber(casNumber);
 
     if (!substance) {
-      return c.json({ error: 'Not Found', message: `Substance not found: ${casNumber}` }, 404);
+      return error(c, 'NOT_FOUND', `Substance not found: ${casNumber}`, 404);
     }
 
-    return c.json({ data: substance });
+    return success(c, substance);
   });
 
   // GET /substances/:casNumber/aliases - Get aliases for a substance
@@ -117,15 +114,12 @@ export function createSubstancesRouter(repo: SubstancesRepository) {
     const substance = await repo.findByCasNumber(casNumber);
 
     if (!substance) {
-      return c.json({ error: 'Not Found', message: `Substance not found: ${casNumber}` }, 404);
+      return error(c, 'NOT_FOUND', `Substance not found: ${casNumber}`, 404);
     }
 
     const aliases = await repo.findAliases(substance.id);
 
-    return c.json({
-      data: aliases,
-      meta: { total: aliases.length, casNumber },
-    });
+    return success(c, { aliases, casNumber }, { total: aliases.length });
   });
 
   return router;

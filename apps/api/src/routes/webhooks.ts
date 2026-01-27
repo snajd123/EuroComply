@@ -14,6 +14,7 @@ import {
 } from '../webhooks/clerk.js';
 import type { MikroORM } from '@eurocomply/database';
 import type { TenantProvisioner } from '@eurocomply/database';
+import { success, error } from '../utils/response.js';
 
 export interface WebhooksRouterOptions {
   orm: MikroORM;
@@ -30,7 +31,7 @@ export function createWebhooksRouter(options: WebhooksRouterOptions) {
   router.post('/clerk', async (c) => {
     // Check webhook secret is configured
     if (!webhookSecret) {
-      return c.json({ error: 'Webhook secret not configured' }, 500);
+      return error(c, 'CONFIG_ERROR', 'Webhook secret not configured', 500);
     }
 
     // Get the raw body for signature verification
@@ -55,7 +56,7 @@ export function createWebhooksRouter(options: WebhooksRouterOptions) {
       });
 
       if (!result.valid) {
-        return c.json({ error: 'Invalid webhook signature', details: result.error }, 401);
+        return error(c, 'INVALID_SIGNATURE', 'Invalid webhook signature', 401, { details: result.error });
       }
 
       event = result.payload as ClerkWebhookEvent;
@@ -66,10 +67,9 @@ export function createWebhooksRouter(options: WebhooksRouterOptions) {
       case 'organization.created': {
         const result = await handleOrganizationCreated(event, { orm, provisioner, clerk });
         if (!result.success) {
-          return c.json({ success: false, error: result.error }, 500);
+          return error(c, 'WEBHOOK_HANDLER_ERROR', result.error ?? 'Unknown error', 500);
         }
-        return c.json({
-          success: true,
+        return success(c, {
           organizationId: result.organizationId,
           schemaName: result.schemaName,
         });
@@ -78,53 +78,52 @@ export function createWebhooksRouter(options: WebhooksRouterOptions) {
       case 'organization.deleted': {
         const result = await handleOrganizationDeleted(event, { orm, provisioner });
         if (!result.success) {
-          return c.json({ success: false, error: result.error }, 500);
+          return error(c, 'WEBHOOK_HANDLER_ERROR', result.error ?? 'Unknown error', 500);
         }
-        return c.json({
-          success: true,
+        return success(c, {
           organizationId: result.organizationId,
         });
       }
 
       case 'organization.updated': {
         // For now, just acknowledge - can add handling later
-        return c.json({ success: true, message: 'Event acknowledged' });
+        return success(c, { message: 'Event acknowledged' });
       }
 
       case 'organizationMembership.created': {
         if (!orm) {
-          return c.json({ error: 'MikroORM not configured for membership handlers' }, 500);
+          return error(c, 'CONFIG_ERROR', 'MikroORM not configured for membership handlers', 500);
         }
         try {
           const result = await handleMembershipCreated(orm, event as unknown as ClerkOrganizationMembershipEvent);
-          return c.json(result);
-        } catch (error) {
-          if (error instanceof RetryableError) {
-            return c.json({ error: error.message }, 503);
+          return success(c, result);
+        } catch (err) {
+          if (err instanceof RetryableError) {
+            return error(c, 'RETRYABLE_ERROR', err.message, 503);
           }
-          throw error;
+          throw err;
         }
       }
 
       case 'organizationMembership.deleted': {
         if (!orm) {
-          return c.json({ error: 'MikroORM not configured for membership handlers' }, 500);
+          return error(c, 'CONFIG_ERROR', 'MikroORM not configured for membership handlers', 500);
         }
         const result = await handleMembershipDeleted(orm, event as unknown as ClerkOrganizationMembershipEvent);
-        return c.json(result);
+        return success(c, result);
       }
 
       case 'user.updated': {
         if (!orm) {
-          return c.json({ error: 'MikroORM not configured for membership handlers' }, 500);
+          return error(c, 'CONFIG_ERROR', 'MikroORM not configured for membership handlers', 500);
         }
         const result = await handleUserUpdated(orm, event as unknown as ClerkUserUpdatedEvent);
-        return c.json(result);
+        return success(c, result);
       }
 
       default: {
         // Unknown event type - acknowledge but don't process
-        return c.json({ success: true, message: 'Event type not handled' });
+        return success(c, { message: 'Event type not handled' });
       }
     }
   });

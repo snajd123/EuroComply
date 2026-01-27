@@ -220,10 +220,10 @@ describe('API Key Authorization Integration', () => {
       });
 
       expect(res.status).toBe(403);
-      const data = (await res.json()) as { error: string; workspace: string; yourAuthority: string };
-      expect(data.error).toBe('Forbidden');
-      expect(data.workspace).toBe('design');
-      expect(data.yourAuthority).toBe('VIEWER');
+      const data = (await res.json()) as { error: { code: string; message: string; details?: { workspace: string; yourAuthority: string } } };
+      expect(data.error.code).toBe('FORBIDDEN');
+      expect(data.error.details?.workspace).toBe('design');
+      expect(data.error.details?.yourAuthority).toBe('VIEWER');
     });
 
     it('denies NONE key from viewing design workspace (403)', async (context) => {
@@ -237,9 +237,9 @@ describe('API Key Authorization Integration', () => {
       });
 
       expect(res.status).toBe(403);
-      const data = (await res.json()) as { error: string; yourAuthority: string };
-      expect(data.error).toBe('Forbidden');
-      expect(data.yourAuthority).toBe('NONE');
+      const data = (await res.json()) as { error: { code: string; message: string; details?: { yourAuthority: string } } };
+      expect(data.error.code).toBe('FORBIDDEN');
+      expect(data.error.details?.yourAuthority).toBe('NONE');
     });
   });
 
@@ -256,10 +256,10 @@ describe('API Key Authorization Integration', () => {
       });
 
       expect(res.status).toBe(403);
-      const data = (await res.json()) as { error: string; workspace: string; yourAuthority: string };
-      expect(data.error).toBe('Forbidden');
-      expect(data.workspace).toBe('compliance');
-      expect(data.yourAuthority).toBe('NONE');
+      const data = (await res.json()) as { error: { code: string; message: string; details?: { workspace: string; yourAuthority: string } } };
+      expect(data.error.code).toBe('FORBIDDEN');
+      expect(data.error.details?.workspace).toBe('compliance');
+      expect(data.error.details?.yourAuthority).toBe('NONE');
     });
   });
 
@@ -291,9 +291,9 @@ describe('API Key Authorization Integration', () => {
       });
 
       expect(res.status).toBe(403);
-      const data = (await res.json()) as { error: string; message: string };
-      expect(data.error).toBe('Forbidden');
-      expect(data.message).toContain('Organization Admin');
+      const data = (await res.json()) as { error: { code: string; message: string } };
+      expect(data.error.code).toBe('FORBIDDEN');
+      expect(data.error.message).toContain('Organization Admin');
     });
   });
 
@@ -333,8 +333,8 @@ describe('API Key Authorization Integration', () => {
       });
 
       expect(res.status).toBe(401);
-      const data = (await res.json()) as { error: string; message: string };
-      expect(data.message).toContain('revoked');
+      const data = (await res.json()) as { error: { code: string; message: string } };
+      expect(data.error.message).toContain('revoked');
     });
   });
 });

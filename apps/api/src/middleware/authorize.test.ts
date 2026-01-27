@@ -37,9 +37,9 @@ describe('authorize middleware', () => {
       const res = await app.request('/test', { method: 'POST' });
       expect(res.status).toBe(403);
 
-      const body = await res.json() as { yourAuthority: string; requiredAuthority: string };
-      expect(body.yourAuthority).toBe('VIEWER');
-      expect(body.requiredAuthority).toBe('CONTRIBUTOR');
+      const body = await res.json() as { error: { code: string; message: string; details: { yourAuthority: string; requiredAuthority: string } } };
+      expect(body.error.details.yourAuthority).toBe('VIEWER');
+      expect(body.error.details.requiredAuthority).toBe('CONTRIBUTOR');
     });
 
     it('denies NONE from viewing', async () => {
@@ -145,9 +145,9 @@ describe('authorize middleware', () => {
       const res = await app.request('/test', { method: 'POST' });
       expect(res.status).toBe(403);
 
-      const body = await res.json() as { yourAuthority: string; requiredAuthority: string };
-      expect(body.yourAuthority).toBe('VIEWER');
-      expect(body.requiredAuthority).toBe('MANAGER');
+      const body = await res.json() as { error: { code: string; message: string; details: { yourAuthority: string; requiredAuthority: string } } };
+      expect(body.error.details.yourAuthority).toBe('VIEWER');
+      expect(body.error.details.requiredAuthority).toBe('MANAGER');
     });
 
     it('denies API key with NONE authority (403)', async () => {
@@ -167,9 +167,9 @@ describe('authorize middleware', () => {
       const res = await app.request('/test');
       expect(res.status).toBe(403);
 
-      const body = await res.json() as { yourAuthority: string; requiredAuthority: string };
-      expect(body.yourAuthority).toBe('NONE');
-      expect(body.requiredAuthority).toBe('VIEWER');
+      const body = await res.json() as { error: { code: string; message: string; details: { yourAuthority: string; requiredAuthority: string } } };
+      expect(body.error.details.yourAuthority).toBe('NONE');
+      expect(body.error.details.requiredAuthority).toBe('VIEWER');
     });
 
     it('returns 401 when API key has no apiKeyAuthorities set', async () => {
@@ -229,8 +229,8 @@ describe('requireOrgAdmin middleware', () => {
     const res = await app.request('/test');
     expect(res.status).toBe(403);
 
-    const body = await res.json() as { message: string };
-    expect(body.message).toContain('Organization Admin');
+    const body = await res.json() as { error: { code: string; message: string } };
+    expect(body.error.message).toContain('Organization Admin');
   });
 
   it('allows API key with isOrgAdmin true', async () => {

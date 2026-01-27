@@ -1,5 +1,6 @@
 import { createMiddleware } from 'hono/factory';
 import { Webhook } from 'svix';
+import { error } from '../utils/response.js';
 
 export interface WebhookVerificationResult {
   valid: boolean;
@@ -64,7 +65,7 @@ export function clerkWebhookMiddleware(secret: string) {
     });
 
     if (!result.valid) {
-      return c.json({ error: 'Invalid webhook signature', details: result.error }, 401);
+      return error(c, 'INVALID_SIGNATURE', 'Invalid webhook signature', 401, { details: result.error });
     }
 
     // Store verified payload for handler

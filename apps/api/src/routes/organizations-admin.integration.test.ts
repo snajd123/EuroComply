@@ -144,11 +144,13 @@ describe('Organizations Admin API Integration', () => {
       expect(res.status).toBe(200);
 
       const data = await res.json() as {
-        id: string;
-        provisioningStatus: string;
+        data: {
+          id: string;
+          provisioningStatus: string;
+        };
       };
-      expect(data.id).toBe(org.id);
-      expect(data.provisioningStatus).toBe('PENDING');
+      expect(data.data.id).toBe(org.id);
+      expect(data.data.provisioningStatus).toBe('PENDING');
     });
 
     it('returns organization status by Clerk org ID', async (context) => {
@@ -165,12 +167,14 @@ describe('Organizations Admin API Integration', () => {
       expect(res.status).toBe(200);
 
       const data = await res.json() as {
-        id: string;
-        clerkOrgId: string;
-        provisioningStatus: string;
+        data: {
+          id: string;
+          clerkOrgId: string;
+          provisioningStatus: string;
+        };
       };
-      expect(data.id).toBe(org.id);
-      expect(data.clerkOrgId).toBe(org.clerkOrgId);
+      expect(data.data.id).toBe(org.id);
+      expect(data.data.clerkOrgId).toBe(org.clerkOrgId);
     });
 
     it('returns 404 for non-existent organization', async (context) => {
@@ -200,9 +204,9 @@ describe('Organizations Admin API Integration', () => {
       });
 
       expect(res.status).toBe(200);
-      const data = await res.json() as { success: boolean; provisioningStatus: string };
+      const data = await res.json() as { success: boolean; data: { provisioningStatus: string } };
       expect(data.success).toBe(true);
-      expect(data.provisioningStatus).toBe('READY');
+      expect(data.data.provisioningStatus).toBe('READY');
 
       // Verify the schema was created
       const tables = await orm.em.execute<{ table_name: string }[]>(
@@ -227,7 +231,7 @@ describe('Organizations Admin API Integration', () => {
       });
 
       expect(res.status).toBe(200);
-      const data = await res.json() as { success: boolean };
+      const data = await res.json() as { success: boolean; data: { provisioningStatus?: string } };
       expect(data.success).toBe(true);
 
       // Verify org status updated
@@ -262,8 +266,8 @@ describe('Organizations Admin API Integration', () => {
       });
 
       expect(res.status).toBe(400);
-      const data = await res.json() as { error: string };
-      expect(data.error).toContain('already provisioned');
+      const data = await res.json() as { error: { code: string; message: string } };
+      expect(data.error.message).toContain('already in READY state');
     });
 
     it('returns 404 for non-existent organization', async (context) => {
@@ -299,9 +303,9 @@ describe('Organizations Admin API Integration', () => {
       });
 
       expect(res.status).toBe(200);
-      const data = await res.json() as { success: boolean; schemaName: string };
+      const data = await res.json() as { success: boolean; data: { schemaName: string } };
       expect(data.success).toBe(true);
-      expect(data.schemaName).toBe(org.schemaName);
+      expect(data.data.schemaName).toBe(org.schemaName);
 
       // Verify org is deleted
       const em = orm.em.fork();

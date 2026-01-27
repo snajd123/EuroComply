@@ -79,9 +79,9 @@ describe('Tenant Provisioning E2E', () => {
     });
 
     expect(res.status).toBe(200);
-    const data = await res.json() as { success: boolean; schemaName: string };
-    expect(data.success).toBe(true);
-    expect(data.schemaName).toBe(testSchema);
+    const body = await res.json() as { success: boolean; data: { schemaName: string } };
+    expect(body.success).toBe(true);
+    expect(body.data.schemaName).toBe(testSchema);
 
     // Verify organization was created
     const em = orm.em.fork();

@@ -6,6 +6,7 @@ import {
   type JwtVerificationOptions,
 } from '../utils/jwt.js';
 import { ApiKeyService, type EntityManager } from '@eurocomply/database';
+import { error } from '../utils/response.js';
 
 export interface TenantContext {
   schemaName: string;
@@ -54,17 +55,14 @@ export function createTenantMiddleware(options?: TenantMiddlewareOptions) {
     // Try API key authentication first
     if (apiKey) {
       if (!options?.em) {
-        return c.json(
-          { error: 'Server Error', message: 'API key authentication not configured' },
-          500
-        );
+        return error(c, 'CONFIG_ERROR', 'API key authentication not configured', 500);
       }
 
       const apiKeyService = new ApiKeyService(options.em);
       const result = await apiKeyService.validateKey(apiKey);
 
       if (!result.valid) {
-        return c.json({ error: 'Unauthorized', message: result.error ?? 'Invalid API key' }, 401);
+        return error(c, 'UNAUTHORIZED', result.error ?? 'Invalid API key', 401);
       }
 
       tenant = {
@@ -104,14 +102,11 @@ export function createTenantMiddleware(options?: TenantMiddlewareOptions) {
         tenant = extractTenantFromJwtUnsafe(token);
       }
     } else {
-      return c.json(
-        { error: 'Unauthorized', message: 'Missing X-API-Key or Authorization header' },
-        401
-      );
+      return error(c, 'UNAUTHORIZED', 'Missing X-API-Key or Authorization header', 401);
     }
 
     if (!tenant) {
-      return c.json({ error: 'Unauthorized', message: 'Invalid token or missing tenant context' }, 401);
+      return error(c, 'UNAUTHORIZED', 'Invalid token or missing tenant context', 401);
     }
 
     c.set('tenantSchema', tenant.schemaName);

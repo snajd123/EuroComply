@@ -98,9 +98,9 @@ describe('tenant middleware', () => {
       const res = await app.request('/test');
       expect(res.status).toBe(401);
 
-      const data = (await res.json()) as { error: string; message: string };
-      expect(data.error).toBe('Unauthorized');
-      expect(data.message).toBe('Missing X-API-Key or Authorization header');
+      const data = (await res.json()) as { error: { code: string; message: string } };
+      expect(data.error.code).toBe('UNAUTHORIZED');
+      expect(data.error.message).toBe('Missing X-API-Key or Authorization header');
     });
 
     it('returns 401 for invalid token format', async () => {
@@ -113,8 +113,8 @@ describe('tenant middleware', () => {
       });
       expect(res.status).toBe(401);
 
-      const data = (await res.json()) as { error: string; message: string };
-      expect(data.message).toBe('Invalid token or missing tenant context');
+      const data = (await res.json()) as { error: { code: string; message: string } };
+      expect(data.error.message).toBe('Invalid token or missing tenant context');
     });
 
     it('returns 401 when Authorization header is not Bearer', async () => {
@@ -176,8 +176,8 @@ describe('tenant middleware', () => {
       });
 
       expect(res.status).toBe(401);
-      const data = (await res.json()) as { error: string; message: string };
-      expect(data.message).toBe('Invalid token or missing tenant context');
+      const data = (await res.json()) as { error: { code: string; message: string } };
+      expect(data.error.message).toBe('Invalid token or missing tenant context');
     });
 
     it('returns 401 when verified token has no schema_name', async () => {
@@ -329,9 +329,9 @@ describe('tenant middleware', () => {
       });
 
       expect(res.status).toBe(401);
-      const data = (await res.json()) as { error: string; message: string };
-      expect(data.error).toBe('Unauthorized');
-      expect(data.message).toBe('API key has been revoked');
+      const data = (await res.json()) as { error: { code: string; message: string } };
+      expect(data.error.code).toBe('UNAUTHORIZED');
+      expect(data.error.message).toBe('API key has been revoked');
     });
   });
 });

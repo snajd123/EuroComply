@@ -100,7 +100,7 @@ describe('Substances Router', () => {
       expect(res.status).toBe(200);
 
       const body = await res.json() as any;
-      expect(body.data.length).toBe(2); // DMAC and Lead
+      expect(body.data.substances.length).toBe(2); // DMAC and Lead
       expect(mockRepo.findRegulated).toHaveBeenCalled();
     });
   });
@@ -127,8 +127,8 @@ describe('Substances Router', () => {
       expect(res.status).toBe(200);
 
       const body = await res.json() as any;
-      expect(body.data).toHaveLength(2);
-      expect(body.data.map((a: any) => a.name)).toContain('DMAC');
+      expect(body.data.aliases).toHaveLength(2);
+      expect(body.data.aliases.map((a: any) => a.name)).toContain('DMAC');
     });
 
     it('should return 404 for unknown substance', async () => {

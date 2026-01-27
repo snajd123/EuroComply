@@ -147,9 +147,10 @@ describe('Membership Webhooks Integration', () => {
       });
 
       expect(res.status).toBe(200);
-      const data = await res.json() as { status: string; userId: string };
-      expect(data.status).toBe('created');
-      expect(data.userId).toBeDefined();
+      const body = await res.json() as { success: boolean; data: { status: string; userId: string } };
+      expect(body.success).toBe(true);
+      expect(body.data.status).toBe('created');
+      expect(body.data.userId).toBeDefined();
 
       // Verify user was created in tenant schema
       const em = orm.em.fork({ schema: testSchemaName });
@@ -231,8 +232,9 @@ describe('Membership Webhooks Integration', () => {
       });
 
       expect(res.status).toBe(200);
-      const data = await res.json() as { status: string };
-      expect(data.status).toBe('created');
+      const body = await res.json() as { success: boolean; data: { status: string } };
+      expect(body.success).toBe(true);
+      expect(body.data.status).toBe('created');
 
       // Verify membership was created with NONE (not first user)
       const em2 = orm.em.fork({ schema: testSchemaName });
@@ -334,8 +336,9 @@ describe('Membership Webhooks Integration', () => {
       });
 
       expect(res.status).toBe(200);
-      const data = await res.json() as { status: string };
-      expect(data.status).toBe('already_exists');
+      const body = await res.json() as { success: boolean; data: { status: string } };
+      expect(body.success).toBe(true);
+      expect(body.data.status).toBe('already_exists');
     });
 
     it('returns 503 for org not yet provisioned', async (context) => {
@@ -446,8 +449,9 @@ describe('Membership Webhooks Integration', () => {
       });
 
       expect(res.status).toBe(200);
-      const data = await res.json() as { status: string };
-      expect(data.status).toBe('soft_deleted');
+      const body = await res.json() as { success: boolean; data: { status: string } };
+      expect(body.success).toBe(true);
+      expect(body.data.status).toBe('soft_deleted');
 
       // Verify user was soft deleted (deletedAt set)
       const em2 = orm.em.fork({ schema: testSchemaName });
@@ -494,8 +498,9 @@ describe('Membership Webhooks Integration', () => {
       });
 
       expect(res.status).toBe(200);
-      const data = await res.json() as { status: string };
-      expect(data.status).toBe('user_not_found');
+      const body = await res.json() as { success: boolean; data: { status: string } };
+      expect(body.success).toBe(true);
+      expect(body.data.status).toBe('user_not_found');
     });
 
     it('returns org_not_found for non-existent organization', async (context) => {
@@ -523,8 +528,9 @@ describe('Membership Webhooks Integration', () => {
       });
 
       expect(res.status).toBe(200);
-      const data = await res.json() as { status: string };
-      expect(data.status).toBe('org_not_found');
+      const body = await res.json() as { success: boolean; data: { status: string } };
+      expect(body.success).toBe(true);
+      expect(body.data.status).toBe('org_not_found');
     });
   });
 
@@ -564,9 +570,10 @@ describe('Membership Webhooks Integration', () => {
       });
 
       expect(res.status).toBe(200);
-      const data = await res.json() as { status: string; count: number };
-      expect(data.status).toBe('queued');
-      expect(data.count).toBe(1);
+      const body = await res.json() as { success: boolean; data: { status: string; count: number } };
+      expect(body.success).toBe(true);
+      expect(body.data.status).toBe('queued');
+      expect(body.data.count).toBe(1);
 
       // Verify outbox event was created in tenant schema
       const em2 = orm.em.fork({ schema: testSchemaName });
@@ -612,9 +619,10 @@ describe('Membership Webhooks Integration', () => {
       });
 
       expect(res.status).toBe(200);
-      const data = await res.json() as { status: string; count: number };
-      expect(data.status).toBe('queued');
-      expect(data.count).toBe(0);
+      const body = await res.json() as { success: boolean; data: { status: string; count: number } };
+      expect(body.success).toBe(true);
+      expect(body.data.status).toBe('queued');
+      expect(body.data.count).toBe(0);
     });
 
     it('skips organizations that are not yet provisioned', async (context) => {
@@ -663,9 +671,10 @@ describe('Membership Webhooks Integration', () => {
         });
 
         expect(res.status).toBe(200);
-        const data = await res.json() as { status: string; count: number };
-        expect(data.status).toBe('queued');
-        expect(data.count).toBe(0); // Skipped because not READY
+        const body = await res.json() as { success: boolean; data: { status: string; count: number } };
+        expect(body.success).toBe(true);
+        expect(body.data.status).toBe('queued');
+        expect(body.data.count).toBe(0); // Skipped because not READY
       } finally {
         em.remove(pendingOrg);
         await em.flush();

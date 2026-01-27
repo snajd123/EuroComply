@@ -41,8 +41,8 @@ describe('webhook middleware', () => {
       });
 
       expect(res.status).toBe(401);
-      const data = (await res.json()) as { error: string };
-      expect(data.error).toBe('Invalid webhook signature');
+      const data = (await res.json()) as { error: { code: string; message: string } };
+      expect(data.error.message).toBe('Invalid webhook signature');
     });
   });
 });

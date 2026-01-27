@@ -44,8 +44,7 @@ interface ProductListResponse {
 }
 
 interface ErrorResponse {
-  error: string;
-  message: string;
+  error: { code: string; message: string };
 }
 
 describe('Products API Integration', () => {
@@ -405,7 +404,7 @@ describe('Products API Integration', () => {
 
       expect(res.status).toBe(400);
       const data = (await res.json()) as ErrorResponse;
-      expect(data.message).toBe('Category not found');
+      expect(data.error.message).toBe('Category not found');
     });
   });
 

@@ -2,6 +2,7 @@
 import { createMiddleware } from 'hono/factory';
 import type { Env } from '../app.js';
 import { WorkspaceAuthority } from '@eurocomply/database';
+import { error } from '../utils/response.js';
 
 export type Workspace = 'design' | 'operations' | 'marketing' | 'compliance';
 export type Action = 'view' | 'edit' | 'approve' | 'manage';
@@ -41,24 +42,19 @@ export function authorize(workspace: Workspace, action: Action) {
       userAuthority = membership[authorityKey] as WorkspaceAuthority;
       userLevel = AUTHORITY_LEVELS[userAuthority];
     } else {
-      return c.json(
-        { error: 'Unauthorized', message: 'No authorization context found' },
-        401
-      );
+      return error(c, 'UNAUTHORIZED', 'No authorization context found', 401);
     }
 
     if (userLevel < requiredLevel) {
       const authorityNeeded = Object.entries(AUTHORITY_LEVELS)
         .find(([_, level]) => level === requiredLevel)?.[0];
 
-      return c.json({
-        error: 'Forbidden',
-        message: `This action requires ${authorityNeeded} access to the ${workspace} workspace`,
+      return error(c, 'FORBIDDEN', `This action requires ${authorityNeeded} access to the ${workspace} workspace`, 403, {
         workspace,
         action,
         yourAuthority: userAuthority,
         requiredAuthority: authorityNeeded,
-      }, 403);
+      });
     }
 
     await next();
@@ -79,20 +75,11 @@ export function requireOrgAdmin() {
     } else if (membership) {
       isOrgAdmin = membership.isOrgAdmin;
     } else {
-      return c.json(
-        { error: 'Unauthorized', message: 'No authorization context found' },
-        401
-      );
+      return error(c, 'UNAUTHORIZED', 'No authorization context found', 401);
     }
 
     if (!isOrgAdmin) {
-      return c.json(
-        {
-          error: 'Forbidden',
-          message: 'This action requires Organization Admin privileges',
-        },
-        403
-      );
+      return error(c, 'FORBIDDEN', 'This action requires Organization Admin privileges', 403);
     }
 
     await next();

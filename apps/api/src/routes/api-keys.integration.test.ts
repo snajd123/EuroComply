@@ -273,10 +273,10 @@ describe('API Keys Management Integration', () => {
       });
 
       expect(res.status).toBe(201);
-      const data = (await res.json()) as { data: { name: string }; rawKey: string };
+      const data = (await res.json()) as { data: { name: string; rawKey: string } };
       expect(data.data.name).toBe('Test Key');
-      expect(data.rawKey).toBeDefined();
-      expect(data.rawKey).toMatch(/^ek_/); // API key prefix
+      expect(data.data.rawKey).toBeDefined();
+      expect(data.data.rawKey).toMatch(/^ek_/); // API key prefix
     });
 
     it('allows org admin to create keys with workspace authorities', async (context) => {
@@ -308,8 +308,8 @@ describe('API Keys Management Integration', () => {
           marketingAuthority?: string;
           complianceAuthority?: string;
           isOrgAdmin?: boolean;
+          rawKey: string;
         };
-        rawKey: string;
       };
       expect(data.data.name).toBe('Scoped Key');
       expect(data.data.designAuthority).toBe(WorkspaceAuthority.EDITOR);
@@ -317,7 +317,7 @@ describe('API Keys Management Integration', () => {
       expect(data.data.marketingAuthority).toBe(WorkspaceAuthority.NONE);
       expect(data.data.complianceAuthority).toBe(WorkspaceAuthority.CONTRIBUTOR);
       expect(data.data.isOrgAdmin).toBe(false);
-      expect(data.rawKey).toBeDefined();
+      expect(data.data.rawKey).toBeDefined();
     });
 
     it('returns 400 for invalid workspace authority', async (context) => {
@@ -337,11 +337,11 @@ describe('API Keys Management Integration', () => {
       });
 
       expect(res.status).toBe(400);
-      const data = await res.json() as { error: string; message: string };
-      expect(data.error).toBe('Bad Request');
-      expect(data.message).toContain('designAuthority');
-      expect(data.message).toContain('NONE');
-      expect(data.message).toContain('VIEWER');
+      const data = await res.json() as { error: { code: string; message: string } };
+      expect(data.error.code).toBe('BAD_REQUEST');
+      expect(data.error.message).toContain('designAuthority');
+      expect(data.error.message).toContain('NONE');
+      expect(data.error.message).toContain('VIEWER');
     });
 
     it('denies non-admin from creating keys', async (context) => {
@@ -374,8 +374,8 @@ describe('API Keys Management Integration', () => {
       });
 
       expect(res.status).toBe(400);
-      const data = (await res.json()) as { message: string };
-      expect(data.message).toContain('name');
+      const data = (await res.json()) as { error: { code: string; message: string } };
+      expect(data.error.message).toContain('name');
     });
   });
 

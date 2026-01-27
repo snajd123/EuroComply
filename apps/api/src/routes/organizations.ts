@@ -8,6 +8,7 @@ import {
   TenantProvisioner,
 } from '@eurocomply/database';
 import type { MikroORM } from '@eurocomply/database';
+import { success, error } from '../utils/response.js';
 
 export interface OrganizationsRouterOptions {
   orm: MikroORM;
@@ -25,10 +26,7 @@ export function createOrganizationsRouter(options: OrganizationsRouterOptions) {
     const em = orm.em.fork();
     const orgs = await em.findAll(Organization);
 
-    return c.json({
-      data: orgs.map(serializeOrganization),
-      meta: { total: orgs.length },
-    });
+    return success(c, orgs.map(serializeOrganization), { total: orgs.length });
   });
 
   // Note: Organization creation is handled exclusively via Clerk webhooks.
@@ -41,10 +39,10 @@ export function createOrganizationsRouter(options: OrganizationsRouterOptions) {
     const org = await em.findOne(Organization, { id });
 
     if (!org) {
-      return c.json({ error: 'Not Found', message: 'Organization not found' }, 404);
+      return error(c, 'NOT_FOUND', 'Organization not found', 404);
     }
 
-    return c.json({ data: serializeOrganization(org) });
+    return success(c, serializeOrganization(org));
   });
 
   return router;
@@ -98,10 +96,10 @@ export function createOrganizationsAdminRouter(options: OrganizationsAdminRouter
     }
 
     if (!org) {
-      return c.json({ error: 'Organization not found' }, 404);
+      return error(c, 'NOT_FOUND', 'Organization not found', 404);
     }
 
-    return c.json({
+    return success(c, {
       id: org.id,
       name: org.name,
       schemaName: org.schemaName,
@@ -126,14 +124,11 @@ export function createOrganizationsAdminRouter(options: OrganizationsAdminRouter
     const org = await em.findOne(Organization, { id });
 
     if (!org) {
-      return c.json({ error: 'Organization not found' }, 404);
+      return error(c, 'NOT_FOUND', 'Organization not found', 404);
     }
 
     if (org.provisioningStatus === ProvisioningStatus.READY) {
-      return c.json({
-        error: 'Organization already provisioned',
-        message: 'This organization is already in READY state',
-      }, 400);
+      return error(c, 'ALREADY_PROVISIONED', 'This organization is already in READY state', 400);
     }
 
     // Store previous status/error for the event payload
@@ -153,10 +148,7 @@ export function createOrganizationsAdminRouter(options: OrganizationsAdminRouter
       org.provisioningError = result.error;
       await em.flush();
 
-      return c.json({
-        success: false,
-        error: `Provisioning failed: ${result.error}`,
-      }, 500);
+      return error(c, 'PROVISIONING_FAILED', `Provisioning failed: ${result.error}`, 500);
     }
 
     // Success - update status and emit event
@@ -186,8 +178,7 @@ export function createOrganizationsAdminRouter(options: OrganizationsAdminRouter
     em.persist(outboxEvent);
     await em.flush();
 
-    return c.json({
-      success: true,
+    return success(c, {
       organizationId: org.id,
       schemaName: org.schemaName,
       provisioningStatus: org.provisioningStatus,
@@ -211,7 +202,7 @@ export function createOrganizationsAdminRouter(options: OrganizationsAdminRouter
     }
 
     if (!org) {
-      return c.json({ error: 'Organization not found' }, 404);
+      return error(c, 'NOT_FOUND', 'Organization not found', 404);
     }
 
     const { id: organizationId, schemaName, clerkOrgId } = org;
@@ -229,12 +220,10 @@ export function createOrganizationsAdminRouter(options: OrganizationsAdminRouter
         org.provisioningError = `Deletion failed: Could not drop schema - ${errorMsg}`;
         await em.flush();
 
-        return c.json({
-          success: false,
-          error: `Failed to drop schema: ${errorMsg}`,
+        return error(c, 'SCHEMA_DROP_FAILED', `Failed to drop schema: ${errorMsg}`, 500, {
           organizationId,
           schemaName,
-        }, 500);
+        });
       }
     }
 
@@ -262,8 +251,7 @@ export function createOrganizationsAdminRouter(options: OrganizationsAdminRouter
     em.remove(org);
     await em.flush();
 
-    return c.json({
-      success: true,
+    return success(c, {
       organizationId,
       clerkOrgId,
       schemaName,

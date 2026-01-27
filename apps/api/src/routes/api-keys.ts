@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { Env } from '../app.js';
 import { ApiKeyService, Organization, WorkspaceAuthority, type EntityManager } from '@eurocomply/database';
 import { requireOrgAdmin } from '../middleware/authorize.js';
+import { success, error } from '../utils/response.js';
 
 const VALID_AUTHORITIES = Object.values(WorkspaceAuthority);
 
@@ -48,7 +49,7 @@ export function createApiKeysRouter(deps: ApiKeysRouterDeps) {
     const userId = c.get('userId');
 
     if (!schemaName || !userId) {
-      return c.json({ error: 'Unauthorized', message: 'Missing tenant context' }, 401);
+      return error(c, 'UNAUTHORIZED', 'Missing tenant context', 401);
     }
 
     interface CreateApiKeyBody {
@@ -62,7 +63,7 @@ export function createApiKeysRouter(deps: ApiKeysRouterDeps) {
 
     const body = await c.req.json<CreateApiKeyBody>();
     if (!body.name || typeof body.name !== 'string') {
-      return c.json({ error: 'Bad Request', message: 'name is required' }, 400);
+      return error(c, 'BAD_REQUEST', 'name is required', 400);
     }
 
     // Validate authorities if provided
@@ -70,13 +71,7 @@ export function createApiKeysRouter(deps: ApiKeysRouterDeps) {
     for (const field of authorityFields) {
       const value = body[field];
       if (value !== undefined && !isValidAuthority(value)) {
-        return c.json(
-          {
-            error: 'Bad Request',
-            message: `Invalid ${field}: must be one of ${VALID_AUTHORITIES.join(', ')}`,
-          },
-          400
-        );
+        return error(c, 'BAD_REQUEST', `Invalid ${field}: must be one of ${VALID_AUTHORITIES.join(', ')}`, 400);
       }
     }
 
@@ -85,7 +80,7 @@ export function createApiKeysRouter(deps: ApiKeysRouterDeps) {
     // Find organization by schema name
     const org = await em.findOne(Organization, { schemaName });
     if (!org) {
-      return c.json({ error: 'Not Found', message: 'Organization not found' }, 404);
+      return error(c, 'NOT_FOUND', 'Organization not found', 404);
     }
 
     const apiKeyService = new ApiKeyService(em);
@@ -98,24 +93,19 @@ export function createApiKeysRouter(deps: ApiKeysRouterDeps) {
       isOrgAdmin: body.isOrgAdmin,
     });
 
-    return c.json(
-      {
-        data: {
-          id: apiKey.id,
-          keyPrefix: apiKey.keyPrefix,
-          name: apiKey.name,
-          createdAt: apiKey.createdAt,
-          designAuthority: apiKey.designAuthority,
-          operationsAuthority: apiKey.operationsAuthority,
-          marketingAuthority: apiKey.marketingAuthority,
-          complianceAuthority: apiKey.complianceAuthority,
-          isOrgAdmin: apiKey.isOrgAdmin,
-        },
-        rawKey,
-        message: 'API key created. Save the rawKey - it will not be shown again.',
-      },
-      201
-    );
+    return success(c, {
+      id: apiKey.id,
+      keyPrefix: apiKey.keyPrefix,
+      name: apiKey.name,
+      createdAt: apiKey.createdAt,
+      designAuthority: apiKey.designAuthority,
+      operationsAuthority: apiKey.operationsAuthority,
+      marketingAuthority: apiKey.marketingAuthority,
+      complianceAuthority: apiKey.complianceAuthority,
+      isOrgAdmin: apiKey.isOrgAdmin,
+      rawKey,
+      message: 'API key created. Save the rawKey - it will not be shown again.',
+    }, { status: 201 });
   });
 
   /**
@@ -129,7 +119,7 @@ export function createApiKeysRouter(deps: ApiKeysRouterDeps) {
     const userId = c.get('userId');
 
     if (!schemaName || !userId) {
-      return c.json({ error: 'Unauthorized', message: 'Missing tenant context' }, 401);
+      return error(c, 'UNAUTHORIZED', 'Missing tenant context', 401);
     }
 
     const em = deps.em.fork();
@@ -137,28 +127,25 @@ export function createApiKeysRouter(deps: ApiKeysRouterDeps) {
     // Find organization by schema name
     const org = await em.findOne(Organization, { schemaName });
     if (!org) {
-      return c.json({ error: 'Not Found', message: 'Organization not found' }, 404);
+      return error(c, 'NOT_FOUND', 'Organization not found', 404);
     }
 
     const apiKeyService = new ApiKeyService(em);
     const keys = await apiKeyService.listKeys(org.id);
 
-    return c.json({
-      data: keys.map((key) => ({
-        id: key.id,
-        keyPrefix: key.keyPrefix,
-        name: key.name,
-        createdAt: key.createdAt,
-        lastUsedAt: key.lastUsedAt,
-        isActive: key.isActive,
-        designAuthority: key.designAuthority,
-        operationsAuthority: key.operationsAuthority,
-        marketingAuthority: key.marketingAuthority,
-        complianceAuthority: key.complianceAuthority,
-        isOrgAdmin: key.isOrgAdmin,
-      })),
-      meta: { total: keys.length },
-    });
+    return success(c, keys.map((key) => ({
+      id: key.id,
+      keyPrefix: key.keyPrefix,
+      name: key.name,
+      createdAt: key.createdAt,
+      lastUsedAt: key.lastUsedAt,
+      isActive: key.isActive,
+      designAuthority: key.designAuthority,
+      operationsAuthority: key.operationsAuthority,
+      marketingAuthority: key.marketingAuthority,
+      complianceAuthority: key.complianceAuthority,
+      isOrgAdmin: key.isOrgAdmin,
+    })), { total: keys.length });
   });
 
   /**
@@ -173,7 +160,7 @@ export function createApiKeysRouter(deps: ApiKeysRouterDeps) {
     const keyId = c.req.param('id');
 
     if (!schemaName || !userId) {
-      return c.json({ error: 'Unauthorized', message: 'Missing tenant context' }, 401);
+      return error(c, 'UNAUTHORIZED', 'Missing tenant context', 401);
     }
 
     const em = deps.em.fork();
@@ -181,17 +168,17 @@ export function createApiKeysRouter(deps: ApiKeysRouterDeps) {
     // Find organization by schema name
     const org = await em.findOne(Organization, { schemaName });
     if (!org) {
-      return c.json({ error: 'Not Found', message: 'Organization not found' }, 404);
+      return error(c, 'NOT_FOUND', 'Organization not found', 404);
     }
 
     const apiKeyService = new ApiKeyService(em);
     const revoked = await apiKeyService.revokeKey(keyId, org.id);
 
     if (!revoked) {
-      return c.json({ error: 'Not Found', message: 'API key not found' }, 404);
+      return error(c, 'NOT_FOUND', 'API key not found', 404);
     }
 
-    return c.json({ success: true, message: 'API key revoked' });
+    return success(c, { message: 'API key revoked' });
   });
 
   return router;

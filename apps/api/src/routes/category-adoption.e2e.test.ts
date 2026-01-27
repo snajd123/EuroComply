@@ -53,8 +53,7 @@ interface AvailableListResponse {
 }
 
 interface ErrorResponse {
-  error: string;
-  message: string;
+  error: { code: string; message: string };
 }
 
 describe('Category Adoption API E2E', () => {
@@ -488,8 +487,8 @@ describe('Category Adoption API E2E', () => {
 
       expect(res.status).toBe(409);
       const data = (await res.json()) as ErrorResponse;
-      expect(data.error).toBe('Conflict');
-      expect(data.message).toContain('already adopted');
+      expect(data.error.code).toBe('CONFLICT');
+      expect(data.error.message).toContain('already adopted');
     });
 
     it('returns 404 if category does not exist', async (context) => {
@@ -505,8 +504,8 @@ describe('Category Adoption API E2E', () => {
 
       expect(res.status).toBe(404);
       const data = (await res.json()) as ErrorResponse;
-      expect(data.error).toBe('Not Found');
-      expect(data.message).toContain('Category not found');
+      expect(data.error.code).toBe('NOT_FOUND');
+      expect(data.error.message).toContain('Category not found');
     });
   });
 
@@ -534,8 +533,8 @@ describe('Category Adoption API E2E', () => {
       });
 
       expect(res.status).toBe(200);
-      const data = (await res.json()) as { message: string };
-      expect(data.message).toContain('removed');
+      const data = (await res.json()) as { data: { message: string } };
+      expect(data.data.message).toContain('removed');
     });
 
     it('denies user with VIEWER authority', async (context) => {
@@ -586,8 +585,8 @@ describe('Category Adoption API E2E', () => {
 
       expect(res.status).toBe(404);
       const data = (await res.json()) as ErrorResponse;
-      expect(data.error).toBe('Not Found');
-      expect(data.message).toContain('not adopted');
+      expect(data.error.code).toBe('NOT_FOUND');
+      expect(data.error.message).toContain('not adopted');
     });
   });
 

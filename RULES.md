@@ -260,7 +260,7 @@ All API responses MUST follow this structure:
   "data": { ... },
   "meta": {
     "requestId": "req_xxx",
-    "timestamp": "2026-01-07T12:00:00Z"
+    "timestamp": "2026-01-27T12:00:00.000Z"
   }
 }
 
@@ -270,26 +270,23 @@ All API responses MUST follow this structure:
   "error": {
     "code": "VALIDATION_ERROR",
     "message": "Human readable message",
-    "details": { ... }
+    "details": { ... }  // Optional
   },
   "meta": {
     "requestId": "req_xxx",
-    "timestamp": "2026-01-07T12:00:00Z"
+    "timestamp": "2026-01-27T12:00:00.000Z"
   }
 }
 
-// List with pagination
+// List response (uses total in meta instead of pagination)
 {
   "success": true,
   "data": [...],
-  "pagination": {
-    "page": 1,
-    "pageSize": 20,
-    "totalItems": 100,
-    "totalPages": 5,
-    "hasMore": true
-  },
-  "meta": { ... }
+  "meta": {
+    "requestId": "req_xxx",
+    "timestamp": "2026-01-27T12:00:00.000Z",
+    "total": 100  // Total count for list responses
+  }
 }
 ```
 
@@ -462,7 +459,7 @@ These rules are enforced through:
 
 ---
 
-**Last Updated**: 2026-01-24
-**Version**: 1.2
+**Last Updated**: 2026-01-27
+**Version**: 1.3
 
 > Note: For Claude-specific workflow instructions, see [CLAUDE.md](./CLAUDE.md)

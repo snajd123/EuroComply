@@ -17,10 +17,16 @@ GET /health
 **Expected Response (200):**
 ```json
 {
-  "status": "healthy",
-  "timestamp": "2026-01-23T12:00:00.000Z"
+  "success": true,
+  "data": { "status": "healthy" },
+  "meta": {
+    "requestId": "req_abc123xyz",
+    "timestamp": "2026-01-27T12:00:00.000Z"
+  }
 }
 ```
+
+> **Note:** All responses include an `X-Request-Id` header matching `meta.requestId`.
 
 ---
 
@@ -37,7 +43,12 @@ GET /api/v1
 **Expected Response (200):**
 ```json
 {
-  "message": "EuroComply API v1"
+  "success": true,
+  "data": { "message": "EuroComply API v1" },
+  "meta": {
+    "requestId": "req_abc123xyz",
+    "timestamp": "2026-01-27T12:00:00.000Z"
+  }
 }
 ```
 
@@ -126,29 +137,14 @@ Creates an organization and provisions a tenant schema.
 ```json
 {
   "success": true,
-  "idempotent": false,
-  "organizationId": "abc123xyz",
-  "clerkOrgId": "org_postman_abc123",
-  "name": "Test Organization",
-  "slug": "test-organization",
-  "schemaName": "tenant_org_abc123",
-  "provisioningStatus": "READY",
-  "message": "Organization created and provisioned"
-}
-```
-
-**Idempotent Response (200)** - if org already exists:
-```json
-{
-  "success": true,
-  "idempotent": true,
-  "organizationId": "abc123xyz",
-  "clerkOrgId": "org_postman_abc123",
-  "name": "Test Organization",
-  "slug": "test-organization",
-  "schemaName": "tenant_org_abc123",
-  "provisioningStatus": "EXISTING",
-  "message": "Organization already exists"
+  "data": {
+    "organizationId": "abc123xyz",
+    "schemaName": "tenant_org_abc123"
+  },
+  "meta": {
+    "requestId": "req_abc123xyz",
+    "timestamp": "2026-01-27T12:00:00.000Z"
+  }
 }
 ```
 
@@ -156,9 +152,14 @@ Creates an organization and provisions a tenant schema.
 ```json
 {
   "success": false,
-  "error": "Provisioning failed: <error details>",
-  "organizationId": "abc123xyz",
-  "schemaName": "tenant_org_abc123"
+  "error": {
+    "code": "WEBHOOK_HANDLER_ERROR",
+    "message": "Provisioning failed: <error details>"
+  },
+  "meta": {
+    "requestId": "req_abc123xyz",
+    "timestamp": "2026-01-27T12:00:00.000Z"
+  }
 }
 ```
 
@@ -185,23 +186,13 @@ Deletes an organization and drops its tenant schema.
 ```json
 {
   "success": true,
-  "idempotent": false,
-  "organizationId": "abc123xyz",
-  "clerkOrgId": "org_postman_abc123",
-  "schemaName": "tenant_org_abc123",
-  "message": "Organization and tenant schema deleted"
-}
-```
-
-**Idempotent Response (200)** - if org already deleted:
-```json
-{
-  "success": true,
-  "idempotent": true,
-  "organizationId": null,
-  "clerkOrgId": "org_postman_abc123",
-  "schemaName": null,
-  "message": "Organization already deleted"
+  "data": {
+    "organizationId": "abc123xyz"
+  },
+  "meta": {
+    "requestId": "req_abc123xyz",
+    "timestamp": "2026-01-27T12:00:00.000Z"
+  }
 }
 ```
 
@@ -225,6 +216,7 @@ List all organizations.
 **Expected Response (200):**
 ```json
 {
+  "success": true,
   "data": [
     {
       "id": "abc123xyz",
@@ -237,15 +229,26 @@ List all organizations.
       "updatedAt": "2026-01-23T12:00:00.000Z"
     }
   ],
-  "meta": { "total": 1 }
+  "meta": {
+    "requestId": "req_abc123xyz",
+    "timestamp": "2026-01-27T12:00:00.000Z",
+    "total": 1
+  }
 }
 ```
 
 **Error Response (401):**
 ```json
 {
-  "error": "Unauthorized",
-  "message": "Missing X-Admin-Key header"
+  "success": false,
+  "error": {
+    "code": "UNAUTHORIZED",
+    "message": "Missing X-Admin-Key header"
+  },
+  "meta": {
+    "requestId": "req_abc123xyz",
+    "timestamp": "2026-01-27T12:00:00.000Z"
+  }
 }
 ```
 
@@ -257,6 +260,7 @@ Get organization by ID.
 **Expected Response (200):**
 ```json
 {
+  "success": true,
   "data": {
     "id": "abc123xyz",
     "name": "Test Organization",
@@ -265,6 +269,10 @@ Get organization by ID.
     "clerkOrgId": "org_postman_abc123",
     "provisioningStatus": "READY",
     ...
+  },
+  "meta": {
+    "requestId": "req_abc123xyz",
+    "timestamp": "2026-01-27T12:00:00.000Z"
   }
 }
 ```
@@ -272,8 +280,15 @@ Get organization by ID.
 **Error Response (404):**
 ```json
 {
-  "error": "Not Found",
-  "message": "Organization not found"
+  "success": false,
+  "error": {
+    "code": "NOT_FOUND",
+    "message": "Organization not found"
+  },
+  "meta": {
+    "requestId": "req_abc123xyz",
+    "timestamp": "2026-01-27T12:00:00.000Z"
+  }
 }
 ```
 
@@ -299,12 +314,19 @@ Get organization provisioning status. Accepts internal ID or Clerk org ID.
 **Expected Response (200):**
 ```json
 {
-  "id": "abc123xyz",
-  "name": "Test Organization",
-  "schemaName": "tenant_org_abc123",
-  "clerkOrgId": "org_postman_abc123",
-  "provisioningStatus": "READY",
-  "provisioningError": null
+  "success": true,
+  "data": {
+    "id": "abc123xyz",
+    "name": "Test Organization",
+    "schemaName": "tenant_org_abc123",
+    "clerkOrgId": "org_postman_abc123",
+    "provisioningStatus": "READY",
+    "provisioningError": null
+  },
+  "meta": {
+    "requestId": "req_abc123xyz",
+    "timestamp": "2026-01-27T12:00:00.000Z"
+  }
 }
 ```
 
@@ -325,17 +347,30 @@ Retry provisioning for PENDING or FAILED organizations.
 ```json
 {
   "success": true,
-  "organizationId": "abc123xyz",
-  "schemaName": "tenant_org_abc123",
-  "provisioningStatus": "READY"
+  "data": {
+    "organizationId": "abc123xyz",
+    "schemaName": "tenant_org_abc123",
+    "provisioningStatus": "READY"
+  },
+  "meta": {
+    "requestId": "req_abc123xyz",
+    "timestamp": "2026-01-27T12:00:00.000Z"
+  }
 }
 ```
 
 **Error Response (400)** - Already provisioned:
 ```json
 {
-  "error": "Organization already provisioned",
-  "message": "This organization is already in READY state"
+  "success": false,
+  "error": {
+    "code": "BAD_REQUEST",
+    "message": "This organization is already in READY state"
+  },
+  "meta": {
+    "requestId": "req_abc123xyz",
+    "timestamp": "2026-01-27T12:00:00.000Z"
+  }
 }
 ```
 
@@ -343,7 +378,14 @@ Retry provisioning for PENDING or FAILED organizations.
 ```json
 {
   "success": false,
-  "error": "Provisioning failed: <error details>"
+  "error": {
+    "code": "PROVISIONING_ERROR",
+    "message": "Provisioning failed: <error details>"
+  },
+  "meta": {
+    "requestId": "req_abc123xyz",
+    "timestamp": "2026-01-27T12:00:00.000Z"
+  }
 }
 ```
 
@@ -358,17 +400,31 @@ Accepts internal ID or Clerk org ID.
 ```json
 {
   "success": true,
-  "organizationId": "abc123xyz",
-  "clerkOrgId": "org_postman_abc123",
-  "schemaName": "tenant_org_abc123",
-  "message": "Organization and tenant schema deleted"
+  "data": {
+    "organizationId": "abc123xyz",
+    "clerkOrgId": "org_postman_abc123",
+    "schemaName": "tenant_org_abc123",
+    "message": "Organization and tenant schema deleted"
+  },
+  "meta": {
+    "requestId": "req_abc123xyz",
+    "timestamp": "2026-01-27T12:00:00.000Z"
+  }
 }
 ```
 
 **Error Response (404):**
 ```json
 {
-  "error": "Organization not found"
+  "success": false,
+  "error": {
+    "code": "NOT_FOUND",
+    "message": "Organization not found"
+  },
+  "meta": {
+    "requestId": "req_abc123xyz",
+    "timestamp": "2026-01-27T12:00:00.000Z"
+  }
 }
 ```
 
@@ -376,9 +432,14 @@ Accepts internal ID or Clerk org ID.
 ```json
 {
   "success": false,
-  "error": "Failed to drop schema: <error details>",
-  "organizationId": "abc123xyz",
-  "schemaName": "tenant_org_abc123"
+  "error": {
+    "code": "SCHEMA_DROP_ERROR",
+    "message": "Failed to drop schema: <error details>"
+  },
+  "meta": {
+    "requestId": "req_abc123xyz",
+    "timestamp": "2026-01-27T12:00:00.000Z"
+  }
 }
 ```
 
@@ -428,6 +489,7 @@ Create a new API key with workspace-scoped permissions.
 **Success Response (201):**
 ```json
 {
+  "success": true,
   "data": {
     "id": "key_abc123xyz",
     "keyPrefix": "ek_live_7fHj2kL",
@@ -437,10 +499,13 @@ Create a new API key with workspace-scoped permissions.
     "marketingAuthority": "NONE",
     "complianceAuthority": "NONE",
     "isOrgAdmin": false,
-    "createdAt": "2026-01-23T12:00:00.000Z"
+    "createdAt": "2026-01-23T12:00:00.000Z",
+    "rawKey": "ek_live_7fHj2kLm9pQr5tUv8wXy1zAaBbCcDdEeFfGgHhIi"
   },
-  "rawKey": "ek_live_7fHj2kLm9pQr5tUv8wXy1zAaBbCcDdEeFfGgHhIi",
-  "message": "API key created. Save the rawKey - it will not be shown again."
+  "meta": {
+    "requestId": "req_abc123xyz",
+    "timestamp": "2026-01-27T12:00:00.000Z"
+  }
 }
 ```
 
@@ -449,8 +514,15 @@ Create a new API key with workspace-scoped permissions.
 **Validation Error (400):**
 ```json
 {
-  "error": "Bad Request",
-  "message": "Invalid designAuthority: must be one of NONE, VIEWER, CONTRIBUTOR, EDITOR, MANAGER"
+  "success": false,
+  "error": {
+    "code": "BAD_REQUEST",
+    "message": "Invalid designAuthority: must be one of NONE, VIEWER, CONTRIBUTOR, EDITOR, MANAGER"
+  },
+  "meta": {
+    "requestId": "req_abc123xyz",
+    "timestamp": "2026-01-27T12:00:00.000Z"
+  }
 }
 ```
 
@@ -462,6 +534,7 @@ List all API keys for the tenant, including their workspace authorities.
 **Success Response (200):**
 ```json
 {
+  "success": true,
   "data": [
     {
       "id": "key_abc123xyz",
@@ -477,7 +550,11 @@ List all API keys for the tenant, including their workspace authorities.
       "isActive": true
     }
   ],
-  "meta": { "total": 1 }
+  "meta": {
+    "requestId": "req_abc123xyz",
+    "timestamp": "2026-01-27T12:00:00.000Z",
+    "total": 1
+  }
 }
 ```
 
@@ -490,15 +567,28 @@ Revoke an API key.
 ```json
 {
   "success": true,
-  "message": "API key revoked"
+  "data": {
+    "message": "API key revoked"
+  },
+  "meta": {
+    "requestId": "req_abc123xyz",
+    "timestamp": "2026-01-27T12:00:00.000Z"
+  }
 }
 ```
 
 **Error Response (404):**
 ```json
 {
-  "error": "Not Found",
-  "message": "API key not found"
+  "success": false,
+  "error": {
+    "code": "NOT_FOUND",
+    "message": "API key not found"
+  },
+  "meta": {
+    "requestId": "req_abc123xyz",
+    "timestamp": "2026-01-27T12:00:00.000Z"
+  }
 }
 ```
 
@@ -564,8 +654,13 @@ List all products for the authenticated tenant.
 **Expected Response (200):**
 ```json
 {
+  "success": true,
   "data": [],
-  "meta": { "total": 0 }
+  "meta": {
+    "requestId": "req_abc123xyz",
+    "timestamp": "2026-01-27T12:00:00.000Z",
+    "total": 0
+  }
 }
 ```
 
@@ -591,11 +686,16 @@ Create a new product.
 **Expected Response (201):**
 ```json
 {
+  "success": true,
   "data": {
     "id": "prod_abc123",
     "name": "Widget Pro",
     "status": "DRAFT",
     ...
+  },
+  "meta": {
+    "requestId": "req_abc123xyz",
+    "timestamp": "2026-01-27T12:00:00.000Z"
   }
 }
 ```

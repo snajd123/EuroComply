@@ -23,8 +23,8 @@ describe('userMiddleware', () => {
     const res = await app.request('/test');
     expect(res.status).toBe(401);
 
-    const body = await res.json() as { message: string };
-    expect(body.message).toContain('tenant context');
+    const body = await res.json() as { error: { code: string; message: string } };
+    expect(body.error.message).toContain('tenant context');
   });
 
   it('skips for API key auth', async () => {
@@ -65,8 +65,8 @@ describe('userMiddleware', () => {
     expect(res.status).toBe(202);
     expect(res.headers.get('Retry-After')).toBe('2');
 
-    const body = await res.json() as { message: string };
-    expect(body.message).toContain('Setting up your account');
+    const body = await res.json() as { error: { code: string; message: string } };
+    expect(body.error.message).toContain('Setting up your account');
   });
 
   it('attaches user and membership to context', async () => {
@@ -137,7 +137,7 @@ describe('userMiddleware', () => {
     const res = await app.request('/test');
     expect(res.status).toBe(403);
 
-    const body = await res.json() as { message: string };
-    expect(body.message).toContain('no longer a member');
+    const body = await res.json() as { error: { code: string; message: string } };
+    expect(body.error.message).toContain('no longer a member');
   });
 });

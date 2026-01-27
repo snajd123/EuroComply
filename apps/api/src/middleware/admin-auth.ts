@@ -1,5 +1,6 @@
 import { createMiddleware } from 'hono/factory';
 import { timingSafeEqual } from 'crypto';
+import { error } from '../utils/response.js';
 
 /**
  * Admin authentication middleware.
@@ -14,14 +15,14 @@ export function adminAuthMiddleware(apiKey?: string) {
     // Check if API key is configured
     if (!key) {
       console.error('ADMIN_API_KEY not configured');
-      return c.json({ error: 'Admin API not configured' }, 500);
+      return error(c, 'CONFIG_ERROR', 'Admin API not configured', 500);
     }
 
     // Get the key from header
     const providedKey = c.req.header('X-Admin-Key');
 
     if (!providedKey) {
-      return c.json({ error: 'Unauthorized', message: 'Missing X-Admin-Key header' }, 401);
+      return error(c, 'UNAUTHORIZED', 'Missing X-Admin-Key header', 401);
     }
 
     // Timing-safe comparison to prevent timing attacks
@@ -30,11 +31,11 @@ export function adminAuthMiddleware(apiKey?: string) {
 
     // Keys must be same length for timingSafeEqual
     if (keyBuffer.length !== providedBuffer.length) {
-      return c.json({ error: 'Unauthorized', message: 'Invalid API key' }, 401);
+      return error(c, 'UNAUTHORIZED', 'Invalid API key', 401);
     }
 
     if (!timingSafeEqual(keyBuffer, providedBuffer)) {
-      return c.json({ error: 'Unauthorized', message: 'Invalid API key' }, 401);
+      return error(c, 'UNAUTHORIZED', 'Invalid API key', 401);
     }
 
     // Key is valid, proceed

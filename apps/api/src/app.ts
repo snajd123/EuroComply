@@ -3,6 +3,7 @@ import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { secureHeaders } from 'hono/secure-headers';
 import { User, OrganizationUser, WorkspaceAuthority } from '@eurocomply/database';
+import { requestIdMiddleware } from './middleware/request-id.js';
 import type { MikroORM } from '@eurocomply/database';
 import { createOrganizationsRouter } from './routes/organizations.js';
 import { createProductsRouter } from './routes/products.js';
@@ -13,6 +14,7 @@ import { createUnitsRouter, type UnitsRepository, createSubstancesRouter, type S
 import { tenantMiddleware, createTenantMiddlewareWithApiKeys } from './middleware/tenant.js';
 import { adminAuthMiddleware } from './middleware/admin-auth.js';
 import { createUserMiddleware } from './middleware/user.js';
+import { success } from './utils/response.js';
 
 export interface ApiKeyAuthorities {
   designAuthority: WorkspaceAuthority;
@@ -24,6 +26,7 @@ export interface ApiKeyAuthorities {
 
 export type Env = {
   Variables: {
+    requestId?: string;
     tenantSchema?: string;
     userId?: string;
     webhookPayload?: unknown;
@@ -46,6 +49,7 @@ export function createApp(deps?: AppDependencies): Hono<Env> {
   const app = new Hono<Env>();
 
   // Global middleware
+  app.use('*', requestIdMiddleware());
   app.use('*', logger());
   app.use('*', secureHeaders());
   app.use(
@@ -63,7 +67,7 @@ export function createApp(deps?: AppDependencies): Hono<Env> {
 
   // Health check
   app.get('/health', (c) => {
-    return c.json({ status: 'healthy', timestamp: new Date().toISOString() });
+    return success(c, { status: 'healthy' });
   });
 
   // Webhooks (no CORS, no auth - signature verified)
@@ -75,7 +79,7 @@ export function createApp(deps?: AppDependencies): Hono<Env> {
   const v1 = new Hono<Env>();
 
   v1.get('/', (c) => {
-    return c.json({ message: 'EuroComply API v1' });
+    return success(c, { message: 'EuroComply API v1' });
   });
 
   // Admin routes (protected by API key)

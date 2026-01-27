@@ -41,8 +41,7 @@ interface OrganizationListResponse {
 }
 
 interface ErrorResponse {
-  error: string;
-  message: string;
+  error: { code: string; message: string };
 }
 
 describe('Organizations API Integration', () => {
@@ -201,8 +200,8 @@ describe('Organizations API Integration', () => {
       expect(res.status).toBe(404);
 
       const data = (await res.json()) as ErrorResponse;
-      expect(data.error).toBe('Not Found');
-      expect(data.message).toBe('Organization not found');
+      expect(data.error.code).toBe('NOT_FOUND');
+      expect(data.error.message).toBe('Organization not found');
     });
 
     it('returns organization with all fields serialized', async (context) => {

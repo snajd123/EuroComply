@@ -6,6 +6,7 @@ import { Product, ProductStatus, Category } from '@eurocomply/database';
 import type { MikroORM } from '@eurocomply/database';
 import type { Env } from '../app.js';
 import { authorize } from '../middleware/authorize.js';
+import { success, error } from '../utils/response.js';
 
 // ============================================================================
 // Zod Schemas
@@ -49,10 +50,7 @@ export function createProductsRouter(options: ProductsRouterOptions) {
       return txEm.find(Product, {});
     });
 
-    return c.json({
-      data: products.map(serializeProduct),
-      meta: { total: products.length },
-    });
+    return success(c, products.map(serializeProduct), { total: products.length });
   });
 
   // Create product
@@ -93,11 +91,11 @@ export function createProductsRouter(options: ProductsRouterOptions) {
         return { product };
       });
 
-      if ('error' in result) {
-        return c.json({ error: 'Bad Request', message: result.error }, 400);
+      if ('error' in result && result.error) {
+        return error(c, 'BAD_REQUEST', result.error, 400);
       }
 
-      return c.json({ data: serializeProduct(result.product) }, 201);
+      return success(c, serializeProduct(result.product), { status: 201 });
     }
   );
 
@@ -114,10 +112,10 @@ export function createProductsRouter(options: ProductsRouterOptions) {
     });
 
     if (!product) {
-      return c.json({ error: 'Not Found', message: 'Product not found' }, 404);
+      return error(c, 'NOT_FOUND', 'Product not found', 404);
     }
 
-    return c.json({ data: serializeProduct(product) });
+    return success(c, serializeProduct(product));
   });
 
   return router;

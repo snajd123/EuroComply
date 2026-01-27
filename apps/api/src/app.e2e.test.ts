@@ -19,28 +19,42 @@ import { setupTestDb, teardownTestDb, isDatabaseAvailable } from '@eurocomply/da
 import { createId } from '@eurocomply/core';
 
 // Type definitions for API responses
-interface HealthResponse {
-  status: string;
+interface ApiMeta {
+  requestId: string;
   timestamp: string;
+  total?: number;
+}
+
+interface HealthResponse {
+  success: true;
+  data: { status: string };
+  meta: ApiMeta;
 }
 
 interface ApiInfoResponse {
-  message: string;
+  success: true;
+  data: { message: string };
+  meta: ApiMeta;
+}
+
+interface OrganizationData {
+  id: string;
+  name: string;
+  slug: string;
+  schemaName: string;
+  provisioningStatus: string;
 }
 
 interface OrganizationResponse {
-  data: {
-    id: string;
-    name: string;
-    slug: string;
-    schemaName: string;
-    provisioningStatus: string;
-  };
+  success: true;
+  data: OrganizationData;
+  meta: ApiMeta;
 }
 
 interface OrganizationListResponse {
-  data: OrganizationResponse['data'][];
-  meta: { total: number };
+  success: true;
+  data: OrganizationData[];
+  meta: ApiMeta;
 }
 
 const TEST_ADMIN_KEY = 'test-admin-key-12345';
@@ -153,9 +167,11 @@ describe('EuroComply API E2E', () => {
     it('GET /health returns healthy status', async () => {
       const res = await app.request('/health');
       expect(res.status).toBe(200);
-      const data = (await res.json()) as HealthResponse;
-      expect(data.status).toBe('healthy');
-      expect(data.timestamp).toBeDefined();
+      const body = (await res.json()) as HealthResponse;
+      expect(body.success).toBe(true);
+      expect(body.data.status).toBe('healthy');
+      expect(body.meta.timestamp).toBeDefined();
+      expect(body.meta.requestId).toMatch(/^req_/);
     });
   });
 
@@ -163,8 +179,9 @@ describe('EuroComply API E2E', () => {
     it('GET /api/v1 returns API info', async () => {
       const res = await app.request('/api/v1');
       expect(res.status).toBe(200);
-      const data = (await res.json()) as ApiInfoResponse;
-      expect(data.message).toBe('EuroComply API v1');
+      const body = (await res.json()) as ApiInfoResponse;
+      expect(body.success).toBe(true);
+      expect(body.data.message).toBe('EuroComply API v1');
     });
   });
 
