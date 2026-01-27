@@ -13,11 +13,15 @@
 5. [Version History](#part-2-version-history-why-lists-are-immutable)
 6. [Snapshots](#part-3-snapshots-protecting-against-data-drift)
 7. [Category Hierarchy (LTREE)](#part-4-how-categories-work-ltree-magic---plan-11)
-8. [Admin Import Pipeline](#part-5-the-admin-import-pipeline-plan-12)
-9. [Rule Evaluation](#part-6-rule-evaluation-plan-14---the-actual-compliance-check)
-10. [Evaluation Scopes](#part-7-the-two-evaluation-scopes-reach-vs-rohs)
-11. [Complete Data Flow](#part-8-how-it-all-connects)
-12. [Key Concepts Summary](#summary-the-key-concepts)
+8. [Dual Category Model](#part-5-dual-category-model-system-vs-tenant)
+9. [Category Adoption](#part-6-category-adoption-live-frozen-detached)
+10. [Compliance Stack Resolution](#part-7-compliance-stack-resolution-3-layers)
+11. [Tenant Exemptions](#part-8-tenant-exemptions-with-audit-trail)
+12. [Admin Import Pipeline](#part-9-the-admin-import-pipeline-plan-12)
+13. [Rule Evaluation](#part-10-rule-evaluation-plan-14---the-actual-compliance-check)
+14. [Evaluation Scopes](#part-11-the-two-evaluation-scopes-reach-vs-rohs)
+15. [Complete Data Flow](#part-12-how-it-all-connects)
+16. [Key Concepts Summary](#summary-the-key-concepts)
 
 ---
 
@@ -40,12 +44,14 @@
 │   ├─────────────────────────────┤    ├─────────────────────────────┤       │
 │   │                             │    │                             │       │
 │   │  • RegulatoryList           │    │  • Product                  │       │
-│   │  • RegulatoryListEntry      │    │  • Category                 │       │
-│   │  • Substance (master list)  │    │  • RawMaterial              │       │
-│   │  • CategoryRegulatoryList   │    │  • MaterialSubstance        │       │
-│   │                             │    │  • AttributeTemplate        │       │
-│   │  (Managed by PLATFORM       │    │  • AttributeValue           │       │
-│   │   ADMINS, not users)        │    │                             │       │
+│   │  • RegulatoryListEntry      │    │  • TenantCategory           │       │
+│   │  • Substance (master list)  │    │  • CategoryAdoption         │       │
+│   │  • Category (system taxon.) │    │  • TenantCategoryRegList    │       │
+│   │  • CategoryRegulatoryList   │    │  • RawMaterial              │       │
+│   │                             │    │  • MaterialSubstance        │       │
+│   │  (Managed by PLATFORM       │    │  • AttributeTemplate        │       │
+│   │   ADMINS, not users)        │    │  • AttributeValue           │       │
+│   │                             │    │                             │       │
 │   │                             │    │  (Managed by TENANT USERS)  │       │
 │   └─────────────────────────────┘    └─────────────────────────────┘       │
 │                                                                             │
@@ -59,24 +65,32 @@
 │                    USER WORKFLOW - SETTING UP THEIR DATA                    │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│  STEP 1: User creates CATEGORIES (their product taxonomy)                  │
+│  STEP 1: User ADOPTS system categories or creates their own                │
 │  ─────────────────────────────────────────────────────────────────────────  │
 │                                                                             │
-│    User Action: "We make cosmetics and electronics"                        │
+│    User Action: "We make cosmetics - let me adopt the standard taxonomy"   │
 │                                                                             │
+│    Option A: ADOPT a System Category (recommended)                         │
 │    ┌──────────────────────────────────────────────────────────────────┐    │
-│    │  Category Table (in tenant schema)                               │    │
+│    │  CategoryAdoption Table (in tenant schema)                       │    │
+│    ├──────────────────────────────────────────────────────────────────┤    │
+│    │  systemCategoryId │  mode    │  frozenAt                         │    │
+│    ├────────────────────┼──────────┼─────────────────────────────────-┤    │
+│    │  cosmetics-uuid   │  LIVE    │  null                             │    │
+│    │  electronics-uuid │  FROZEN  │  2024-06-01                       │    │
+│    └──────────────────────────────────────────────────────────────────┘    │
+│                                                                             │
+│    Option B: CREATE their own TenantCategory (custom taxonomy)             │
+│    ┌──────────────────────────────────────────────────────────────────┐    │
+│    │  TenantCategory Table (in tenant schema)                         │    │
 │    ├──────────────────────────────────────────────────────────────────┤    │
 │    │  name            │  path (LTREE)                                 │    │
 │    ├───────────────────┼──────────────────────────────────────────────┤    │
-│    │  Products        │  products                                     │    │
-│    │  Cosmetics       │  products.cosmetics                           │    │
-│    │  Skincare        │  products.cosmetics.skincare                  │    │
-│    │  Electronics     │  products.electronics                         │    │
-│    │  Phones          │  products.electronics.phones                  │    │
+│    │  Custom Widgets  │  custom.widgets                               │    │
+│    │  Gadgets         │  custom.gadgets                               │    │
 │    └──────────────────────────────────────────────────────────────────┘    │
 │                                                                             │
-│    Users build their OWN category tree. Every company is different!        │
+│    Users can adopt standard categories OR create their own!                │
 │                                                                             │
 │                                                                             │
 │  STEP 2: User creates ATTRIBUTE TEMPLATES (scoped to categories)           │
@@ -663,7 +677,364 @@
 
 ---
 
-## Part 5: The Admin Import Pipeline (Plan 12)
+## Part 5: Dual Category Model (System vs Tenant)
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    TWO TYPES OF CATEGORIES                                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  The system has TWO category models that work together:                     │
+│                                                                             │
+│                                                                             │
+│   PUBLIC SCHEMA                          TENANT SCHEMA                      │
+│   ─────────────                          ─────────────                      │
+│                                                                             │
+│   ┌─────────────────────────────┐        ┌─────────────────────────────┐   │
+│   │     SYSTEM CATEGORIES       │        │    TENANT CATEGORIES        │   │
+│   │    (public.category)        │        │   (tenant.tenant_category)  │   │
+│   ├─────────────────────────────┤        ├─────────────────────────────┤   │
+│   │                             │        │                             │   │
+│   │  • Shared taxonomy          │        │  • Tenant-owned categories  │   │
+│   │  • Managed by platform      │        │  • Custom for this org      │   │
+│   │  • Has regulatory mappings  │        │  • No system mappings       │   │
+│   │  • Tenants can ADOPT these  │        │  • Must self-manage regs    │   │
+│   │                             │        │                             │   │
+│   │  Examples:                  │        │  Examples:                  │   │
+│   │   • products.cosmetics      │        │   • custom.widgets          │   │
+│   │   • products.electronics    │        │   • internal.prototypes     │   │
+│   │   • products.medical        │        │   • legacy.old_products     │   │
+│   │                             │        │                             │   │
+│   └─────────────────────────────┘        └─────────────────────────────┘   │
+│                                                                             │
+│                                                                             │
+│   WHY TWO MODELS?                                                          │
+│   ───────────────                                                          │
+│                                                                             │
+│   System Categories:                                                        │
+│     + Come with pre-configured regulatory mappings                         │
+│     + Stay current when regulations change                                 │
+│     + Industry-standard taxonomy                                           │
+│     - Less flexibility for unique business needs                           │
+│                                                                             │
+│   Tenant Categories:                                                        │
+│     + Full flexibility and control                                         │
+│     + Can model any business structure                                     │
+│     - Must manually configure regulatory lists                             │
+│     - No automatic updates                                                 │
+│                                                                             │
+│                                                                             │
+│   RECOMMENDATION: Adopt system categories when possible!                   │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Part 6: Category Adoption (LIVE, FROZEN, DETACHED)
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    CATEGORY ADOPTION MODES                                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  When a tenant adopts a system category, they choose an ADOPTION MODE:     │
+│                                                                             │
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  MODE: LIVE (Recommended)                                           │   │
+│  ├─────────────────────────────────────────────────────────────────────┤   │
+│  │                                                                     │   │
+│  │  "Always use the CURRENT system category definitions"               │   │
+│  │                                                                     │   │
+│  │   System Category                      Tenant's View                │   │
+│  │   ┌─────────────────┐                 ┌─────────────────┐          │   │
+│  │   │ cosmetics       │    LIVE LINK    │ cosmetics       │          │   │
+│  │   │ v2024-06        │ <──────────────>│ (always current)│          │   │
+│  │   │ +5 new regs     │                 │ sees 5 new regs │          │   │
+│  │   └─────────────────┘                 └─────────────────┘          │   │
+│  │                                                                     │   │
+│  │   Pros: Always up-to-date, automatic regulation updates            │   │
+│  │   Cons: Changes may surprise you, need to stay vigilant            │   │
+│  │                                                                     │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  MODE: FROZEN                                                       │   │
+│  ├─────────────────────────────────────────────────────────────────────┤   │
+│  │                                                                     │   │
+│  │  "Lock to the category definition AT A SPECIFIC POINT IN TIME"     │   │
+│  │                                                                     │   │
+│  │   System Category                      Tenant's View                │   │
+│  │   ┌─────────────────┐                 ┌─────────────────┐          │   │
+│  │   │ cosmetics       │   FROZEN AT     │ cosmetics       │          │   │
+│  │   │ v2024-06        │   2024-01-15    │ (frozen state)  │          │   │
+│  │   │ +5 new regs     │ ──────X         │ OLD regulations │          │   │
+│  │   └─────────────────┘                 └─────────────────┘          │   │
+│  │                                                                     │   │
+│  │   Pros: Predictable, no surprise changes, audit stability          │   │
+│  │   Cons: May become outdated, misses important regulation updates   │   │
+│  │                                                                     │   │
+│  │   USE CASE: "We're in the middle of certification, don't change!"  │   │
+│  │                                                                     │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  MODE: DETACHED                                                     │   │
+│  ├─────────────────────────────────────────────────────────────────────┤   │
+│  │                                                                     │   │
+│  │  "Take a snapshot and completely disconnect from system"            │   │
+│  │                                                                     │   │
+│  │   System Category                      Tenant's Category            │   │
+│  │   ┌─────────────────┐                 ┌─────────────────┐          │   │
+│  │   │ cosmetics       │    DETACHED     │ my_cosmetics    │          │   │
+│  │   │ v2024-06        │ ───────X        │ (independent)   │          │   │
+│  │   │ (continues...)  │                 │ can add/remove  │          │   │
+│  │   └─────────────────┘                 │ regulations     │          │   │
+│  │                                       └─────────────────┘          │   │
+│  │                                                                     │   │
+│  │   Pros: Complete control, can customize everything                 │   │
+│  │   Cons: No automatic updates, full responsibility for compliance   │   │
+│  │                                                                     │   │
+│  │   USE CASE: "We need to model a unique regulatory situation"       │   │
+│  │                                                                     │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+│                                                                             │
+│  ADOPTION LIFECYCLE:                                                       │
+│  ────────────────────                                                      │
+│                                                                             │
+│    ┌──────┐                ┌────────┐               ┌──────────┐          │
+│    │ LIVE │ ──"freeze"──>  │ FROZEN │ ──"detach"──> │ DETACHED │          │
+│    └──────┘                └────────┘               └──────────┘          │
+│        ^                       │                                          │
+│        └───────"unfreeze"──────┘                                          │
+│                                                                             │
+│    Note: DETACHED is a one-way operation (cannot re-attach)               │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Part 7: Compliance Stack Resolution (3 Layers)
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    HOW REGULATORY LISTS ARE RESOLVED                         │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  When checking compliance, the system resolves regulations through         │
+│  THREE LAYERS that stack on top of each other:                             │
+│                                                                             │
+│                                                                             │
+│    LAYER 3: Tenant Exemptions (subtract)                                   │
+│    ───────────────────────────────────────                                 │
+│    "These regulations don't apply to us (with justification)"              │
+│                                                                             │
+│        ┌─────────────────────────────────────────────────────────────┐     │
+│        │  TenantCategoryRegulatoryList (isExempted = true)           │     │
+│        │                                                             │     │
+│        │  - COSING_ANNEX_III: "Exempt - B2B industrial use only"    │     │
+│        │    (with legal reference and audit trail)                   │     │
+│        └─────────────────────────────────────────────────────────────┘     │
+│                              │                                             │
+│                              │ SUBTRACT                                    │
+│                              v                                             │
+│    LAYER 2: Tenant Additions (add)                                         │
+│    ───────────────────────────────────                                     │
+│    "We also need to check these additional lists"                          │
+│                                                                             │
+│        ┌─────────────────────────────────────────────────────────────┐     │
+│        │  TenantCategoryRegulatoryList (source = TENANT_ADDED)       │     │
+│        │                                                             │     │
+│        │  + CALIFORNIA_PROP65: "We sell in California"               │     │
+│        │  + INTERNAL_RESTRICTED: "Company-specific bans"             │     │
+│        └─────────────────────────────────────────────────────────────┘     │
+│                              │                                             │
+│                              │ ADD TO                                      │
+│                              v                                             │
+│    LAYER 1: System Baseline (base)                                         │
+│    ───────────────────────────────────                                     │
+│    "Default regulations from the adopted system category"                  │
+│                                                                             │
+│        ┌─────────────────────────────────────────────────────────────┐     │
+│        │  CategoryRegulatoryList (public schema)                     │     │
+│        │                                                             │     │
+│        │  * REACH_SVHC: Required for all products                    │     │
+│        │  * COSING_ANNEX_II: Required for cosmetics                  │     │
+│        │  * COSING_ANNEX_III: Required for cosmetics                 │     │
+│        └─────────────────────────────────────────────────────────────┘     │
+│                                                                             │
+│                                                                             │
+│  RESOLUTION EXAMPLE:                                                       │
+│  ────────────────────                                                      │
+│                                                                             │
+│    Tenant: Acme Corp                                                       │
+│    Category: products.cosmetics (adopted in LIVE mode)                     │
+│                                                                             │
+│    ┌─────────────────────────────────────────────────────────────────┐     │
+│    │  EFFECTIVE REGULATORY LISTS                                     │     │
+│    ├─────────────────────────────────────────────────────────────────┤     │
+│    │                                                                 │     │
+│    │  From System (Layer 1):                                         │     │
+│    │    [x] REACH_SVHC                                               │     │
+│    │    [x] COSING_ANNEX_II                                          │     │
+│    │    [~] COSING_ANNEX_III  <-- Will be exempted                   │     │
+│    │                                                                 │     │
+│    │  From Tenant Additions (Layer 2):                               │     │
+│    │    [+] CALIFORNIA_PROP65                                        │     │
+│    │                                                                 │     │
+│    │  From Tenant Exemptions (Layer 3):                              │     │
+│    │    [-] COSING_ANNEX_III  <-- Removed with justification        │     │
+│    │                                                                 │     │
+│    │  ═══════════════════════════════════════════════════════════   │     │
+│    │  FINAL RESULT:                                                  │     │
+│    │    * REACH_SVHC                                                 │     │
+│    │    * COSING_ANNEX_II                                            │     │
+│    │    * CALIFORNIA_PROP65                                          │     │
+│    │                                                                 │     │
+│    └─────────────────────────────────────────────────────────────────┘     │
+│                                                                             │
+│                                                                             │
+│  THE ComplianceStackResolver SERVICE:                                      │
+│  ─────────────────────────────────────                                     │
+│                                                                             │
+│    Input:  CategoryAdoption (or TenantCategory)                            │
+│    Output: List of effective RegulatoryLists                               │
+│                                                                             │
+│    The resolver handles all the complexity of:                             │
+│      1. Fetching system baseline from CategoryRegulatoryList               │
+│      2. Adding tenant-added lists from TenantCategoryRegulatoryList        │
+│      3. Removing exempted lists (checking allowTenantExemption first!)     │
+│      4. Returning the final effective list                                 │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Part 8: Tenant Exemptions (With Audit Trail)
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    EXEMPTION SYSTEM                                          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  Sometimes a tenant legitimately doesn't need to comply with a regulation. │
+│  The system allows EXEMPTIONS with full justification and audit trail.     │
+│                                                                             │
+│                                                                             │
+│  EXEMPTION REQUIREMENTS:                                                   │
+│  ────────────────────────                                                  │
+│                                                                             │
+│    ┌─────────────────────────────────────────────────────────────────┐     │
+│    │  TenantCategoryRegulatoryList (exemption record)                │     │
+│    ├─────────────────────────────────────────────────────────────────┤     │
+│    │                                                                 │     │
+│    │  regulatoryListId: COSING_ANNEX_III                            │     │
+│    │  isExempted:       TRUE                                         │     │
+│    │                                                                 │     │
+│    │  --- REQUIRED JUSTIFICATION ---                                 │     │
+│    │  exemptionReason:  "B2B industrial use only, not consumer"     │     │
+│    │  legalReference:   "Article 2(2)(a) of Regulation 1223/2009"   │     │
+│    │                                                                 │     │
+│    │  --- AUTOMATIC AUDIT TRAIL ---                                  │     │
+│    │  exemptedBy:       user-uuid-who-created-exemption              │     │
+│    │  exemptedAt:       2024-06-15T10:30:00Z                         │     │
+│    │                                                                 │     │
+│    └─────────────────────────────────────────────────────────────────┘     │
+│                                                                             │
+│                                                                             │
+│  THE allowTenantExemption GUARDRAIL:                                       │
+│  ────────────────────────────────────                                      │
+│                                                                             │
+│    Some regulations are TOO CRITICAL to allow exemptions!                  │
+│                                                                             │
+│    ┌─────────────────────────────────────────────────────────────────┐     │
+│    │  RegulatoryList                                                 │     │
+│    ├─────────────────────────────────────────────────────────────────┤     │
+│    │  code:                REACH_SVHC                                │     │
+│    │  name:                REACH Substances of Very High Concern     │     │
+│    │  allowTenantExemption: FALSE  <-- CANNOT BE EXEMPTED!          │     │
+│    └─────────────────────────────────────────────────────────────────┘     │
+│                                                                             │
+│    ┌─────────────────────────────────────────────────────────────────┐     │
+│    │  CategoryRegulatoryList (system mapping)                        │     │
+│    ├─────────────────────────────────────────────────────────────────┤     │
+│    │  categoryPath:        products.cosmetics                        │     │
+│    │  regulatoryList:      COSING_ANNEX_II                           │     │
+│    │  allowTenantExemption: FALSE  <-- Can also be set per-mapping! │     │
+│    └─────────────────────────────────────────────────────────────────┘     │
+│                                                                             │
+│    The system checks BOTH flags:                                           │
+│      1. RegulatoryList.allowTenantExemption (global setting)               │
+│      2. CategoryRegulatoryList.allowTenantExemption (per-mapping)          │
+│                                                                             │
+│    If EITHER is FALSE, the exemption is BLOCKED.                           │
+│                                                                             │
+│                                                                             │
+│  EXEMPTION WORKFLOW:                                                       │
+│  ────────────────────                                                      │
+│                                                                             │
+│    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐               │
+│    │ User Request │    │   System     │    │   Result     │               │
+│    │  Exemption   │--->│   Checks     │--->│              │               │
+│    └──────────────┘    └──────────────┘    └──────────────┘               │
+│                              │                                             │
+│                              │                                             │
+│                    ┌─────────┴─────────┐                                  │
+│                    │                   │                                  │
+│                    v                   v                                  │
+│           ┌──────────────┐    ┌──────────────┐                           │
+│           │ Exemption    │    │ Exemption    │                           │
+│           │ ALLOWED?     │    │ BLOCKED      │                           │
+│           │              │    │              │                           │
+│           │ Check flags: │    │ Returns 403  │                           │
+│           │ - List flag  │    │ "Cannot      │                           │
+│           │ - Mapping    │    │  exempt this │                           │
+│           │   flag       │    │  regulation" │                           │
+│           └──────┬───────┘    └──────────────┘                           │
+│                  │                                                        │
+│                  v                                                        │
+│           ┌──────────────┐                                               │
+│           │ Require      │                                               │
+│           │ Justification│                                               │
+│           │              │                                               │
+│           │ - reason     │                                               │
+│           │ - legalRef   │                                               │
+│           └──────┬───────┘                                               │
+│                  │                                                        │
+│                  v                                                        │
+│           ┌──────────────┐                                               │
+│           │ Create Audit │                                               │
+│           │ Trail        │                                               │
+│           │              │                                               │
+│           │ - who        │                                               │
+│           │ - when       │                                               │
+│           └──────────────┘                                               │
+│                                                                             │
+│                                                                             │
+│  AUDIT TRAIL USAGE:                                                        │
+│  ───────────────────                                                       │
+│                                                                             │
+│    The exemption audit trail is crucial for:                               │
+│      * Regulatory audits ("Who approved this exemption?")                  │
+│      * Internal compliance reviews                                         │
+│      * Legal liability protection                                          │
+│      * Change history tracking                                             │
+│                                                                             │
+│    Query: "Show me all exemptions created in the last 30 days"             │
+│    Query: "Who exempted COSING_ANNEX_III for our cosmetics line?"          │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Part 9: The Admin Import Pipeline (Plan 12)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -710,7 +1081,7 @@
 
 ---
 
-## Part 6: Rule Evaluation (Plan 14) - The Actual Compliance Check
+## Part 10: Rule Evaluation (Plan 14) - The Actual Compliance Check
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -803,7 +1174,7 @@
 
 ---
 
-## Part 7: The Two Evaluation Scopes (REACH vs RoHS)
+## Part 11: The Two Evaluation Scopes (REACH vs RoHS)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -862,7 +1233,7 @@
 
 ---
 
-## Part 8: How It All Connects
+## Part 12: How It All Connects
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -946,22 +1317,45 @@
 │  5. LTREE INHERITANCE                                                      │
 │     Child categories automatically inherit parent's regulatory lists       │
 │                                                                             │
-│  6. EXCLUSIONS                                                             │
-│     A child category can opt-out of an inherited list                      │
+│  6. DUAL CATEGORY MODEL                                                    │
+│     System Categories (public) = shared taxonomy with regulatory mappings  │
+│     Tenant Categories (tenant) = custom categories for unique needs        │
 │                                                                             │
-│  7. EVALUATION SCOPE                                                       │
+│  7. CATEGORY ADOPTION MODES                                                │
+│     LIVE = always current, automatic updates                               │
+│     FROZEN = locked at a point in time, predictable                        │
+│     DETACHED = completely independent, full control                        │
+│                                                                             │
+│  8. COMPLIANCE STACK (3 Layers)                                            │
+│     Layer 1: System baseline (from CategoryRegulatoryList)                 │
+│     Layer 2: Tenant additions (from TenantCategoryRegulatoryList)          │
+│     Layer 3: Tenant exemptions (subtract with justification)               │
+│                                                                             │
+│  9. EXEMPTIONS WITH AUDIT TRAIL                                            │
+│     Tenants can exempt certain regulations with:                           │
+│       - Required justification (reason + legal reference)                  │
+│       - Automatic audit trail (who, when)                                  │
+│       - Subject to allowTenantExemption guardrails                         │
+│                                                                             │
+│ 10. allowTenantExemption GUARDRAIL                                         │
+│     Critical regulations can be marked non-exemptable:                     │
+│       - Set on RegulatoryList (global)                                     │
+│       - Set on CategoryRegulatoryList (per-mapping)                        │
+│       - If EITHER is false, exemption is blocked                           │
+│                                                                             │
+│ 11. EVALUATION SCOPE                                                       │
 │     ARTICLE = whole product concentration                                  │
 │     HOMOGENEOUS_MATERIAL = each material checked separately                │
 │                                                                             │
-│  8. TRACEABILITY                                                           │
+│ 12. TRACEABILITY                                                           │
 │     Track exactly which raw materials contributed to a violation           │
 │                                                                             │
-│  9. RESTRICTION TYPES                                                      │
+│ 13. RESTRICTION TYPES                                                      │
 │     PROHIBITED = cannot use at all                                         │
 │     THRESHOLD = must be below X%                                           │
 │     RESTRICTED_WITH_CONDITIONS = allowed only in certain uses              │
 │                                                                             │
-│ 10. ADMIN IMPORT                                                           │
+│ 14. ADMIN IMPORT                                                           │
 │     Safe process: Upload --> Validate --> Preview --> Apply                │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -973,7 +1367,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                    DATABASE ENTITIES                                        │
+│                    DATABASE ENTITIES (PUBLIC SCHEMA)                        │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │                                                                             │
@@ -987,6 +1381,7 @@
 │  └────────┬────────┘         │ version                 │                   │
 │           │                  │ effectiveDate           │                   │
 │           │                  │ isCurrentVersion        │                   │
+│           │                  │ allowTenantExemption    │ <-- NEW!          │
 │           │                  │ previousVersion (FK)--->│ (self-reference)  │
 │           │                  └───────────┬─────────────┘                   │
 │           │                              │                                 │
@@ -1010,13 +1405,15 @@
 │                                                                             │
 │  ┌─────────────────┐         ┌─────────────────────────┐                   │
 │  │    Category     │         │ CategoryRegulatoryList  │                   │
+│  │ (System Taxon.) │         │ (System Mappings)       │                   │
 │  ├─────────────────┤         ├─────────────────────────┤                   │
 │  │ id              │<────────│ category (FK)           │                   │
 │  │ name            │         │ regulatoryList (FK) ────│───> RegulatoryList│
 │  │ path (LTREE)    │         │ requirement             │                   │
 │  │ depth           │         │ priority                │                   │
 │  │ parent (FK)     │         │ isExclusion             │                   │
-│  └─────────────────┘         │ thresholdOverridePct    │                   │
+│  └─────────────────┘         │ allowTenantExemption    │ <-- NEW!          │
+│                              │ thresholdOverridePct    │                   │
 │                              └─────────────────────────┘                   │
 │                                                                             │
 │                                                                             │
@@ -1031,6 +1428,77 @@
 │  │ appliedAt                       │                                       │
 │  │ sourceFileName                  │                                       │
 │  └─────────────────────────────────┘                                       │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    DATABASE ENTITIES (TENANT SCHEMA)                        │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│                                                                             │
+│  ┌─────────────────────────────────┐                                       │
+│  │    TenantCategory               │  (Tenant-owned categories)            │
+│  ├─────────────────────────────────┤                                       │
+│  │ id                              │                                       │
+│  │ name                            │                                       │
+│  │ path (LTREE)                    │                                       │
+│  │ depth                           │                                       │
+│  │ parent (FK)                     │                                       │
+│  └─────────────────────────────────┘                                       │
+│                                                                             │
+│                                                                             │
+│  ┌─────────────────────────────────┐                                       │
+│  │    CategoryAdoption             │  (Links tenant to system categories)  │
+│  ├─────────────────────────────────┤                                       │
+│  │ id                              │                                       │
+│  │ systemCategoryId (FK) ──────────│───> Category (public schema)          │
+│  │ mode                            │     LIVE | FROZEN | DETACHED          │
+│  │ frozenAt                        │     (timestamp for FROZEN mode)       │
+│  │ pinnedRegulatoryListIds[]       │     (for FROZEN: specific versions)   │
+│  └─────────────────────────────────┘                                       │
+│                                                                             │
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │    TenantCategoryRegulatoryList                                     │   │
+│  │    (Tenant additions/exemptions)                                    │   │
+│  ├─────────────────────────────────────────────────────────────────────┤   │
+│  │ id                                                                  │   │
+│  │ categoryAdoptionId (FK) ────────│───> CategoryAdoption              │   │
+│  │   OR                                                                │   │
+│  │ tenantCategoryId (FK) ──────────│───> TenantCategory                │   │
+│  │                                                                     │   │
+│  │ regulatoryListId (FK) ──────────│───> RegulatoryList (public)       │   │
+│  │                                                                     │   │
+│  │ source                          │     SYSTEM_INHERITED | TENANT_ADDED   │
+│  │ requirement                     │     MANDATORY | RECOMMENDED | CUSTOM  │
+│  │                                                                     │   │
+│  │ --- Exemption Fields ---                                            │   │
+│  │ isExempted                      │     TRUE if exempted              │   │
+│  │ exemptionReason                 │     "Why this exemption?"         │   │
+│  │ legalReference                  │     "Article X of Regulation Y"   │   │
+│  │ exemptedBy (FK)                 │     User who created exemption    │   │
+│  │ exemptedAt                      │     Timestamp of exemption        │   │
+│  │                                                                     │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+│                                                                             │
+│   RELATIONSHIPS:                                                            │
+│   ──────────────                                                            │
+│                                                                             │
+│   System Category (public)                                                  │
+│          │                                                                  │
+│          │ adopted by                                                       │
+│          v                                                                  │
+│   CategoryAdoption (tenant)                                                 │
+│          │                                                                  │
+│          │ has tenant-specific regulatory config                           │
+│          v                                                                  │
+│   TenantCategoryRegulatoryList (tenant)                                    │
+│          │                                                                  │
+│          │ references                                                       │
+│          v                                                                  │
+│   RegulatoryList (public)                                                   │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1049,3 +1517,4 @@
 ---
 
 *Document created: 2026-01-26*
+*Last updated: 2026-01-27 - Added compliance stack architecture (dual categories, adoption modes, 3-layer resolution, exemptions)*
