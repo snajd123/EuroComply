@@ -268,10 +268,11 @@ export class CategoryService {
    * Creates a CategoryAdoption linking the tenant to the system category.
    * Throws if already adopted.
    *
-   * @param tenantSchema - The tenant schema name (for context, adoptions stored in tenant schema)
+   * Note: The EntityManager determines tenant context via schema fork.
+   *
    * @param categoryId - The system category ID to adopt
    */
-  async adoptCategory(tenantSchema: string, categoryId: string): Promise<CategoryAdoption> {
+  async adoptCategory(categoryId: string): Promise<CategoryAdoption> {
     // Check if already adopted
     const existing = await this.em.findOne(CategoryAdoption, {
       systemCategoryId: categoryId,
@@ -299,8 +300,10 @@ export class CategoryService {
    * - electronics (ancestor)
    * - electronics.batteries (ancestor)
    * - electronics.batteries.lithium_ion (adopted)
+   *
+   * Note: The EntityManager determines tenant context via schema fork.
    */
-  async getAdoptedCategories(tenantSchema: string): Promise<Category[]> {
+  async getAdoptedCategories(): Promise<Category[]> {
     const adoptions = await this.em.find(CategoryAdoption, {});
 
     if (adoptions.length === 0) return [];
@@ -335,8 +338,10 @@ export class CategoryService {
   /**
    * Get only directly adopted categories (without ancestors).
    * Use this when you need to know what the tenant explicitly adopted.
+   *
+   * Note: The EntityManager determines tenant context via schema fork.
    */
-  async getDirectlyAdoptedCategories(tenantSchema: string): Promise<Category[]> {
+  async getDirectlyAdoptedCategories(): Promise<Category[]> {
     const adoptions = await this.em.find(CategoryAdoption, {});
 
     if (adoptions.length === 0) {
@@ -351,8 +356,12 @@ export class CategoryService {
    * Remove adoption of a system category.
    *
    * Throws if the category is not adopted.
+   *
+   * Note: The EntityManager determines tenant context via schema fork.
+   *
+   * @param categoryId - The system category ID to unadopt
    */
-  async unadoptCategory(tenantSchema: string, categoryId: string): Promise<void> {
+  async unadoptCategory(categoryId: string): Promise<void> {
     const adoption = await this.em.findOne(CategoryAdoption, {
       systemCategoryId: categoryId,
     });
@@ -367,13 +376,11 @@ export class CategoryService {
   /**
    * Get categories available for adoption (not yet adopted by tenant).
    *
-   * @param tenantSchema - The tenant schema name
+   * Note: The EntityManager determines tenant context via schema fork.
+   *
    * @param targetType - Optional filter by target type
    */
-  async getAvailableForAdoption(
-    tenantSchema: string,
-    targetType?: TargetType
-  ): Promise<Category[]> {
+  async getAvailableForAdoption(targetType?: TargetType): Promise<Category[]> {
     // Get already adopted category IDs
     const adoptions = await this.em.find(CategoryAdoption, {});
     const adoptedIds = new Set(adoptions.map(a => a.systemCategoryId));

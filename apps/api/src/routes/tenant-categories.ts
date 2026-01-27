@@ -44,7 +44,11 @@ export function createTenantCategoriesRouter(options: TenantCategoriesRouterOpti
     const schema = c.get('tenantSchema')!;
     const em = orm.em.fork({ schema });
 
-    const categories = await em.find(TenantCategory, { isActive: true }, { orderBy: { path: 'ASC' } });
+    // Wrap in transaction with search_path for multi-tenant safety
+    const categories = await em.transactional(async (txEm) => {
+      await txEm.execute(`SET search_path TO "${schema}", public`);
+      return txEm.find(TenantCategory, { isActive: true }, { orderBy: { path: 'ASC' } });
+    });
 
     return c.json({
       data: categories.map((cat: TenantCategory) => ({
@@ -71,65 +75,75 @@ export function createTenantCategoriesRouter(options: TenantCategoriesRouterOpti
     const em = orm.em.fork({ schema });
     const input = c.req.valid('json');
 
-    let parent: TenantCategory | undefined;
-    let path: string;
-    let depth: number;
+    // Wrap in transaction with search_path for multi-tenant safety
+    const result = await em.transactional(async (txEm) => {
+      await txEm.execute(`SET search_path TO "${schema}", public`);
 
-    if (input.parentId) {
-      const foundParent = await em.findOne(TenantCategory, { id: input.parentId });
-      if (!foundParent) {
-        return c.json({ error: 'Not Found', message: 'Parent category not found' }, 404);
+      let parent: TenantCategory | undefined;
+      let path: string;
+      let depth: number;
+
+      if (input.parentId) {
+        const foundParent = await txEm.findOne(TenantCategory, { id: input.parentId });
+        if (!foundParent) {
+          return { error: 'not_found' as const, message: 'Parent category not found' };
+        }
+        parent = foundParent;
+        path = `${parent.path}.${slugify(input.name)}`;
+        depth = parent.depth + 1;
+      } else {
+        path = slugify(input.name);
+        depth = 0;
       }
-      parent = foundParent;
-      path = `${parent.path}.${slugify(input.name)}`;
-      depth = parent.depth + 1;
-    } else {
-      path = slugify(input.name);
-      depth = 0;
+
+      // Check for path collision
+      const existing = await txEm.findOne(TenantCategory, { path });
+      if (existing) {
+        return { error: 'conflict' as const, message: `Category path "${path}" already exists` };
+      }
+
+      // If linking to system category, validate linkMode is provided
+      if (input.systemCategoryId && !input.linkMode) {
+        return { error: 'bad_request' as const, message: 'linkMode is required when linking to a system category' };
+      }
+
+      const category = new TenantCategory();
+      category.name = input.name;
+      category.description = input.description;
+      category.path = path;
+      category.type = input.type as CategoryType;
+      category.targetType = input.targetType as TargetType;
+      category.depth = depth;
+      if (parent) category.parent = parent;
+      if (input.systemCategoryId) category.systemCategoryId = input.systemCategoryId;
+      if (input.linkMode) category.linkMode = input.linkMode as LinkMode;
+      category.isActive = true;
+
+      txEm.persist(category);
+
+      return { success: true as const, category };
+    });
+
+    if (result.error === 'not_found') {
+      return c.json({ error: 'Not Found', message: result.message }, 404);
     }
-
-    // Check for path collision
-    const existing = await em.findOne(TenantCategory, { path });
-    if (existing) {
-      return c.json({
-        error: 'Conflict',
-        message: `Category path "${path}" already exists`,
-      }, 409);
+    if (result.error === 'conflict') {
+      return c.json({ error: 'Conflict', message: result.message }, 409);
     }
-
-    // If linking to system category, validate linkMode is provided
-    if (input.systemCategoryId && !input.linkMode) {
-      return c.json({
-        error: 'Bad Request',
-        message: 'linkMode is required when linking to a system category',
-      }, 400);
+    if (result.error === 'bad_request') {
+      return c.json({ error: 'Bad Request', message: result.message }, 400);
     }
-
-    const category = new TenantCategory();
-    category.name = input.name;
-    category.description = input.description;
-    category.path = path;
-    category.type = input.type as CategoryType;
-    category.targetType = input.targetType as TargetType;
-    category.depth = depth;
-    if (parent) category.parent = parent;
-    if (input.systemCategoryId) category.systemCategoryId = input.systemCategoryId;
-    if (input.linkMode) category.linkMode = input.linkMode as LinkMode;
-    category.isActive = true;
-
-    em.persist(category);
-    await em.flush();
 
     return c.json({
       data: {
-        id: category.id,
-        name: category.name,
-        path: category.path,
-        type: category.type,
-        targetType: category.targetType,
-        depth: category.depth,
-        systemCategoryId: category.systemCategoryId,
-        linkMode: category.linkMode,
+        id: result.category.id,
+        name: result.category.name,
+        path: result.category.path,
+        type: result.category.type,
+        targetType: result.category.targetType,
+        depth: result.category.depth,
+        systemCategoryId: result.category.systemCategoryId,
+        linkMode: result.category.linkMode,
       },
     }, 201);
   });
@@ -140,7 +154,12 @@ export function createTenantCategoriesRouter(options: TenantCategoriesRouterOpti
     const em = orm.em.fork({ schema });
     const id = c.req.param('id');
 
-    const category = await em.findOne(TenantCategory, { id }, { populate: ['parent'] });
+    // Wrap in transaction with search_path for multi-tenant safety
+    const category = await em.transactional(async (txEm) => {
+      await txEm.execute(`SET search_path TO "${schema}", public`);
+      return txEm.findOne(TenantCategory, { id }, { populate: ['parent'] });
+    });
+
     if (!category) {
       return c.json({ error: 'Not Found', message: 'Category not found' }, 404);
     }
@@ -171,19 +190,28 @@ export function createTenantCategoriesRouter(options: TenantCategoriesRouterOpti
     const id = c.req.param('id');
     const input = c.req.valid('json');
 
-    const category = await em.findOne(TenantCategory, { id });
-    if (!category) {
+    // Wrap in transaction with search_path for multi-tenant safety
+    const result = await em.transactional(async (txEm) => {
+      await txEm.execute(`SET search_path TO "${schema}", public`);
+
+      const category = await txEm.findOne(TenantCategory, { id });
+      if (!category) {
+        return { error: 'not_found' as const };
+      }
+
+      if (input.name !== undefined) category.name = input.name;
+      if (input.description !== undefined) category.description = input.description;
+      if (input.isActive !== undefined) category.isActive = input.isActive;
+      if (input.linkMode !== undefined) category.linkMode = input.linkMode as LinkMode;
+
+      return { success: true as const, category };
+    });
+
+    if (result.error === 'not_found') {
       return c.json({ error: 'Not Found', message: 'Category not found' }, 404);
     }
 
-    if (input.name !== undefined) category.name = input.name;
-    if (input.description !== undefined) category.description = input.description;
-    if (input.isActive !== undefined) category.isActive = input.isActive;
-    if (input.linkMode !== undefined) category.linkMode = input.linkMode as LinkMode;
-
-    await em.flush();
-
-    return c.json({ data: { id: category.id, name: category.name, updated: true } });
+    return c.json({ data: { id: result.category.id, name: result.category.name, updated: true } });
   });
 
   // DELETE /:id - Delete tenant category (design:manage)
@@ -192,38 +220,49 @@ export function createTenantCategoriesRouter(options: TenantCategoriesRouterOpti
     const em = orm.em.fork({ schema });
     const id = c.req.param('id');
 
-    const category = await em.findOne(TenantCategory, { id });
-    if (!category) {
-      return c.json({ error: 'Not Found', message: 'Category not found' }, 404);
-    }
+    // Wrap in transaction with search_path for multi-tenant safety
+    const result = await em.transactional(async (txEm) => {
+      await txEm.execute(`SET search_path TO "${schema}", public`);
 
-    // Check for children
-    const childCount = await em.count(TenantCategory, { parent: { id } });
-    if (childCount > 0) {
-      return c.json({
-        error: 'Conflict',
-        message: `Cannot delete category with ${childCount} children. Delete or move children first.`,
-      }, 409);
-    }
-
-    // Check for assigned products (if Product entity has categoryId field)
-    // Note: This depends on your Product entity having a categoryId field
-    // If not, remove this check or adjust accordingly
-    try {
-      const productCount = await em.count(Product, { categoryId: id } as any);
-      if (productCount > 0) {
-        return c.json({
-          error: 'Conflict',
-          message: `Cannot delete category with ${productCount} assigned products. Reassign products first.`,
-        }, 409);
+      const category = await txEm.findOne(TenantCategory, { id });
+      if (!category) {
+        return { error: 'not_found' as const, message: 'Category not found' };
       }
-    } catch {
-      // Product entity might not have categoryId, skip this check
+
+      // Check for children
+      const childCount = await txEm.count(TenantCategory, { parent: { id } });
+      if (childCount > 0) {
+        return {
+          error: 'conflict' as const,
+          message: `Cannot delete category with ${childCount} children. Delete or move children first.`,
+        };
+      }
+
+      // Check for assigned products
+      try {
+        const productCount = await txEm.count(Product, { categoryId: id } as unknown as Record<string, unknown>);
+        if (productCount > 0) {
+          return {
+            error: 'conflict' as const,
+            message: `Cannot delete category with ${productCount} assigned products. Reassign products first.`,
+          };
+        }
+      } catch {
+        // Product entity might not have categoryId, skip this check
+      }
+
+      await txEm.removeAndFlush(category);
+      return { success: true as const, deleted: id };
+    });
+
+    if (result.error === 'not_found') {
+      return c.json({ error: 'Not Found', message: result.message }, 404);
+    }
+    if (result.error === 'conflict') {
+      return c.json({ error: 'Conflict', message: result.message }, 409);
     }
 
-    await em.removeAndFlush(category);
-
-    return c.json({ data: { success: true, deleted: id } });
+    return c.json({ data: { success: true, deleted: result.deleted } });
   });
 
   return router;

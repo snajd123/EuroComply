@@ -402,7 +402,7 @@ describe('CategoryService', () => {
         targetType: TargetType.PRODUCT,
       });
 
-      const adoption = await service.adoptCategory(testSchema, systemCategory.id);
+      const adoption = await service.adoptCategory(systemCategory.id);
 
       expect(adoption.systemCategoryId).toBe(systemCategory.id);
       expect(adoption.mode).toBe(LinkMode.LIVE);
@@ -416,10 +416,10 @@ describe('CategoryService', () => {
         targetType: TargetType.PRODUCT,
       });
 
-      await service.adoptCategory(testSchema, systemCategory.id);
+      await service.adoptCategory(systemCategory.id);
 
       await expect(
-        service.adoptCategory(testSchema, systemCategory.id)
+        service.adoptCategory(systemCategory.id)
       ).rejects.toThrow('already adopted');
     });
   });
@@ -438,10 +438,10 @@ describe('CategoryService', () => {
         targetType: TargetType.MATERIAL,
       });
 
-      await service.adoptCategory(testSchema, cat1.id);
-      await service.adoptCategory(testSchema, cat2.id);
+      await service.adoptCategory(cat1.id);
+      await service.adoptCategory(cat2.id);
 
-      const adopted = await service.getAdoptedCategories(testSchema);
+      const adopted = await service.getAdoptedCategories();
 
       expect(adopted).toHaveLength(2);
       const names = adopted.map(a => a.name);
@@ -472,9 +472,9 @@ describe('CategoryService', () => {
       });
 
       // Adopt only the leaf
-      await service.adoptCategory(testSchema, leaf.id);
+      await service.adoptCategory(leaf.id);
 
-      const adopted = await service.getAdoptedCategories(testSchema);
+      const adopted = await service.getAdoptedCategories();
 
       // Should return all 3: root, branch, and leaf (for tree rendering)
       expect(adopted).toHaveLength(3);
@@ -485,7 +485,7 @@ describe('CategoryService', () => {
     });
 
     it('should return empty array when no adoptions', async () => {
-      const adopted = await service.getAdoptedCategories(testSchema);
+      const adopted = await service.getAdoptedCategories();
       expect(adopted).toHaveLength(0);
     });
   });
@@ -514,9 +514,9 @@ describe('CategoryService', () => {
       });
 
       // Adopt only the leaf
-      await service.adoptCategory(testSchema, leaf.id);
+      await service.adoptCategory(leaf.id);
 
-      const directlyAdopted = await service.getDirectlyAdoptedCategories(testSchema);
+      const directlyAdopted = await service.getDirectlyAdoptedCategories();
 
       // Should return only the leaf (what was explicitly adopted)
       expect(directlyAdopted).toHaveLength(1);
@@ -524,7 +524,7 @@ describe('CategoryService', () => {
     });
 
     it('should return empty array when no adoptions', async () => {
-      const adopted = await service.getDirectlyAdoptedCategories(testSchema);
+      const adopted = await service.getDirectlyAdoptedCategories();
       expect(adopted).toHaveLength(0);
     });
   });
@@ -537,10 +537,10 @@ describe('CategoryService', () => {
         targetType: TargetType.PRODUCT,
       });
 
-      await service.adoptCategory(testSchema, systemCategory.id);
-      await service.unadoptCategory(testSchema, systemCategory.id);
+      await service.adoptCategory(systemCategory.id);
+      await service.unadoptCategory(systemCategory.id);
 
-      const adopted = await service.getAdoptedCategories(testSchema);
+      const adopted = await service.getAdoptedCategories();
       expect(adopted).toHaveLength(0);
     });
 
@@ -552,7 +552,7 @@ describe('CategoryService', () => {
       });
 
       await expect(
-        service.unadoptCategory(testSchema, systemCategory.id)
+        service.unadoptCategory(systemCategory.id)
       ).rejects.toThrow('not adopted');
     });
   });
@@ -571,9 +571,9 @@ describe('CategoryService', () => {
         targetType: TargetType.MATERIAL,
       });
 
-      await service.adoptCategory(testSchema, cat1.id);
+      await service.adoptCategory(cat1.id);
 
-      const available = await service.getAvailableForAdoption(testSchema);
+      const available = await service.getAvailableForAdoption();
 
       expect(available).toHaveLength(1);
       expect(available[0]!.id).toBe(cat2.id);
@@ -592,10 +592,7 @@ describe('CategoryService', () => {
         targetType: TargetType.MATERIAL,
       });
 
-      const available = await service.getAvailableForAdoption(
-        testSchema,
-        TargetType.PRODUCT
-      );
+      const available = await service.getAvailableForAdoption(TargetType.PRODUCT);
 
       expect(available).toHaveLength(1);
       expect(available[0]!.id).toBe(cat1.id);
