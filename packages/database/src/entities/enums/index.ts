@@ -1,3 +1,5 @@
 export { UnitSystem } from './UnitSystem.js';
 export { TargetType } from './TargetType.js';
 export { AliasType } from './AliasType.js';
+export { ComparisonOperator } from './ComparisonOperator.js';
+export { Severity } from './Severity.js';
