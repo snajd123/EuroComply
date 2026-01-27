@@ -10,6 +10,7 @@ import { createProductsRouter } from './routes/products.js';
 import { createApiKeysRouter } from './routes/api-keys.js';
 import { createCategoryAdoptionRouter } from './routes/category-adoption.js';
 import { createTenantCategoriesRouter } from './routes/tenant-categories.js';
+import { createTenantCategoryRegulatoryListsRouter } from './routes/tenant-category-regulatory-lists.js';
 import { createCategoryRegulatoryListsRouter } from './routes/admin/category-regulatory-lists.js';
 import { createUnitsRouter, type UnitsRepository, createSubstancesRouter, type SubstancesRepository } from './routes/taxonomy/index.js';
 import { tenantMiddleware, createTenantMiddlewareWithApiKeys } from './middleware/tenant.js';
@@ -147,6 +148,9 @@ export function createApp(deps?: AppDependencies): Hono<Env> {
       v1.use('/tenant-categories/*', userMiddleware);
     }
     v1.route('/tenant-categories', createTenantCategoriesRouter({ orm: deps.orm }));
+
+    // Tenant Category Regulatory Lists: Uses same auth as tenant-categories
+    v1.route('/tenant-categories', createTenantCategoryRegulatoryListsRouter({ orm: deps.orm }));
   }
 
   app.route('/api/v1', v1);

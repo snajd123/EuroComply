@@ -25,6 +25,9 @@ export {
   type UpsertData,
   type CopyRecord,
   SeedService,
+  ComplianceStackResolver,
+  type EffectiveRegulation,
+  type ComplianceStackResult,
 } from './services/index.js';
 
 // Re-export common MikroORM types for convenience
