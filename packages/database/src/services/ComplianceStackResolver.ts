@@ -1,0 +1,182 @@
+import type { EntityManager } from '@mikro-orm/postgresql';
+import { TenantCategory } from '../entities/TenantCategory.js';
+import { TenantCategoryRegulatoryList } from '../entities/TenantCategoryRegulatoryList.js';
+import { ListRequirement, RegulationSource } from '../entities/enums/index.js';
+
+export interface EffectiveRegulation {
+  regulatoryListId: string;
+  regulatoryListCode: string;
+  source: 'SYSTEM' | 'TENANT';
+  requirement: ListRequirement;
+  status: 'ACTIVE' | 'EXEMPTED';
+  allowExemption: boolean;
+  exemption?: {
+    reason: string;
+    legalRef?: string;
+    exemptedBy: string;
+    exemptedAt: Date;
+  };
+  overrideThreshold?: string;
+}
+
+export interface ComplianceStackResult {
+  tenantCategoryId: string;
+  tenantCategoryPath: string;
+  systemCategoryId?: string;
+  linkMode?: string;
+  effectiveRegulations: EffectiveRegulation[];
+}
+
+/**
+ * ComplianceStackResolver resolves effective compliance regulations for a TenantCategory
+ * using a 3-layer resolution:
+ *
+ * Layer 1: System baseline from public.category_regulatory_list
+ *   - Includes regulations linked to the system category that the tenant category adopts
+ *   - Only includes current version regulatory lists
+ *   - Excludes mappings marked as isExclusion: true
+ *
+ * Layer 2: Tenant additions from TenantCategoryRegulatoryList (source: TENANT_ADDED)
+ *   - Tenant-specific regulations added beyond the system baseline
+ *
+ * Layer 3: Tenant exemptions from TenantCategoryRegulatoryList (isExempted: true)
+ *   - Exemptions for system baseline regulations
+ *   - Marks regulations as EXEMPTED with exemption details
+ */
+export class ComplianceStackResolver {
+  constructor(private readonly em: EntityManager) {}
+
+  /**
+   * Resolves the effective compliance regulations for a tenant category.
+   *
+   * @param tenantCategoryId - The ID of the tenant category to resolve
+   * @returns ComplianceStackResult with all effective regulations and their sources
+   */
+  async resolve(tenantCategoryId: string): Promise<ComplianceStackResult> {
+    // 1. Get TenantCategory
+    const tenantCategory = await this.em.findOneOrFail(TenantCategory, { id: tenantCategoryId });
+
+    const result: ComplianceStackResult = {
+      tenantCategoryId,
+      tenantCategoryPath: tenantCategory.path,
+      systemCategoryId: tenantCategory.systemCategoryId ?? undefined,
+      linkMode: tenantCategory.linkMode ?? undefined,
+      effectiveRegulations: [],
+    };
+
+    // 2. Get system baseline (if adopted from system category)
+    const systemBaseline = await this.getSystemBaseline(tenantCategory.systemCategoryId);
+
+    // 3. Get tenant records
+    const tenantRecords = await this.em.find(TenantCategoryRegulatoryList, {
+      tenantCategory: { id: tenantCategoryId }
+    });
+
+    // 4. Merge into effective regulations
+    const effectiveMap = new Map<string, EffectiveRegulation>();
+
+    // Add system baseline first
+    for (const baseline of systemBaseline) {
+      effectiveMap.set(baseline.regulatoryListId, {
+        ...baseline,
+        source: 'SYSTEM',
+        status: 'ACTIVE',
+      });
+    }
+
+    // Apply tenant records (additions and exemptions)
+    for (const record of tenantRecords) {
+      if (record.source === RegulationSource.TENANT_ADDED) {
+        // Tenant addition
+        const listCode = await this.getListCode(record.regulatoryListId);
+        effectiveMap.set(record.regulatoryListId, {
+          regulatoryListId: record.regulatoryListId,
+          regulatoryListCode: listCode,
+          source: 'TENANT',
+          requirement: record.requirement,
+          status: 'ACTIVE',
+          allowExemption: true,
+          overrideThreshold: record.overrideThreshold ?? undefined,
+        });
+      } else if (record.source === RegulationSource.INHERITED && record.isExempted) {
+        // Exemption for system baseline
+        const existing = effectiveMap.get(record.regulatoryListId);
+        if (existing) {
+          existing.status = 'EXEMPTED';
+          existing.exemption = {
+            reason: record.exemptionReason!,
+            legalRef: record.exemptionLegalRef ?? undefined,
+            exemptedBy: record.exemptedBy!,
+            exemptedAt: record.exemptedAt!,
+          };
+        }
+      }
+    }
+
+    result.effectiveRegulations = Array.from(effectiveMap.values());
+    return result;
+  }
+
+  /**
+   * Gets the system baseline regulations for a system category.
+   * Only includes current version regulatory lists and non-excluded mappings.
+   */
+  private async getSystemBaseline(systemCategoryId: string | null | undefined): Promise<Array<{
+    regulatoryListId: string;
+    regulatoryListCode: string;
+    requirement: ListRequirement;
+    allowExemption: boolean;
+    overrideThreshold?: string;
+  }>> {
+    if (!systemCategoryId) return [];
+
+    // Using string interpolation for the ID since MikroORM's execute doesn't support $1 placeholders
+    // The ID is a safe alphanumeric string generated by the ORM
+    const escapedId = this.escapeId(systemCategoryId);
+    const rows = await this.em.getConnection().execute<Array<{
+      regulatory_list_id: string;
+      code: string;
+      requirement: string;
+      allow_tenant_exemption: boolean;
+      compare_value_override: string | null;
+    }>>(`
+      SELECT crl.regulatory_list_id, rl.code, crl.requirement, crl.allow_tenant_exemption, crl.compare_value_override
+      FROM public.category_regulatory_list crl
+      JOIN public.regulatory_list rl ON rl.id = crl.regulatory_list_id
+      WHERE crl.category_id = '${escapedId}'
+        AND rl.is_current_version = true
+        AND crl.is_exclusion = false
+    `);
+
+    return rows.map(row => ({
+      regulatoryListId: row.regulatory_list_id,
+      regulatoryListCode: row.code,
+      requirement: row.requirement as ListRequirement,
+      allowExemption: row.allow_tenant_exemption,
+      overrideThreshold: row.compare_value_override ?? undefined,
+    }));
+  }
+
+  /**
+   * Gets the code for a regulatory list by ID.
+   */
+  private async getListCode(regulatoryListId: string): Promise<string> {
+    const escapedId = this.escapeId(regulatoryListId);
+    const [row] = await this.em.getConnection().execute<Array<{ code: string }>>(`
+      SELECT code FROM public.regulatory_list WHERE id = '${escapedId}'
+    `);
+    return row?.code ?? 'UNKNOWN';
+  }
+
+  /**
+   * Escapes an ID string to prevent SQL injection.
+   * IDs in this system are alphanumeric strings, so we reject anything else.
+   */
+  private escapeId(id: string): string {
+    // Validate that the ID only contains safe characters (alphanumeric and underscores)
+    if (!/^[a-zA-Z0-9_-]+$/.test(id)) {
+      throw new Error(`Invalid ID format: ${id}`);
+    }
+    return id;
+  }
+}

@@ -29,3 +29,8 @@ export {
   type AddEntryInput,
   type GetEntriesOptions,
 } from './RegulatoryListService.js';
+export {
+  ComplianceStackResolver,
+  type EffectiveRegulation,
+  type ComplianceStackResult,
+} from './ComplianceStackResolver.js';
