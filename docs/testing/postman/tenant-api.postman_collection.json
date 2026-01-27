@@ -2,12 +2,10 @@
   "info": {
     "name": "EuroComply - Tenant API",
     "_postman_id": "eurocomply-tenant-api",
-    "description": "Tenant-scoped API endpoints.\n\n**Two authentication methods:**\n1. **JWT Auth** (human via UI) - Clerk session, used for dashboard operations\n2. **API Key Auth** (machine) - Programmatic access for integrations/scripts\n\n**Run order:** Setup → JWT Auth Tests → API Key Auth Tests → Cleanup\n\n**REQUIRED:** Set `webhookSecret` to your CLERK_WEBHOOK_SECRET (whsec_...)",
+    "description": "Tenant-scoped API endpoints.\n\n**Two authentication methods:**\n1. **JWT Auth** (human via UI) - Clerk session, used for dashboard operations\n2. **API Key Auth** (machine) - Programmatic access for integrations/scripts\n\n**Run order:** Setup → JWT Auth Tests → API Key Auth Tests → Cleanup\n\n**SETUP:** Import `eurocomply-local.postman_environment.json` and set `webhookSecret`",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    { "key": "baseUrl", "value": "http://localhost:3001", "type": "string" },
-    { "key": "webhookSecret", "value": "", "type": "string", "description": "REQUIRED: CLERK_WEBHOOK_SECRET" },
     { "key": "clerkOrgId", "value": "", "type": "string" },
     { "key": "orgId", "value": "", "type": "string" },
     { "key": "schemaName", "value": "", "type": "string" },
@@ -31,9 +29,9 @@
               "listen": "prerequest",
               "script": {
                 "exec": [
-                  "const webhookSecret = pm.collectionVariables.get('webhookSecret');",
+                  "const webhookSecret = pm.variables.get('webhookSecret');",
                   "if (!webhookSecret || !webhookSecret.startsWith('whsec_')) {",
-                  "    throw new Error('Set webhookSecret variable (whsec_...)');",
+                  "    throw new Error('Set webhookSecret in environment (import eurocomply-local.postman_environment.json)');",
                   "}",
                   "",
                   "const suffix = Math.random().toString(36).substring(2, 8);",
@@ -90,7 +88,7 @@
               "listen": "prerequest",
               "script": {
                 "exec": [
-                  "const webhookSecret = pm.collectionVariables.get('webhookSecret');",
+                  "const webhookSecret = pm.variables.get('webhookSecret');",
                   "const clerkOrgId = pm.collectionVariables.get('clerkOrgId');",
                   "if (!clerkOrgId) throw new Error('Run 0.1 first');",
                   "",
@@ -739,7 +737,7 @@
               "listen": "prerequest",
               "script": {
                 "exec": [
-                  "const webhookSecret = pm.collectionVariables.get('webhookSecret');",
+                  "const webhookSecret = pm.variables.get('webhookSecret');",
                   "const clerkOrgId = pm.collectionVariables.get('clerkOrgId');",
                   "if (!clerkOrgId) throw new Error('No org to delete');",
                   "",

@@ -2,12 +2,10 @@
   "info": {
     "name": "EuroComply - Admin API",
     "_postman_id": "eurocomply-admin-api",
-    "description": "Platform admin API endpoints.\n\nRequires X-Admin-Key header with ADMIN_API_KEY.\n\n**REQUIRED:** Set `adminApiKey` to your ADMIN_API_KEY from .env",
+    "description": "Platform admin API endpoints.\n\nRequires X-Admin-Key header with ADMIN_API_KEY.\n\n**SETUP:** Import `eurocomply-local.postman_environment.json` and set `adminApiKey`",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    { "key": "baseUrl", "value": "http://localhost:3001", "type": "string" },
-    { "key": "adminApiKey", "value": "", "type": "string", "description": "REQUIRED: ADMIN_API_KEY from .env" },
     { "key": "testOrgId", "value": "", "type": "string", "description": "Captured from list organizations" }
   ],
   "item": [
@@ -74,9 +72,9 @@
               "listen": "prerequest",
               "script": {
                 "exec": [
-                  "const adminKey = pm.collectionVariables.get('adminApiKey');",
+                  "const adminKey = pm.variables.get('adminApiKey');",
                   "if (!adminKey) {",
-                  "    throw new Error('Set adminApiKey variable to your ADMIN_API_KEY');",
+                  "    throw new Error('Set adminApiKey in environment (import eurocomply-local.postman_environment.json)');",
                   "}"
                 ],
                 "type": "text/javascript"

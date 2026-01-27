@@ -2,12 +2,10 @@
   "info": {
     "name": "EuroComply - Public API",
     "_postman_id": "eurocomply-public-api",
-    "description": "Public API endpoints - no authentication required.\n\nIncludes:\n- Health check\n- Units (UNECE codes)\n- Substances (ECHA regulated chemicals)\n- System Categories (taxonomy)",
+    "description": "Public API endpoints - no authentication required.\n\nIncludes:\n- Health check\n- Units (UNECE codes)\n- Substances (ECHA regulated chemicals)\n- System Categories (taxonomy)\n\n**SETUP:** Import `eurocomply-local.postman_environment.json`",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
-  "variable": [
-    { "key": "baseUrl", "value": "http://localhost:3001", "type": "string" }
-  ],
+  "variable": [],
   "item": [
     {
       "name": "Health",

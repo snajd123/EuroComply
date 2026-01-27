@@ -2,12 +2,10 @@
   "info": {
     "name": "EuroComply - Webhooks",
     "_postman_id": "eurocomply-webhooks",
-    "description": "Clerk webhook integration tests.\n\nTests organization and user lifecycle via simulated Clerk webhooks.\n\n**REQUIRED:** Set `webhookSecret` to your CLERK_WEBHOOK_SECRET (whsec_...)\n\n**Execution Order:**\n1. Create Organization\n2. Create First User (gets org admin)\n3. Create Second User (limited permissions)\n4. Update User\n5. Delete User\n6. Delete Organization",
+    "description": "Clerk webhook integration tests.\n\nTests organization and user lifecycle via simulated Clerk webhooks.\n\n**SETUP:** Import `eurocomply-local.postman_environment.json` and set `webhookSecret`\n\n**Execution Order:**\n1. Create Organization\n2. Create First User (gets org admin)\n3. Create Second User (limited permissions)\n4. Update User\n5. Delete User\n6. Delete Organization",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    { "key": "baseUrl", "value": "http://localhost:3001", "type": "string" },
-    { "key": "webhookSecret", "value": "", "type": "string", "description": "REQUIRED: CLERK_WEBHOOK_SECRET (whsec_...)" },
     { "key": "clerkOrgId", "value": "", "type": "string" },
     { "key": "orgId", "value": "", "type": "string" },
     { "key": "schemaName", "value": "", "type": "string" },
@@ -22,9 +20,9 @@
           "listen": "prerequest",
           "script": {
             "exec": [
-              "const webhookSecret = pm.collectionVariables.get('webhookSecret');",
+              "const webhookSecret = pm.variables.get('webhookSecret');",
               "if (!webhookSecret || !webhookSecret.startsWith('whsec_')) {",
-              "    throw new Error('Set webhookSecret variable to your CLERK_WEBHOOK_SECRET (whsec_...)');",
+              "    throw new Error('Set webhookSecret in environment (import eurocomply-local.postman_environment.json)');",
               "}",
               "",
               "const suffix = Math.random().toString(36).substring(2, 8);",
@@ -95,7 +93,7 @@
           "listen": "prerequest",
           "script": {
             "exec": [
-              "const webhookSecret = pm.collectionVariables.get('webhookSecret');",
+              "const webhookSecret = pm.variables.get('webhookSecret');",
               "const clerkOrgId = pm.collectionVariables.get('clerkOrgId');",
               "if (!clerkOrgId) throw new Error('Run step 1 first');",
               "",
@@ -171,7 +169,7 @@
           "listen": "prerequest",
           "script": {
             "exec": [
-              "const webhookSecret = pm.collectionVariables.get('webhookSecret');",
+              "const webhookSecret = pm.variables.get('webhookSecret');",
               "const clerkOrgId = pm.collectionVariables.get('clerkOrgId');",
               "if (!clerkOrgId) throw new Error('Run step 1 first');",
               "",
@@ -244,7 +242,7 @@
           "listen": "prerequest",
           "script": {
             "exec": [
-              "const webhookSecret = pm.collectionVariables.get('webhookSecret');",
+              "const webhookSecret = pm.variables.get('webhookSecret');",
               "const clerkOrgId = pm.collectionVariables.get('clerkOrgId');",
               "const clerkUserId = pm.collectionVariables.get('clerkUserId');",
               "if (!clerkUserId) throw new Error('Run step 2 first');",
@@ -308,7 +306,7 @@
           "listen": "prerequest",
           "script": {
             "exec": [
-              "const webhookSecret = pm.collectionVariables.get('webhookSecret');",
+              "const webhookSecret = pm.variables.get('webhookSecret');",
               "const clerkOrgId = pm.collectionVariables.get('clerkOrgId');",
               "const clerkUserId2 = pm.collectionVariables.get('clerkUserId2');",
               "if (!clerkUserId2) throw new Error('Run step 3 first');",
@@ -368,7 +366,7 @@
           "listen": "prerequest",
           "script": {
             "exec": [
-              "const webhookSecret = pm.collectionVariables.get('webhookSecret');",
+              "const webhookSecret = pm.variables.get('webhookSecret');",
               "const clerkOrgId = pm.collectionVariables.get('clerkOrgId');",
               "if (!clerkOrgId) throw new Error('Run step 1 first');",
               "",
