@@ -303,6 +303,44 @@ describe('RegulatoryList Entity', () => {
     expect(current.version).toBe('2024-01');
     expect(current.previousVersion?.version).toBe('2023-01');
   });
+
+  it('creates list with allowTenantExemption: false and verifies persistence', async (context) => {
+    if (!orm) { context.skip(); return; }
+    const em = orm.em.fork();
+
+    const list = em.create(RegulatoryList, {
+      code: 'COSING_ANNEX_II_PROHIBITED',
+      name: 'CosIng Annex II - Prohibited (No Exemptions)',
+      source: 'EU_COSING',
+      version: '2024-06',
+      effectiveDate: new Date('2024-06-01'),
+      allowTenantExemption: false,  // Prohibited substances cannot be exempted
+    });
+
+    await em.persistAndFlush(list);
+
+    const found = await em.findOneOrFail(RegulatoryList, { code: 'COSING_ANNEX_II_PROHIBITED' });
+    expect(found.allowTenantExemption).toBe(false);
+  });
+
+  it('defaults allowTenantExemption to true when not specified', async (context) => {
+    if (!orm) { context.skip(); return; }
+    const em = orm.em.fork();
+
+    const list = em.create(RegulatoryList, {
+      code: 'REACH_AUTHORIZATION',
+      name: 'REACH Authorization List',
+      source: 'ECHA',
+      version: '2024-01',
+      effectiveDate: new Date('2024-01-01'),
+      // allowTenantExemption not specified - should default to true
+    });
+
+    await em.persistAndFlush(list);
+
+    const found = await em.findOneOrFail(RegulatoryList, { code: 'REACH_AUTHORIZATION' });
+    expect(found.allowTenantExemption).toBe(true);
+  });
 });
 ```
 
@@ -392,6 +430,14 @@ export class RegulatoryList extends BaseEntity {
    */
   @Property({ type: 'text', nullable: true })
   description?: string;
+
+  /**
+   * Whether tenants can exempt from this regulatory list.
+   * Set to false for regulations that must always apply (e.g., prohibited substances).
+   * Default: true (most regulations can be exempted by tenants).
+   */
+  @Property({ type: 'boolean', default: true, name: 'allow_tenant_exemption' })
+  allowTenantExemption: boolean = true;
 
   /**
    * Link to the previous version of this list for history traversal.
@@ -851,6 +897,7 @@ export class Migration20260126_RegulatoryList extends Migration {
         is_current_version BOOLEAN NOT NULL DEFAULT true,
         source_url TEXT,
         description TEXT,
+        allow_tenant_exemption BOOLEAN NOT NULL DEFAULT true,
         previous_version_id TEXT REFERENCES public.regulatory_list(id),
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -1225,6 +1272,7 @@ export interface CreateListInput {
   sourceUrl?: string;
   description?: string;
   isCurrentVersion?: boolean;
+  allowTenantExemption?: boolean;
   previousVersionId?: string;
 }
 
@@ -1258,6 +1306,7 @@ export class RegulatoryListService {
       sourceUrl: input.sourceUrl,
       description: input.description,
       isCurrentVersion: input.isCurrentVersion ?? true,
+      allowTenantExemption: input.allowTenantExemption ?? true,
     });
 
     if (input.previousVersionId) {
@@ -1478,6 +1527,7 @@ export function createRegulatoryListsRouter(options: RegulatoryListsRouterOption
         version: l.version,
         effectiveDate: l.effectiveDate.toISOString(),
         sourceUrl: l.sourceUrl,
+        allowTenantExemption: l.allowTenantExemption,
       })),
       meta: { total: lists.length },
     });
@@ -1509,6 +1559,7 @@ export function createRegulatoryListsRouter(options: RegulatoryListsRouterOption
         supersededDate: list.supersededDate?.toISOString(),
         sourceUrl: list.sourceUrl,
         description: list.description,
+        allowTenantExemption: list.allowTenantExemption,
       },
     });
   });
@@ -1838,13 +1889,13 @@ git commit -m "test(api): add integration tests for regulatory-lists routes"
 ## Summary
 
 **Plan 10 delivers:**
-- `RestrictionType` enum (PROHIBITED, THRESHOLD, RESTRICTED_WITH_CONDITIONS)
-- `RegulatoryList` entity with versioning support
+- `ComparisonOperator` and `Severity` enums for agnostic evaluation
+- `RegulatoryList` entity with versioning support and `allowTenantExemption` flag
 - `RegulatoryListEntry` entity with forensic snapshots
 - Database migration for both tables
 - `RegulatoryListService` with version management
-- Public API routes for regulatory list access
-- Full test coverage
+- Public API routes for regulatory list access (including `allowTenantExemption` in responses)
+- Full test coverage (including `allowTenantExemption` persistence and default value tests)
 
 **Next Plans:**
 - **Plan 11:** CategoryRegulatoryList (category-list scoping)
