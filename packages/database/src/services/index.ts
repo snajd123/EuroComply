@@ -33,4 +33,5 @@ export {
   ComplianceStackResolver,
   type EffectiveRegulation,
   type ComplianceStackResult,
+  type ResolveOptions,
 } from './ComplianceStackResolver.js';

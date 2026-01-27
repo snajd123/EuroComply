@@ -28,6 +28,7 @@ export {
   ComplianceStackResolver,
   type EffectiveRegulation,
   type ComplianceStackResult,
+  type ResolveOptions,
 } from './services/index.js';
 
 // Re-export common MikroORM types for convenience

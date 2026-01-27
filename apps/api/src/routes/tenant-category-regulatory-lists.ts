@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import type { MikroORM } from '@eurocomply/database';
-import { TenantCategory, TenantCategoryRegulatoryList, ComplianceStackResolver, ListRequirement, RegulationSource, assertValidSchemaName } from '@eurocomply/database';
+import { TenantCategory, TenantCategoryRegulatoryList, ComplianceStackResolver, ListRequirement, RegulationSource, assertValidSchemaName, CategoryAdoption, LinkMode } from '@eurocomply/database';
 import { isCuid } from '@eurocomply/core';
 import type { Env } from '../app.js';
 import { authorize } from '../middleware/authorize.js';
@@ -66,8 +66,12 @@ export function createTenantCategoryRegulatoryListsRouter(options: TenantCategor
         return { error: 'not_found' as const };
       }
 
+      // Check if category adoption exists and is in FROZEN mode
+      const adoption = await txEm.findOne(CategoryAdoption, { localCategory: { id: tenantCategoryId } });
+      const pinnedIds = adoption?.mode === LinkMode.FROZEN ? adoption.pinnedRegulatoryListIds : undefined;
+
       const resolver = new ComplianceStackResolver(txEm);
-      return { success: true as const, data: await resolver.resolve(tenantCategoryId) };
+      return { success: true as const, data: await resolver.resolve(tenantCategoryId, { pinnedRegulatoryListIds: pinnedIds }) };
     });
 
     if (result.error === 'not_found') {

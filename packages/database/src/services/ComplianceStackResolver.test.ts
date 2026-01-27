@@ -471,5 +471,67 @@ describe('ComplianceStackResolver', () => {
       expect(result.effectiveRegulations).toHaveLength(1);
       expect(result.effectiveRegulations[0]?.regulatoryListCode).toBe('REACH_SVHC');
     });
+
+    it('should include pinned regulatory lists in FROZEN mode (ignoring isCurrentVersion)', async () => {
+      // Create system category
+      const systemCategory = createSystemCategory('Electronics', 'electronics');
+
+      // Create current and old version lists
+      const currentList = createRegulatoryList('REACH_SVHC_V2', { isCurrentVersion: true });
+      const pinnedOldList = createRegulatoryList('REACH_SVHC_V1', { isCurrentVersion: false });
+      const anotherCurrentList = createRegulatoryList('ROHS_V1', { isCurrentVersion: true });
+
+      // Link all lists to system category
+      const crl1 = new CategoryRegulatoryList();
+      crl1.category = systemCategory;
+      crl1.regulatoryList = currentList;
+      crl1.requirement = ListRequirement.MANDATORY;
+      crl1.allowTenantExemption = true;
+
+      const crl2 = new CategoryRegulatoryList();
+      crl2.category = systemCategory;
+      crl2.regulatoryList = pinnedOldList;
+      crl2.requirement = ListRequirement.MANDATORY;
+      crl2.allowTenantExemption = true;
+
+      const crl3 = new CategoryRegulatoryList();
+      crl3.category = systemCategory;
+      crl3.regulatoryList = anotherCurrentList;
+      crl3.requirement = ListRequirement.RECOMMENDED;
+      crl3.allowTenantExemption = true;
+
+      em.persist([systemCategory, currentList, pinnedOldList, anotherCurrentList, crl1, crl2, crl3]);
+      await em.flush();
+
+      // Set tenant context before creating tenant entities
+      await setTenantContext();
+
+      // Create tenant category in FROZEN mode
+      const tenantCategory = createTenantCategory('My Electronics', 'my.electronics', systemCategory.id, 'FROZEN');
+      em.persist(tenantCategory);
+      await em.flush();
+
+      const resolver = new ComplianceStackResolver(em);
+
+      // Resolve with pinned IDs (the old version + another current list)
+      const result = await resolver.resolve(tenantCategory.id, {
+        pinnedRegulatoryListIds: [pinnedOldList.id, anotherCurrentList.id],
+      });
+
+      // Should include only the pinned lists (old version included, current V2 excluded)
+      expect(result.effectiveRegulations).toHaveLength(2);
+
+      const pinnedReg = result.effectiveRegulations.find(r => r.regulatoryListCode === 'REACH_SVHC_V1');
+      expect(pinnedReg).toBeDefined();
+      expect(pinnedReg?.source).toBe('SYSTEM');
+
+      const rohsReg = result.effectiveRegulations.find(r => r.regulatoryListCode === 'ROHS_V1');
+      expect(rohsReg).toBeDefined();
+      expect(rohsReg?.source).toBe('SYSTEM');
+
+      // V2 should NOT be included because it's not in pinned list
+      const v2Reg = result.effectiveRegulations.find(r => r.regulatoryListCode === 'REACH_SVHC_V2');
+      expect(v2Reg).toBeUndefined();
+    });
   });
 });
