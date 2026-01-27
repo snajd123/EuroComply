@@ -32,8 +32,8 @@
 │                    USER-DEFINED DATA MODEL                                  │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│  IMPORTANT: The platform doesn't come with products or categories!         │
-│  USERS define everything themselves within their organization (tenant).    │
+│  KEY CONCEPT: The platform provides SYSTEM CATEGORIES (shared taxonomy)    │
+│  that tenants can ADOPT, or tenants can create their own CUSTOM categories.│
 │                                                                             │
 │                                                                             │
 │  TWO SCHEMAS IN THE DATABASE:                                               │
@@ -303,8 +303,8 @@
 │  ─────────────────────────               ───────────────────────            │
 │                                                                             │
 │  ┌─────────────────────────────┐        ┌─────────────────────────────┐    │
-│  │ • Regulatory Lists          │        │ • Categories                │    │
-│  │   (REACH, COSING, RoHS)     │        │   (their product taxonomy)  │    │
+│  │ • Regulatory Lists          │        │ • TenantCategories          │    │
+│  │   (REACH, COSING, RoHS)     │        │   (adopt system OR custom)  │    │
 │  │                             │        │                             │    │
 │  │ • Regulatory List Entries   │        │ • Products                  │    │
 │  │   (which substances are     │        │   (assigned to categories)  │    │
@@ -313,11 +313,12 @@
 │  │ • Master Substance List     │        │   (ingredients/components)  │    │
 │  │   (CAS numbers, names)      │        │                             │    │
 │  │                             │        │ • Substance Declarations    │    │
-│  │ • CategoryRegulatoryList    │        │   (what % of each substance │    │
-│  │   (which paths get which    │        │    is in each material)     │    │
+│  │ • System Categories         │        │   (what % of each substance │    │
+│  │   (shared taxonomy)         │        │    is in each material)     │    │
+│  │                             │        │                             │    │
+│  │ • CategoryRegulatoryList    │        │ • Attribute Templates       │    │
+│  │   (which paths get which    │        │   (custom fields)           │    │
 │  │    regulatory lists)        │        │                             │    │
-│  │                             │        │ • Attribute Templates       │    │
-│  │                             │        │   (custom fields)           │    │
 │  │                             │        │                             │    │
 │  │ Stored in: PUBLIC schema    │        │ Stored in: TENANT schema    │    │
 │  │ Shared by: All tenants      │        │ Isolated: Only their org    │    │
