@@ -11,7 +11,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import type { MikroORM } from '@eurocomply/database';
-import { CategoryAdoption, LinkMode, TargetType, TenantCategory, CategoryType } from '@eurocomply/database';
+import { CategoryAdoption, LinkMode, TargetType, TenantCategory, CategoryType, slugify } from '@eurocomply/database';
 import type { Env } from '../app.js';
 import { authorize } from '../middleware/authorize.js';
 import { success, error } from '../utils/response.js';
@@ -31,18 +31,6 @@ interface CategoryRow {
   version: number;
 }
 
-/**
- * Converts a string to a URL-friendly slug.
- * Used to create TenantCategory paths from system category names.
- */
-function slugify(name: string): string {
-  if (!name) return '';
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '')
-    .substring(0, 50);
-}
 
 // ============================================================================
 // Schemas
