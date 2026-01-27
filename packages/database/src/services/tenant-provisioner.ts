@@ -6,7 +6,7 @@ import { assertValidSchemaName } from '../utils/schema-validation.js';
  * Expected tenant tables - must match tenantEntities in entities/index.ts
  */
 const EXPECTED_TENANT_TABLES = [
-  'category',
+  'tenant_category',
   'category_adoption',
   'attribute_template',
   'product',

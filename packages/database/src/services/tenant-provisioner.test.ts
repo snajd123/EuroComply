@@ -58,7 +58,7 @@ describe('TenantProvisioner', () => {
     );
     const tableNames = tables.map(t => t.table_name);
 
-    expect(tableNames).toContain('category');
+    expect(tableNames).toContain('tenant_category');
     expect(tableNames).toContain('product');
     expect(tableNames).toContain('product_version');
     expect(tableNames).toContain('users');

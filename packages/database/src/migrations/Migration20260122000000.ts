@@ -1,122 +1,208 @@
 import { Migration } from '@mikro-orm/migrations';
 
+/**
+ * Initial database setup - creates all PUBLIC schema tables.
+ *
+ * Schema Design:
+ * - PUBLIC schema: Shared tables (organizations, category, substances, etc.)
+ * - TENANT schemas: Per-tenant tables created by TenantProvisioner
+ *
+ * This migration only creates public schema tables.
+ * Tenant tables are created dynamically when organizations are provisioned.
+ */
 export class Migration20260122000000 extends Migration {
   override async up(): Promise<void> {
-    // Create LTREE extension for hierarchical category paths
+    // =====================================================
+    // Extensions
+    // =====================================================
     this.addSql('CREATE EXTENSION IF NOT EXISTS ltree;');
 
-    // Organizations table (public schema) - multi-tenant root
+    // =====================================================
+    // Organizations table - multi-tenant root
+    // =====================================================
     this.addSql(`
-      CREATE TABLE "organizations" (
+      CREATE TABLE "public"."organizations" (
         "id" text PRIMARY KEY,
+        "created_at" timestamptz NOT NULL DEFAULT NOW(),
+        "updated_at" timestamptz NOT NULL DEFAULT NOW(),
         "name" text NOT NULL UNIQUE,
+        "slug" varchar(255) NOT NULL UNIQUE,
         "schema_name" text NOT NULL UNIQUE,
         "clerk_org_id" text UNIQUE,
+        "cell_id" varchar(255) NOT NULL DEFAULT 'cell_1',
+        "subscription_tier" varchar(50) NOT NULL DEFAULT 'STARTER',
+        "subscription_status" varchar(50) NOT NULL DEFAULT 'TRIALING',
+        "provisioning_status" varchar(50) NOT NULL DEFAULT 'PENDING',
+        "provisioning_error" text,
         "regulatory_advisor_enabled" boolean NOT NULL DEFAULT true,
         "enforcement_mode" text NOT NULL DEFAULT 'SILENT',
         "capture_compliance_in_silent_mode" boolean NOT NULL DEFAULT true,
-        "kms_key_arn" text,
-        "created_at" timestamptz NOT NULL DEFAULT NOW(),
-        "updated_at" timestamptz NOT NULL DEFAULT NOW()
+        "kms_key_arn" text
       );
     `);
 
-    // Unit definition table - defines measurement units
+    // =====================================================
+    // API Keys table - programmatic tenant access
+    // =====================================================
     this.addSql(`
-      CREATE TABLE "unit_definition" (
+      CREATE TABLE "public"."api_keys" (
         "id" text PRIMARY KEY,
-        "symbol" text NOT NULL UNIQUE,
+        "created_at" timestamptz NOT NULL DEFAULT NOW(),
+        "updated_at" timestamptz NOT NULL DEFAULT NOW(),
+        "organization_id" text NOT NULL REFERENCES "public"."organizations"("id") ON DELETE CASCADE,
+        "key_hash" varchar(64) NOT NULL,
+        "key_prefix" varchar(20) NOT NULL,
+        "name" varchar(255) NOT NULL,
+        "last_used_at" timestamptz,
+        "revoked_at" timestamptz,
+        "design_authority" text NOT NULL DEFAULT 'NONE',
+        "operations_authority" text NOT NULL DEFAULT 'NONE',
+        "marketing_authority" text NOT NULL DEFAULT 'NONE',
+        "compliance_authority" text NOT NULL DEFAULT 'NONE',
+        "is_org_admin" boolean NOT NULL DEFAULT false
+      );
+    `);
+    this.addSql('CREATE INDEX "api_keys_organization_id_idx" ON "public"."api_keys" ("organization_id");');
+    this.addSql('CREATE INDEX "api_keys_key_hash_idx" ON "public"."api_keys" ("key_hash");');
+
+    // =====================================================
+    // Webhook Events table - tracks incoming webhooks
+    // =====================================================
+    this.addSql(`
+      CREATE TABLE "public"."webhook_events" (
+        "id" text PRIMARY KEY,
+        "created_at" timestamptz NOT NULL DEFAULT NOW(),
+        "updated_at" timestamptz NOT NULL DEFAULT NOW(),
+        "svix_id" text NOT NULL UNIQUE,
+        "event_type" text NOT NULL,
+        "payload" jsonb NOT NULL,
+        "status" text NOT NULL DEFAULT 'PROCESSING',
+        "error_message" text,
+        "completed_at" timestamptz
+      );
+    `);
+    this.addSql('CREATE INDEX "webhook_events_svix_id_idx" ON "public"."webhook_events" ("svix_id");');
+    this.addSql('CREATE INDEX "webhook_events_status_idx" ON "public"."webhook_events" ("status");');
+
+    // =====================================================
+    // Unit Definition table - UNECE measurement units
+    // =====================================================
+    this.addSql(`
+      CREATE TABLE "public"."unit_definition" (
+        "id" text PRIMARY KEY,
+        "created_at" timestamptz NOT NULL DEFAULT NOW(),
+        "updated_at" timestamptz NOT NULL DEFAULT NOW(),
+        "code" varchar(10) NOT NULL UNIQUE,
         "name" text NOT NULL,
-        "unit_system" text NOT NULL,
-        "base_unit" text,
-        "conversion_factor" real,
-        "description" text,
-        "created_at" timestamptz NOT NULL DEFAULT NOW(),
-        "updated_at" timestamptz NOT NULL DEFAULT NOW()
+        "symbol" varchar(10) NOT NULL,
+        "system" text NOT NULL,
+        "factor" decimal(20, 10) NOT NULL,
+        "is_base" boolean NOT NULL DEFAULT false,
+        "is_active" boolean NOT NULL DEFAULT true
       );
     `);
+    this.addSql('CREATE INDEX "unit_definition_code_idx" ON "public"."unit_definition" ("code");');
+    this.addSql('CREATE INDEX "unit_definition_system_idx" ON "public"."unit_definition" ("system");');
 
-    // Category table with LTREE for hierarchical paths
+    // =====================================================
+    // Category table - system taxonomy (shared, seeded)
+    // =====================================================
     this.addSql(`
-      CREATE TABLE "category" (
+      CREATE TABLE "public"."category" (
         "id" text PRIMARY KEY,
+        "created_at" timestamptz NOT NULL DEFAULT NOW(),
+        "updated_at" timestamptz NOT NULL DEFAULT NOW(),
         "name" text NOT NULL,
         "description" text,
         "path" ltree NOT NULL,
         "type" text NOT NULL DEFAULT 'BRANCH',
+        "target_type" text NOT NULL DEFAULT 'PRODUCT',
         "depth" integer NOT NULL DEFAULT 0,
-        "parent_id" text REFERENCES "category"("id"),
+        "parent_id" text REFERENCES "public"."category"("id"),
         "default_profile_id" text,
         "is_active" boolean NOT NULL DEFAULT true,
-        "created_at" timestamptz NOT NULL DEFAULT NOW(),
-        "updated_at" timestamptz NOT NULL DEFAULT NOW()
+        "version" integer NOT NULL DEFAULT 1
       );
-      CREATE INDEX "category_path_idx" ON "category" USING GIST ("path");
     `);
+    this.addSql('CREATE INDEX "category_path_idx" ON "public"."category" USING GIST ("path");');
+    this.addSql('CREATE INDEX "category_parent_id_idx" ON "public"."category" ("parent_id");');
 
-    // Attribute template table - defines product attributes
+    // =====================================================
+    // Substance table - REACH/SVHC substances
+    // =====================================================
     this.addSql(`
-      CREATE TABLE "attribute_template" (
+      CREATE TABLE "public"."substance" (
         "id" text PRIMARY KEY,
-        "key" text NOT NULL,
-        "name" text NOT NULL,
-        "description" text,
-        "type" text NOT NULL,
-        "category_id" text NOT NULL REFERENCES "category"("id"),
-        "unit_id" text REFERENCES "unit_definition"("id"),
-        "rollup_method" text NOT NULL DEFAULT 'NONE',
-        "inheritance_rule" text NOT NULL DEFAULT 'INHERIT',
-        "validation_rules" jsonb,
-        "enum_values" jsonb,
-        "default_value" jsonb,
-        "is_active" boolean NOT NULL DEFAULT true,
-        "sort_order" integer NOT NULL DEFAULT 0,
-        "created_at" timestamptz NOT NULL DEFAULT NOW(),
-        "updated_at" timestamptz NOT NULL DEFAULT NOW()
-      );
-      CREATE INDEX "attribute_template_key_idx" ON "attribute_template" ("key");
-    `);
-
-    // Product table - main product entity
-    this.addSql(`
-      CREATE TABLE "product" (
-        "id" text PRIMARY KEY,
-        "name" text NOT NULL,
-        "description" text,
-        "sku" text,
-        "gtin" text,
-        "category_id" text NOT NULL REFERENCES "category"("id"),
-        "status" text NOT NULL DEFAULT 'DRAFT',
-        "metadata" jsonb,
-        "created_at" timestamptz NOT NULL DEFAULT NOW(),
-        "updated_at" timestamptz NOT NULL DEFAULT NOW()
-      );
-      CREATE INDEX "product_name_idx" ON "product" ("name");
-    `);
-
-    // Product version table - versioned product data
-    this.addSql(`
-      CREATE TABLE "product_version" (
-        "id" text PRIMARY KEY,
-        "product_id" text NOT NULL REFERENCES "product"("id"),
-        "version" text NOT NULL,
-        "status" text NOT NULL DEFAULT 'DRAFT',
-        "attribute_values" jsonb,
-        "change_summary" text,
-        "created_by" text,
-        "published_at" timestamptz,
-        "published_by" text,
         "created_at" timestamptz NOT NULL DEFAULT NOW(),
         "updated_at" timestamptz NOT NULL DEFAULT NOW(),
-        UNIQUE("product_id", "version")
+        "cas_number" varchar(20) NOT NULL UNIQUE,
+        "ec_number" varchar(20),
+        "primary_name" text NOT NULL,
+        "description" text,
+        "molecular_weight" decimal(12, 4),
+        "molecular_formula" varchar(500),
+        "is_svhc" boolean NOT NULL DEFAULT false,
+        "requires_authorization" boolean NOT NULL DEFAULT false,
+        "is_restricted" boolean NOT NULL DEFAULT false,
+        "restriction_conditions" text,
+        "sunset_date" date,
+        "latest_application_date" date,
+        "echa_url" text,
+        "source_version" varchar(50),
+        "is_active" boolean NOT NULL DEFAULT true
       );
-      CREATE INDEX "product_version_product_idx" ON "product_version" ("product_id");
     `);
+    this.addSql('CREATE INDEX "substance_cas_number_idx" ON "public"."substance" ("cas_number");');
+    this.addSql('CREATE INDEX "substance_ec_number_idx" ON "public"."substance" ("ec_number");');
+    this.addSql('CREATE INDEX "substance_primary_name_idx" ON "public"."substance" ("primary_name");');
+    this.addSql('CREATE INDEX "substance_is_svhc_idx" ON "public"."substance" ("is_svhc") WHERE "is_svhc" = true;');
+    this.addSql('CREATE INDEX "substance_requires_auth_idx" ON "public"."substance" ("requires_authorization") WHERE "requires_authorization" = true;');
+    this.addSql('CREATE INDEX "substance_is_restricted_idx" ON "public"."substance" ("is_restricted") WHERE "is_restricted" = true;');
 
-    // Outbox event table - transactional outbox pattern
+    // =====================================================
+    // Substance Alias table - alternative names
+    // =====================================================
     this.addSql(`
-      CREATE TABLE "outbox_event" (
+      CREATE TABLE "public"."substance_alias" (
         "id" text PRIMARY KEY,
+        "created_at" timestamptz NOT NULL DEFAULT NOW(),
+        "updated_at" timestamptz NOT NULL DEFAULT NOW(),
+        "substance_id" text NOT NULL REFERENCES "public"."substance"("id") ON DELETE CASCADE,
+        "name" text NOT NULL,
+        "type" varchar(20) NOT NULL,
+        "language" varchar(10) NOT NULL DEFAULT 'en',
+        UNIQUE ("substance_id", "name")
+      );
+    `);
+    this.addSql('CREATE INDEX "substance_alias_substance_id_idx" ON "public"."substance_alias" ("substance_id");');
+    this.addSql('CREATE INDEX "substance_alias_name_idx" ON "public"."substance_alias" ("name");');
+
+    // =====================================================
+    // Seed Version table - tracks seeded data versions
+    // =====================================================
+    this.addSql(`
+      CREATE TABLE "public"."seed_version" (
+        "id" text PRIMARY KEY,
+        "created_at" timestamptz NOT NULL DEFAULT NOW(),
+        "updated_at" timestamptz NOT NULL DEFAULT NOW(),
+        "name" varchar(100) NOT NULL UNIQUE,
+        "version" varchar(50) NOT NULL,
+        "source_checksum" varchar(100),
+        "seeded_at" timestamptz NOT NULL,
+        "record_count" integer NOT NULL DEFAULT 0
+      );
+    `);
+    this.addSql('CREATE INDEX "seed_version_name_idx" ON "public"."seed_version" ("name");');
+
+    // =====================================================
+    // Outbox Event table - transactional outbox pattern
+    // (exists in both public and tenant schemas)
+    // =====================================================
+    this.addSql(`
+      CREATE TABLE "public"."outbox_event" (
+        "id" text PRIMARY KEY,
+        "created_at" timestamptz NOT NULL DEFAULT NOW(),
+        "updated_at" timestamptz NOT NULL DEFAULT NOW(),
         "aggregate_type" text NOT NULL,
         "aggregate_id" text NOT NULL,
         "event_type" text NOT NULL,
@@ -124,47 +210,26 @@ export class Migration20260122000000 extends Migration {
         "status" text NOT NULL DEFAULT 'PENDING',
         "retry_count" integer NOT NULL DEFAULT 0,
         "processed_at" timestamptz,
-        "error_message" text,
-        "created_at" timestamptz NOT NULL DEFAULT NOW(),
-        "updated_at" timestamptz NOT NULL DEFAULT NOW()
+        "error_message" text
       );
-      CREATE INDEX "outbox_event_aggregate_type_idx" ON "outbox_event" ("aggregate_type");
-      CREATE INDEX "outbox_event_aggregate_id_idx" ON "outbox_event" ("aggregate_id");
-      CREATE INDEX "outbox_event_event_type_idx" ON "outbox_event" ("event_type");
-      CREATE INDEX "outbox_event_status_idx" ON "outbox_event" ("status");
     `);
-
-    // Audit log table - tracks all entity changes
-    this.addSql(`
-      CREATE TABLE "audit_log" (
-        "id" text PRIMARY KEY,
-        "entity_type" text NOT NULL,
-        "entity_id" text NOT NULL,
-        "action" text NOT NULL,
-        "user_id" text NOT NULL,
-        "old_values" jsonb,
-        "new_values" jsonb,
-        "ip_address" text,
-        "user_agent" text,
-        "created_at" timestamptz NOT NULL DEFAULT NOW(),
-        "updated_at" timestamptz NOT NULL DEFAULT NOW()
-      );
-      CREATE INDEX "audit_log_entity_type_idx" ON "audit_log" ("entity_type");
-      CREATE INDEX "audit_log_entity_id_idx" ON "audit_log" ("entity_id");
-      CREATE INDEX "audit_log_action_idx" ON "audit_log" ("action");
-      CREATE INDEX "audit_log_user_id_idx" ON "audit_log" ("user_id");
-    `);
+    this.addSql('CREATE INDEX "outbox_event_aggregate_type_idx" ON "public"."outbox_event" ("aggregate_type");');
+    this.addSql('CREATE INDEX "outbox_event_aggregate_id_idx" ON "public"."outbox_event" ("aggregate_id");');
+    this.addSql('CREATE INDEX "outbox_event_event_type_idx" ON "public"."outbox_event" ("event_type");');
+    this.addSql('CREATE INDEX "outbox_event_status_idx" ON "public"."outbox_event" ("status");');
   }
 
   override async down(): Promise<void> {
-    this.addSql('DROP TABLE IF EXISTS "audit_log" CASCADE;');
-    this.addSql('DROP TABLE IF EXISTS "outbox_event" CASCADE;');
-    this.addSql('DROP TABLE IF EXISTS "product_version" CASCADE;');
-    this.addSql('DROP TABLE IF EXISTS "product" CASCADE;');
-    this.addSql('DROP TABLE IF EXISTS "attribute_template" CASCADE;');
-    this.addSql('DROP TABLE IF EXISTS "category" CASCADE;');
-    this.addSql('DROP TABLE IF EXISTS "unit_definition" CASCADE;');
-    this.addSql('DROP TABLE IF EXISTS "organizations" CASCADE;');
+    // Drop in reverse dependency order
+    this.addSql('DROP TABLE IF EXISTS "public"."outbox_event" CASCADE;');
+    this.addSql('DROP TABLE IF EXISTS "public"."seed_version" CASCADE;');
+    this.addSql('DROP TABLE IF EXISTS "public"."substance_alias" CASCADE;');
+    this.addSql('DROP TABLE IF EXISTS "public"."substance" CASCADE;');
+    this.addSql('DROP TABLE IF EXISTS "public"."category" CASCADE;');
+    this.addSql('DROP TABLE IF EXISTS "public"."unit_definition" CASCADE;');
+    this.addSql('DROP TABLE IF EXISTS "public"."webhook_events" CASCADE;');
+    this.addSql('DROP TABLE IF EXISTS "public"."api_keys" CASCADE;');
+    this.addSql('DROP TABLE IF EXISTS "public"."organizations" CASCADE;');
     this.addSql('DROP EXTENSION IF EXISTS ltree;');
   }
 }

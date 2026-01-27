@@ -61,6 +61,7 @@ export const publicOnlyEntities = [
   Substance,
   SubstanceAlias,
   SeedVersion,
+  Category,
 ];
 
 /**
@@ -68,7 +69,6 @@ export const publicOnlyEntities = [
  * Each tenant gets their own copy of these tables.
  */
 export const tenantOnlyEntities = [
-  Category,
   CategoryAdoption,
   TenantCategory,
   AttributeTemplate,

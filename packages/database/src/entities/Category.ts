@@ -8,7 +8,7 @@ export enum CategoryType {
   LEAF = 'LEAF',
 }
 
-@Entity({ tableName: 'category' })
+@Entity({ tableName: 'category', schema: 'public' })
 export class Category extends BaseEntity {
   @Property({ type: 'text' })
   name!: string;

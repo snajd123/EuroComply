@@ -1,6 +1,6 @@
 import { Entity, Property, ManyToOne, Enum } from '@mikro-orm/core';
 import { BaseEntity } from './BaseEntity.js';
-import { Category } from './Category.js';
+import { TenantCategory } from './TenantCategory.js';
 
 export enum LinkMode {
   LIVE = 'LIVE',
@@ -15,8 +15,8 @@ export class CategoryAdoption extends BaseEntity {
   systemCategoryId!: string;
 
   // Hard link within same tenant schema - OK to use @ManyToOne
-  @ManyToOne(() => Category, { nullable: true, name: 'local_category_id' })
-  localCategory?: Category;
+  @ManyToOne(() => TenantCategory, { nullable: true, name: 'local_category_id' })
+  localCategory?: TenantCategory;
 
   @Enum({ items: () => LinkMode })
   mode!: LinkMode;

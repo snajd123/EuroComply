@@ -244,10 +244,25 @@ DATABASE_NAME=eurocomply
 
 If tests fail with "connection refused" or you see databases on multiple ports, the setup is broken. Fix by removing all postgres containers and running `pnpm db:start` fresh.
 
-### Migrations
+### Migrations & Schema Management
 
+**During Local Development:**
+- **Single consolidated migration** (`Migration20260122000000.ts`) creates all public schema tables
+- **When changing schema**: Update the single migration file, then run `pnpm db:reset`
+- **No incremental migrations during dev** - keeps things simple and avoids confusion
+- **Incremental migrations for production** - add new migration files only when deploying to production with real data
+
+**Schema Design:**
+
+| Schema | Created By | Contains |
+|--------|------------|----------|
+| `public` | Migration | `organizations`, `api_keys`, `webhook_events`, `unit_definition`, `category`, `substance`, `substance_alias`, `seed_version`, `outbox_event` |
+| `tenant_*` | TenantProvisioner | `tenant_category`, `category_adoption`, `attribute_template`, `product`, `product_version`, `audit_log`, `users`, `organization_users`, `outbox_event` |
+
+**Rules:**
+- **Public schema tables** = shared/system data (orgs, system categories, reference data)
+- **Tenant schema tables** = per-tenant data (products, users, adoptions)
 - **Never modify production data directly**
-- **All schema changes go through MikroORM migrations**
 - **Test migrations on staging before production**
 
 ### Queries
