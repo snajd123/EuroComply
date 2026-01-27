@@ -1,0 +1,433 @@
+{
+  "info": {
+    "name": "EuroComply - Webhooks",
+    "_postman_id": "eurocomply-webhooks",
+    "description": "Clerk webhook integration tests.\n\nTests organization and user lifecycle via simulated Clerk webhooks.\n\n**REQUIRED:** Set `webhookSecret` to your CLERK_WEBHOOK_SECRET (whsec_...)\n\n**Execution Order:**\n1. Create Organization\n2. Create First User (gets org admin)\n3. Create Second User (limited permissions)\n4. Update User\n5. Delete User\n6. Delete Organization",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3001", "type": "string" },
+    { "key": "webhookSecret", "value": "", "type": "string", "description": "REQUIRED: CLERK_WEBHOOK_SECRET (whsec_...)" },
+    { "key": "clerkOrgId", "value": "", "type": "string" },
+    { "key": "orgId", "value": "", "type": "string" },
+    { "key": "schemaName", "value": "", "type": "string" },
+    { "key": "clerkUserId", "value": "", "type": "string" },
+    { "key": "clerkUserId2", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "1. Create Organization",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "const webhookSecret = pm.collectionVariables.get('webhookSecret');",
+              "if (!webhookSecret || !webhookSecret.startsWith('whsec_')) {",
+              "    throw new Error('Set webhookSecret variable to your CLERK_WEBHOOK_SECRET (whsec_...)');",
+              "}",
+              "",
+              "const suffix = Math.random().toString(36).substring(2, 8);",
+              "const orgId = 'org_test_' + suffix;",
+              "const timestamp = Math.floor(Date.now() / 1000).toString();",
+              "const svixId = 'msg_' + suffix;",
+              "",
+              "pm.collectionVariables.set('clerkOrgId', orgId);",
+              "",
+              "const body = JSON.stringify({",
+              "    type: 'organization.created',",
+              "    data: {",
+              "        id: orgId,",
+              "        name: 'Test Company ' + suffix,",
+              "        slug: 'test-company-' + suffix,",
+              "        created_at: parseInt(timestamp)",
+              "    }",
+              "});",
+              "",
+              "const secretBytes = CryptoJS.enc.Base64.parse(webhookSecret.replace('whsec_', ''));",
+              "const toSign = svixId + '.' + timestamp + '.' + body;",
+              "const signature = CryptoJS.HmacSHA256(toSign, secretBytes);",
+              "",
+              "pm.request.headers.upsert({ key: 'svix-id', value: svixId });",
+              "pm.request.headers.upsert({ key: 'svix-timestamp', value: timestamp });",
+              "pm.request.headers.upsert({ key: 'svix-signature', value: 'v1,' + CryptoJS.enc.Base64.stringify(signature) });",
+              "pm.request.body.raw = body;",
+              "",
+              "console.log('Creating org:', orgId);"
+            ],
+            "type": "text/javascript"
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Organization created and provisioned', function () {",
+              "    const r = pm.response.json();",
+              "    pm.expect(r.success).to.equal(true);",
+              "    pm.expect(r.data.organizationId).to.be.a('string');",
+              "    pm.expect(r.data.schemaName).to.be.a('string');",
+              "    pm.collectionVariables.set('orgId', r.data.organizationId);",
+              "    pm.collectionVariables.set('schemaName', r.data.schemaName);",
+              "    console.log('Org ID:', r.data.organizationId);",
+              "    console.log('Schema:', r.data.schemaName);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{}" },
+        "url": "{{baseUrl}}/webhooks/clerk"
+      }
+    },
+    {
+      "name": "2. Create First User (Org Admin)",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "const webhookSecret = pm.collectionVariables.get('webhookSecret');",
+              "const clerkOrgId = pm.collectionVariables.get('clerkOrgId');",
+              "if (!clerkOrgId) throw new Error('Run step 1 first');",
+              "",
+              "const suffix = Math.random().toString(36).substring(2, 8);",
+              "const userId = 'user_admin_' + suffix;",
+              "const timestamp = Math.floor(Date.now() / 1000).toString();",
+              "const svixId = 'msg_mem_' + suffix;",
+              "",
+              "pm.collectionVariables.set('clerkUserId', userId);",
+              "",
+              "const body = JSON.stringify({",
+              "    type: 'organizationMembership.created',",
+              "    data: {",
+              "        id: 'mem_' + suffix,",
+              "        organization: { id: clerkOrgId },",
+              "        public_user_data: {",
+              "            user_id: userId,",
+              "            identifier: userId + '@test.example.com',",
+              "            first_name: 'Admin',",
+              "            last_name: 'User',",
+              "            image_url: 'https://example.com/avatar.png'",
+              "        },",
+              "        role: 'org:admin',",
+              "        created_at: parseInt(timestamp)",
+              "    }",
+              "});",
+              "",
+              "const secretBytes = CryptoJS.enc.Base64.parse(webhookSecret.replace('whsec_', ''));",
+              "const toSign = svixId + '.' + timestamp + '.' + body;",
+              "const signature = CryptoJS.HmacSHA256(toSign, secretBytes);",
+              "",
+              "pm.request.headers.upsert({ key: 'svix-id', value: svixId });",
+              "pm.request.headers.upsert({ key: 'svix-timestamp', value: timestamp });",
+              "pm.request.headers.upsert({ key: 'svix-signature', value: 'v1,' + CryptoJS.enc.Base64.stringify(signature) });",
+              "pm.request.body.raw = body;",
+              "",
+              "console.log('Creating admin user:', userId);"
+            ],
+            "type": "text/javascript"
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('First user created with admin privileges', function () {",
+              "    const r = pm.response.json();",
+              "    pm.expect(r.data.status).to.equal('created');",
+              "    pm.expect(r.data.userId).to.be.a('string');",
+              "    console.log('User ID:', r.data.userId);",
+              "    console.log('First user gets MANAGER + isOrgAdmin');",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{}" },
+        "url": "{{baseUrl}}/webhooks/clerk"
+      }
+    },
+    {
+      "name": "3. Create Second User (Limited)",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "const webhookSecret = pm.collectionVariables.get('webhookSecret');",
+              "const clerkOrgId = pm.collectionVariables.get('clerkOrgId');",
+              "if (!clerkOrgId) throw new Error('Run step 1 first');",
+              "",
+              "const suffix = Math.random().toString(36).substring(2, 8);",
+              "const userId = 'user_member_' + suffix;",
+              "const timestamp = Math.floor(Date.now() / 1000).toString();",
+              "const svixId = 'msg_mem2_' + suffix;",
+              "",
+              "pm.collectionVariables.set('clerkUserId2', userId);",
+              "",
+              "const body = JSON.stringify({",
+              "    type: 'organizationMembership.created',",
+              "    data: {",
+              "        id: 'mem2_' + suffix,",
+              "        organization: { id: clerkOrgId },",
+              "        public_user_data: {",
+              "            user_id: userId,",
+              "            identifier: userId + '@test.example.com',",
+              "            first_name: 'Regular',",
+              "            last_name: 'Member'",
+              "        },",
+              "        role: 'org:member',",
+              "        created_at: parseInt(timestamp)",
+              "    }",
+              "});",
+              "",
+              "const secretBytes = CryptoJS.enc.Base64.parse(webhookSecret.replace('whsec_', ''));",
+              "const toSign = svixId + '.' + timestamp + '.' + body;",
+              "const signature = CryptoJS.HmacSHA256(toSign, secretBytes);",
+              "",
+              "pm.request.headers.upsert({ key: 'svix-id', value: svixId });",
+              "pm.request.headers.upsert({ key: 'svix-timestamp', value: timestamp });",
+              "pm.request.headers.upsert({ key: 'svix-signature', value: 'v1,' + CryptoJS.enc.Base64.stringify(signature) });",
+              "pm.request.body.raw = body;",
+              "",
+              "console.log('Creating limited user:', userId);"
+            ],
+            "type": "text/javascript"
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Second user created with NONE permissions', function () {",
+              "    const r = pm.response.json();",
+              "    pm.expect(r.data.status).to.equal('created');",
+              "    console.log('Second user gets NONE permissions');",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{}" },
+        "url": "{{baseUrl}}/webhooks/clerk"
+      }
+    },
+    {
+      "name": "4. Update User Profile",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "const webhookSecret = pm.collectionVariables.get('webhookSecret');",
+              "const clerkOrgId = pm.collectionVariables.get('clerkOrgId');",
+              "const clerkUserId = pm.collectionVariables.get('clerkUserId');",
+              "if (!clerkUserId) throw new Error('Run step 2 first');",
+              "",
+              "const timestamp = Math.floor(Date.now() / 1000).toString();",
+              "const svixId = 'msg_upd_' + Math.random().toString(36).substring(2, 8);",
+              "",
+              "const body = JSON.stringify({",
+              "    type: 'user.updated',",
+              "    data: {",
+              "        id: clerkUserId,",
+              "        email_addresses: [{ email_address: 'updated@test.example.com', id: 'email_123' }],",
+              "        primary_email_address_id: 'email_123',",
+              "        first_name: 'Updated',",
+              "        last_name: 'Admin',",
+              "        image_url: 'https://example.com/new-avatar.png',",
+              "        organization_memberships: [{ organization: { id: clerkOrgId } }]",
+              "    }",
+              "});",
+              "",
+              "const secretBytes = CryptoJS.enc.Base64.parse(webhookSecret.replace('whsec_', ''));",
+              "const toSign = svixId + '.' + timestamp + '.' + body;",
+              "const signature = CryptoJS.HmacSHA256(toSign, secretBytes);",
+              "",
+              "pm.request.headers.upsert({ key: 'svix-id', value: svixId });",
+              "pm.request.headers.upsert({ key: 'svix-timestamp', value: timestamp });",
+              "pm.request.headers.upsert({ key: 'svix-signature', value: 'v1,' + CryptoJS.enc.Base64.stringify(signature) });",
+              "pm.request.body.raw = body;"
+            ],
+            "type": "text/javascript"
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('User update queued', function () {",
+              "    const r = pm.response.json();",
+              "    pm.expect(r.data.status).to.equal('queued');",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{}" },
+        "url": "{{baseUrl}}/webhooks/clerk"
+      }
+    },
+    {
+      "name": "5. Delete Second User",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "const webhookSecret = pm.collectionVariables.get('webhookSecret');",
+              "const clerkOrgId = pm.collectionVariables.get('clerkOrgId');",
+              "const clerkUserId2 = pm.collectionVariables.get('clerkUserId2');",
+              "if (!clerkUserId2) throw new Error('Run step 3 first');",
+              "",
+              "const timestamp = Math.floor(Date.now() / 1000).toString();",
+              "const svixId = 'msg_del_' + Math.random().toString(36).substring(2, 8);",
+              "",
+              "const body = JSON.stringify({",
+              "    type: 'organizationMembership.deleted',",
+              "    data: {",
+              "        id: 'mem_delete',",
+              "        organization: { id: clerkOrgId },",
+              "        public_user_data: { user_id: clerkUserId2 }",
+              "    }",
+              "});",
+              "",
+              "const secretBytes = CryptoJS.enc.Base64.parse(webhookSecret.replace('whsec_', ''));",
+              "const toSign = svixId + '.' + timestamp + '.' + body;",
+              "const signature = CryptoJS.HmacSHA256(toSign, secretBytes);",
+              "",
+              "pm.request.headers.upsert({ key: 'svix-id', value: svixId });",
+              "pm.request.headers.upsert({ key: 'svix-timestamp', value: timestamp });",
+              "pm.request.headers.upsert({ key: 'svix-signature', value: 'v1,' + CryptoJS.enc.Base64.stringify(signature) });",
+              "pm.request.body.raw = body;"
+            ],
+            "type": "text/javascript"
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('User soft deleted', function () {",
+              "    const r = pm.response.json();",
+              "    pm.expect(r.data.status).to.equal('soft_deleted');",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{}" },
+        "url": "{{baseUrl}}/webhooks/clerk"
+      }
+    },
+    {
+      "name": "6. Delete Organization",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "const webhookSecret = pm.collectionVariables.get('webhookSecret');",
+              "const clerkOrgId = pm.collectionVariables.get('clerkOrgId');",
+              "if (!clerkOrgId) throw new Error('Run step 1 first');",
+              "",
+              "const timestamp = Math.floor(Date.now() / 1000).toString();",
+              "const svixId = 'msg_orgdel_' + Math.random().toString(36).substring(2, 8);",
+              "",
+              "const body = JSON.stringify({",
+              "    type: 'organization.deleted',",
+              "    data: {",
+              "        id: clerkOrgId,",
+              "        name: 'Test Organization',",
+              "        slug: 'test-organization',",
+              "        created_at: parseInt(timestamp)",
+              "    }",
+              "});",
+              "",
+              "const secretBytes = CryptoJS.enc.Base64.parse(webhookSecret.replace('whsec_', ''));",
+              "const toSign = svixId + '.' + timestamp + '.' + body;",
+              "const signature = CryptoJS.HmacSHA256(toSign, secretBytes);",
+              "",
+              "pm.request.headers.upsert({ key: 'svix-id', value: svixId });",
+              "pm.request.headers.upsert({ key: 'svix-timestamp', value: timestamp });",
+              "pm.request.headers.upsert({ key: 'svix-signature', value: 'v1,' + CryptoJS.enc.Base64.stringify(signature) });",
+              "pm.request.body.raw = body;"
+            ],
+            "type": "text/javascript"
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Organization and schema deleted', function () {",
+              "    const r = pm.response.json();",
+              "    pm.expect(r.success).to.equal(true);",
+              "    console.log('Org and schema deleted');",
+              "",
+              "    // Clear variables",
+              "    pm.collectionVariables.unset('clerkOrgId');",
+              "    pm.collectionVariables.unset('orgId');",
+              "    pm.collectionVariables.unset('schemaName');",
+              "    pm.collectionVariables.unset('clerkUserId');",
+              "    pm.collectionVariables.unset('clerkUserId2');",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{}" },
+        "url": "{{baseUrl}}/webhooks/clerk"
+      }
+    }
+  ]
+}

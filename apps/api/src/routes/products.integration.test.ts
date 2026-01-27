@@ -11,7 +11,7 @@ import {
   Organization,
   User,
   OrganizationUser,
-  Category,
+  TenantCategory,
   Product,
   TenantProvisioner,
   ProvisioningStatus,
@@ -182,9 +182,9 @@ describe('Products API Integration', () => {
 
     tenantEm.persist([viewerMembership, editorMembership, noneMembership]);
 
-    // Create a test category - import CategoryType and TargetType
+    // Create a test tenant category
     testCategoryId = createId();
-    const category = new Category();
+    const category = new TenantCategory();
     category.id = testCategoryId;
     category.name = 'Test Category';
     category.path = 'test_category';
@@ -304,7 +304,7 @@ describe('Products API Integration', () => {
       const tenantEm = orm.em.fork({ schema: testSchemaName });
       await tenantEm.execute(`SET search_path TO "${testSchemaName}", public`);
 
-      const category = await tenantEm.findOne(Category, { id: testCategoryId });
+      const category = await tenantEm.findOne(TenantCategory, { id: testCategoryId });
       const product = tenantEm.create(Product, {
         id: createId(),
         name: 'Test Product',
@@ -419,7 +419,7 @@ describe('Products API Integration', () => {
       const tenantEm = orm.em.fork({ schema: testSchemaName });
       await tenantEm.execute(`SET search_path TO "${testSchemaName}", public`);
 
-      const category = await tenantEm.findOne(Category, { id: testCategoryId });
+      const category = await tenantEm.findOne(TenantCategory, { id: testCategoryId });
       testProductId = createId();
       const product = tenantEm.create(Product, {
         id: testProductId,
@@ -476,7 +476,7 @@ describe('Products API Integration', () => {
       const tenantEm = orm.em.fork({ schema: testSchemaName });
       await tenantEm.execute(`SET search_path TO "${testSchemaName}", public`);
 
-      const category = await tenantEm.findOne(Category, { id: testCategoryId });
+      const category = await tenantEm.findOne(TenantCategory, { id: testCategoryId });
       const product = tenantEm.create(Product, {
         id: createId(),
         name: 'Isolated Product',

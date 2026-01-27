@@ -1,6 +1,6 @@
 import { Entity, Property, ManyToOne, OneToMany, Collection, Enum, Index } from '@mikro-orm/core';
 import { BaseEntity } from './BaseEntity.js';
-import { Category } from './Category.js';
+import { TenantCategory } from './TenantCategory.js';
 
 export enum ProductStatus {
   DRAFT = 'DRAFT',
@@ -23,8 +23,8 @@ export class Product extends BaseEntity {
   @Property({ type: 'text', nullable: true })
   gtin?: string;
 
-  @ManyToOne(() => Category, { name: 'category_id' })
-  category!: Category;
+  @ManyToOne(() => TenantCategory, { name: 'category_id' })
+  category!: TenantCategory;
 
   @Enum({ items: () => ProductStatus, default: ProductStatus.DRAFT })
   status: ProductStatus = ProductStatus.DRAFT;

@@ -67,4 +67,4 @@ services:
 
 volumes:
   postgres_data:
-  waltid_data:
+  waltid_data:  # Used by walt.id SSI Kit when running with --profile waltid

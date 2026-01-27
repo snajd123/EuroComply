@@ -1,0 +1,793 @@
+{
+  "info": {
+    "name": "EuroComply - Tenant API",
+    "_postman_id": "eurocomply-tenant-api",
+    "description": "Tenant-scoped API endpoints.\n\n**Two authentication methods:**\n1. **JWT Auth** (human via UI) - Clerk session, used for dashboard operations\n2. **API Key Auth** (machine) - Programmatic access for integrations/scripts\n\n**Run order:** Setup → JWT Auth Tests → API Key Auth Tests → Cleanup\n\n**REQUIRED:** Set `webhookSecret` to your CLERK_WEBHOOK_SECRET (whsec_...)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3001", "type": "string" },
+    { "key": "webhookSecret", "value": "", "type": "string", "description": "REQUIRED: CLERK_WEBHOOK_SECRET" },
+    { "key": "clerkOrgId", "value": "", "type": "string" },
+    { "key": "orgId", "value": "", "type": "string" },
+    { "key": "schemaName", "value": "", "type": "string" },
+    { "key": "clerkUserId", "value": "", "type": "string" },
+    { "key": "jwtToken", "value": "", "type": "string", "description": "Mock JWT for human/UI simulation" },
+    { "key": "editorApiKey", "value": "", "type": "string" },
+    { "key": "viewerApiKey", "value": "", "type": "string" },
+    { "key": "orgAdminApiKey", "value": "", "type": "string" },
+    { "key": "categoryId", "value": "", "type": "string" },
+    { "key": "productId", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "0. Setup",
+      "description": "Creates organization and user via webhooks. Run first.",
+      "item": [
+        {
+          "name": "0.1 Create Organization",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const webhookSecret = pm.collectionVariables.get('webhookSecret');",
+                  "if (!webhookSecret || !webhookSecret.startsWith('whsec_')) {",
+                  "    throw new Error('Set webhookSecret variable (whsec_...)');",
+                  "}",
+                  "",
+                  "const suffix = Math.random().toString(36).substring(2, 8);",
+                  "const orgId = 'org_tenant_' + suffix;",
+                  "const timestamp = Math.floor(Date.now() / 1000).toString();",
+                  "const svixId = 'msg_' + suffix;",
+                  "",
+                  "pm.collectionVariables.set('clerkOrgId', orgId);",
+                  "",
+                  "const body = JSON.stringify({",
+                  "    type: 'organization.created',",
+                  "    data: { id: orgId, name: 'Tenant Test ' + suffix, slug: 'tenant-test-' + suffix, created_at: parseInt(timestamp) }",
+                  "});",
+                  "",
+                  "const secretBytes = CryptoJS.enc.Base64.parse(webhookSecret.replace('whsec_', ''));",
+                  "const signature = CryptoJS.HmacSHA256(svixId + '.' + timestamp + '.' + body, secretBytes);",
+                  "",
+                  "pm.request.headers.upsert({ key: 'svix-id', value: svixId });",
+                  "pm.request.headers.upsert({ key: 'svix-timestamp', value: timestamp });",
+                  "pm.request.headers.upsert({ key: 'svix-signature', value: 'v1,' + CryptoJS.enc.Base64.stringify(signature) });",
+                  "pm.request.body.raw = body;"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Organization created', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const r = pm.response.json();",
+                  "    pm.collectionVariables.set('orgId', r.data.organizationId);",
+                  "    pm.collectionVariables.set('schemaName', r.data.schemaName);",
+                  "    console.log('Org:', r.data.organizationId);",
+                  "    console.log('Schema:', r.data.schemaName);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": "{{baseUrl}}/webhooks/clerk"
+          }
+        },
+        {
+          "name": "0.2 Create User (Org Admin)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const webhookSecret = pm.collectionVariables.get('webhookSecret');",
+                  "const clerkOrgId = pm.collectionVariables.get('clerkOrgId');",
+                  "if (!clerkOrgId) throw new Error('Run 0.1 first');",
+                  "",
+                  "const suffix = Math.random().toString(36).substring(2, 8);",
+                  "const userId = 'user_tenant_' + suffix;",
+                  "const timestamp = Math.floor(Date.now() / 1000).toString();",
+                  "const svixId = 'msg_mem_' + suffix;",
+                  "",
+                  "pm.collectionVariables.set('clerkUserId', userId);",
+                  "",
+                  "const body = JSON.stringify({",
+                  "    type: 'organizationMembership.created',",
+                  "    data: {",
+                  "        id: 'mem_' + suffix,",
+                  "        organization: { id: clerkOrgId },",
+                  "        public_user_data: { user_id: userId, identifier: userId + '@test.com', first_name: 'Test', last_name: 'Admin' },",
+                  "        role: 'org:admin',",
+                  "        created_at: parseInt(timestamp)",
+                  "    }",
+                  "});",
+                  "",
+                  "const secretBytes = CryptoJS.enc.Base64.parse(webhookSecret.replace('whsec_', ''));",
+                  "const signature = CryptoJS.HmacSHA256(svixId + '.' + timestamp + '.' + body, secretBytes);",
+                  "",
+                  "pm.request.headers.upsert({ key: 'svix-id', value: svixId });",
+                  "pm.request.headers.upsert({ key: 'svix-timestamp', value: timestamp });",
+                  "pm.request.headers.upsert({ key: 'svix-signature', value: 'v1,' + CryptoJS.enc.Base64.stringify(signature) });",
+                  "pm.request.body.raw = body;"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('User created', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const schemaName = pm.collectionVariables.get('schemaName');",
+                  "    const clerkUserId = pm.collectionVariables.get('clerkUserId');",
+                  "",
+                  "    // Create mock JWT for subsequent tests (simulates Clerk session)",
+                  "    const payload = { sub: clerkUserId, org_metadata: { schema_name: schemaName } };",
+                  "    const jwt = 'header.' + btoa(JSON.stringify(payload)) + '.signature';",
+                  "    pm.collectionVariables.set('jwtToken', jwt);",
+                  "    console.log('User created, JWT token set for UI simulation');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": "{{baseUrl}}/webhooks/clerk"
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. JWT Auth (Human/UI)",
+      "description": "Tests simulating a human user accessing via dashboard.\nUses Authorization: Bearer <JWT> (Clerk session).",
+      "item": [
+        {
+          "name": "API Key Management",
+          "description": "Human users manage API keys via dashboard",
+          "item": [
+            {
+              "name": "Create Org Admin API Key",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status 201', function () {",
+                      "    pm.response.to.have.status(201);",
+                      "});",
+                      "",
+                      "pm.test('Org Admin key created', function () {",
+                      "    const r = pm.response.json();",
+                      "    pm.expect(r.data.isOrgAdmin).to.equal(true);",
+                      "    pm.collectionVariables.set('orgAdminApiKey', r.data.rawKey);",
+                      "    console.log('Org Admin key:', r.data.keyPrefix);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "Authorization", "value": "Bearer {{jwtToken}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Org Admin Key (for machines)\",\n  \"designAuthority\": \"MANAGER\",\n  \"operationsAuthority\": \"MANAGER\",\n  \"marketingAuthority\": \"MANAGER\",\n  \"complianceAuthority\": \"MANAGER\",\n  \"isOrgAdmin\": true\n}"
+                },
+                "url": "{{baseUrl}}/api/v1/api-keys"
+              }
+            },
+            {
+              "name": "Create Editor API Key",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status 201', function () {",
+                      "    pm.response.to.have.status(201);",
+                      "});",
+                      "",
+                      "pm.test('Editor key created', function () {",
+                      "    const r = pm.response.json();",
+                      "    pm.expect(r.data.designAuthority).to.equal('EDITOR');",
+                      "    pm.collectionVariables.set('editorApiKey', r.data.rawKey);",
+                      "    console.log('Editor key:', r.data.keyPrefix);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "Authorization", "value": "Bearer {{jwtToken}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Editor Key (CI/CD)\",\n  \"designAuthority\": \"EDITOR\",\n  \"operationsAuthority\": \"NONE\",\n  \"marketingAuthority\": \"NONE\",\n  \"complianceAuthority\": \"NONE\",\n  \"isOrgAdmin\": false\n}"
+                },
+                "url": "{{baseUrl}}/api/v1/api-keys"
+              }
+            },
+            {
+              "name": "Create Viewer API Key",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status 201', function () {",
+                      "    pm.response.to.have.status(201);",
+                      "});",
+                      "",
+                      "pm.test('Viewer key created', function () {",
+                      "    const r = pm.response.json();",
+                      "    pm.expect(r.data.designAuthority).to.equal('VIEWER');",
+                      "    pm.collectionVariables.set('viewerApiKey', r.data.rawKey);",
+                      "    console.log('Viewer key:', r.data.keyPrefix);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "Authorization", "value": "Bearer {{jwtToken}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Viewer Key (read-only)\",\n  \"designAuthority\": \"VIEWER\",\n  \"operationsAuthority\": \"NONE\",\n  \"marketingAuthority\": \"NONE\",\n  \"complianceAuthority\": \"NONE\",\n  \"isOrgAdmin\": false\n}"
+                },
+                "url": "{{baseUrl}}/api/v1/api-keys"
+              }
+            },
+            {
+              "name": "List API Keys",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status 200', function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "",
+                      "pm.test('Lists all 3 keys', function () {",
+                      "    const r = pm.response.json();",
+                      "    pm.expect(r.data.length).to.equal(3);",
+                      "    console.log('Total keys:', r.meta.total);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [
+                  { "key": "Authorization", "value": "Bearer {{jwtToken}}" }
+                ],
+                "url": "{{baseUrl}}/api/v1/api-keys"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Dashboard Operations",
+          "description": "Human user CRUD operations via dashboard",
+          "item": [
+            {
+              "name": "Create Category (JWT)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status 201', function () {",
+                      "    pm.response.to.have.status(201);",
+                      "});",
+                      "",
+                      "pm.test('Category created via JWT', function () {",
+                      "    const r = pm.response.json();",
+                      "    pm.collectionVariables.set('categoryId', r.data.id);",
+                      "    console.log('Category ID:', r.data.id);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "Authorization", "value": "Bearer {{jwtToken}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Electronics\",\n  \"description\": \"Created via dashboard (JWT)\",\n  \"type\": \"ROOT\",\n  \"targetType\": \"PRODUCT\"\n}"
+                },
+                "url": "{{baseUrl}}/api/v1/tenant-categories"
+              }
+            },
+            {
+              "name": "List Categories (JWT)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status 200', function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "",
+                      "pm.test('Returns categories', function () {",
+                      "    const r = pm.response.json();",
+                      "    pm.expect(r.data).to.be.an('array');",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [
+                  { "key": "Authorization", "value": "Bearer {{jwtToken}}" }
+                ],
+                "url": "{{baseUrl}}/api/v1/tenant-categories"
+              }
+            },
+            {
+              "name": "Create Product (JWT)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status 201', function () {",
+                      "    pm.response.to.have.status(201);",
+                      "});",
+                      "",
+                      "pm.test('Product created via JWT', function () {",
+                      "    const r = pm.response.json();",
+                      "    pm.collectionVariables.set('productId', r.data.id);",
+                      "    console.log('Product ID:', r.data.id);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "Authorization", "value": "Bearer {{jwtToken}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Laptop Pro\",\n  \"categoryId\": \"{{categoryId}}\"\n}"
+                },
+                "url": "{{baseUrl}}/api/v1/products"
+              }
+            },
+            {
+              "name": "List Products (JWT)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status 200', function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "",
+                      "pm.test('Returns products', function () {",
+                      "    const r = pm.response.json();",
+                      "    pm.expect(r.data).to.be.an('array');",
+                      "    pm.expect(r.data.length).to.be.at.least(1);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [
+                  { "key": "Authorization", "value": "Bearer {{jwtToken}}" }
+                ],
+                "url": "{{baseUrl}}/api/v1/products"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. API Key Auth (Machine)",
+      "description": "Tests simulating programmatic/machine access.\nUses X-API-Key header.",
+      "item": [
+        {
+          "name": "Permission Tests",
+          "description": "Verify authority levels work correctly",
+          "item": [
+            {
+              "name": "EDITOR can list products",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status 200', function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "",
+                      "pm.test('EDITOR can read', function () {",
+                      "    const r = pm.response.json();",
+                      "    pm.expect(r.data).to.be.an('array');",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "X-API-Key", "value": "{{editorApiKey}}" }],
+                "url": "{{baseUrl}}/api/v1/products"
+              }
+            },
+            {
+              "name": "EDITOR can create product",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status 201', function () {",
+                      "    pm.response.to.have.status(201);",
+                      "});",
+                      "",
+                      "pm.test('EDITOR can write', function () {",
+                      "    const r = pm.response.json();",
+                      "    pm.expect(r.data.name).to.equal('Machine Created Product');",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-API-Key", "value": "{{editorApiKey}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Machine Created Product\",\n  \"categoryId\": \"{{categoryId}}\"\n}"
+                },
+                "url": "{{baseUrl}}/api/v1/products"
+              }
+            },
+            {
+              "name": "VIEWER can list products",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status 200', function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "",
+                      "pm.test('VIEWER can read', function () {",
+                      "    const r = pm.response.json();",
+                      "    pm.expect(r.data).to.be.an('array');",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "X-API-Key", "value": "{{viewerApiKey}}" }],
+                "url": "{{baseUrl}}/api/v1/products"
+              }
+            },
+            {
+              "name": "VIEWER cannot create product (403)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status 403 Forbidden', function () {",
+                      "    pm.response.to.have.status(403);",
+                      "});",
+                      "",
+                      "pm.test('Shows authority details', function () {",
+                      "    const r = pm.response.json();",
+                      "    pm.expect(r.error.details.yourAuthority).to.equal('VIEWER');",
+                      "    pm.expect(r.error.details.requiredAuthority).to.equal('EDITOR');",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-API-Key", "value": "{{viewerApiKey}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Should Fail\",\n  \"categoryId\": \"{{categoryId}}\"\n}"
+                },
+                "url": "{{baseUrl}}/api/v1/products"
+              }
+            },
+            {
+              "name": "Non-admin cannot list API keys (403)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status 403 Forbidden', function () {",
+                      "    pm.response.to.have.status(403);",
+                      "});",
+                      "",
+                      "pm.test('Requires Org Admin', function () {",
+                      "    const r = pm.response.json();",
+                      "    pm.expect(r.error.message).to.include('Organization Admin');",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "X-API-Key", "value": "{{editorApiKey}}" }],
+                "url": "{{baseUrl}}/api/v1/api-keys"
+              }
+            },
+            {
+              "name": "Org Admin can list API keys",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status 200', function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "",
+                      "pm.test('Org Admin can manage keys', function () {",
+                      "    const r = pm.response.json();",
+                      "    pm.expect(r.data.length).to.be.at.least(3);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "X-API-Key", "value": "{{orgAdminApiKey}}" }],
+                "url": "{{baseUrl}}/api/v1/api-keys"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Error Cases",
+          "description": "Test error handling for machine access",
+          "item": [
+            {
+              "name": "No auth (401)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status 401 Unauthorized', function () {",
+                      "    pm.response.to.have.status(401);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "url": "{{baseUrl}}/api/v1/products"
+              }
+            },
+            {
+              "name": "Invalid API key (401)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status 401 Unauthorized', function () {",
+                      "    pm.response.to.have.status(401);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "X-API-Key", "value": "ec_invalid_key_12345" }],
+                "url": "{{baseUrl}}/api/v1/products"
+              }
+            },
+            {
+              "name": "Product not found (404)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status 404', function () {",
+                      "    pm.response.to.have.status(404);",
+                      "});",
+                      "",
+                      "pm.test('Error code NOT_FOUND', function () {",
+                      "    const r = pm.response.json();",
+                      "    pm.expect(r.error.code).to.equal('NOT_FOUND');",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "X-API-Key", "value": "{{editorApiKey}}" }],
+                "url": "{{baseUrl}}/api/v1/products/nonexistent-id"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "9. Cleanup",
+      "description": "Delete test data. Run last.",
+      "item": [
+        {
+          "name": "9.1 Delete Products (JWT)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// Just verify request succeeded or resource gone",
+                  "pm.test('Cleanup OK', function () {",
+                  "    pm.expect([200, 204, 404]).to.include(pm.response.code);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{jwtToken}}" }],
+            "url": "{{baseUrl}}/api/v1/products/{{productId}}"
+          }
+        },
+        {
+          "name": "9.2 Delete Category (JWT)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Cleanup OK', function () {",
+                  "    pm.expect([200, 204, 404]).to.include(pm.response.code);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{jwtToken}}" }],
+            "url": "{{baseUrl}}/api/v1/tenant-categories/{{categoryId}}"
+          }
+        },
+        {
+          "name": "9.3 Delete Organization",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const webhookSecret = pm.collectionVariables.get('webhookSecret');",
+                  "const clerkOrgId = pm.collectionVariables.get('clerkOrgId');",
+                  "if (!clerkOrgId) throw new Error('No org to delete');",
+                  "",
+                  "const timestamp = Math.floor(Date.now() / 1000).toString();",
+                  "const svixId = 'msg_del_' + Math.random().toString(36).substring(2, 8);",
+                  "",
+                  "const body = JSON.stringify({",
+                  "    type: 'organization.deleted',",
+                  "    data: { id: clerkOrgId, name: 'Test', slug: 'test', created_at: parseInt(timestamp) }",
+                  "});",
+                  "",
+                  "const secretBytes = CryptoJS.enc.Base64.parse(webhookSecret.replace('whsec_', ''));",
+                  "const signature = CryptoJS.HmacSHA256(svixId + '.' + timestamp + '.' + body, secretBytes);",
+                  "",
+                  "pm.request.headers.upsert({ key: 'svix-id', value: svixId });",
+                  "pm.request.headers.upsert({ key: 'svix-timestamp', value: timestamp });",
+                  "pm.request.headers.upsert({ key: 'svix-signature', value: 'v1,' + CryptoJS.enc.Base64.stringify(signature) });",
+                  "pm.request.body.raw = body;"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Organization deleted', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "",
+                  "    // Clear all variables",
+                  "    const vars = ['clerkOrgId', 'orgId', 'schemaName', 'clerkUserId', 'jwtToken',",
+                  "                  'editorApiKey', 'viewerApiKey', 'orgAdminApiKey', 'categoryId', 'productId'];",
+                  "    vars.forEach(v => pm.collectionVariables.unset(v));",
+                  "    console.log('Cleanup complete');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": "{{baseUrl}}/webhooks/clerk"
+          }
+        }
+      ]
+    }
+  ]
+}

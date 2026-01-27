@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { createId } from '@eurocomply/core';
-import { Product, ProductStatus, Category } from '@eurocomply/database';
+import { Product, ProductStatus, TenantCategory } from '@eurocomply/database';
 import type { MikroORM } from '@eurocomply/database';
 import type { Env } from '../app.js';
 import { authorize } from '../middleware/authorize.js';
@@ -67,8 +67,8 @@ export function createProductsRouter(options: ProductsRouterOptions) {
       const result = await em.transactional(async (txEm) => {
         await txEm.execute(`SET search_path TO "${schema}", public`);
 
-        // Verify category exists
-        const category = await txEm.findOne(Category, { id: body.categoryId });
+        // Verify category exists (must be a tenant category, not system category)
+        const category = await txEm.findOne(TenantCategory, { id: body.categoryId });
         if (!category) {
           return { error: 'Category not found' as const };
         }
