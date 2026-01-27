@@ -89,12 +89,12 @@
                   "pm.test('Organization created and provisioned', function () {",
                   "    const r = pm.response.json();",
                   "    pm.expect(r.success).to.equal(true);",
-                  "    pm.expect(r.organizationId).to.be.a('string');",
-                  "    pm.expect(r.schemaName).to.be.a('string');",
-                  "    pm.collectionVariables.set('orgId', r.organizationId);",
-                  "    pm.collectionVariables.set('schemaName', r.schemaName);",
-                  "    console.log('Org ID:', r.organizationId);",
-                  "    console.log('Schema:', r.schemaName);",
+                  "    pm.expect(r.data.organizationId).to.be.a('string');",
+                  "    pm.expect(r.data.schemaName).to.be.a('string');",
+                  "    pm.collectionVariables.set('orgId', r.data.organizationId);",
+                  "    pm.collectionVariables.set('schemaName', r.data.schemaName);",
+                  "    console.log('Org ID:', r.data.organizationId);",
+                  "    console.log('Schema:', r.data.schemaName);",
                   "});"
                 ],
                 "type": "text/javascript"
@@ -184,10 +184,10 @@
                   "",
                   "pm.test('First user created', function () {",
                   "    const r = pm.response.json();",
-                  "    pm.expect(r.status).to.equal('created');",
-                  "    pm.expect(r.userId).to.be.a('string');",
-                  "    pm.collectionVariables.set('membershipId', r.userId);",
-                  "    console.log('User ID:', r.userId);",
+                  "    pm.expect(r.data.status).to.equal('created');",
+                  "    pm.expect(r.data.userId).to.be.a('string');",
+                  "    pm.collectionVariables.set('membershipId', r.data.userId);",
+                  "    console.log('User ID:', r.data.userId);",
                   "    console.log('First user gets MANAGER + isOrgAdmin');",
                   "});"
                 ],
@@ -277,9 +277,9 @@
                   "",
                   "pm.test('Second user created', function () {",
                   "    const r = pm.response.json();",
-                  "    pm.expect(r.status).to.equal('created');",
-                  "    pm.expect(r.userId).to.be.a('string');",
-                  "    console.log('User ID:', r.userId);",
+                  "    pm.expect(r.data.status).to.equal('created');",
+                  "    pm.expect(r.data.userId).to.be.a('string');",
+                  "    console.log('User ID:', r.data.userId);",
                   "    console.log('Non-first user gets NONE permissions');",
                   "});"
                 ],
@@ -325,7 +325,7 @@
                   "",
                   "pm.test('Returns healthy status', function () {",
                   "    const r = pm.response.json();",
-                  "    pm.expect(r.status).to.equal('healthy');",
+                  "    pm.expect(r.data.status).to.equal('healthy');",
                   "});"
                 ],
                 "type": "text/javascript"
@@ -355,7 +355,7 @@
                   "",
                   "pm.test('Returns API v1', function () {",
                   "    const r = pm.response.json();",
-                  "    pm.expect(r.message).to.include('v1');",
+                  "    pm.expect(r.data.message).to.include('v1');",
                   "});"
                 ],
                 "type": "text/javascript"
@@ -554,7 +554,7 @@
                   "",
                   "pm.test('Org is READY', function () {",
                   "    const r = pm.response.json();",
-                  "    pm.expect(r.provisioningStatus).to.equal('READY');",
+                  "    pm.expect(r.data.provisioningStatus).to.equal('READY');",
                   "});"
                 ],
                 "type": "text/javascript"
@@ -637,8 +637,8 @@
                   "pm.test('EDITOR key created', function () {",
                   "    const r = pm.response.json();",
                   "    pm.expect(r.data.designAuthority).to.equal('EDITOR');",
-                  "    pm.expect(r.rawKey).to.be.a('string');",
-                  "    pm.collectionVariables.set('editorApiKey', r.rawKey);",
+                  "    pm.expect(r.data.rawKey).to.be.a('string');",
+                  "    pm.collectionVariables.set('editorApiKey', r.data.rawKey);",
                   "    console.log('EDITOR key:', r.data.keyPrefix);",
                   "});"
                 ],
@@ -689,7 +689,7 @@
                   "pm.test('VIEWER key created', function () {",
                   "    const r = pm.response.json();",
                   "    pm.expect(r.data.designAuthority).to.equal('VIEWER');",
-                  "    pm.collectionVariables.set('viewerApiKey', r.rawKey);",
+                  "    pm.collectionVariables.set('viewerApiKey', r.data.rawKey);",
                   "    console.log('VIEWER key:', r.data.keyPrefix);",
                   "});"
                 ],
@@ -740,7 +740,7 @@
                   "pm.test('Org Admin key created', function () {",
                   "    const r = pm.response.json();",
                   "    pm.expect(r.data.isOrgAdmin).to.equal(true);",
-                  "    pm.collectionVariables.set('orgAdminApiKey', r.rawKey);",
+                  "    pm.collectionVariables.set('orgAdminApiKey', r.data.rawKey);",
                   "    console.log('Org Admin key:', r.data.keyPrefix);",
                   "});"
                 ],
@@ -811,7 +811,7 @@
                   "",
                   "pm.test('Requires Org Admin', function () {",
                   "    const r = pm.response.json();",
-                  "    pm.expect(r.message).to.include('Organization Admin');",
+                  "    pm.expect(r.error.message).to.include('Organization Admin');",
                   "});"
                 ],
                 "type": "text/javascript"
@@ -958,8 +958,8 @@
                   "",
                   "pm.test('Shows authority details', function () {",
                   "    const r = pm.response.json();",
-                  "    pm.expect(r.yourAuthority).to.equal('VIEWER');",
-                  "    pm.expect(r.workspace).to.equal('design');",
+                  "    pm.expect(r.error.details.yourAuthority).to.equal('VIEWER');",
+                  "    pm.expect(r.error.details.workspace).to.equal('design');",
                   "});"
                 ],
                 "type": "text/javascript"

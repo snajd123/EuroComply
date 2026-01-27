@@ -286,7 +286,7 @@
                   "",
                   "pm.test('Error message', function () {",
                   "    const r = pm.response.json();",
-                  "    pm.expect(r.error).to.equal('Not Found');",
+                  "    pm.expect(r.error.code).to.equal('NOT_FOUND');",
                   "});"
                 ],
                 "type": "text/javascript"
