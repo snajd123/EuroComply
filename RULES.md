@@ -290,6 +290,55 @@ All API responses MUST follow this structure:
 }
 ```
 
+### Response Utilities (MANDATORY)
+
+**NEVER construct responses manually with `c.json()`.** Always use the response utilities:
+
+```typescript
+import { success, error } from '../utils/response.js';
+
+// ✅ GOOD: Use response utilities
+return success(c, { id: product.id, name: product.name });
+return success(c, products, { total: products.length });
+return success(c, { id: newProduct.id }, { status: 201 });
+return error(c, 'NOT_FOUND', 'Product not found', 404);
+return error(c, 'FORBIDDEN', 'Insufficient permissions', 403, { workspace: 'design', yourAuthority: 'VIEWER' });
+
+// ❌ BAD: Manual response construction
+return c.json({ data: product }, 200);
+return c.json({ error: 'Not found' }, 404);
+```
+
+The utilities automatically:
+- Add `success: true/false`
+- Add `meta.requestId` (from request-id middleware)
+- Add `meta.timestamp`
+- Set `X-Request-Id` response header
+
+### Standard Error Codes
+
+Error codes MUST be `SCREAMING_SNAKE_CASE`. Use these standard codes:
+
+| Code | HTTP Status | Usage |
+|------|-------------|-------|
+| `BAD_REQUEST` | 400 | Invalid input, validation failure |
+| `UNAUTHORIZED` | 401 | Missing or invalid authentication |
+| `FORBIDDEN` | 403 | Valid auth but insufficient permissions |
+| `NOT_FOUND` | 404 | Resource doesn't exist |
+| `CONFLICT` | 409 | Duplicate resource, state conflict |
+| `VALIDATION_ERROR` | 400 | Schema validation failure (Zod) |
+| `CONFIG_ERROR` | 500 | Server misconfiguration |
+| `INTERNAL_ERROR` | 500 | Unexpected server error |
+
+For 403 errors, include context in `details`:
+```typescript
+return error(c, 'FORBIDDEN', 'Insufficient permissions for design workspace', 403, {
+  workspace: 'design',
+  requiredAuthority: 'EDITOR',
+  yourAuthority: 'VIEWER'
+});
+```
+
 ### HTTP Status Codes
 
 | Code | Usage |
@@ -303,6 +352,14 @@ All API responses MUST follow this structure:
 | 404 | Not Found |
 | 409 | Conflict (duplicate, state conflict) |
 | 500 | Internal Server Error |
+
+### Request ID Tracking
+
+Every request gets a unique ID (`req_xxx`) via the `requestIdMiddleware`. This ID:
+- Is stored in context: `c.get('requestId')`
+- Is included in all responses: `meta.requestId`
+- Is returned as header: `X-Request-Id`
+- Can be passed from client via `X-Request-Id` header (for tracing)
 
 ---
 
@@ -460,6 +517,6 @@ These rules are enforced through:
 ---
 
 **Last Updated**: 2026-01-27
-**Version**: 1.3
+**Version**: 1.4
 
 > Note: For Claude-specific workflow instructions, see [CLAUDE.md](./CLAUDE.md)
