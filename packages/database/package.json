@@ -25,7 +25,8 @@
     "test:watch": "vitest",
     "setup": "node dist/cli/setup.js",
     "seed:substances": "node dist/cli/seed-substances.js",
-    "seed:check": "node dist/cli/seed-check.js"
+    "seed:check": "node dist/cli/seed-check.js",
+    "seed:categories": "node dist/cli/seed-categories.js"
   },
   "dependencies": {
     "@eurocomply/core": "workspace:*",

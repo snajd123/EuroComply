@@ -18,7 +18,8 @@
     "db:schema": "./scripts/test-schema.sh",
     "db:cleanup": "./scripts/test-cleanup.sh",
     "db:setup": "node --env-file=.env packages/database/dist/cli/setup.js",
-    "db:seed:substances": "node --env-file=.env packages/database/dist/cli/seed-substances.js"
+    "db:seed:substances": "node --env-file=.env packages/database/dist/cli/seed-substances.js",
+    "db:seed:categories": "node --env-file=.env packages/database/dist/cli/seed-categories.js"
   },
   "devDependencies": {
     "tsx": "^4.19.0",

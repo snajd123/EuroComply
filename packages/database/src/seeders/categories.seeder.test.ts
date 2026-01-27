@@ -121,7 +121,7 @@ describe('CategoriesSeeder Integration', () => {
     );
 
     expect(branches.length).toBe(1);
-    const tops = branches[0];
+    const tops = branches[0]!;
     expect(tops.depth).toBe(1);
     expect(tops.parent_id).not.toBeNull();
 
@@ -129,7 +129,7 @@ describe('CategoriesSeeder Integration', () => {
     const parent = await connection.execute<{ path: string }[]>(
       `SELECT path FROM public.category WHERE id = '${tops.parent_id}'`
     );
-    expect(parent[0].path).toBe('apparel');
+    expect(parent[0]!.path).toBe('apparel');
   });
 
   it.skipIf(!dbAvailable)('should seed LEAF categories with depth 2', async () => {
@@ -146,9 +146,9 @@ describe('CategoriesSeeder Integration', () => {
     );
 
     expect(leaves.length).toBe(1);
-    expect(leaves[0].depth).toBe(2);
-    expect(leaves[0].type).toBe('LEAF');
-    expect(leaves[0].name).toBe('T-Shirts');
+    expect(leaves[0]!.depth).toBe(2);
+    expect(leaves[0]!.type).toBe('LEAF');
+    expect(leaves[0]!.name).toBe('T-Shirts');
   });
 
   it.skipIf(!dbAvailable)('should support multiple target types', async () => {
@@ -163,19 +163,19 @@ describe('CategoriesSeeder Integration', () => {
     const products = await connection.execute<{ target_type: string }[]>(
       "SELECT target_type FROM public.category WHERE path::text = 'apparel'"
     );
-    expect(products[0].target_type).toBe('PRODUCT');
+    expect(products[0]!.target_type).toBe('PRODUCT');
 
     // MATERIAL target type
     const materials = await connection.execute<{ target_type: string }[]>(
       "SELECT target_type FROM public.category WHERE path::text = 'materials'"
     );
-    expect(materials[0].target_type).toBe('MATERIAL');
+    expect(materials[0]!.target_type).toBe('MATERIAL');
 
     // FACILITY target type
     const facilities = await connection.execute<{ target_type: string }[]>(
       "SELECT target_type FROM public.category WHERE path::text = 'facilities'"
     );
-    expect(facilities[0].target_type).toBe('FACILITY');
+    expect(facilities[0]!.target_type).toBe('FACILITY');
   });
 
   it.skipIf(!dbAvailable)('should record seed version after success', async () => {
@@ -206,7 +206,7 @@ describe('CategoriesSeeder Integration', () => {
     const countResult = await connection.execute<{ count: string }[]>(
       'SELECT COUNT(*) as count FROM public.category'
     );
-    expect(parseInt(countResult[0].count)).toBe(50);
+    expect(parseInt(countResult[0]!.count)).toBe(50);
   });
 
   it.skipIf(!dbAvailable)('should maintain hierarchy integrity', async () => {
@@ -221,12 +221,12 @@ describe('CategoriesSeeder Integration', () => {
     const rootsWithParent = await connection.execute<{ count: string }[]>(
       "SELECT COUNT(*) as count FROM public.category WHERE type = 'ROOT' AND parent_id IS NOT NULL"
     );
-    expect(parseInt(rootsWithParent[0].count)).toBe(0);
+    expect(parseInt(rootsWithParent[0]!.count)).toBe(0);
 
     // All BRANCH and LEAF categories should have a parent
     const nonRootsWithoutParent = await connection.execute<{ count: string }[]>(
       "SELECT COUNT(*) as count FROM public.category WHERE type != 'ROOT' AND parent_id IS NULL"
     );
-    expect(parseInt(nonRootsWithoutParent[0].count)).toBe(0);
+    expect(parseInt(nonRootsWithoutParent[0]!.count)).toBe(0);
   });
 });
