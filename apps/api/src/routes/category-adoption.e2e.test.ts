@@ -17,6 +17,7 @@ import {
   SubscriptionStatus,
   EnforcementMode,
   WorkspaceAuthority,
+  TenantCategory,
 } from '@eurocomply/database';
 import type { MikroORM } from '@eurocomply/database';
 import { setupTestDb, teardownTestDb, isDatabaseAvailable } from '@eurocomply/database/test-utils';
@@ -656,6 +657,192 @@ describe('Category Adoption API E2E', () => {
       const data = (await res.json()) as ErrorResponse;
       expect(data.error.code).toBe('NOT_FOUND');
       expect(data.error.message).toContain('not adopted');
+    });
+  });
+
+  // ============================================================================
+  // PATCH /:categoryId - Change link mode
+  // ============================================================================
+
+  describe('PATCH /category-adoption/:categoryId', () => {
+    it('should capture frozenAtVersion when changing from LIVE to FROZEN', async (context) => {
+      if (!(await isDatabaseAvailable())) {
+        context.skip();
+        return;
+      }
+
+      const testApp = createTestApp(editorUserId);
+
+      // First adopt
+      await testApp.request(`/category-adoption/${categoryIds['apparel']}`, {
+        method: 'POST',
+      });
+
+      // Change to FROZEN
+      const res = await testApp.request(`/category-adoption/${categoryIds['apparel']}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'FROZEN' }),
+      });
+
+      expect(res.status).toBe(200);
+      const data = await res.json() as {
+        data: { mode: string; frozenAtVersion: number };
+      };
+      expect(data.data.mode).toBe('FROZEN');
+      expect(data.data.frozenAtVersion).toBe(1);
+    });
+
+    it('should sync to latest version when changing from FROZEN to LIVE', async (context) => {
+      if (!(await isDatabaseAvailable())) {
+        context.skip();
+        return;
+      }
+
+      const testApp = createTestApp(editorUserId);
+
+      // Adopt and freeze
+      await testApp.request(`/category-adoption/${categoryIds['apparel']}`, {
+        method: 'POST',
+      });
+      await testApp.request(`/category-adoption/${categoryIds['apparel']}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'FROZEN' }),
+      });
+
+      // Update system category
+      const connection = orm.em.getConnection();
+      await connection.execute(
+        `UPDATE public.category SET name = 'Apparel Updated', version = 2 WHERE id = '${categoryIds['apparel']}'`
+      );
+
+      // Change back to LIVE
+      const res = await testApp.request(`/category-adoption/${categoryIds['apparel']}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'LIVE' }),
+      });
+
+      expect(res.status).toBe(200);
+      const data = await res.json() as {
+        data: { mode: string; frozenAtVersion: number | null };
+      };
+      expect(data.data.mode).toBe('LIVE');
+      expect(data.data.frozenAtVersion).toBeNull();
+
+      // Verify TenantCategory was synced
+      const tenantEm = orm.em.fork({ schema: testSchemaName });
+      await tenantEm.execute(`SET search_path TO "${testSchemaName}", public`);
+      const tenantCat = await tenantEm.findOne(TenantCategory, { systemCategoryId: categoryIds['apparel'] });
+      expect(tenantCat?.name).toBe('Apparel Updated');
+
+      // Reset for other tests
+      await connection.execute(
+        `UPDATE public.category SET name = 'Apparel', version = 1 WHERE id = '${categoryIds['apparel']}'`
+      );
+    });
+
+    it('should clear systemCategoryId when changing to DETACHED', async (context) => {
+      if (!(await isDatabaseAvailable())) {
+        context.skip();
+        return;
+      }
+
+      const testApp = createTestApp(editorUserId);
+
+      // First adopt
+      await testApp.request(`/category-adoption/${categoryIds['apparel']}`, {
+        method: 'POST',
+      });
+
+      // Change to DETACHED
+      const res = await testApp.request(`/category-adoption/${categoryIds['apparel']}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'DETACHED' }),
+      });
+
+      expect(res.status).toBe(200);
+      const data = await res.json() as {
+        data: { mode: string };
+      };
+      expect(data.data.mode).toBe('DETACHED');
+
+      // Verify TenantCategory.systemCategoryId is cleared
+      const tenantEm = orm.em.fork({ schema: testSchemaName });
+      await tenantEm.execute(`SET search_path TO "${testSchemaName}", public`);
+      const tenantCat = await tenantEm.findOne(TenantCategory, { path: 'system.apparel' });
+      expect(tenantCat?.systemCategoryId).toBeNull();
+    });
+
+    it('should return 400 when trying to change from DETACHED', async (context) => {
+      if (!(await isDatabaseAvailable())) {
+        context.skip();
+        return;
+      }
+
+      const testApp = createTestApp(editorUserId);
+
+      // Adopt and detach
+      await testApp.request(`/category-adoption/${categoryIds['apparel']}`, {
+        method: 'POST',
+      });
+      await testApp.request(`/category-adoption/${categoryIds['apparel']}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'DETACHED' }),
+      });
+
+      // Try to change back to LIVE
+      const res = await testApp.request(`/category-adoption/${categoryIds['apparel']}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'LIVE' }),
+      });
+
+      expect(res.status).toBe(400);
+      const data = await res.json() as ErrorResponse;
+      expect(data.error.code).toBe('INVALID_TRANSITION');
+    });
+
+    it('should return 404 when adoption not found', async (context) => {
+      if (!(await isDatabaseAvailable())) {
+        context.skip();
+        return;
+      }
+
+      const testApp = createTestApp(editorUserId);
+      const res = await testApp.request(`/category-adoption/${categoryIds['apparel']}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'FROZEN' }),
+      });
+
+      expect(res.status).toBe(404);
+    });
+
+    it('should return 403 when user has VIEWER authority', async (context) => {
+      if (!(await isDatabaseAvailable())) {
+        context.skip();
+        return;
+      }
+
+      // First adopt as editor
+      const editorApp = createTestApp(editorUserId);
+      await editorApp.request(`/category-adoption/${categoryIds['apparel']}`, {
+        method: 'POST',
+      });
+
+      // Try to change mode as viewer
+      const testApp = createTestApp(viewerUserId);
+      const res = await testApp.request(`/category-adoption/${categoryIds['apparel']}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'FROZEN' }),
+      });
+
+      expect(res.status).toBe(403);
     });
   });
 

@@ -40,6 +40,10 @@ const availableQuery = z.object({
   targetType: z.nativeEnum(TargetType).optional(),
 });
 
+const changeModeSchema = z.object({
+  mode: z.nativeEnum(LinkMode),
+});
+
 // ============================================================================
 // Router
 // ============================================================================
@@ -261,6 +265,93 @@ export function createCategoryAdoptionRouter(options: CategoryAdoptionRouterOpti
     }
 
     return success(c, { message: 'Category adoption removed successfully' });
+  });
+
+  // PATCH /:categoryId - Change link mode of an adopted category
+  router.patch('/:categoryId', authorize('design', 'edit'), zValidator('json', changeModeSchema), async (c) => {
+    const schema = c.get('tenantSchema')!;
+    const categoryId = c.req.param('categoryId');
+    const body = c.req.valid('json');
+    const em = orm.em.fork({ schema });
+
+    const result = await em.transactional(async (txEm) => {
+      await txEm.execute(`SET search_path TO "${schema}", public`);
+
+      // Find adoption
+      const adoption = await txEm.findOne(CategoryAdoption, {
+        systemCategoryId: categoryId,
+      }, { populate: ['localCategory'] });
+
+      if (!adoption) {
+        return { error: 'not_found' as const };
+      }
+
+      // Validate transition
+      if (adoption.mode === LinkMode.DETACHED) {
+        return { error: 'invalid_transition' as const, message: 'Cannot change mode from DETACHED - detachment is permanent' };
+      }
+
+      const newMode = body.mode;
+      const tenantCategory = adoption.localCategory;
+
+      // Handle mode transitions
+      if (newMode === LinkMode.FROZEN) {
+        // Capture current version
+        const categoryRows = await txEm.execute<Array<{ version: number }>>(
+          'SELECT version FROM public.category WHERE id = ?',
+          [categoryId]
+        );
+        adoption.frozenAtVersion = categoryRows[0]?.version ?? 1;
+        adoption.updateAvailable = false;
+        if (tenantCategory) {
+          tenantCategory.linkMode = LinkMode.FROZEN;
+          tenantCategory.frozenAtVersion = adoption.frozenAtVersion;
+        }
+      } else if (newMode === LinkMode.LIVE) {
+        // Sync to latest - need CategoryRow interface
+        const categoryRows = await txEm.execute<Array<{ id: string; name: string; description: string | null; version: number }>>(
+          'SELECT id, name, description, version FROM public.category WHERE id = ?',
+          [categoryId]
+        );
+        const systemCategory = categoryRows[0];
+        if (systemCategory && tenantCategory) {
+          tenantCategory.name = systemCategory.name;
+          tenantCategory.description = systemCategory.description ?? undefined;
+          tenantCategory.linkMode = LinkMode.LIVE;
+          tenantCategory.frozenAtVersion = undefined;
+        }
+        adoption.frozenAtVersion = undefined;
+        adoption.updateAvailable = false;
+        adoption.adoptedVersion = systemCategory?.version ?? adoption.adoptedVersion;
+      } else if (newMode === LinkMode.DETACHED) {
+        // Clear systemCategoryId on TenantCategory (becomes custom category)
+        if (tenantCategory) {
+          tenantCategory.systemCategoryId = undefined;
+          tenantCategory.linkMode = undefined;
+          tenantCategory.frozenAtVersion = undefined;
+        }
+      }
+
+      adoption.mode = newMode;
+
+      return { success: true as const, adoption };
+    });
+
+    if (result.error === 'not_found') {
+      return error(c, 'NOT_FOUND', 'Category adoption not found', 404);
+    }
+
+    if (result.error === 'invalid_transition') {
+      return error(c, 'INVALID_TRANSITION', result.message, 400);
+    }
+
+    return success(c, {
+      id: result.adoption.id,
+      systemCategoryId: result.adoption.systemCategoryId,
+      mode: result.adoption.mode,
+      frozenAtVersion: result.adoption.frozenAtVersion ?? null,
+      updateAvailable: result.adoption.updateAvailable,
+    });
   });
 
   return router;
