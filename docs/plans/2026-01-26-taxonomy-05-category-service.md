@@ -1,17 +1,24 @@
-# Taxonomy Plan 5: Category Service
+# Taxonomy Plan 5: Category Services (Dual Model)
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Implement category service with hierarchy operations, system category seeding, category adoption, and tenant category management.
+**Goal:** Implement dual category services for the Unified Taxonomy architecture:
+- **SystemCategoryService**: CRUD operations for system categories in `public.category` (admin-only)
+- **TenantCategoryService**: CRUD operations for tenant categories in `tenant_*.tenant_category`, including adoption management
 
 **Architecture:**
-- **System Categories** (public schema): Platform-managed category hierarchy seeded from JSON bundles
-- **Tenant Categories** (tenant schema): Tenant-created categories that can extend or customize system categories
-- **Category Adoption**: Links tenants to system categories with LIVE/FROZEN/DETACHED modes
+- **System Categories** (`public.category`): Platform-managed category hierarchy seeded from JSON bundles, read-only for tenants
+- **Tenant Categories** (`tenant_*.tenant_category`): Tenant-owned categories with optional links to system categories
+- **Category Adoption** (`tenant_*.category_adoption`): Links tenant categories to system categories with LIVE/FROZEN/DETACHED modes
+
+**Already Implemented:**
+- `TenantCategory` entity: `packages/database/src/entities/TenantCategory.ts`
+- `CategoryAdoption` entity: `packages/database/src/entities/CategoryAdoption.ts`
+- `LinkMode` enum: LIVE, FROZEN, DETACHED (in CategoryAdoption.ts)
 
 **Tech Stack:** MikroORM, PostgreSQL LTREE, Hono
 
-**Prerequisites:** Plans 1-4 completed. Category entity exists; TenantCategory and CategoryAdoption need creation.
+**Prerequisites:** Plans 1-4 completed. Category entity exists in public schema.
 
 **Reference:** See `docs/plans/2026-01-23-taxonomy-engine-design.md` Section 2
 
@@ -116,30 +123,31 @@ export type Env = {
 
 ---
 
-## Task 1: Create CategoryService
+## Task 1a: Create SystemCategoryService
+
+> **Purpose:** Manages system categories in `public.category` - admin-only operations for platform-managed taxonomy.
 
 **Files:**
-- Create: `packages/database/src/services/category.service.ts`
-- Test: `packages/database/src/services/category.service.test.ts`
+- Create: `packages/database/src/services/system-category.service.ts`
+- Test: `packages/database/src/services/system-category.service.test.ts`
 
 **Step 1: Write the failing test**
 
 ```typescript
-// packages/database/src/services/category.service.test.ts
+// packages/database/src/services/system-category.service.test.ts
 import { MikroORM, EntityManager } from '@mikro-orm/core';
-import { CategoryService } from './category.service.js';
+import { SystemCategoryService } from './system-category.service.js';
 import { Category, CategoryType } from '../entities/Category.js';
-import { CategoryAdoption } from '../entities/CategoryAdoption.js';
 import { TargetType } from '../entities/enums/index.js';
 import { createTestOrm } from '../test-utils/create-test-orm.js';
 
-describe('CategoryService', () => {
+describe('SystemCategoryService', () => {
   let orm: MikroORM;
   let em: EntityManager;
-  let service: CategoryService;
+  let service: SystemCategoryService;
 
   beforeAll(async () => {
-    orm = await createTestOrm([Category, CategoryAdoption]);
+    orm = await createTestOrm([Category]);
   });
 
   afterAll(async () => {
@@ -148,8 +156,7 @@ describe('CategoryService', () => {
 
   beforeEach(async () => {
     em = orm.em.fork();
-    service = new CategoryService(em);
-    await em.nativeDelete(CategoryAdoption, {});
+    service = new SystemCategoryService(em);
     await em.nativeDelete(Category, {});
   });
 
@@ -186,7 +193,6 @@ describe('CategoryService', () => {
     });
 
     it('should throw user-friendly error on slug collision', async () => {
-      // Create "T-Shirts" category
       const root = await service.create({
         name: 'Apparel',
         type: CategoryType.ROOT,
@@ -290,161 +296,23 @@ describe('CategoryService', () => {
     });
   });
 
-  // ==========================================================================
-  // Category Adoption Tests
-  // ==========================================================================
-
-  describe('adoptCategory', () => {
-    it('should adopt a system category for a tenant', async () => {
-      const category = await service.create({
-        name: 'Electronics',
-        type: CategoryType.ROOT,
-        targetType: TargetType.PRODUCT,
-      });
-
-      const adoption = await service.adoptCategory('tenant_acme', category.id);
-
-      expect(adoption.tenantSchema).toBe('tenant_acme');
-      expect(adoption.category.id).toBe(category.id);
-      expect(adoption.isActive).toBe(true);
-    });
-
-    it('should throw if category already adopted', async () => {
-      const category = await service.create({
-        name: 'Batteries',
-        type: CategoryType.ROOT,
-        targetType: TargetType.PRODUCT,
-      });
-
-      await service.adoptCategory('tenant_acme', category.id);
-
-      await expect(
-        service.adoptCategory('tenant_acme', category.id)
-      ).rejects.toThrow('already adopted');
-    });
-  });
-
-  describe('getAdoptedCategories', () => {
-    it('should return adopted categories WITH ancestors for tree rendering', async () => {
-      // Create hierarchy: electronics > batteries > lithium_ion
-      const electronics = await service.create({
-        name: 'Electronics',
-        type: CategoryType.ROOT,
-        targetType: TargetType.PRODUCT,
-      });
-
-      const batteries = await service.create({
-        name: 'Batteries',
-        parentId: electronics.id,
-        type: CategoryType.BRANCH,
-        targetType: TargetType.PRODUCT,
-      });
-
-      const lithiumIon = await service.create({
-        name: 'Lithium Ion',
-        parentId: batteries.id,
-        type: CategoryType.LEAF,
-        targetType: TargetType.PRODUCT,
-      });
-
-      // Tenant adopts only the leaf node
-      await service.adoptCategory('tenant_acme', lithiumIon.id);
-
-      const adopted = await service.getAdoptedCategories('tenant_acme');
-
-      // Should return 3 categories: the adopted leaf + its 2 ancestors
-      expect(adopted).toHaveLength(3);
-      expect(adopted.map(c => c.name)).toEqual(['Electronics', 'Batteries', 'Lithium Ion']);
-    });
-
-    it('should not include unrelated categories', async () => {
-      const electronics = await service.create({
-        name: 'Electronics',
-        type: CategoryType.ROOT,
-        targetType: TargetType.PRODUCT,
-      });
-
-      const apparel = await service.create({
+  describe('getRoots', () => {
+    it('should return root categories filtered by target type', async () => {
+      await service.create({
         name: 'Apparel',
         type: CategoryType.ROOT,
         targetType: TargetType.PRODUCT,
       });
 
-      // Tenant adopts only electronics
-      await service.adoptCategory('tenant_acme', electronics.id);
-
-      const adopted = await service.getAdoptedCategories('tenant_acme');
-
-      expect(adopted).toHaveLength(1);
-      expect(adopted[0].name).toBe('Electronics');
-      // Apparel should NOT be included
-      expect(adopted.some(c => c.name === 'Apparel')).toBe(false);
-    });
-  });
-
-  describe('getDirectlyAdoptedCategories', () => {
-    it('should return only explicitly adopted categories (no ancestors)', async () => {
-      const electronics = await service.create({
-        name: 'Electronics',
+      await service.create({
+        name: 'Materials',
         type: CategoryType.ROOT,
-        targetType: TargetType.PRODUCT,
+        targetType: TargetType.MATERIAL,
       });
 
-      const batteries = await service.create({
-        name: 'Batteries',
-        parentId: electronics.id,
-        type: CategoryType.BRANCH,
-        targetType: TargetType.PRODUCT,
-      });
-
-      // Tenant adopts only batteries (not root)
-      await service.adoptCategory('tenant_acme', batteries.id);
-
-      const directlyAdopted = await service.getDirectlyAdoptedCategories('tenant_acme');
-
-      // Should return only the directly adopted category
-      expect(directlyAdopted).toHaveLength(1);
-      expect(directlyAdopted[0].name).toBe('Batteries');
-    });
-  });
-
-  describe('unadoptCategory', () => {
-    it('should remove adoption for tenant', async () => {
-      const category = await service.create({
-        name: 'Electronics',
-        type: CategoryType.ROOT,
-        targetType: TargetType.PRODUCT,
-      });
-
-      await service.adoptCategory('tenant_acme', category.id);
-      await service.unadoptCategory('tenant_acme', category.id);
-
-      const adopted = await service.getAdoptedCategories('tenant_acme');
-      expect(adopted).toHaveLength(0);
-    });
-  });
-
-  describe('getAvailableForAdoption', () => {
-    it('should return categories not yet adopted', async () => {
-      const electronics = await service.create({
-        name: 'Electronics',
-        type: CategoryType.ROOT,
-        targetType: TargetType.PRODUCT,
-      });
-
-      const apparel = await service.create({
-        name: 'Apparel',
-        type: CategoryType.ROOT,
-        targetType: TargetType.PRODUCT,
-      });
-
-      // Tenant adopts only electronics
-      await service.adoptCategory('tenant_acme', electronics.id);
-
-      const available = await service.getAvailableForAdoption('tenant_acme');
-
-      expect(available).toHaveLength(1);
-      expect(available[0].name).toBe('Apparel');
+      const productRoots = await service.getRoots(TargetType.PRODUCT);
+      expect(productRoots).toHaveLength(1);
+      expect(productRoots[0].name).toBe('Apparel');
     });
   });
 });
@@ -453,21 +321,20 @@ describe('CategoryService', () => {
 **Step 2: Run test to verify it fails**
 
 ```bash
-cd packages/database && pnpm test category.service.test.ts
+cd packages/database && pnpm test system-category.service.test.ts
 ```
 
-Expected: FAIL with "Cannot find module './category.service.js'"
+Expected: FAIL with "Cannot find module './system-category.service.js'"
 
 **Step 3: Create the service**
 
 ```typescript
-// packages/database/src/services/category.service.ts
+// packages/database/src/services/system-category.service.ts
 import { EntityManager } from '@mikro-orm/core';
 import { Category, CategoryType } from '../entities/Category.js';
-import { CategoryAdoption } from '../entities/CategoryAdoption.js';
 import { TargetType } from '../entities/enums/index.js';
 
-export interface CreateCategoryInput {
+export interface CreateSystemCategoryInput {
   name: string;
   description?: string;
   parentId?: string;
@@ -476,7 +343,7 @@ export interface CreateCategoryInput {
   defaultProfileId?: string;
 }
 
-export interface UpdateCategoryInput {
+export interface UpdateSystemCategoryInput {
   name?: string;
   description?: string;
   type?: CategoryType;
@@ -485,22 +352,21 @@ export interface UpdateCategoryInput {
 }
 
 /**
- * CategoryService - Manages hierarchical categories using PostgreSQL LTREE.
+ * SystemCategoryService - Manages system categories in public.category (admin-only).
+ *
+ * This service operates on the PUBLIC schema only. For tenant categories,
+ * use TenantCategoryService instead.
  *
  * PREREQUISITE: Ensure the category.path column has a GIST index for LTREE operators.
- * This makes @> and <@ queries perform at sub-millisecond speeds even with millions of rows.
- *
- * Example migration (if not already present):
- *   CREATE INDEX idx_category_path_gist ON public.category USING GIST (path);
  */
-export class CategoryService {
+export class SystemCategoryService {
   constructor(private readonly em: EntityManager) {}
 
   /**
-   * Create a new category with auto-generated LTREE path.
-   * Checks for slug collisions to provide user-friendly error messages.
+   * Create a new system category with auto-generated LTREE path.
+   * Admin-only operation.
    */
-  async create(input: CreateCategoryInput): Promise<Category> {
+  async create(input: CreateSystemCategoryInput): Promise<Category> {
     let parent: Category | null = null;
     let path: string;
     let depth: number;
@@ -514,7 +380,7 @@ export class CategoryService {
       depth = 0;
     }
 
-    // Check for slug collision (e.g., "T-Shirts" and "T Shirts" both become "t_shirts")
+    // Check for slug collision
     const existingPath = await this.em.findOne(Category, { path });
     if (existingPath) {
       throw new Error(
@@ -540,19 +406,19 @@ export class CategoryService {
   }
 
   /**
-   * Update an existing category.
+   * Update an existing system category. Admin-only operation.
    */
-  async update(id: string, input: UpdateCategoryInput): Promise<Category> {
+  async update(id: string, input: UpdateSystemCategoryInput): Promise<Category> {
     const category = await this.em.findOneOrFail(Category, { id });
 
-    if (input.name !== undefined) {
-      category.name = input.name;
-      // Note: We don't update path on rename to avoid breaking references
-    }
+    if (input.name !== undefined) category.name = input.name;
     if (input.description !== undefined) category.description = input.description;
     if (input.type !== undefined) category.type = input.type;
     if (input.defaultProfileId !== undefined) category.defaultProfileId = input.defaultProfileId;
     if (input.isActive !== undefined) category.isActive = input.isActive;
+
+    // Increment version for change tracking
+    category.version = (category.version ?? 1) + 1;
 
     await this.em.flush();
     return category;
@@ -566,13 +432,18 @@ export class CategoryService {
   }
 
   /**
+   * Find category by ID.
+   */
+  async findById(id: string): Promise<Category | null> {
+    return this.em.findOne(Category, { id });
+  }
+
+  /**
    * Get all ancestors of a category (from root to immediate parent).
    */
   async getAncestors(id: string): Promise<Category[]> {
     const category = await this.em.findOneOrFail(Category, { id });
 
-    // Use LTREE ancestor query
-    // IMPORTANT: Use fully qualified public.category to prevent multi-tenant ambiguity
     const conn = this.em.getConnection();
     const result = await conn.execute<Array<{ id: string }>>(
       `SELECT id FROM public.category
@@ -585,19 +456,15 @@ export class CategoryService {
 
     const ids = result.map(r => r.id);
     const ancestors = await this.em.find(Category, { id: { $in: ids } });
-
-    // Sort by depth to ensure correct order
     return ancestors.sort((a, b) => a.depth - b.depth);
   }
 
   /**
-   * Get all descendants of a category (children, grandchildren, etc.).
+   * Get all descendants of a category.
    */
   async getDescendants(id: string): Promise<Category[]> {
     const category = await this.em.findOneOrFail(Category, { id });
 
-    // Use LTREE descendant query
-    // IMPORTANT: Use fully qualified public.category to prevent multi-tenant ambiguity
     const conn = this.em.getConnection();
     const result = await conn.execute<Array<{ id: string }>>(
       `SELECT id FROM public.category
@@ -629,63 +496,483 @@ export class CategoryService {
   }
 
   /**
-   * Delete a category (fails if has children or products).
+   * Delete a system category (fails if has children).
    */
   async delete(id: string): Promise<void> {
     const category = await this.em.findOneOrFail(Category, { id });
 
-    // Check for children
     const childCount = await this.em.count(Category, { parent: { id } });
     if (childCount > 0) {
       throw new Error('Cannot delete category with children');
     }
 
-    // Note: Product reference check would be done at API layer
-
     await this.em.removeAndFlush(category);
   }
 
-  /**
-   * Convert name to URL-safe slug for LTREE path.
-   */
   private slugify(name: string): string {
     return name
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '_')
       .replace(/^_|_$/g, '');
   }
+}
+```
+
+**Step 4: Run test to verify it passes**
+
+```bash
+cd packages/database && pnpm test system-category.service.test.ts
+```
+
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add packages/database/src/services/system-category.service.ts packages/database/src/services/system-category.service.test.ts
+git commit -m "feat(database): add SystemCategoryService for public.category CRUD"
+```
+
+---
+
+## Task 1b: Create TenantCategoryService
+
+> **Purpose:** Manages tenant categories in `tenant_*.tenant_category` and adoption records in `tenant_*.category_adoption`.
+
+**Files:**
+- Create: `packages/database/src/services/tenant-category.service.ts`
+- Test: `packages/database/src/services/tenant-category.service.test.ts`
+
+**Existing Entities (already implemented):**
+- `TenantCategory`: `packages/database/src/entities/TenantCategory.ts`
+- `CategoryAdoption`: `packages/database/src/entities/CategoryAdoption.ts`
+- `LinkMode`: LIVE, FROZEN, DETACHED (in CategoryAdoption.ts)
+
+**Step 1: Write the failing test**
+
+```typescript
+// packages/database/src/services/tenant-category.service.test.ts
+import { MikroORM, EntityManager } from '@mikro-orm/core';
+import { TenantCategoryService } from './tenant-category.service.js';
+import { TenantCategory } from '../entities/TenantCategory.js';
+import { CategoryAdoption, LinkMode } from '../entities/CategoryAdoption.js';
+import { Category, CategoryType } from '../entities/Category.js';
+import { TargetType } from '../entities/enums/index.js';
+import { createTestOrm } from '../test-utils/create-test-orm.js';
+
+describe('TenantCategoryService', () => {
+  let orm: MikroORM;
+  let em: EntityManager;
+  let service: TenantCategoryService;
+
+  beforeAll(async () => {
+    orm = await createTestOrm([Category, TenantCategory, CategoryAdoption]);
+  });
+
+  afterAll(async () => {
+    await orm.close(true);
+  });
+
+  beforeEach(async () => {
+    em = orm.em.fork();
+    service = new TenantCategoryService(em);
+    await em.nativeDelete(CategoryAdoption, {});
+    await em.nativeDelete(TenantCategory, {});
+    await em.nativeDelete(Category, {});
+  });
+
+  describe('create', () => {
+    it('should create a tenant root category', async () => {
+      const category = await service.create({
+        name: 'Premium Line',
+        type: CategoryType.ROOT,
+        targetType: TargetType.PRODUCT,
+      });
+
+      expect(category.id).toBeDefined();
+      expect(category.path).toBe('premium_line');
+      expect(category.depth).toBe(0);
+    });
+
+    it('should create a tenant category linked to system category', async () => {
+      // Create system category first
+      const systemCategory = em.create(Category, {
+        name: 'Apparel',
+        path: 'apparel',
+        type: CategoryType.ROOT,
+        targetType: TargetType.PRODUCT,
+        depth: 0,
+        isActive: true,
+      });
+      await em.persistAndFlush(systemCategory);
+
+      const tenantCategory = await service.create({
+        name: 'Our Apparel',
+        type: CategoryType.ROOT,
+        targetType: TargetType.PRODUCT,
+        systemCategoryId: systemCategory.id,
+        linkMode: LinkMode.LIVE,
+      });
+
+      expect(tenantCategory.systemCategoryId).toBe(systemCategory.id);
+      expect(tenantCategory.linkMode).toBe(LinkMode.LIVE);
+    });
+
+    it('should require linkMode when systemCategoryId is provided', async () => {
+      const systemCategory = em.create(Category, {
+        name: 'Apparel',
+        path: 'apparel',
+        type: CategoryType.ROOT,
+        targetType: TargetType.PRODUCT,
+        depth: 0,
+        isActive: true,
+      });
+      await em.persistAndFlush(systemCategory);
+
+      await expect(
+        service.create({
+          name: 'Our Apparel',
+          type: CategoryType.ROOT,
+          targetType: TargetType.PRODUCT,
+          systemCategoryId: systemCategory.id,
+          // Missing linkMode!
+        })
+      ).rejects.toThrow('linkMode is required');
+    });
+  });
+
+  describe('adoptSystemCategory', () => {
+    it('should create adoption record with LIVE mode', async () => {
+      const systemCategory = em.create(Category, {
+        name: 'Electronics',
+        path: 'electronics',
+        type: CategoryType.ROOT,
+        targetType: TargetType.PRODUCT,
+        depth: 0,
+        isActive: true,
+        version: 1,
+      });
+      await em.persistAndFlush(systemCategory);
+
+      const adoption = await service.adoptSystemCategory(
+        systemCategory.id,
+        LinkMode.LIVE
+      );
+
+      expect(adoption.systemCategoryId).toBe(systemCategory.id);
+      expect(adoption.mode).toBe(LinkMode.LIVE);
+      expect(adoption.adoptedAt).toBeDefined();
+    });
+
+    it('should create adoption with FROZEN mode and version snapshot', async () => {
+      const systemCategory = em.create(Category, {
+        name: 'Electronics',
+        path: 'electronics',
+        type: CategoryType.ROOT,
+        targetType: TargetType.PRODUCT,
+        depth: 0,
+        isActive: true,
+        version: 3,
+      });
+      await em.persistAndFlush(systemCategory);
+
+      const adoption = await service.adoptSystemCategory(
+        systemCategory.id,
+        LinkMode.FROZEN
+      );
+
+      expect(adoption.mode).toBe(LinkMode.FROZEN);
+      expect(adoption.frozenAtVersion).toBe(3);
+    });
+
+    it('should throw if category already adopted', async () => {
+      const systemCategory = em.create(Category, {
+        name: 'Electronics',
+        path: 'electronics',
+        type: CategoryType.ROOT,
+        targetType: TargetType.PRODUCT,
+        depth: 0,
+        isActive: true,
+      });
+      await em.persistAndFlush(systemCategory);
+
+      await service.adoptSystemCategory(systemCategory.id, LinkMode.LIVE);
+
+      await expect(
+        service.adoptSystemCategory(systemCategory.id, LinkMode.LIVE)
+      ).rejects.toThrow('already adopted');
+    });
+  });
+
+  describe('getAdoptedSystemCategories', () => {
+    it('should return adopted system categories with ancestors', async () => {
+      // Create system hierarchy
+      const root = em.create(Category, {
+        name: 'Electronics',
+        path: 'electronics',
+        type: CategoryType.ROOT,
+        targetType: TargetType.PRODUCT,
+        depth: 0,
+        isActive: true,
+      });
+      await em.persistAndFlush(root);
+
+      const branch = em.create(Category, {
+        name: 'Batteries',
+        path: 'electronics.batteries',
+        type: CategoryType.BRANCH,
+        targetType: TargetType.PRODUCT,
+        depth: 1,
+        parent: root,
+        isActive: true,
+      });
+      await em.persistAndFlush(branch);
+
+      const leaf = em.create(Category, {
+        name: 'Lithium Ion',
+        path: 'electronics.batteries.lithium_ion',
+        type: CategoryType.LEAF,
+        targetType: TargetType.PRODUCT,
+        depth: 2,
+        parent: branch,
+        isActive: true,
+      });
+      await em.persistAndFlush(leaf);
+
+      // Adopt only the leaf
+      await service.adoptSystemCategory(leaf.id, LinkMode.LIVE);
+
+      const adopted = await service.getAdoptedSystemCategories();
+
+      // Should return 3: leaf + 2 ancestors for tree rendering
+      expect(adopted).toHaveLength(3);
+      expect(adopted.map(c => c.name)).toEqual(['Electronics', 'Batteries', 'Lithium Ion']);
+    });
+  });
+
+  describe('unadoptSystemCategory', () => {
+    it('should remove adoption', async () => {
+      const systemCategory = em.create(Category, {
+        name: 'Electronics',
+        path: 'electronics',
+        type: CategoryType.ROOT,
+        targetType: TargetType.PRODUCT,
+        depth: 0,
+        isActive: true,
+      });
+      await em.persistAndFlush(systemCategory);
+
+      await service.adoptSystemCategory(systemCategory.id, LinkMode.LIVE);
+      await service.unadoptSystemCategory(systemCategory.id);
+
+      const adopted = await service.getAdoptedSystemCategories();
+      expect(adopted).toHaveLength(0);
+    });
+  });
+
+  describe('updateAdoptionMode', () => {
+    it('should change from LIVE to FROZEN with version snapshot', async () => {
+      const systemCategory = em.create(Category, {
+        name: 'Electronics',
+        path: 'electronics',
+        type: CategoryType.ROOT,
+        targetType: TargetType.PRODUCT,
+        depth: 0,
+        isActive: true,
+        version: 5,
+      });
+      await em.persistAndFlush(systemCategory);
+
+      await service.adoptSystemCategory(systemCategory.id, LinkMode.LIVE);
+
+      const updated = await service.updateAdoptionMode(
+        systemCategory.id,
+        LinkMode.FROZEN
+      );
+
+      expect(updated.mode).toBe(LinkMode.FROZEN);
+      expect(updated.frozenAtVersion).toBe(5);
+    });
+  });
+});
+```
+
+**Step 2: Run test to verify it fails**
+
+```bash
+cd packages/database && pnpm test tenant-category.service.test.ts
+```
+
+Expected: FAIL with "Cannot find module './tenant-category.service.js'"
+
+**Step 3: Create the service**
+
+```typescript
+// packages/database/src/services/tenant-category.service.ts
+import { EntityManager } from '@mikro-orm/core';
+import { TenantCategory } from '../entities/TenantCategory.js';
+import { CategoryAdoption, LinkMode } from '../entities/CategoryAdoption.js';
+import { Category, CategoryType } from '../entities/Category.js';
+import { TargetType } from '../entities/enums/index.js';
+
+export interface CreateTenantCategoryInput {
+  name: string;
+  description?: string;
+  parentId?: string;
+  type: CategoryType;
+  targetType: TargetType;
+  systemCategoryId?: string;
+  linkMode?: LinkMode;
+  defaultProfileId?: string;
+}
+
+export interface UpdateTenantCategoryInput {
+  name?: string;
+  description?: string;
+  isActive?: boolean;
+  linkMode?: LinkMode;
+}
+
+/**
+ * TenantCategoryService - Manages tenant categories and system category adoptions.
+ *
+ * This service operates on TENANT schema tables:
+ * - tenant_category: Tenant-owned categories
+ * - category_adoption: Links to system categories with LIVE/FROZEN/DETACHED modes
+ *
+ * For system category management (admin-only), use SystemCategoryService instead.
+ */
+export class TenantCategoryService {
+  constructor(private readonly em: EntityManager) {}
 
   // ==========================================================================
-  // Category Adoption (Tenant Customization)
+  // Tenant Category CRUD
   // ==========================================================================
 
   /**
-   * Adopt a system category for a tenant.
-   * Creates a CategoryAdoption record linking the tenant to the system category.
-   *
-   * @param tenantSchema - The tenant's schema name (e.g., "tenant_acme")
-   * @param categoryId - The system category ID to adopt
-   * @returns The created CategoryAdoption record
+   * Create a new tenant category.
    */
-  async adoptCategory(tenantSchema: string, categoryId: string): Promise<CategoryAdoption> {
-    // Verify category exists and is a system category (in public schema)
-    const category = await this.em.findOneOrFail(Category, { id: categoryId });
+  async create(input: CreateTenantCategoryInput): Promise<TenantCategory> {
+    // Validate linkMode requirement
+    if (input.systemCategoryId && !input.linkMode) {
+      throw new Error('linkMode is required when linking to a system category');
+    }
 
-    // Check if already adopted
-    const existing = await this.em.findOne(CategoryAdoption, {
-      tenantSchema,
-      category: { id: categoryId },
+    let parent: TenantCategory | null = null;
+    let path: string;
+    let depth: number;
+
+    if (input.parentId) {
+      parent = await this.em.findOneOrFail(TenantCategory, { id: input.parentId });
+      path = `${parent.path}.${this.slugify(input.name)}`;
+      depth = parent.depth + 1;
+    } else {
+      path = this.slugify(input.name);
+      depth = 0;
+    }
+
+    // Check for path collision within tenant
+    const existingPath = await this.em.findOne(TenantCategory, { path });
+    if (existingPath) {
+      throw new Error(`Category path "${path}" already exists`);
+    }
+
+    const category = this.em.create(TenantCategory, {
+      name: input.name,
+      description: input.description,
+      path,
+      type: input.type,
+      targetType: input.targetType,
+      depth,
+      parent,
+      systemCategoryId: input.systemCategoryId,
+      linkMode: input.linkMode,
+      defaultProfileId: input.defaultProfileId,
+      isActive: true,
     });
 
+    await this.em.persistAndFlush(category);
+    return category;
+  }
+
+  /**
+   * Update a tenant category.
+   */
+  async update(id: string, input: UpdateTenantCategoryInput): Promise<TenantCategory> {
+    const category = await this.em.findOneOrFail(TenantCategory, { id });
+
+    if (input.name !== undefined) category.name = input.name;
+    if (input.description !== undefined) category.description = input.description;
+    if (input.isActive !== undefined) category.isActive = input.isActive;
+    if (input.linkMode !== undefined) category.linkMode = input.linkMode;
+
+    await this.em.flush();
+    return category;
+  }
+
+  /**
+   * Delete a tenant category (fails if has children or assigned products).
+   */
+  async delete(id: string): Promise<void> {
+    const category = await this.em.findOneOrFail(TenantCategory, { id });
+
+    const childCount = await this.em.count(TenantCategory, { parent: { id } });
+    if (childCount > 0) {
+      throw new Error(`Cannot delete category with ${childCount} children`);
+    }
+
+    // Note: Product assignment check would be done at API layer
+
+    await this.em.removeAndFlush(category);
+  }
+
+  /**
+   * Find tenant category by ID.
+   */
+  async findById(id: string): Promise<TenantCategory | null> {
+    return this.em.findOne(TenantCategory, { id });
+  }
+
+  /**
+   * Get all tenant categories.
+   */
+  async findAll(options?: { targetType?: TargetType; active?: boolean }): Promise<TenantCategory[]> {
+    const where: Record<string, unknown> = {};
+    if (options?.targetType) where.targetType = options.targetType;
+    if (options?.active !== undefined) where.isActive = options.active;
+    return this.em.find(TenantCategory, where, { orderBy: { path: 'ASC' } });
+  }
+
+  // ==========================================================================
+  // System Category Adoption
+  // ==========================================================================
+
+  /**
+   * Adopt a system category with specified link mode.
+   *
+   * @param systemCategoryId - ID of the system category to adopt
+   * @param mode - LIVE (auto-sync), FROZEN (snapshot), or DETACHED (independent)
+   */
+  async adoptSystemCategory(
+    systemCategoryId: string,
+    mode: LinkMode
+  ): Promise<CategoryAdoption> {
+    // Verify system category exists
+    const systemCategory = await this.em.findOneOrFail(Category, { id: systemCategoryId });
+
+    // Check if already adopted
+    const existing = await this.em.findOne(CategoryAdoption, { systemCategoryId });
     if (existing) {
-      throw new Error(`Category "${category.name}" is already adopted by tenant "${tenantSchema}"`);
+      throw new Error(`System category "${systemCategory.name}" is already adopted`);
     }
 
     const adoption = this.em.create(CategoryAdoption, {
-      tenantSchema,
-      category,
-      isActive: true,
+      systemCategoryId,
+      mode,
       adoptedAt: new Date(),
+      adoptedVersion: systemCategory.version ?? 1,
+      frozenAtVersion: mode === LinkMode.FROZEN ? (systemCategory.version ?? 1) : undefined,
+      updateAvailable: false,
     });
 
     await this.em.persistAndFlush(adoption);
@@ -693,29 +980,21 @@ export class CategoryService {
   }
 
   /**
-   * Get all categories adopted by a tenant, INCLUDING ancestors for tree rendering.
-   *
-   * If a tenant adopts "electronics.batteries.lithium_ion", we return:
-   * - electronics (ancestor)
-   * - electronics.batteries (ancestor)
-   * - electronics.batteries.lithium_ion (adopted)
-   *
-   * This ensures the frontend tree-view can render complete paths from root to leaves.
+   * Get all adopted system categories, INCLUDING ancestors for tree rendering.
    */
-  async getAdoptedCategories(tenantSchema: string): Promise<Category[]> {
-    const adoptions = await this.em.find(
-      CategoryAdoption,
-      { tenantSchema, isActive: true },
-      { populate: ['category'] }
-    );
-
+  async getAdoptedSystemCategories(): Promise<Category[]> {
+    const adoptions = await this.em.find(CategoryAdoption, {});
     if (adoptions.length === 0) return [];
 
-    // Collect all adopted category paths
-    const adoptedPaths = adoptions.map(a => a.category.path);
+    const adoptedIds = adoptions.map(a => a.systemCategoryId);
 
-    // Use LTREE to find all ancestors of adopted categories
-    // This query returns adopted categories + all their ancestors
+    // Get adopted categories
+    const adoptedCategories = await this.em.find(Category, { id: { $in: adoptedIds } });
+    if (adoptedCategories.length === 0) return [];
+
+    // Use LTREE to find all ancestors
+    const adoptedPaths = adoptedCategories.map(c => c.path);
+
     const conn = this.em.getConnection();
     const result = await conn.execute<Array<{ id: string }>>(
       `SELECT DISTINCT c.id
@@ -728,59 +1007,82 @@ export class CategoryService {
       [adoptedPaths]
     );
 
-    if (result.length === 0) return adoptions.map(a => a.category);
+    if (result.length === 0) return adoptedCategories;
 
     const ids = result.map(r => r.id);
     return this.em.find(Category, { id: { $in: ids } }, { orderBy: { path: 'ASC' } });
   }
 
   /**
-   * Get only directly adopted categories (without ancestors).
-   * Use this when you need to know what the tenant explicitly adopted.
+   * Get directly adopted system categories (without ancestors).
    */
-  async getDirectlyAdoptedCategories(tenantSchema: string): Promise<Category[]> {
-    const adoptions = await this.em.find(
-      CategoryAdoption,
-      { tenantSchema, isActive: true },
-      { populate: ['category'] }
-    );
+  async getDirectlyAdoptedCategories(): Promise<Category[]> {
+    const adoptions = await this.em.find(CategoryAdoption, {});
+    if (adoptions.length === 0) return [];
 
-    return adoptions.map(a => a.category);
+    const adoptedIds = adoptions.map(a => a.systemCategoryId);
+    return this.em.find(Category, { id: { $in: adoptedIds } });
   }
 
   /**
-   * Remove adoption of a system category for a tenant.
-   * Note: This only removes the adoption link, not the category itself.
+   * Get adoption record for a system category.
    */
-  async unadoptCategory(tenantSchema: string, categoryId: string): Promise<void> {
-    const adoption = await this.em.findOne(CategoryAdoption, {
-      tenantSchema,
-      category: { id: categoryId },
-    });
+  async getAdoption(systemCategoryId: string): Promise<CategoryAdoption | null> {
+    return this.em.findOne(CategoryAdoption, { systemCategoryId });
+  }
 
+  /**
+   * Remove adoption of a system category.
+   */
+  async unadoptSystemCategory(systemCategoryId: string): Promise<void> {
+    const adoption = await this.em.findOne(CategoryAdoption, { systemCategoryId });
     if (!adoption) {
-      throw new Error(`Category is not adopted by tenant "${tenantSchema}"`);
+      throw new Error('System category is not adopted');
     }
 
     await this.em.removeAndFlush(adoption);
   }
 
   /**
-   * Get available system categories for adoption (not yet adopted by tenant).
+   * Update the link mode of an adoption.
    */
-  async getAvailableForAdoption(tenantSchema: string, targetType?: TargetType): Promise<Category[]> {
-    // Get all adopted category IDs for this tenant
-    const adoptions = await this.em.find(CategoryAdoption, { tenantSchema });
-    const adoptedIds = new Set(adoptions.map(a => a.category.id));
+  async updateAdoptionMode(
+    systemCategoryId: string,
+    newMode: LinkMode
+  ): Promise<CategoryAdoption> {
+    const adoption = await this.em.findOneOrFail(CategoryAdoption, { systemCategoryId });
+    const systemCategory = await this.em.findOneOrFail(Category, { id: systemCategoryId });
 
-    // Get all system categories
+    adoption.mode = newMode;
+
+    // If switching to FROZEN, snapshot current version
+    if (newMode === LinkMode.FROZEN) {
+      adoption.frozenAtVersion = systemCategory.version ?? 1;
+    }
+
+    await this.em.flush();
+    return adoption;
+  }
+
+  /**
+   * Get available system categories for adoption (not yet adopted).
+   */
+  async getAvailableForAdoption(targetType?: TargetType): Promise<Category[]> {
+    const adoptions = await this.em.find(CategoryAdoption, {});
+    const adoptedIds = new Set(adoptions.map(a => a.systemCategoryId));
+
     const where: Record<string, unknown> = { isActive: true };
     if (targetType) where.targetType = targetType;
 
     const allCategories = await this.em.find(Category, where);
-
-    // Filter out already adopted
     return allCategories.filter(c => !adoptedIds.has(c.id));
+  }
+
+  private slugify(name: string): string {
+    return name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_|_$/g, '');
   }
 }
 ```
@@ -788,7 +1090,7 @@ export class CategoryService {
 **Step 4: Run test to verify it passes**
 
 ```bash
-cd packages/database && pnpm test category.service.test.ts
+cd packages/database && pnpm test tenant-category.service.test.ts
 ```
 
 Expected: PASS
@@ -796,8 +1098,8 @@ Expected: PASS
 **Step 5: Commit**
 
 ```bash
-git add packages/database/src/services/category.service.ts packages/database/src/services/category.service.test.ts
-git commit -m "feat(database): add CategoryService with LTREE hierarchy operations"
+git add packages/database/src/services/tenant-category.service.ts packages/database/src/services/tenant-category.service.test.ts
+git commit -m "feat(database): add TenantCategoryService for tenant category and adoption management"
 ```
 
 ---
@@ -1868,6 +2170,8 @@ git commit -m "feat(api): add categories API routes (list, roots, children, ance
 
 > **IMPORTANT:** Adoption routes are separated into their own router for clean middleware application.
 > This allows applying `tenantMiddleware` and `userMiddleware` at the router level in `app.ts`.
+>
+> **Uses:** TenantCategoryService for adoption operations (see Task 1b)
 
 **Files:**
 - Create: `apps/api/src/routes/category-adoption.ts`
@@ -1881,8 +2185,8 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import type { MikroORM } from '@mikro-orm/core';
-import { Category, CategoryAdoption } from '@eurocomply/database';
-import { CategoryService } from '@eurocomply/database/services';
+import { Category, CategoryAdoption, LinkMode } from '@eurocomply/database';
+import { TenantCategoryService } from '@eurocomply/database/services';
 import type { Env } from '../app.js';
 import { authorize } from '../middleware/authorize.js';
 
@@ -1890,19 +2194,23 @@ export interface CategoryAdoptionRouterOptions {
   orm: MikroORM;
 }
 
+const adoptSchema = z.object({
+  mode: z.enum(['LIVE', 'FROZEN', 'DETACHED']),
+});
+
 export function createCategoryAdoptionRouter(options: CategoryAdoptionRouterOptions): Hono<Env> {
   const { orm } = options;
   const router = new Hono<Env>();
 
-  // GET / - Get adopted categories for current tenant
+  // GET / - Get adopted categories for current tenant (includes ancestors for tree rendering)
   router.get('/', authorize('design', 'view'), async (c) => {
     const schema = c.get('tenantSchema')!;
     const em = orm.em.fork({ schema });
 
     const adopted = await em.transactional(async (txEm) => {
       await txEm.execute(`SET search_path TO "${schema}", public`);
-      const service = new CategoryService(txEm);
-      return service.getAdoptedCategories(schema);
+      const service = new TenantCategoryService(txEm);
+      return service.getAdoptedSystemCategories();
     });
 
     return c.json({
@@ -1918,7 +2226,7 @@ export function createCategoryAdoptionRouter(options: CategoryAdoptionRouterOpti
     });
   });
 
-  // GET /available - Get categories available for adoption
+  // GET /available - Get system categories available for adoption
   router.get('/available', authorize('design', 'view'), zValidator('query', z.object({
     targetType: z.enum(['PRODUCT', 'MATERIAL', 'FACILITY', 'BATCH']).optional(),
   })), async (c) => {
@@ -1928,8 +2236,8 @@ export function createCategoryAdoptionRouter(options: CategoryAdoptionRouterOpti
 
     const available = await em.transactional(async (txEm) => {
       await txEm.execute(`SET search_path TO "${schema}", public`);
-      const service = new CategoryService(txEm);
-      return service.getAvailableForAdoption(schema, query.targetType);
+      const service = new TenantCategoryService(txEm);
+      return service.getAvailableForAdoption(query.targetType);
     });
 
     return c.json({
@@ -1945,19 +2253,21 @@ export function createCategoryAdoptionRouter(options: CategoryAdoptionRouterOpti
     });
   });
 
-  // POST /:categoryId - Adopt a system category
-  router.post('/:categoryId', authorize('design', 'edit'), async (c) => {
+  // POST /:categoryId - Adopt a system category with specified link mode
+  router.post('/:categoryId', authorize('design', 'edit'), zValidator('json', adoptSchema), async (c) => {
     const schema = c.get('tenantSchema')!;
     const em = orm.em.fork({ schema });
     const categoryId = c.req.param('categoryId');
+    const { mode } = c.req.valid('json');
 
     const result = await em.transactional(async (txEm) => {
       await txEm.execute(`SET search_path TO "${schema}", public`);
-      const service = new CategoryService(txEm);
+      const service = new TenantCategoryService(txEm);
 
       try {
-        const adoption = await service.adoptCategory(schema, categoryId);
-        return { adoption };
+        const adoption = await service.adoptSystemCategory(categoryId, mode as LinkMode);
+        const systemCategory = await txEm.findOneOrFail(Category, { id: categoryId });
+        return { adoption, systemCategory };
       } catch (error) {
         if (error instanceof Error && error.message.includes('already adopted')) {
           return { error: error.message, status: 409 as const };
@@ -1973,11 +2283,50 @@ export function createCategoryAdoptionRouter(options: CategoryAdoptionRouterOpti
     return c.json({
       data: {
         id: result.adoption.id,
-        categoryId: result.adoption.category.id,
-        categoryName: result.adoption.category.name,
+        systemCategoryId: result.adoption.systemCategoryId,
+        categoryName: result.systemCategory.name,
+        mode: result.adoption.mode,
         adoptedAt: result.adoption.adoptedAt,
+        frozenAtVersion: result.adoption.frozenAtVersion,
       },
     }, 201);
+  });
+
+  // PATCH /:categoryId - Update adoption mode (e.g., LIVE -> FROZEN)
+  router.patch('/:categoryId', authorize('design', 'edit'), zValidator('json', z.object({
+    mode: z.enum(['LIVE', 'FROZEN', 'DETACHED']),
+  })), async (c) => {
+    const schema = c.get('tenantSchema')!;
+    const em = orm.em.fork({ schema });
+    const categoryId = c.req.param('categoryId');
+    const { mode } = c.req.valid('json');
+
+    const result = await em.transactional(async (txEm) => {
+      await txEm.execute(`SET search_path TO "${schema}", public`);
+      const service = new TenantCategoryService(txEm);
+
+      try {
+        const adoption = await service.updateAdoptionMode(categoryId, mode as LinkMode);
+        return { adoption };
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('not found')) {
+          return { error: error.message, status: 404 as const };
+        }
+        throw error;
+      }
+    });
+
+    if ('error' in result) {
+      return c.json({ error: 'Not Found', message: result.error }, result.status);
+    }
+
+    return c.json({
+      data: {
+        id: result.adoption.id,
+        mode: result.adoption.mode,
+        frozenAtVersion: result.adoption.frozenAtVersion,
+      },
+    });
   });
 
   // DELETE /:categoryId - Remove category adoption
@@ -1988,10 +2337,10 @@ export function createCategoryAdoptionRouter(options: CategoryAdoptionRouterOpti
 
     const result = await em.transactional(async (txEm) => {
       await txEm.execute(`SET search_path TO "${schema}", public`);
-      const service = new CategoryService(txEm);
+      const service = new TenantCategoryService(txEm);
 
       try {
-        await service.unadoptCategory(schema, categoryId);
+        await service.unadoptSystemCategory(categoryId);
         return { success: true };
       } catch (error) {
         if (error instanceof Error && error.message.includes('not adopted')) {
@@ -2114,7 +2463,8 @@ export { CategoriesSeeder } from './categories.seeder.js';
 // packages/database/src/services/index.ts
 export { BulkImportService } from './bulk-import.service.js';
 export { SeedService } from './seed.service.js';
-export { CategoryService, type CreateCategoryInput, type UpdateCategoryInput } from './category.service.js';
+export { SystemCategoryService, type CreateSystemCategoryInput, type UpdateSystemCategoryInput } from './system-category.service.js';
+export { TenantCategoryService, type CreateTenantCategoryInput, type UpdateTenantCategoryInput } from './tenant-category.service.js';
 ```
 
 **Step 5: Update root package.json**
@@ -2157,16 +2507,16 @@ git commit -m "feat(database): add seed:categories CLI command and export Catego
 // packages/database/src/services/category.integration.test.ts
 import { MikroORM, EntityManager } from '@mikro-orm/core';
 import { CategoriesSeeder } from '../seeders/categories.seeder.js';
-import { CategoryService } from './category.service.js';
+import { SystemCategoryService } from './system-category.service.js';
 import { Category, CategoryType } from '../entities/Category.js';
 import { SeedVersion } from '../entities/SeedVersion.js';
 import { TargetType } from '../entities/enums/index.js';
 import { createTestOrm } from '../test-utils/create-test-orm.js';
 
-describe('Category Service Integration', () => {
+describe('SystemCategoryService Integration', () => {
   let orm: MikroORM;
   let em: EntityManager;
-  let service: CategoryService;
+  let service: SystemCategoryService;
 
   beforeAll(async () => {
     orm = await createTestOrm([Category, SeedVersion]);
@@ -2183,7 +2533,7 @@ describe('Category Service Integration', () => {
 
   beforeEach(() => {
     em = orm.em.fork();
-    service = new CategoryService(em);
+    service = new SystemCategoryService(em);
   });
 
   describe('Hierarchy Navigation', () => {
@@ -2297,108 +2647,21 @@ git commit -m "test(database): add category service integration tests"
 
 ---
 
-## Task 6: Tenant Category Entity and CRUD API
+## Task 6: Tenant Categories CRUD API
 
-> **Note:** This task adds support for tenant-owned categories with LIVE/FROZEN/DETACHED link modes.
+> **Note:** TenantCategory and CategoryAdoption entities are already implemented.
+> This task creates the API routes using TenantCategoryService.
+
+**Already Implemented (reference only):**
+- `TenantCategory` entity: `packages/database/src/entities/TenantCategory.ts`
+- `CategoryAdoption` entity: `packages/database/src/entities/CategoryAdoption.ts`
+- `LinkMode` enum: LIVE, FROZEN, DETACHED
 
 **Files:**
-- Create: `packages/database/src/entities/TenantCategory.ts`
-- Modify: `packages/database/src/entities/CategoryAdoption.ts` (update enum)
 - Create: `apps/api/src/routes/tenant-categories.ts`
 - Test: `apps/api/src/routes/tenant-categories.e2e.test.ts`
 
-**Step 1: Create TenantCategory entity**
-
-```typescript
-// packages/database/src/entities/TenantCategory.ts
-import { Entity, Property, Index, ManyToOne, OneToMany, Collection, Enum } from '@mikro-orm/core';
-import { BaseEntity } from './BaseEntity.js';
-import { CategoryType } from './Category.js';
-import { TargetType } from './enums/index.js';
-
-export enum LinkMode {
-  LIVE = 'LIVE',         // Auto-sync with system category updates
-  FROZEN = 'FROZEN',     // Snapshot at version, notifications available
-  DETACHED = 'DETACHED', // Fully independent, no update tracking
-}
-
-@Entity({ tableName: 'tenant_category' })
-export class TenantCategory extends BaseEntity {
-  @Property({ type: 'text' })
-  name!: string;
-
-  @Property({ type: 'text', nullable: true })
-  description?: string;
-
-  @Index({ type: 'gist' })
-  @Property({ columnType: 'ltree' })
-  path!: string;
-
-  @Enum({ items: () => CategoryType, default: CategoryType.BRANCH })
-  type: CategoryType = CategoryType.BRANCH;
-
-  @Enum({ items: () => TargetType, name: 'target_type', default: TargetType.PRODUCT })
-  targetType: TargetType = TargetType.PRODUCT;
-
-  @Property({ type: 'int', default: 0 })
-  depth: number = 0;
-
-  @ManyToOne(() => TenantCategory, { nullable: true, name: 'parent_id' })
-  parent?: TenantCategory;
-
-  @OneToMany(() => TenantCategory, (cat) => cat.parent)
-  children = new Collection<TenantCategory>(this);
-
-  // Soft reference to public.category (no FK for cell scaling)
-  @Property({ type: 'text', nullable: true, name: 'system_category_id' })
-  systemCategoryId?: string;
-
-  @Enum({ items: () => LinkMode, nullable: true, name: 'link_mode' })
-  linkMode?: LinkMode;
-
-  @Property({ type: 'int', nullable: true, name: 'frozen_at_version' })
-  frozenAtVersion?: number;
-
-  @Property({ type: 'boolean', default: true, name: 'is_active' })
-  isActive: boolean = true;
-
-  @Property({ type: 'text', nullable: true, name: 'default_profile_id' })
-  defaultProfileId?: string;
-}
-```
-
-**Step 2: Update CategoryAdoption to use LinkMode**
-
-```typescript
-// packages/database/src/entities/CategoryAdoption.ts
-import { Entity, Property, ManyToOne, Enum } from '@mikro-orm/core';
-import { BaseEntity } from './BaseEntity.js';
-import { TenantCategory, LinkMode } from './TenantCategory.js';
-
-@Entity({ tableName: 'category_adoption' })
-export class CategoryAdoption extends BaseEntity {
-  // Soft link to public.category - NO FK for cell scaling
-  @Property({ type: 'text', name: 'system_category_id' })
-  systemCategoryId!: string;
-
-  @ManyToOne(() => TenantCategory, { nullable: true, name: 'local_category_id' })
-  localCategory?: TenantCategory;
-
-  @Enum({ items: () => LinkMode })
-  mode!: LinkMode;
-
-  @Property({ name: 'adopted_at' })
-  adoptedAt!: Date;
-
-  @Property({ type: 'int', nullable: true, name: 'adopted_version' })
-  adoptedVersion?: number;
-
-  @Property({ type: 'boolean', default: false, name: 'update_available' })
-  updateAvailable: boolean = false;
-}
-```
-
-**Step 3: Create Tenant Categories API Router**
+**Step 1: Create Tenant Categories API Router (uses TenantCategoryService)**
 
 ```typescript
 // apps/api/src/routes/tenant-categories.ts
@@ -2407,6 +2670,7 @@ import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import type { MikroORM } from '@mikro-orm/core';
 import { TenantCategory, LinkMode, CategoryType, TargetType, Product } from '@eurocomply/database';
+import { TenantCategoryService } from '@eurocomply/database/services';
 import type { Env } from '../app.js';
 import { authorize } from '../middleware/authorize.js';
 
@@ -2622,29 +2886,52 @@ git commit -m "feat(database): add TenantCategory entity with LIVE/FROZEN/DETACH
 
 ## Summary
 
+**Dual Service Architecture:**
+
+| Service | Schema | Purpose | Access |
+|---------|--------|---------|--------|
+| **SystemCategoryService** | `public.category` | Platform-managed category hierarchy | Admin-only |
+| **TenantCategoryService** | `tenant_*.tenant_category` | Tenant categories + adoption management | Tenant users |
+
 **Deliverables:**
-- `CategoryService` with LTREE hierarchy operations (ancestors, descendants, children, roots)
+- `SystemCategoryService` - CRUD for system categories with LTREE hierarchy operations
+- `TenantCategoryService` - CRUD for tenant categories + adoption management with LIVE/FROZEN/DETACHED modes
 - System categories data bundle (`data/system-categories.json`) with ~50 categories
 - `CategoriesSeeder` service with idempotent seeding
-- Categories API routes (list, roots, get, children, ancestors)
-- Category adoption API with LIVE/FROZEN/DETACHED modes
-- **TenantCategory** entity for tenant-owned categories
-- **Tenant Categories API** for CRUD with manager permission
+- Public categories API routes (list, roots, get, children, ancestors)
+- Tenant-scoped category adoption API with link mode support
+- Tenant categories CRUD API with manager permission
 - `seed:categories` CLI command
 - Integration tests for hierarchy navigation
 
+**Already Implemented Entities (reference):**
+- `TenantCategory`: `packages/database/src/entities/TenantCategory.ts`
+- `CategoryAdoption`: `packages/database/src/entities/CategoryAdoption.ts`
+- `LinkMode` enum: LIVE, FROZEN, DETACHED
+
 **API Routes:**
+
+*Public System Category Routes (No Auth):*
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/taxonomy/categories` | List system categories with filters |
+| GET | `/api/v1/taxonomy/categories/roots` | Get root system categories |
+| GET | `/api/v1/taxonomy/categories/:id` | Get system category by id |
+| GET | `/api/v1/taxonomy/categories/:id/children` | Get direct children |
+| GET | `/api/v1/taxonomy/categories/:id/ancestors` | Get all ancestors |
+
+*Tenant Category Adoption Routes (Requires Tenant Auth):*
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| GET | `/api/v1/taxonomy/categories` | None | List system categories with filters |
-| GET | `/api/v1/taxonomy/categories/roots` | None | Get root system categories |
-| GET | `/api/v1/taxonomy/categories/:id` | None | Get system category by id |
-| GET | `/api/v1/taxonomy/categories/:id/children` | None | Get direct children |
-| GET | `/api/v1/taxonomy/categories/:id/ancestors` | None | Get all ancestors |
-| GET | `/api/v1/category-adoption` | design:view | Get adopted categories |
-| GET | `/api/v1/category-adoption/available` | design:view | Get available for adoption |
-| POST | `/api/v1/category-adoption/:id` | design:edit | Adopt a category |
+| GET | `/api/v1/category-adoption` | design:view | Get adopted system categories (with ancestors) |
+| GET | `/api/v1/category-adoption/available` | design:view | Get available system categories for adoption |
+| POST | `/api/v1/category-adoption/:id` | design:edit | Adopt a system category (requires mode: LIVE/FROZEN/DETACHED) |
+| PATCH | `/api/v1/category-adoption/:id` | design:edit | Update adoption mode |
 | DELETE | `/api/v1/category-adoption/:id` | design:edit | Remove adoption |
+
+*Tenant Category Management Routes (Requires Tenant Auth):*
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
 | GET | `/api/v1/tenant-categories` | design:view | List tenant categories |
 | POST | `/api/v1/tenant-categories` | design:manager | Create tenant category |
 | PATCH | `/api/v1/tenant-categories/:id` | design:manager | Update tenant category |
