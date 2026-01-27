@@ -4,7 +4,7 @@ import { setupTestDb, teardownTestDb, isDatabaseAvailable } from '../test-utils.
 import { TenantProvisioner } from './tenant-provisioner.js';
 import { CategoryService } from './category.service.js';
 import { Category, CategoryType } from '../entities/Category.js';
-import { CategoryAdoption, AdoptionMode } from '../entities/CategoryAdoption.js';
+import { CategoryAdoption, LinkMode } from '../entities/CategoryAdoption.js';
 import { TargetType } from '../entities/enums/index.js';
 
 describe('CategoryService', () => {
@@ -405,7 +405,7 @@ describe('CategoryService', () => {
       const adoption = await service.adoptCategory(testSchema, systemCategory.id);
 
       expect(adoption.systemCategoryId).toBe(systemCategory.id);
-      expect(adoption.mode).toBe(AdoptionMode.LIVE_LINK);
+      expect(adoption.mode).toBe(LinkMode.LIVE);
       expect(adoption.adoptedAt).toBeDefined();
     });
 

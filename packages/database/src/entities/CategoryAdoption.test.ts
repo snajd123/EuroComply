@@ -1,19 +1,19 @@
 import { describe, it, expect } from 'vitest';
-import { CategoryAdoption, AdoptionMode } from './CategoryAdoption.js';
+import { CategoryAdoption, LinkMode } from './CategoryAdoption.js';
 import { Category, CategoryType } from './Category.js';
 
 describe('CategoryAdoption', () => {
-  it('should create a LIVE_LINK adoption', () => {
+  it('should create a LIVE adoption', () => {
     const adoption = new CategoryAdoption();
     adoption.systemCategoryId = 'sys_cat_123';
-    adoption.mode = AdoptionMode.LIVE_LINK;
+    adoption.mode = LinkMode.LIVE;
     adoption.adoptedAt = new Date();
 
-    expect(adoption.mode).toBe(AdoptionMode.LIVE_LINK);
+    expect(adoption.mode).toBe(LinkMode.LIVE);
     expect(adoption.systemCategoryId).toBe('sys_cat_123');
   });
 
-  it('should create a FORKED adoption with version', () => {
+  it('should create a FROZEN adoption with version', () => {
     const localCategory = new Category();
     localCategory.name = 'Premium T-Shirts';
     localCategory.path = 'apparel.tops.tshirts.premium';
@@ -21,20 +21,20 @@ describe('CategoryAdoption', () => {
 
     const adoption = new CategoryAdoption();
     adoption.systemCategoryId = 'sys_cat_123';
-    adoption.mode = AdoptionMode.FORKED;
+    adoption.mode = LinkMode.FROZEN;
     adoption.localCategory = localCategory;
-    adoption.forkedVersion = 3;
+    adoption.frozenAtVersion = 3;
     adoption.adoptedAt = new Date();
 
-    expect(adoption.mode).toBe(AdoptionMode.FORKED);
-    expect(adoption.forkedVersion).toBe(3);
+    expect(adoption.mode).toBe(LinkMode.FROZEN);
+    expect(adoption.frozenAtVersion).toBe(3);
     expect(adoption.localCategory).toBe(localCategory);
   });
 
   it('should track update availability', () => {
     const adoption = new CategoryAdoption();
     adoption.systemCategoryId = 'sys_cat_123';
-    adoption.mode = AdoptionMode.FORKED;
+    adoption.mode = LinkMode.FROZEN;
     adoption.adoptedAt = new Date();
     adoption.updateAvailable = true;
 

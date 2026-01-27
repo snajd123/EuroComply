@@ -12,7 +12,7 @@ export {
 } from './Organization.js';
 export { ApiKey } from './ApiKey.js';
 export { Category, CategoryType } from './Category.js';
-export { CategoryAdoption, AdoptionMode } from './CategoryAdoption.js';
+export { CategoryAdoption, LinkMode } from './CategoryAdoption.js';
 export { UnitDefinition } from './UnitDefinition.js';
 export {
   AttributeTemplate,

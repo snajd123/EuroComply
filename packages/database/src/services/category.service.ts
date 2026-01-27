@@ -1,7 +1,7 @@
 import type { FilterQuery } from '@mikro-orm/core';
 import type { EntityManager } from '@mikro-orm/postgresql';
 import { Category, CategoryType } from '../entities/Category.js';
-import { CategoryAdoption, AdoptionMode } from '../entities/CategoryAdoption.js';
+import { CategoryAdoption, LinkMode } from '../entities/CategoryAdoption.js';
 import { TargetType } from '../entities/enums/index.js';
 
 /**
@@ -283,7 +283,7 @@ export class CategoryService {
 
     const adoption = new CategoryAdoption();
     adoption.systemCategoryId = categoryId;
-    adoption.mode = AdoptionMode.LIVE_LINK;
+    adoption.mode = LinkMode.LIVE;
     adoption.adoptedAt = new Date();
 
     this.em.persist(adoption);
