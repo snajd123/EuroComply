@@ -100,6 +100,7 @@ export class CategoriesSeeder {
         depth,
         parent,
         isActive: true,
+        version: 1,
         createdAt: now,
         updatedAt: now,
       });

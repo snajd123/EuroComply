@@ -30,6 +30,7 @@ describe('CategoriesSeeder Integration', () => {
           parent_id TEXT REFERENCES public.category(id),
           default_profile_id TEXT,
           is_active BOOLEAN DEFAULT true,
+          version INT DEFAULT 1,
           created_at TIMESTAMPTZ DEFAULT now(),
           updated_at TIMESTAMPTZ DEFAULT now()
         )

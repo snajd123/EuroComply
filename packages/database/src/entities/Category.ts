@@ -40,4 +40,7 @@ export class Category extends BaseEntity {
 
   @Property({ type: 'boolean', default: true, name: 'is_active' })
   isActive: boolean = true;
+
+  @Property({ type: 'int', default: 1 })
+  version: number = 1;
 }
