@@ -566,7 +566,8 @@ describe('Tenant Category Regulatory Lists API E2E', () => {
       }
 
       const testApp = createTestApp(viewerUserId);
-      const res = await testApp.request('/tenant-categories/nonexistent-category-id/regulatory-lists');
+      // Use a valid CUID format that doesn't exist in database
+      const res = await testApp.request('/tenant-categories/zzzzzzzzzzzzzzzzzzzzz/regulatory-lists');
 
       expect(res.status).toBe(404);
       const data = (await res.json()) as ErrorResponse;
@@ -668,8 +669,9 @@ describe('Tenant Category Regulatory Lists API E2E', () => {
       }
 
       const testApp = createTestApp(editorUserId);
+      // Use a valid CUID format that doesn't exist in database
       const res = await testApp.request(
-        `/tenant-categories/${tenantCategoryId}/regulatory-lists/nonexistent-list-id/exempt`,
+        `/tenant-categories/${tenantCategoryId}/regulatory-lists/zzzzzzzzzzzzzzzzzzzzz/exempt`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

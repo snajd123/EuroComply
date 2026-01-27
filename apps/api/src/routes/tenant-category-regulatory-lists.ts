@@ -2,10 +2,22 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import type { MikroORM } from '@eurocomply/database';
-import { TenantCategory, TenantCategoryRegulatoryList, ComplianceStackResolver, ListRequirement, RegulationSource } from '@eurocomply/database';
+import { TenantCategory, TenantCategoryRegulatoryList, ComplianceStackResolver, ListRequirement, RegulationSource, assertValidSchemaName } from '@eurocomply/database';
+import { isCuid } from '@eurocomply/core';
 import type { Env } from '../app.js';
 import { authorize } from '../middleware/authorize.js';
 import { success, error } from '../utils/response.js';
+
+/**
+ * Validates that an ID parameter is a valid CUID format.
+ * Returns 400 error if invalid.
+ */
+function validateIdParam(id: string, paramName: string): string | null {
+  if (!id || !isCuid(id)) {
+    return `Invalid ${paramName} format`;
+  }
+  return null;
+}
 
 const addTenantRegulationSchema = z.object({
   regulatoryListId: z.string(),
@@ -22,7 +34,7 @@ export interface TenantCategoryRegulatoryListsRouterOptions {
   orm: MikroORM;
 }
 
-export function createTenantCategoryRegulatoryListsRouter(options: TenantCategoryRegulatoryListsRouterOptions) {
+export function createTenantCategoryRegulatoryListsRouter(options: TenantCategoryRegulatoryListsRouterOptions): Hono<Env> {
   const { orm } = options;
   const router = new Hono<Env>();
 
@@ -30,6 +42,20 @@ export function createTenantCategoryRegulatoryListsRouter(options: TenantCategor
   router.get('/:id/regulatory-lists', authorize('compliance', 'view'), async (c) => {
     const schema = c.get('tenantSchema')!;
     const tenantCategoryId = c.req.param('id');
+
+    // Defense-in-depth: validate schema name even though middleware should have validated
+    try {
+      assertValidSchemaName(schema);
+    } catch {
+      return error(c, 'BAD_REQUEST', 'Invalid tenant schema', 400);
+    }
+
+    // Validate ID parameter format
+    const idError = validateIdParam(tenantCategoryId, 'tenant category ID');
+    if (idError) {
+      return error(c, 'BAD_REQUEST', idError, 400);
+    }
+
     const em = orm.em.fork({ schema });
 
     const result = await em.transactional(async (txEm) => {
@@ -56,6 +82,26 @@ export function createTenantCategoryRegulatoryListsRouter(options: TenantCategor
     const schema = c.get('tenantSchema')!;
     const tenantCategoryId = c.req.param('id');
     const body = c.req.valid('json');
+
+    // Defense-in-depth: validate schema name
+    try {
+      assertValidSchemaName(schema);
+    } catch {
+      return error(c, 'BAD_REQUEST', 'Invalid tenant schema', 400);
+    }
+
+    // Validate ID parameter format
+    const idError = validateIdParam(tenantCategoryId, 'tenant category ID');
+    if (idError) {
+      return error(c, 'BAD_REQUEST', idError, 400);
+    }
+
+    // Validate regulatory list ID format
+    const listIdError = validateIdParam(body.regulatoryListId, 'regulatory list ID');
+    if (listIdError) {
+      return error(c, 'BAD_REQUEST', listIdError, 400);
+    }
+
     const em = orm.em.fork({ schema });
 
     const result = await em.transactional(async (txEm) => {
@@ -118,6 +164,24 @@ export function createTenantCategoryRegulatoryListsRouter(options: TenantCategor
     const listId = c.req.param('listId');
     const body = c.req.valid('json');
     const userId = c.get('userId');
+
+    // Defense-in-depth: validate schema name
+    try {
+      assertValidSchemaName(schema);
+    } catch {
+      return error(c, 'BAD_REQUEST', 'Invalid tenant schema', 400);
+    }
+
+    // Validate ID parameters format
+    const idError = validateIdParam(tenantCategoryId, 'tenant category ID');
+    if (idError) {
+      return error(c, 'BAD_REQUEST', idError, 400);
+    }
+    const listIdError = validateIdParam(listId, 'regulatory list ID');
+    if (listIdError) {
+      return error(c, 'BAD_REQUEST', listIdError, 400);
+    }
+
     const em = orm.em.fork({ schema });
 
     const result = await em.transactional(async (txEm) => {
@@ -193,10 +257,10 @@ export function createTenantCategoryRegulatoryListsRouter(options: TenantCategor
       id: result.mapping.id,
       regulatoryListId: result.mapping.regulatoryListId,
       isExempted: true,
-      exemptionReason: result.mapping.exemptionReason,
+      exemptionReason: result.mapping.exemptionReason ?? null,
       exemptionLegalRef: result.mapping.exemptionLegalRef ?? null,
-      exemptedBy: result.mapping.exemptedBy,
-      exemptedAt: result.mapping.exemptedAt?.toISOString(),
+      exemptedBy: result.mapping.exemptedBy ?? null,
+      exemptedAt: result.mapping.exemptedAt?.toISOString() ?? null,
     });
   });
 
@@ -205,6 +269,24 @@ export function createTenantCategoryRegulatoryListsRouter(options: TenantCategor
     const schema = c.get('tenantSchema')!;
     const tenantCategoryId = c.req.param('id');
     const listId = c.req.param('listId');
+
+    // Defense-in-depth: validate schema name
+    try {
+      assertValidSchemaName(schema);
+    } catch {
+      return error(c, 'BAD_REQUEST', 'Invalid tenant schema', 400);
+    }
+
+    // Validate ID parameters format
+    const idError = validateIdParam(tenantCategoryId, 'tenant category ID');
+    if (idError) {
+      return error(c, 'BAD_REQUEST', idError, 400);
+    }
+    const listIdError = validateIdParam(listId, 'regulatory list ID');
+    if (listIdError) {
+      return error(c, 'BAD_REQUEST', listIdError, 400);
+    }
+
     const em = orm.em.fork({ schema });
 
     const result = await em.transactional(async (txEm) => {
@@ -244,6 +326,24 @@ export function createTenantCategoryRegulatoryListsRouter(options: TenantCategor
     const schema = c.get('tenantSchema')!;
     const tenantCategoryId = c.req.param('id');
     const listId = c.req.param('listId');
+
+    // Defense-in-depth: validate schema name
+    try {
+      assertValidSchemaName(schema);
+    } catch {
+      return error(c, 'BAD_REQUEST', 'Invalid tenant schema', 400);
+    }
+
+    // Validate ID parameters format
+    const idError = validateIdParam(tenantCategoryId, 'tenant category ID');
+    if (idError) {
+      return error(c, 'BAD_REQUEST', idError, 400);
+    }
+    const listIdError = validateIdParam(listId, 'regulatory list ID');
+    if (listIdError) {
+      return error(c, 'BAD_REQUEST', listIdError, 400);
+    }
+
     const em = orm.em.fork({ schema });
 
     const result = await em.transactional(async (txEm) => {
