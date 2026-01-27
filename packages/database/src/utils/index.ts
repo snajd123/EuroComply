@@ -14,3 +14,5 @@ export {
   parseCasNumber,
   type CasParts,
 } from './cas-validator.js';
+
+export { slugify } from './slugify.js';
