@@ -37,11 +37,11 @@ export interface RequirementSnapshot {
  */
 @Entity({ tableName: 'compliance_evidence' })
 export class ComplianceEvidence extends BaseEntity {
-  @Property({ type: 'uuid', name: 'product_version_id' })
+  @Property({ type: 'text', name: 'product_version_id' })
   @Index()
   productVersionId!: string;
 
-  @Property({ type: 'uuid', name: 'requirement_id', nullable: true })
+  @Property({ type: 'text', name: 'requirement_id', nullable: true })
   @Index()
   requirementId?: string;  // May be deleted in future
 
