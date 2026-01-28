@@ -3,10 +3,13 @@ import {
   Property,
   Enum,
   ManyToOne,
+  OneToMany,
+  Collection,
   Unique,
 } from '@mikro-orm/core';
 import { BaseEntity } from './BaseEntity.js';
 import { RegulationStatus } from './enums/RegulationStatus.js';
+import type { Requirement } from './Requirement.js';
 
 /**
  * Represents a regulation such as REACH, RoHS, CLP, etc.
@@ -87,4 +90,10 @@ export class Regulation extends BaseEntity {
     type?: string;
     officialJournalRef?: string;
   };
+
+  /**
+   * Requirements associated with this regulation
+   */
+  @OneToMany('Requirement', 'regulation')
+  requirements = new Collection<Requirement>(this);
 }

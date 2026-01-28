@@ -7,6 +7,9 @@ export { SeedVersion } from './SeedVersion.js';
 export { RegulatoryList } from './RegulatoryList.js';
 export { RegulatoryListEntry } from './RegulatoryListEntry.js';
 export { Regulation } from './Regulation.js';
+export { Requirement, type RequirementHandlerConfig } from './Requirement.js';
+export { RequirementType } from './enums/RequirementType.js';
+export { RequirementSeverity } from './enums/RequirementSeverity.js';
 export {
   Organization,
   EnforcementMode,
@@ -59,6 +62,7 @@ import { SeedVersion } from './SeedVersion.js';
 import { RegulatoryList } from './RegulatoryList.js';
 import { RegulatoryListEntry } from './RegulatoryListEntry.js';
 import { Regulation } from './Regulation.js';
+import { Requirement } from './Requirement.js';
 
 /**
  * Entities that belong ONLY in the PUBLIC schema.
@@ -77,6 +81,7 @@ export const publicOnlyEntities = [
   RegulatoryListEntry,
   CategoryRegulatoryList,
   Regulation,
+  Requirement,
 ];
 
 /**
