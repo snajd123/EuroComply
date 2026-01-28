@@ -1,28 +1,58 @@
 // packages/database/src/entities/__tests__/ComplianceEvidence.test.ts
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { MikroORM } from '@mikro-orm/postgresql';
 import { ComplianceEvidence } from '../ComplianceEvidence.js';
 import { EvidenceType, EvidenceResult } from '../enums/index.js';
 import { RequirementType, RequirementSeverity } from '../enums/index.js';
-import { setupTestDb, teardownTestDb, createTestTenant } from '../../test-utils.js';
+import { setupTestDb, teardownTestDb, isDatabaseAvailable } from '../../test-utils.js';
+import { TenantProvisioner } from '../../services/tenant-provisioner.js';
 
 describe('ComplianceEvidence', () => {
   let orm: MikroORM;
-  let tenantSchema: string;
+  let dbAvailable = false;
+  const TEST_SCHEMA = 'tenant_evidence_test';
 
   beforeAll(async () => {
-    orm = await setupTestDb();
-    tenantSchema = await createTestTenant(orm, 'test_evidence');
+    dbAvailable = await isDatabaseAvailable();
+    if (dbAvailable) {
+      orm = await setupTestDb();
+      const provisioner = new TenantProvisioner(orm);
+      await provisioner.provisionTenant(TEST_SCHEMA);
+    }
   });
 
   afterAll(async () => {
-    await teardownTestDb(orm);
+    if (dbAvailable && orm) {
+      try {
+        await orm.em.execute(`DROP SCHEMA IF EXISTS "${TEST_SCHEMA}" CASCADE`);
+      } catch {
+        // Ignore
+      }
+      await teardownTestDb();
+    }
+  });
+
+  beforeEach(async (context) => {
+    if (!dbAvailable) {
+      context.skip();
+      return;
+    }
+    // Clear tenant tables
+    try {
+      await orm.em.execute(`TRUNCATE TABLE "${TEST_SCHEMA}"."compliance_evidence" CASCADE`);
+    } catch {
+      // Tables might not exist yet
+    }
   });
 
   describe('creation', () => {
-    it('should_create_evidence_with_requirement_snapshot', async () => {
-      const tenantEm = orm.em.fork({ schema: tenantSchema });
-      await tenantEm.execute(`SET search_path TO "${tenantSchema}", public`);
+    it('should_create_evidence_with_requirement_snapshot', async (context) => {
+      if (!dbAvailable) {
+        context.skip();
+        return;
+      }
+      const tenantEm = orm.em.fork({ schema: TEST_SCHEMA });
+      await tenantEm.execute(`SET search_path TO "${TEST_SCHEMA}", public`);
 
       const evidence = tenantEm.create(ComplianceEvidence, {
         productVersionId: '00000000-0000-0000-0000-000000000001',
@@ -57,9 +87,13 @@ describe('ComplianceEvidence', () => {
       expect(found!.result).toBe(EvidenceResult.PASS);
     });
 
-    it('should_store_snapshot_independently_of_requirement_changes', async () => {
-      const tenantEm = orm.em.fork({ schema: tenantSchema });
-      await tenantEm.execute(`SET search_path TO "${tenantSchema}", public`);
+    it('should_store_snapshot_independently_of_requirement_changes', async (context) => {
+      if (!dbAvailable) {
+        context.skip();
+        return;
+      }
+      const tenantEm = orm.em.fork({ schema: TEST_SCHEMA });
+      await tenantEm.execute(`SET search_path TO "${TEST_SCHEMA}", public`);
 
       // Create evidence with snapshot showing threshold = 25
       const evidence = tenantEm.create(ComplianceEvidence, {
@@ -92,9 +126,13 @@ describe('ComplianceEvidence', () => {
   });
 
   describe('declaration evidence', () => {
-    it('should_store_declaration_with_attestation_details', async () => {
-      const tenantEm = orm.em.fork({ schema: tenantSchema });
-      await tenantEm.execute(`SET search_path TO "${tenantSchema}", public`);
+    it('should_store_declaration_with_attestation_details', async (context) => {
+      if (!dbAvailable) {
+        context.skip();
+        return;
+      }
+      const tenantEm = orm.em.fork({ schema: TEST_SCHEMA });
+      await tenantEm.execute(`SET search_path TO "${TEST_SCHEMA}", public`);
 
       const evidence = tenantEm.create(ComplianceEvidence, {
         productVersionId: '00000000-0000-0000-0000-000000000005',

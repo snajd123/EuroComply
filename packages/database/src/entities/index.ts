@@ -40,6 +40,8 @@ export { WebhookEvent, WebhookStatus } from './WebhookEvent.js';
 export { WorkspaceAuthority } from './WorkspaceAuthority.js';
 export { User } from './User.js';
 export { OrganizationUser } from './OrganizationUser.js';
+export { ComplianceEvidence } from './ComplianceEvidence.js';
+export type { RequirementSnapshot } from './ComplianceEvidence.js';
 
 // Import classes for entity arrays
 import { Organization } from './Organization.js';
@@ -67,6 +69,7 @@ import { RegulatoryList } from './RegulatoryList.js';
 import { RegulatoryListEntry } from './RegulatoryListEntry.js';
 import { Regulation } from './Regulation.js';
 import { Requirement } from './Requirement.js';
+import { ComplianceEvidence } from './ComplianceEvidence.js';
 
 /**
  * Entities that belong ONLY in the PUBLIC schema.
@@ -104,6 +107,7 @@ export const tenantOnlyEntities = [
   AuditLog,
   User,
   OrganizationUser,
+  ComplianceEvidence,
 ];
 
 /**
