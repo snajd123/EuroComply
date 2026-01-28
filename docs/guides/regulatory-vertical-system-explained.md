@@ -2,6 +2,14 @@
 
 > A beginner-friendly guide to the EuroComply Regulatory Vertical System
 
+**Last Updated:** 2026-01-28
+
+> **Important Update:** This guide has been revised to reflect the new compliance architecture. Key changes:
+> - `CategoryRegulatoryList` → `CategoryRegulation` (links categories to regulations)
+> - `RegulatoryList` → `Regulation` with `Requirement[]` (regulations now own requirements)
+> - `TenantCategoryRegulatoryList` → `TenantRequirementExemption` (exemptions at requirement level)
+> - For detailed implementation, see [Compliance Evaluation System Guide](./compliance-evaluation-system.md)
+
 ---
 
 ## Table of Contents
@@ -43,12 +51,12 @@
 │   │    (shared by all orgs)     │    │   (e.g., "acme_corp")       │       │
 │   ├─────────────────────────────┤    ├─────────────────────────────┤       │
 │   │                             │    │                             │       │
-│   │  • RegulatoryList           │    │  • Product                  │       │
-│   │  • RegulatoryListEntry      │    │  • TenantCategory           │       │
+│   │  • Regulation               │    │  • Product                  │       │
+│   │  • Requirement              │    │  • TenantCategory           │       │
 │   │  • Substance (master list)  │    │  • CategoryAdoption         │       │
-│   │  • Category (system taxon.) │    │  • TenantCategoryRegList    │       │
-│   │  • CategoryRegulatoryList   │    │  • RawMaterial              │       │
-│   │                             │    │  • MaterialSubstance        │       │
+│   │  • Category (system taxon.) │    │  • TenantRequirementExempt. │       │
+│   │  • CategoryRegulation       │    │  • ComplianceEvidence       │       │
+│   │                             │    │  • RawMaterial              │       │
 │   │  (Managed by PLATFORM       │    │  • AttributeTemplate        │       │
 │   │   ADMINS, not users)        │    │  • AttributeValue           │       │
 │   │                             │    │                             │       │
@@ -158,54 +166,41 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                    THE MAGIC LINK: CategoryRegulatoryList                   │
+│                    THE MAGIC LINK: CategoryRegulation                       │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│  Platform admins (NOT regular users) configure which regulatory lists      │
-│  apply to which category PATHS. This is the bridge!                        │
+│  Platform admins (NOT regular users) configure which REGULATIONS           │
+│  apply to which categories. Each regulation owns its REQUIREMENTS.         │
 │                                                                             │
 │                                                                             │
-│   PUBLIC SCHEMA                          TENANT SCHEMA                      │
-│   ─────────────                          ─────────────                      │
+│   PUBLIC SCHEMA                                                             │
+│   ─────────────                                                             │
 │                                                                             │
-│   ┌─────────────────┐                    ┌─────────────────┐               │
-│   │ RegulatoryList  │                    │    Category     │               │
-│   │                 │                    │                 │               │
-│   │ REACH_SVHC      │                    │ path: products  │               │
-│   │ COSING_ANNEX_II │                    │ path: products. │               │
-│   │ ROHS_RESTRICTED │                    │      cosmetics  │               │
-│   └────────┬────────┘                    └────────┬────────┘               │
-│            │                                      │                        │
-│            │     ┌────────────────────────┐       │                        │
-│            │     │ CategoryRegulatoryList │       │                        │
-│            │     │ (PUBLIC SCHEMA)        │       │                        │
-│            └────>│                        │<──────┘                        │
-│                  │ ┌──────────────────────────────────────────────┐       │
-│                  │ │ RULE: "Any category matching 'products.*'    │       │
-│                  │ │        must check REACH_SVHC"                │       │
-│                  │ │                                              │       │
-│                  │ │ categoryPath: 'products'                     │       │
-│                  │ │ regulatoryList: REACH_SVHC                   │       │
-│                  │ └──────────────────────────────────────────────┘       │
-│                  │ ┌──────────────────────────────────────────────┐       │
-│                  │ │ RULE: "Any category matching 'products.      │       │
-│                  │ │        cosmetics.*' must check COSING"       │       │
-│                  │ │                                              │       │
-│                  │ │ categoryPath: 'products.cosmetics'           │       │
-│                  │ │ regulatoryList: COSING_ANNEX_II              │       │
-│                  │ └──────────────────────────────────────────────┘       │
-│                  └────────────────────────┘                               │
+│   ┌─────────────────┐     ┌────────────────────┐     ┌─────────────────┐   │
+│   │   Regulation    │     │ CategoryRegulation │     │    Category     │   │
+│   │                 │     │   (junction)       │     │                 │   │
+│   │ REACH           │<────│                    │────>│ path: products  │   │
+│   │ └─Requirements  │     │ category_id        │     │                 │   │
+│   │   • SVHC_SCREEN │     │ regulation_id      │     │ path: cosmetics │   │
+│   │   • ANNEX_XVII  │     └────────────────────┘     └─────────────────┘   │
+│   │                 │                                                       │
+│   │ ESPR            │     Requirements have:                                │
+│   │ └─Requirements  │     • type (ATTRIBUTE_CHECK, SUBSTANCE_SCREEN, etc.) │
+│   │   • RECYCLED_MIN│     • severity (BLOCKER, WARNING, INFO)              │
+│   │   • DURABILITY  │     • handlerConfig (threshold, operator, etc.)      │
+│   └─────────────────┘     • allowTenantExemption (guardrail)               │
 │                                                                             │
 │                                                                             │
 │  THE KEY INSIGHT:                                                          │
 │  ────────────────                                                          │
-│  CategoryRegulatoryList doesn't link to SPECIFIC categories.               │
-│  It links to category PATHS using LTREE matching!                          │
+│  CategoryRegulation links categories to REGULATIONS (not lists directly).  │
+│  Each Regulation owns Requirements that define specific compliance checks. │
+│  LTREE inheritance means child categories get parent regulations.          │
 │                                                                             │
 │  When user creates category "products.cosmetics.skincare.moisturizers",    │
-│  the system automatically knows:                                           │
-│    - "products.*" matches → REACH_SVHC applies                            │
-│    - "products.cosmetics.*" matches → COSING_ANNEX_II applies             │
+│  the system uses LTREE <@ operator to find all ancestor regulations:       │
+│    - "products" has REACH → all its Requirements apply                     │
+│    - "products.cosmetics" has ESPR → all its Requirements also apply       │
 │                                                                             │
 │  Users don't configure this! Platform admins set it up once.               │
 │                                                                             │
@@ -824,49 +819,57 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                    HOW REGULATORY LISTS ARE RESOLVED                         │
+│                    HOW REQUIREMENTS ARE RESOLVED                            │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│  When checking compliance, the system resolves regulations through         │
+│  When checking compliance, the system resolves requirements through         │
 │  THREE LAYERS that stack on top of each other:                             │
 │                                                                             │
 │                                                                             │
-│    LAYER 3: Tenant Exemptions (subtract)                                   │
-│    ───────────────────────────────────────                                 │
-│    "These regulations don't apply to us (with justification)"              │
+│    LAYER 3: Tenant Exemptions (mark as exempted)                           │
+│    ─────────────────────────────────────────────                           │
+│    "These specific requirements don't apply to us (with justification)"    │
 │                                                                             │
 │        ┌─────────────────────────────────────────────────────────────┐     │
-│        │  TenantCategoryRegulatoryList (isExempted = true)           │     │
+│        │  TenantRequirementExemption                                 │     │
 │        │                                                             │     │
-│        │  - COSING_ANNEX_III: "Exempt - B2B industrial use only"    │     │
+│        │  - DURABILITY_DECL: "Exempt - B2B industrial use only"     │     │
 │        │    (with legal reference and audit trail)                   │     │
+│        │                                                             │     │
+│        │  NOTE: Some requirements have allowTenantExemption=false    │     │
+│        │  These CANNOT be exempted (guardrail for safety reqs)       │     │
 │        └─────────────────────────────────────────────────────────────┘     │
 │                              │                                             │
-│                              │ SUBTRACT                                    │
+│                              │ MARK EXEMPTED                               │
 │                              v                                             │
-│    LAYER 2: Tenant Additions (add)                                         │
-│    ───────────────────────────────────                                     │
-│    "We also need to check these additional lists"                          │
+│    LAYER 2: Requirement Collection                                         │
+│    ───────────────────────────────                                         │
+│    "Get all requirements from resolved regulations"                        │
 │                                                                             │
 │        ┌─────────────────────────────────────────────────────────────┐     │
-│        │  TenantCategoryRegulatoryList (source = TENANT_ADDED)       │     │
+│        │  Each Regulation brings its Requirements                    │     │
 │        │                                                             │     │
-│        │  + CALIFORNIA_PROP65: "We sell in California"               │     │
-│        │  + INTERNAL_RESTRICTED: "Company-specific bans"             │     │
+│        │  REACH:                                                     │     │
+│        │    + SVHC_SCREEN (SUBSTANCE_SCREEN, BLOCKER)                │     │
+│        │    + ANNEX_XVII (SUBSTANCE_SCREEN, BLOCKER)                 │     │
+│        │  ESPR:                                                      │     │
+│        │    + RECYCLED_MIN (ATTRIBUTE_CHECK, BLOCKER)                │     │
+│        │    + DURABILITY_DECL (DECLARATION, WARNING)                 │     │
 │        └─────────────────────────────────────────────────────────────┘     │
 │                              │                                             │
-│                              │ ADD TO                                      │
+│                              │ FROM                                        │
 │                              v                                             │
-│    LAYER 1: System Baseline (base)                                         │
-│    ───────────────────────────────────                                     │
-│    "Default regulations from the adopted system category"                  │
+│    LAYER 1: System Baseline (via LTREE inheritance)                        │
+│    ────────────────────────────────────────────────                        │
+│    "Regulations from CategoryRegulation using LTREE <@ operator"           │
 │                                                                             │
 │        ┌─────────────────────────────────────────────────────────────┐     │
-│        │  CategoryRegulatoryList (public schema)                     │     │
+│        │  CategoryRegulation (public schema)                         │     │
 │        │                                                             │     │
-│        │  * REACH_SVHC: Required for all products                    │     │
-│        │  * COSING_ANNEX_II: Required for cosmetics                  │     │
-│        │  * COSING_ANNEX_III: Required for cosmetics                 │     │
+│        │  Category "packaging" → Regulation REACH                    │     │
+│        │  Category "packaging.plastic" → Regulation ESPR             │     │
+│        │                                                             │     │
+│        │  Child categories inherit parent regulations via LTREE!     │     │
 │        └─────────────────────────────────────────────────────────────┘     │
 │                                                                             │
 │                                                                             │
@@ -874,28 +877,19 @@
 │  ────────────────────                                                      │
 │                                                                             │
 │    Tenant: Acme Corp                                                       │
-│    Category: products.cosmetics (adopted in LIVE mode)                     │
+│    Category: packaging.plastic.pet (adopted in LIVE mode)                  │
 │                                                                             │
 │    ┌─────────────────────────────────────────────────────────────────┐     │
-│    │  EFFECTIVE REGULATORY LISTS                                     │     │
+│    │  EFFECTIVE REQUIREMENTS                                         │     │
 │    ├─────────────────────────────────────────────────────────────────┤     │
 │    │                                                                 │     │
-│    │  From System (Layer 1):                                         │     │
-│    │    [x] REACH_SVHC                                               │     │
-│    │    [x] COSING_ANNEX_II                                          │     │
-│    │    [~] COSING_ANNEX_III  <-- Will be exempted                   │     │
+│    │  From REACH (via "packaging"):                                  │     │
+│    │    [ACTIVE] SVHC_SCREEN - allowTenantExemption: false          │     │
+│    │    [ACTIVE] ANNEX_XVII - allowTenantExemption: false           │     │
 │    │                                                                 │     │
-│    │  From Tenant Additions (Layer 2):                               │     │
-│    │    [+] CALIFORNIA_PROP65                                        │     │
-│    │                                                                 │     │
-│    │  From Tenant Exemptions (Layer 3):                              │     │
-│    │    [-] COSING_ANNEX_III  <-- Removed with justification        │     │
-│    │                                                                 │     │
-│    │  ═══════════════════════════════════════════════════════════   │     │
-│    │  FINAL RESULT:                                                  │     │
-│    │    * REACH_SVHC                                                 │     │
-│    │    * COSING_ANNEX_II                                            │     │
-│    │    * CALIFORNIA_PROP65                                          │     │
+│    │  From ESPR (via "packaging.plastic"):                           │     │
+│    │    [ACTIVE] RECYCLED_MIN - allowTenantExemption: true          │     │
+│    │    [EXEMPTED] DURABILITY_DECL - tenant has exemption           │     │
 │    │                                                                 │     │
 │    └─────────────────────────────────────────────────────────────────┘     │
 │                                                                             │
@@ -903,14 +897,17 @@
 │  THE ComplianceStackResolver SERVICE:                                      │
 │  ─────────────────────────────────────                                     │
 │                                                                             │
-│    Input:  CategoryAdoption (or TenantCategory)                            │
-│    Output: List of effective RegulatoryLists                               │
+│    Input:  TenantCategory ID                                               │
+│    Output: ComplianceStackResultRevised with regulations and requirements  │
 │                                                                             │
 │    The resolver handles all the complexity of:                             │
-│      1. Fetching system baseline from CategoryRegulatoryList               │
-│      2. Adding tenant-added lists from TenantCategoryRegulatoryList        │
-│      3. Removing exempted lists (checking allowTenantExemption first!)     │
-│      4. Returning the final effective list                                 │
+│      1. Getting system category path for LTREE query                       │
+│      2. Finding all regulations via CategoryRegulation with inheritance    │
+│      3. Loading requirements for each regulation                           │
+│      4. Applying tenant exemptions (checking guardrails)                   │
+│      5. Returning effective requirements with status (ACTIVE/EXEMPTED)     │
+│                                                                             │
+│    API: GET /api/v1/compliance-stack/:tenantCategoryId                     │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -924,27 +921,34 @@
 │                    EXEMPTION SYSTEM                                          │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│  Sometimes a tenant legitimately doesn't need to comply with a regulation. │
+│  Sometimes a tenant legitimately doesn't need to comply with a requirement.│
 │  The system allows EXEMPTIONS with full justification and audit trail.     │
 │                                                                             │
+│  NOTE: Exemptions are now at the REQUIREMENT level, not regulation level.  │
+│  This gives finer-grained control over what can be exempted.               │
 │                                                                             │
-│  EXEMPTION REQUIREMENTS:                                                   │
-│  ────────────────────────                                                  │
+│  EXEMPTION RECORD:                                                         │
+│  ─────────────────                                                         │
 │                                                                             │
 │    ┌─────────────────────────────────────────────────────────────────┐     │
-│    │  TenantCategoryRegulatoryList (exemption record)                │     │
+│    │  TenantRequirementExemption (tenant schema)                     │     │
 │    ├─────────────────────────────────────────────────────────────────┤     │
 │    │                                                                 │     │
-│    │  regulatoryListId: COSING_ANNEX_III                            │     │
-│    │  isExempted:       TRUE                                         │     │
+│    │  tenantCategoryId: uuid-of-tenant-category                     │     │
+│    │  requirementId:    uuid-of-requirement                         │     │
 │    │                                                                 │     │
 │    │  --- REQUIRED JUSTIFICATION ---                                 │     │
-│    │  exemptionReason:  "B2B industrial use only, not consumer"     │     │
+│    │  reason:           "B2B industrial use only, not consumer"     │     │
 │    │  legalReference:   "Article 2(2)(a) of Regulation 1223/2009"   │     │
 │    │                                                                 │     │
 │    │  --- AUTOMATIC AUDIT TRAIL ---                                  │     │
 │    │  exemptedBy:       user-uuid-who-created-exemption              │     │
 │    │  exemptedAt:       2024-06-15T10:30:00Z                         │     │
+│    │                                                                 │     │
+│    │  --- REVOCATION (if later revoked) ---                         │     │
+│    │  revokedAt:        null (or timestamp if revoked)               │     │
+│    │  revokedBy:        null (or user who revoked)                   │     │
+│    │  revocationReason: null (or why it was revoked)                │     │
 │    │                                                                 │     │
 │    └─────────────────────────────────────────────────────────────────┘     │
 │                                                                             │
@@ -952,29 +956,22 @@
 │  THE allowTenantExemption GUARDRAIL:                                       │
 │  ────────────────────────────────────                                      │
 │                                                                             │
-│    Some regulations are TOO CRITICAL to allow exemptions!                  │
+│    Some requirements are TOO CRITICAL to allow exemptions!                 │
 │                                                                             │
 │    ┌─────────────────────────────────────────────────────────────────┐     │
-│    │  RegulatoryList                                                 │     │
+│    │  Requirement                                                    │     │
 │    ├─────────────────────────────────────────────────────────────────┤     │
-│    │  code:                REACH_SVHC                                │     │
+│    │  code:                SVHC_SCREEN                               │     │
 │    │  name:                REACH Substances of Very High Concern     │     │
+│    │  type:                SUBSTANCE_SCREEN                          │     │
+│    │  severity:            BLOCKER                                   │     │
 │    │  allowTenantExemption: FALSE  <-- CANNOT BE EXEMPTED!          │     │
 │    └─────────────────────────────────────────────────────────────────┘     │
 │                                                                             │
-│    ┌─────────────────────────────────────────────────────────────────┐     │
-│    │  CategoryRegulatoryList (system mapping)                        │     │
-│    ├─────────────────────────────────────────────────────────────────┤     │
-│    │  categoryPath:        products.cosmetics                        │     │
-│    │  regulatoryList:      COSING_ANNEX_II                           │     │
-│    │  allowTenantExemption: FALSE  <-- Can also be set per-mapping! │     │
-│    └─────────────────────────────────────────────────────────────────┘     │
-│                                                                             │
-│    The system checks BOTH flags:                                           │
-│      1. RegulatoryList.allowTenantExemption (global setting)               │
-│      2. CategoryRegulatoryList.allowTenantExemption (per-mapping)          │
-│                                                                             │
-│    If EITHER is FALSE, the exemption is BLOCKED.                           │
+│    When allowTenantExemption is FALSE on a Requirement:                    │
+│    - API returns HTTP 403 Forbidden                                        │
+│    - Error: "EXEMPTION_NOT_ALLOWED"                                        │
+│    - The exemption request is blocked                                      │
 │                                                                             │
 │                                                                             │
 │  EXEMPTION WORKFLOW:                                                       │
@@ -1508,14 +1505,24 @@
 
 ## Related Documentation
 
-- **Design Document**: `docs/plans/2026-01-26-regulatory-vertical-system-design.md`
-- **Plan 10**: Regulatory List Registry
-- **Plan 11**: Category-List Scoping
-- **Plan 12**: Admin Import Pipeline
-- **Plan 14**: Vertical Rule Evaluation
-- **Plan 15**: Regulatory Seeders
+- **Compliance Evaluation System Guide**: `docs/guides/compliance-evaluation-system.md` - Detailed handler and evaluation guide
+- **Compliance Architecture**: `docs/guides/compliance-stack-vs-regulatory-advisor.md` - How it all fits together
+- **Implementation Plan**: `docs/plans/2026-01-28-compliance-architecture-revision.md` - Full implementation details
+- **Technical Reference**: `docs/compliance-architecture.md` - Quick reference
+
+### API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v1/compliance-stack/:tenantCategoryId` | GET | Get effective requirements for category |
+| `/api/v1/exemptions` | POST | Create exemption |
+| `/api/v1/exemptions` | GET | List exemptions |
+| `/api/v1/exemptions/:id` | GET | Get exemption |
+| `/api/v1/exemptions/:id` | DELETE | Revoke exemption |
+| `/api/v1/evidence` | POST | Record compliance evidence |
+| `/api/v1/evidence/:productVersionId` | GET | Get evidence for product |
 
 ---
 
 *Document created: 2026-01-26*
-*Last updated: 2026-01-27 - Added compliance stack architecture (dual categories, adoption modes, 3-layer resolution, exemptions)*
+*Last updated: 2026-01-28 - Updated to reflect new compliance architecture (Regulation→Requirement model, handler plugins, evidence snapshots)*
