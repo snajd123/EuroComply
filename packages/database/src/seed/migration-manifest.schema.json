@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "migration-manifest.schema.json",
+  "title": "Migration Manifest",
+  "description": "Defines regulatory content for database seeding. Engine is agnostic - this file contains the WHAT.",
+  "type": "object",
+  "required": ["version", "regulations"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "Schema version for compatibility checking"
+    },
+    "source": {
+      "type": "string",
+      "description": "URL or identifier for the content source"
+    },
+    "regulations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/regulation"
+      }
+    },
+    "categoryMappings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/categoryMapping"
+      }
+    }
+  },
+  "$defs": {
+    "regulation": {
+      "type": "object",
+      "required": ["code", "name", "status", "requirements"],
+      "properties": {
+        "code": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "status": { "enum": ["DRAFT", "ACTIVE", "ARCHIVED"] },
+        "version": { "type": "string" },
+        "effectiveDate": { "type": "string", "format": "date" },
+        "metadata": {
+          "type": "object",
+          "properties": {
+            "jurisdiction": { "type": "string" },
+            "type": { "type": "string" },
+            "officialJournalRef": { "type": "string" }
+          }
+        },
+        "requirements": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/requirement" }
+        }
+      }
+    },
+    "requirement": {
+      "type": "object",
+      "required": ["code", "name", "type", "severity"],
+      "properties": {
+        "code": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "type": { "enum": ["ATTRIBUTE_CHECK", "SUBSTANCE_SCREEN", "CALCULATED_CHECK", "DECLARATION"] },
+        "severity": { "enum": ["BLOCKER", "WARNING", "INFO"] },
+        "attributeTemplateKey": { "type": "string" },
+        "substanceListCode": { "type": "string" },
+        "calculationFormula": { "type": "string" },
+        "handlerConfig": { "type": "object" },
+        "legalReference": { "type": "string" },
+        "allowTenantExemption": { "type": "boolean", "default": true }
+      }
+    },
+    "categoryMapping": {
+      "type": "object",
+      "required": ["categoryPath", "regulationCode"],
+      "properties": {
+        "categoryPath": { "type": "string" },
+        "regulationCode": { "type": "string" }
+      }
+    }
+  }
+}
