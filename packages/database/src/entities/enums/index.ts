@@ -8,3 +8,5 @@ export { RegulationSource } from './RegulationSource.js';
 export { RegulationStatus } from './RegulationStatus.js';
 export { RequirementType } from './RequirementType.js';
 export { RequirementSeverity } from './RequirementSeverity.js';
+export { EvidenceType } from './EvidenceType.js';
+export { EvidenceResult } from './EvidenceResult.js';
