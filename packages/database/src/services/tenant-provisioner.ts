@@ -16,6 +16,7 @@ const EXPECTED_TENANT_TABLES = [
   'outbox_event',
   'users',
   'organization_users',
+  'tenant_requirement_exemption',
 ] as const;
 
 export interface ProvisioningResult {
