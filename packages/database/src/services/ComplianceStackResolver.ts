@@ -1,7 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql';
 import { TenantCategory } from '../entities/TenantCategory.js';
 import { TenantCategoryRegulatoryList } from '../entities/TenantCategoryRegulatoryList.js';
-import { ListRequirement, RegulationSource } from '../entities/enums/index.js';
+import { ListRequirement, RegulationSource, RequirementType, RequirementSeverity } from '../entities/enums/index.js';
 
 export interface EffectiveRegulation {
   regulatoryListId: string;
@@ -25,6 +25,26 @@ export interface ComplianceStackResult {
   systemCategoryId?: string;
   linkMode?: string;
   effectiveRegulations: EffectiveRegulation[];
+}
+
+/**
+ * Result interface for the revised ComplianceStackResolver.
+ * Uses CategoryRegulation junction table and returns regulations with nested requirements.
+ */
+export interface ComplianceStackResultRevised {
+  tenantCategoryId: string;
+  regulations: Array<{
+    regulationId: string;
+    regulationCode: string;
+    source: 'SYSTEM' | 'TENANT';
+    requirements: Array<{
+      requirementId: string;
+      requirementCode: string;
+      type: RequirementType;
+      severity: RequirementSeverity;
+      status: 'ACTIVE' | 'EXEMPTED';
+    }>;
+  }>;
 }
 
 export interface ResolveOptions {
@@ -58,11 +78,66 @@ export class ComplianceStackResolver {
   /**
    * Resolves the effective compliance regulations for a tenant category.
    *
+   * This revised implementation uses the CategoryRegulation junction table
+   * and LTREE for hierarchical category inheritance. It returns regulations
+   * with nested requirements.
+   *
+   * @param tenantCategoryId - The ID of the tenant category to resolve
+   * @param _options - Optional resolve options (reserved for future use)
+   * @returns ComplianceStackResultRevised with regulations and nested requirements
+   */
+  async resolve(tenantCategoryId: string, _options?: ResolveOptions): Promise<ComplianceStackResultRevised> {
+    // 1. Get TenantCategory
+    const tenantCategory = await this.em.findOneOrFail(TenantCategory, { id: tenantCategoryId });
+
+    const result: ComplianceStackResultRevised = {
+      tenantCategoryId,
+      regulations: [],
+    };
+
+    // 2. If no system category linked, return empty regulations
+    if (!tenantCategory.systemCategoryId) {
+      return result;
+    }
+
+    // 3. Get the system category path for LTREE inheritance
+    const systemCategoryPath = await this.getSystemCategoryPath(tenantCategory.systemCategoryId);
+    if (!systemCategoryPath) {
+      return result;
+    }
+
+    // 4. Get regulations from CategoryRegulation using LTREE inheritance
+    const regulations = await this.getRegulationsWithLtreeInheritance(systemCategoryPath);
+
+    // 5. Load requirements for each regulation
+    for (const reg of regulations) {
+      const requirements = await this.getRequirementsForRegulation(reg.regulationId);
+      result.regulations.push({
+        regulationId: reg.regulationId,
+        regulationCode: reg.regulationCode,
+        source: 'SYSTEM',
+        requirements: requirements.map(req => ({
+          requirementId: req.requirementId,
+          requirementCode: req.requirementCode,
+          type: req.type,
+          severity: req.severity,
+          status: 'ACTIVE' as const,
+        })),
+      });
+    }
+
+    return result;
+  }
+
+  /**
+   * Legacy resolve method that returns the old ComplianceStackResult format.
+   * Uses CategoryRegulatoryList (regulatory lists) instead of CategoryRegulation.
+   *
    * @param tenantCategoryId - The ID of the tenant category to resolve
    * @param options - Optional resolve options (pinnedRegulatoryListIds for FROZEN mode)
    * @returns ComplianceStackResult with all effective regulations and their sources
    */
-  async resolve(tenantCategoryId: string, options?: ResolveOptions): Promise<ComplianceStackResult> {
+  async resolveLegacy(tenantCategoryId: string, options?: ResolveOptions): Promise<ComplianceStackResult> {
     // 1. Get TenantCategory
     const tenantCategory = await this.em.findOneOrFail(TenantCategory, { id: tenantCategoryId });
 
@@ -129,6 +204,80 @@ export class ComplianceStackResolver {
 
     result.effectiveRegulations = Array.from(effectiveMap.values());
     return result;
+  }
+
+  /**
+   * Gets the LTREE path for a system category.
+   */
+  private async getSystemCategoryPath(systemCategoryId: string): Promise<string | null> {
+    const escapedId = this.escapeId(systemCategoryId);
+    const rows = await this.em.getConnection().execute<Array<{ path: string }>>(`
+      SELECT path FROM public.category WHERE id = '${escapedId}'
+    `);
+    return rows[0]?.path ?? null;
+  }
+
+  /**
+   * Gets regulations using LTREE hierarchical inheritance.
+   * Returns all ACTIVE regulations from the category and all its ancestors.
+   *
+   * Uses LTREE <@ operator: $path <@ c.path means "path is descendant of or equal to c.path"
+   * This finds all ancestor categories (including self) and their regulations.
+   */
+  private async getRegulationsWithLtreeInheritance(categoryPath: string): Promise<Array<{
+    regulationId: string;
+    regulationCode: string;
+  }>> {
+    // Escape the path for safe SQL interpolation
+    const escapedPath = categoryPath.replace(/'/g, "''");
+
+    const rows = await this.em.getConnection().execute<Array<{
+      regulation_id: string;
+      code: string;
+    }>>(`
+      SELECT DISTINCT cr.regulation_id, r.code
+      FROM public.category_regulation cr
+      JOIN public.category c ON c.id = cr.category_id
+      JOIN public.regulation r ON r.id = cr.regulation_id
+      WHERE '${escapedPath}'::ltree <@ c.path
+        AND r.status = 'ACTIVE'
+      ORDER BY r.code
+    `);
+
+    return rows.map(row => ({
+      regulationId: row.regulation_id,
+      regulationCode: row.code,
+    }));
+  }
+
+  /**
+   * Gets all requirements for a regulation.
+   */
+  private async getRequirementsForRegulation(regulationId: string): Promise<Array<{
+    requirementId: string;
+    requirementCode: string;
+    type: RequirementType;
+    severity: RequirementSeverity;
+  }>> {
+    const escapedId = this.escapeId(regulationId);
+    const rows = await this.em.getConnection().execute<Array<{
+      id: string;
+      code: string;
+      type: string;
+      severity: string;
+    }>>(`
+      SELECT id, code, type, severity
+      FROM public.requirement
+      WHERE regulation_id = '${escapedId}'
+      ORDER BY code
+    `);
+
+    return rows.map(row => ({
+      requirementId: row.id,
+      requirementCode: row.code,
+      type: row.type as RequirementType,
+      severity: row.severity as RequirementSeverity,
+    }));
   }
 
   /**

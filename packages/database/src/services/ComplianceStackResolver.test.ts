@@ -147,7 +147,7 @@ describe('ComplianceStackResolver', () => {
       await em.flush();
 
       const resolver = new ComplianceStackResolver(em);
-      const result = await resolver.resolve(tenantCategory.id);
+      const result = await resolver.resolveLegacy(tenantCategory.id);
 
       expect(result.tenantCategoryId).toBe(tenantCategory.id);
       expect(result.tenantCategoryPath).toBe('my.electronics');
@@ -211,7 +211,7 @@ describe('ComplianceStackResolver', () => {
       await em.flush();
 
       const resolver = new ComplianceStackResolver(em);
-      const result = await resolver.resolve(tenantCategory.id);
+      const result = await resolver.resolveLegacy(tenantCategory.id);
 
       expect(result.effectiveRegulations).toHaveLength(2);
 
@@ -271,7 +271,7 @@ describe('ComplianceStackResolver', () => {
       await em.flush();
 
       const resolver = new ComplianceStackResolver(em);
-      const result = await resolver.resolve(tenantCategory.id);
+      const result = await resolver.resolveLegacy(tenantCategory.id);
 
       expect(result.effectiveRegulations).toHaveLength(1);
 
@@ -295,7 +295,7 @@ describe('ComplianceStackResolver', () => {
       await em.flush();
 
       const resolver = new ComplianceStackResolver(em);
-      const result = await resolver.resolve(tenantCategory.id);
+      const result = await resolver.resolveLegacy(tenantCategory.id);
 
       expect(result.tenantCategoryId).toBe(tenantCategory.id);
       expect(result.tenantCategoryPath).toBe('custom.category');
@@ -342,7 +342,7 @@ describe('ComplianceStackResolver', () => {
       await em.flush();
 
       const resolver = new ComplianceStackResolver(em);
-      const result = await resolver.resolve(tenantCategory.id);
+      const result = await resolver.resolveLegacy(tenantCategory.id);
 
       expect(result.effectiveRegulations).toHaveLength(2);
 
@@ -382,7 +382,7 @@ describe('ComplianceStackResolver', () => {
       await em.flush();
 
       const resolver = new ComplianceStackResolver(em);
-      const result = await resolver.resolve(tenantCategory.id);
+      const result = await resolver.resolveLegacy(tenantCategory.id);
 
       expect(result.effectiveRegulations).toHaveLength(1);
       const reg = result.effectiveRegulations[0];
@@ -425,7 +425,7 @@ describe('ComplianceStackResolver', () => {
       await em.flush();
 
       const resolver = new ComplianceStackResolver(em);
-      const result = await resolver.resolve(tenantCategory.id);
+      const result = await resolver.resolveLegacy(tenantCategory.id);
 
       // Should only include the non-excluded regulation
       expect(result.effectiveRegulations).toHaveLength(1);
@@ -465,7 +465,7 @@ describe('ComplianceStackResolver', () => {
       await em.flush();
 
       const resolver = new ComplianceStackResolver(em);
-      const result = await resolver.resolve(tenantCategory.id);
+      const result = await resolver.resolveLegacy(tenantCategory.id);
 
       // Should only include current version
       expect(result.effectiveRegulations).toHaveLength(1);
@@ -514,7 +514,7 @@ describe('ComplianceStackResolver', () => {
       const resolver = new ComplianceStackResolver(em);
 
       // Resolve with pinned IDs (the old version + another current list)
-      const result = await resolver.resolve(tenantCategory.id, {
+      const result = await resolver.resolveLegacy(tenantCategory.id, {
         pinnedRegulatoryListIds: [pinnedOldList.id, anotherCurrentList.id],
       });
 
