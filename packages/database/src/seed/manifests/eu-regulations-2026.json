@@ -1,0 +1,154 @@
+{
+  "$schema": "../migration-manifest.schema.json",
+  "version": "1.0",
+  "source": "https://eurocomply.io/regulatory-content/eu-2026",
+  "regulations": [
+    {
+      "code": "REACH",
+      "name": "Registration, Evaluation, Authorisation and Restriction of Chemicals",
+      "description": "EU regulation on chemical substances and their safe use",
+      "status": "ACTIVE",
+      "version": "2024.1",
+      "metadata": {
+        "jurisdiction": "EU",
+        "type": "REGULATION",
+        "officialJournalRef": "Regulation (EC) No 1907/2006"
+      },
+      "requirements": [
+        {
+          "code": "SVHC_SCREEN",
+          "name": "SVHC Substance Screen",
+          "description": "Screen for Substances of Very High Concern",
+          "type": "SUBSTANCE_SCREEN",
+          "severity": "BLOCKER",
+          "substanceListCode": "REACH_SVHC",
+          "handlerConfig": {
+            "defaultThresholdPct": 0.1
+          },
+          "legalReference": "Article 33",
+          "allowTenantExemption": false
+        },
+        {
+          "code": "REACH_RESTRICTED",
+          "name": "REACH Restricted Substances",
+          "description": "Screen for Annex XVII restricted substances",
+          "type": "SUBSTANCE_SCREEN",
+          "severity": "BLOCKER",
+          "substanceListCode": "REACH_ANNEX_XVII",
+          "handlerConfig": {
+            "defaultThresholdPct": 0.1
+          },
+          "legalReference": "Annex XVII",
+          "allowTenantExemption": false
+        }
+      ]
+    },
+    {
+      "code": "ESPR",
+      "name": "Ecodesign for Sustainable Products Regulation",
+      "description": "EU regulation setting ecodesign requirements for sustainable products",
+      "status": "ACTIVE",
+      "version": "2024.1",
+      "metadata": {
+        "jurisdiction": "EU",
+        "type": "REGULATION",
+        "officialJournalRef": "Regulation (EU) 2024/1781"
+      },
+      "requirements": [
+        {
+          "code": "RECYCLED_CONTENT_MIN",
+          "name": "Minimum Recycled Content",
+          "description": "Products must contain minimum recycled material",
+          "type": "ATTRIBUTE_CHECK",
+          "severity": "BLOCKER",
+          "attributeTemplateKey": "recycled_content_pct",
+          "handlerConfig": {
+            "operator": ">=",
+            "threshold": 25,
+            "unit": "%"
+          },
+          "legalReference": "Article 5(1)(a)",
+          "allowTenantExemption": true
+        },
+        {
+          "code": "DURABILITY_DECL",
+          "name": "Durability Declaration",
+          "description": "Declaration of product durability characteristics",
+          "type": "DECLARATION",
+          "severity": "WARNING",
+          "handlerConfig": {
+            "question": "Has durability testing been performed and documented?",
+            "acceptedAnswers": ["Yes", "Not Applicable"],
+            "requiresDocument": true,
+            "acceptedDocumentTypes": ["application/pdf"]
+          },
+          "legalReference": "Article 5(1)(b)",
+          "allowTenantExemption": true
+        }
+      ]
+    },
+    {
+      "code": "COSING",
+      "name": "Cosmetics Regulation",
+      "description": "EU regulation on cosmetic products",
+      "status": "ACTIVE",
+      "version": "2024.1",
+      "metadata": {
+        "jurisdiction": "EU",
+        "type": "REGULATION",
+        "officialJournalRef": "Regulation (EC) No 1223/2009"
+      },
+      "requirements": [
+        {
+          "code": "ANNEX_II_SCREEN",
+          "name": "Annex II Prohibited Substances",
+          "description": "Screen for prohibited cosmetic substances",
+          "type": "SUBSTANCE_SCREEN",
+          "severity": "BLOCKER",
+          "substanceListCode": "COSING_ANNEX_II",
+          "handlerConfig": {
+            "defaultThresholdPct": 0
+          },
+          "legalReference": "Annex II",
+          "allowTenantExemption": false
+        },
+        {
+          "code": "ANIMAL_TEST_DECL",
+          "name": "Animal Testing Declaration",
+          "description": "Declaration that product was not tested on animals",
+          "type": "DECLARATION",
+          "severity": "BLOCKER",
+          "handlerConfig": {
+            "question": "Has this product or its ingredients been tested on animals?",
+            "acceptedAnswers": ["No"],
+            "requiresDocument": false
+          },
+          "legalReference": "Article 18",
+          "allowTenantExemption": false
+        }
+      ]
+    }
+  ],
+  "categoryMappings": [
+    {
+      "categoryPath": "textiles",
+      "regulationCode": "REACH"
+    },
+    {
+      "categoryPath": "textiles.apparel",
+      "regulationCode": "ESPR"
+    },
+    {
+      "categoryPath": "cosmetics",
+      "regulationCode": "REACH"
+    },
+    {
+      "categoryPath": "cosmetics",
+      "regulationCode": "COSING"
+    },
+    {
+      "categoryPath": "electronics",
+      "regulationCode": "REACH"
+    }
+  ]
+}
