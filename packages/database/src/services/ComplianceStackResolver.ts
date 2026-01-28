@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql';
 import { TenantCategory } from '../entities/TenantCategory.js';
 import { TenantCategoryRegulatoryList } from '../entities/TenantCategoryRegulatoryList.js';
+import { TenantRequirementExemption } from '../entities/TenantRequirementExemption.js';
 import { ListRequirement, RegulationSource, RequirementType, RequirementSeverity } from '../entities/enums/index.js';
 
 export interface EffectiveRegulation {
@@ -31,6 +32,13 @@ export interface ComplianceStackResult {
  * Result interface for the revised ComplianceStackResolver.
  * Uses CategoryRegulation junction table and returns regulations with nested requirements.
  */
+export interface RequirementExemptionDetails {
+  reason: string;
+  legalRef?: string;
+  exemptedBy: string;
+  exemptedAt: Date;
+}
+
 export interface ComplianceStackResultRevised {
   tenantCategoryId: string;
   regulations: Array<{
@@ -43,6 +51,7 @@ export interface ComplianceStackResultRevised {
       type: RequirementType;
       severity: RequirementSeverity;
       status: 'ACTIVE' | 'EXEMPTED';
+      exemption?: RequirementExemptionDetails;
     }>;
   }>;
 }
@@ -109,20 +118,50 @@ export class ComplianceStackResolver {
     // 4. Get regulations from CategoryRegulation using LTREE inheritance
     const regulations = await this.getRegulationsWithLtreeInheritance(systemCategoryPath);
 
-    // 5. Load requirements for each regulation
+    // 5. Load exemptions for the tenant category (only active exemptions)
+    const exemptions = await this.em.find(TenantRequirementExemption, {
+      tenantCategory: { id: tenantCategoryId },
+      revokedAt: null,  // Only active exemptions
+    });
+
+    // Create exemption map: requirementId -> exemption
+    const exemptionMap = new Map<string, TenantRequirementExemption>();
+    for (const exemption of exemptions) {
+      exemptionMap.set(exemption.requirementId, exemption);
+    }
+
+    // 6. Load requirements for each regulation
     for (const reg of regulations) {
       const requirements = await this.getRequirementsForRegulation(reg.regulationId);
       result.regulations.push({
         regulationId: reg.regulationId,
         regulationCode: reg.regulationCode,
         source: 'SYSTEM',
-        requirements: requirements.map(req => ({
-          requirementId: req.requirementId,
-          requirementCode: req.requirementCode,
-          type: req.type,
-          severity: req.severity,
-          status: 'ACTIVE' as const,
-        })),
+        requirements: requirements.map(req => {
+          const exemption = exemptionMap.get(req.requirementId);
+          if (exemption) {
+            return {
+              requirementId: req.requirementId,
+              requirementCode: req.requirementCode,
+              type: req.type,
+              severity: req.severity,
+              status: 'EXEMPTED' as const,
+              exemption: {
+                reason: exemption.reason,
+                legalRef: exemption.legalReference,
+                exemptedBy: exemption.exemptedBy,
+                exemptedAt: exemption.exemptedAt,
+              },
+            };
+          }
+          return {
+            requirementId: req.requirementId,
+            requirementCode: req.requirementCode,
+            type: req.type,
+            severity: req.severity,
+            status: 'ACTIVE' as const,
+          };
+        }),
       });
     }
 

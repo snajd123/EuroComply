@@ -5,6 +5,7 @@ import { Regulation } from '../entities/Regulation.js';
 import { Requirement } from '../entities/Requirement.js';
 import { CategoryRegulation } from '../entities/CategoryRegulation.js';
 import { TenantCategory } from '../entities/TenantCategory.js';
+import { TenantRequirementExemption } from '../entities/TenantRequirementExemption.js';
 import { ComplianceStackResolver } from './ComplianceStackResolver.js';
 import { RegulationStatus } from '../entities/enums/RegulationStatus.js';
 import { RequirementType } from '../entities/enums/RequirementType.js';
@@ -31,6 +32,12 @@ export interface ComplianceStackResultRevised {
       type: RequirementType;
       severity: RequirementSeverity;
       status: 'ACTIVE' | 'EXEMPTED';
+      exemption?: {
+        reason: string;
+        legalRef?: string;
+        exemptedBy: string;
+        exemptedAt: Date;
+      };
     }>;
   }>;
 }
@@ -528,6 +535,145 @@ describe('ComplianceStackResolver (Revised)', () => {
       const energyReg = resultAsRevised.regulations[0];
       expect(energyReg?.requirements).toHaveLength(1);
       expect(energyReg?.requirements[0]?.status).toBe('ACTIVE');
+    });
+
+    it('should_mark_requirement_as_exempted_when_exemption_exists', async () => {
+      // Create system category
+      const systemCategory = createSystemCategory('Chemicals', 'chemicals');
+      em.persist(systemCategory);
+
+      // Create regulation and requirements
+      const regulation = createRegulation('REACH_REG', { status: RegulationStatus.ACTIVE });
+      em.persist(regulation);
+      await em.flush();
+
+      const req1 = createRequirement(regulation, 'SVHC_CHECK', {
+        type: RequirementType.SUBSTANCE_SCREEN,
+        severity: RequirementSeverity.BLOCKER,
+      });
+      const req2 = createRequirement(regulation, 'LABELING_REQ', {
+        type: RequirementType.DECLARATION,
+        severity: RequirementSeverity.WARNING,
+      });
+      em.persist([req1, req2]);
+      await em.flush();
+
+      // Link regulation to category
+      const catReg = createCategoryRegulation(systemCategory, regulation);
+      em.persist(catReg);
+      await em.flush();
+
+      // Set tenant context
+      await setTenantContext();
+
+      // Create tenant category
+      const tenantCategory = createTenantCategory(
+        'My Chemicals',
+        'my.chemicals',
+        systemCategory.id
+      );
+      em.persist(tenantCategory);
+      await em.flush();
+
+      // Create exemption for one requirement (SVHC_CHECK)
+      const exemption = new TenantRequirementExemption();
+      exemption.tenantCategory = tenantCategory;
+      exemption.requirementId = req1.id;
+      exemption.reason = 'Small quantity exemption per Article 2(7)(b)';
+      exemption.legalReference = 'REACH Article 2(7)(b)';
+      exemption.exemptedBy = 'compliance-officer@example.com';
+      exemption.exemptedAt = new Date('2024-06-15T10:00:00Z');
+      em.persist(exemption);
+      await em.flush();
+
+      const resolver = new ComplianceStackResolver(em);
+      const result = await resolver.resolve(tenantCategory.id);
+
+      const resultAsRevised = result as unknown as ComplianceStackResultRevised;
+      expect(resultAsRevised.regulations).toHaveLength(1);
+
+      const reachReg = resultAsRevised.regulations[0];
+      expect(reachReg?.requirements).toHaveLength(2);
+
+      // Find the exempted requirement (SVHC_CHECK)
+      const exemptedReq = reachReg?.requirements.find(r => r.requirementCode === 'SVHC_CHECK');
+      expect(exemptedReq).toBeDefined();
+      expect(exemptedReq?.status).toBe('EXEMPTED');
+      expect(exemptedReq?.exemption).toBeDefined();
+      expect(exemptedReq?.exemption?.reason).toBe('Small quantity exemption per Article 2(7)(b)');
+      expect(exemptedReq?.exemption?.legalRef).toBe('REACH Article 2(7)(b)');
+      expect(exemptedReq?.exemption?.exemptedBy).toBe('compliance-officer@example.com');
+      expect(exemptedReq?.exemption?.exemptedAt).toEqual(new Date('2024-06-15T10:00:00Z'));
+
+      // Find the non-exempted requirement (LABELING_REQ)
+      const activeReq = reachReg?.requirements.find(r => r.requirementCode === 'LABELING_REQ');
+      expect(activeReq).toBeDefined();
+      expect(activeReq?.status).toBe('ACTIVE');
+      expect(activeReq?.exemption).toBeUndefined();
+    });
+
+    it('should_not_apply_revoked_exemptions', async () => {
+      // Create system category
+      const systemCategory = createSystemCategory('Plastics', 'plastics');
+      em.persist(systemCategory);
+
+      // Create regulation and requirement
+      const regulation = createRegulation('PLASTIC_REG', { status: RegulationStatus.ACTIVE });
+      em.persist(regulation);
+      await em.flush();
+
+      const req = createRequirement(regulation, 'RECYCLING_REQ', {
+        type: RequirementType.DECLARATION,
+        severity: RequirementSeverity.WARNING,
+      });
+      em.persist(req);
+      await em.flush();
+
+      // Link regulation to category
+      const catReg = createCategoryRegulation(systemCategory, regulation);
+      em.persist(catReg);
+      await em.flush();
+
+      // Set tenant context
+      await setTenantContext();
+
+      // Create tenant category
+      const tenantCategory = createTenantCategory(
+        'My Plastics',
+        'my.plastics',
+        systemCategory.id
+      );
+      em.persist(tenantCategory);
+      await em.flush();
+
+      // Create a REVOKED exemption
+      const revokedExemption = new TenantRequirementExemption();
+      revokedExemption.tenantCategory = tenantCategory;
+      revokedExemption.requirementId = req.id;
+      revokedExemption.reason = 'Temporary exemption';
+      revokedExemption.exemptedBy = 'admin@example.com';
+      revokedExemption.exemptedAt = new Date('2024-01-01T00:00:00Z');
+      // Mark as revoked
+      revokedExemption.revokedAt = new Date('2024-06-01T00:00:00Z');
+      revokedExemption.revokedBy = 'supervisor@example.com';
+      revokedExemption.revocationReason = 'Exemption period expired';
+      em.persist(revokedExemption);
+      await em.flush();
+
+      const resolver = new ComplianceStackResolver(em);
+      const result = await resolver.resolve(tenantCategory.id);
+
+      const resultAsRevised = result as unknown as ComplianceStackResultRevised;
+      expect(resultAsRevised.regulations).toHaveLength(1);
+
+      const plasticReg = resultAsRevised.regulations[0];
+      expect(plasticReg?.requirements).toHaveLength(1);
+
+      // Requirement should be ACTIVE because the exemption was revoked
+      const recyclingReq = plasticReg?.requirements[0];
+      expect(recyclingReq?.requirementCode).toBe('RECYCLING_REQ');
+      expect(recyclingReq?.status).toBe('ACTIVE');
+      expect(recyclingReq?.exemption).toBeUndefined();
     });
   });
 });
