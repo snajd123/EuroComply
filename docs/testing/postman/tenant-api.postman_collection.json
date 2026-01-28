@@ -17,7 +17,11 @@
     { "key": "categoryId", "value": "", "type": "string" },
     { "key": "productId", "value": "", "type": "string" },
     { "key": "adoptedCategoryId", "value": "", "type": "string", "description": "System category ID that was adopted" },
-    { "key": "tenantRegulatoryListId", "value": "", "type": "string", "description": "Regulatory list ID for compliance stack tests" }
+    { "key": "tenantRegulatoryListId", "value": "", "type": "string", "description": "Regulatory list ID for compliance stack tests" },
+    { "key": "tenantCategoryId", "value": "", "type": "string", "description": "Tenant category ID for compliance operations" },
+    { "key": "requirementId", "value": "", "type": "string", "description": "Requirement ID for exemptions and evidence" },
+    { "key": "exemptionId", "value": "", "type": "string", "description": "Exemption ID for revocation" },
+    { "key": "productVersionId", "value": "", "type": "string", "description": "Product version ID for evidence recording" }
   ],
   "item": [
     {
@@ -1190,6 +1194,365 @@
                   { "key": "Authorization", "value": "Bearer {{jwtToken}}" }
                 ],
                 "url": "{{baseUrl}}/api/v1/category-adoption/not-adopted-category"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Compliance",
+          "description": "Compliance stack, exemptions, and evidence management",
+          "item": [
+            {
+              "name": "Get Compliance Stack",
+              "event": [
+                {
+                  "listen": "prerequest",
+                  "script": {
+                    "exec": [
+                      "const tenantCategoryId = pm.collectionVariables.get('tenantCategoryId') || pm.collectionVariables.get('categoryId');",
+                      "if (!tenantCategoryId) {",
+                      "    throw new Error('Set tenantCategoryId or run \"Create Category (JWT)\" first');",
+                      "}"
+                    ],
+                    "type": "text/javascript"
+                  }
+                },
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status 200', function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "",
+                      "pm.test('Returns effective compliance stack', function () {",
+                      "    const r = pm.response.json();",
+                      "    pm.expect(r.data).to.be.an('object');",
+                      "    console.log('Compliance stack retrieved');",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [
+                  { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+                  { "key": "X-Request-Id", "value": "{{$guid}}" }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/compliance-stack/:tenantCategoryId",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "v1", "compliance-stack", ":tenantCategoryId"],
+                  "variable": [
+                    { "key": "tenantCategoryId", "value": "{{tenantCategoryId}}" }
+                  ]
+                },
+                "description": "Returns effective compliance stack for tenant category"
+              }
+            },
+            {
+              "name": "Create Exemption",
+              "event": [
+                {
+                  "listen": "prerequest",
+                  "script": {
+                    "exec": [
+                      "const tenantCategoryId = pm.collectionVariables.get('tenantCategoryId') || pm.collectionVariables.get('categoryId');",
+                      "const requirementId = pm.collectionVariables.get('requirementId');",
+                      "if (!tenantCategoryId) {",
+                      "    throw new Error('Set tenantCategoryId or run \"Create Category (JWT)\" first');",
+                      "}",
+                      "if (!requirementId) {",
+                      "    console.warn('requirementId not set - request may fail');",
+                      "}"
+                    ],
+                    "type": "text/javascript"
+                  }
+                },
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status 201', function () {",
+                      "    pm.response.to.have.status(201);",
+                      "});",
+                      "",
+                      "pm.test('Returns created exemption', function () {",
+                      "    const r = pm.response.json();",
+                      "    pm.expect(r.data).to.be.an('object');",
+                      "    pm.expect(r.data.id).to.be.a('string');",
+                      "    pm.collectionVariables.set('exemptionId', r.data.id);",
+                      "    console.log('Exemption created:', r.data.id);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-Request-Id", "value": "{{$guid}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"tenantCategoryId\": \"{{tenantCategoryId}}\",\n  \"requirementId\": \"{{requirementId}}\",\n  \"reason\": \"Product exempt under Article 5.2\",\n  \"legalReference\": \"Article 5.2 exemption clause\"\n}"
+                },
+                "url": "{{baseUrl}}/api/v1/exemptions",
+                "description": "Creates a new exemption for a requirement"
+              }
+            },
+            {
+              "name": "List Exemptions",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status 200', function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "",
+                      "pm.test('Returns exemptions list', function () {",
+                      "    const r = pm.response.json();",
+                      "    pm.expect(r.data).to.be.an('array');",
+                      "    console.log('Exemptions found:', r.data.length);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [
+                  { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+                  { "key": "X-Request-Id", "value": "{{$guid}}" }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/exemptions?tenantCategoryId={{tenantCategoryId}}",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "v1", "exemptions"],
+                  "query": [
+                    { "key": "tenantCategoryId", "value": "{{tenantCategoryId}}", "description": "Optional filter by tenant category" }
+                  ]
+                },
+                "description": "Lists exemptions with optional tenant category filter"
+              }
+            },
+            {
+              "name": "Get Exemption",
+              "event": [
+                {
+                  "listen": "prerequest",
+                  "script": {
+                    "exec": [
+                      "const exemptionId = pm.collectionVariables.get('exemptionId');",
+                      "if (!exemptionId) {",
+                      "    throw new Error('Run \"Create Exemption\" first');",
+                      "}"
+                    ],
+                    "type": "text/javascript"
+                  }
+                },
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status 200', function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "",
+                      "pm.test('Returns exemption details', function () {",
+                      "    const r = pm.response.json();",
+                      "    pm.expect(r.data).to.be.an('object');",
+                      "    pm.expect(r.data.id).to.equal(pm.collectionVariables.get('exemptionId'));",
+                      "    console.log('Exemption retrieved:', r.data.id);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [
+                  { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+                  { "key": "X-Request-Id", "value": "{{$guid}}" }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/exemptions/:id",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "v1", "exemptions", ":id"],
+                  "variable": [
+                    { "key": "id", "value": "{{exemptionId}}" }
+                  ]
+                },
+                "description": "Gets a specific exemption by ID"
+              }
+            },
+            {
+              "name": "Revoke Exemption",
+              "event": [
+                {
+                  "listen": "prerequest",
+                  "script": {
+                    "exec": [
+                      "const exemptionId = pm.collectionVariables.get('exemptionId');",
+                      "if (!exemptionId) {",
+                      "    throw new Error('Run \"Create Exemption\" first');",
+                      "}"
+                    ],
+                    "type": "text/javascript"
+                  }
+                },
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status 200 or 204', function () {",
+                      "    pm.expect([200, 204]).to.include(pm.response.code);",
+                      "});",
+                      "",
+                      "pm.test('Exemption revoked', function () {",
+                      "    if (pm.response.code === 200) {",
+                      "        const r = pm.response.json();",
+                      "        pm.expect(r.data).to.be.an('object');",
+                      "    }",
+                      "    console.log('Exemption revoked');",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "DELETE",
+                "header": [
+                  { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-Request-Id", "value": "{{$guid}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"revocationReason\": \"Exemption no longer valid\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/exemptions/:id",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "v1", "exemptions", ":id"],
+                  "variable": [
+                    { "key": "id", "value": "{{exemptionId}}" }
+                  ]
+                },
+                "description": "Revokes an exemption with a reason"
+              }
+            },
+            {
+              "name": "Record Evidence",
+              "event": [
+                {
+                  "listen": "prerequest",
+                  "script": {
+                    "exec": [
+                      "const productVersionId = pm.collectionVariables.get('productVersionId');",
+                      "const requirementId = pm.collectionVariables.get('requirementId');",
+                      "if (!productVersionId) {",
+                      "    console.warn('productVersionId not set - request may fail');",
+                      "}",
+                      "if (!requirementId) {",
+                      "    console.warn('requirementId not set - request may fail');",
+                      "}"
+                    ],
+                    "type": "text/javascript"
+                  }
+                },
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status 201', function () {",
+                      "    pm.response.to.have.status(201);",
+                      "});",
+                      "",
+                      "pm.test('Returns recorded evidence', function () {",
+                      "    const r = pm.response.json();",
+                      "    pm.expect(r.data).to.be.an('object');",
+                      "    pm.expect(r.data.id).to.be.a('string');",
+                      "    console.log('Evidence recorded:', r.data.id);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-Request-Id", "value": "{{$guid}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"productVersionId\": \"{{productVersionId}}\",\n  \"requirementId\": \"{{requirementId}}\",\n  \"type\": \"AUTO_CHECK\",\n  \"result\": \"PASS\",\n  \"details\": {\n    \"actualValue\": 30,\n    \"threshold\": 25,\n    \"operator\": \">=\"\n  },\n  \"requirementSnapshot\": {\n    \"code\": \"REQ_001\",\n    \"name\": \"Minimum Recycled Content\",\n    \"type\": \"ATTRIBUTE_CHECK\",\n    \"severity\": \"BLOCKER\",\n    \"regulationCode\": \"PPWR\",\n    \"regulationName\": \"Packaging and Packaging Waste Regulation\",\n    \"handlerConfig\": {\"operator\": \">=\", \"threshold\": 25},\n    \"snapshotAt\": \"{{$isoTimestamp}}\"\n  }\n}"
+                },
+                "url": "{{baseUrl}}/api/v1/evidence",
+                "description": "Records compliance evidence for a product version"
+              }
+            },
+            {
+              "name": "Get Evidence for Product",
+              "event": [
+                {
+                  "listen": "prerequest",
+                  "script": {
+                    "exec": [
+                      "const productVersionId = pm.collectionVariables.get('productVersionId');",
+                      "if (!productVersionId) {",
+                      "    throw new Error('Set productVersionId first');",
+                      "}"
+                    ],
+                    "type": "text/javascript"
+                  }
+                },
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status 200', function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "",
+                      "pm.test('Returns evidence for product', function () {",
+                      "    const r = pm.response.json();",
+                      "    pm.expect(r.data).to.be.an('array');",
+                      "    console.log('Evidence records:', r.data.length);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [
+                  { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+                  { "key": "X-Request-Id", "value": "{{$guid}}" }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/evidence/:productVersionId",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "v1", "evidence", ":productVersionId"],
+                  "variable": [
+                    { "key": "productVersionId", "value": "{{productVersionId}}" }
+                  ]
+                },
+                "description": "Gets all evidence records for a product version"
               }
             }
           ]
