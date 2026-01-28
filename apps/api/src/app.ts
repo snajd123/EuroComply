@@ -12,6 +12,7 @@ import { createCategoryAdoptionRouter } from './routes/category-adoption.js';
 import { createTenantCategoriesRouter } from './routes/tenant-categories.js';
 import { createTenantCategoryRegulatoryListsRouter } from './routes/tenant-category-regulatory-lists.js';
 import { createComplianceStackRouter } from './routes/compliance-stack.js';
+import { createExemptionRouter } from './routes/exemptions.js';
 import { createCategoryRegulatoryListsRouter } from './routes/admin/category-regulatory-lists.js';
 import { createUnitsRouter, type UnitsRepository, createSubstancesRouter, type SubstancesRepository } from './routes/taxonomy/index.js';
 import { tenantMiddleware, createTenantMiddlewareWithApiKeys } from './middleware/tenant.js';
@@ -159,6 +160,13 @@ export function createApp(deps?: AppDependencies): Hono<Env> {
       v1.use('/compliance-stack/*', userMiddleware);
     }
     v1.route('/compliance-stack', createComplianceStackRouter({ orm: deps.orm }));
+
+    // Exemptions: Apply tenant + user middleware (requires compliance:view/edit)
+    v1.use('/exemptions/*', createTenantMiddlewareWithApiKeys(deps.orm.em as any));
+    if (userMiddleware) {
+      v1.use('/exemptions/*', userMiddleware);
+    }
+    v1.route('/exemptions', createExemptionRouter({ orm: deps.orm }));
   }
 
   app.route('/api/v1', v1);

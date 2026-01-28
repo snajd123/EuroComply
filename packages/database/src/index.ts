@@ -29,6 +29,9 @@ export {
   type EffectiveRegulation,
   type ComplianceStackResult,
   type ResolveOptions,
+  ExemptionService,
+  ExemptionGuardrailError,
+  type CreateExemptionInput,
 } from './services/index.js';
 
 // Re-export common MikroORM types for convenience

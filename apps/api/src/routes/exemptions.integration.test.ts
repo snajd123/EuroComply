@@ -34,13 +34,7 @@ import { setupTestDb, teardownTestDb, isDatabaseAvailable } from '@eurocomply/da
 import { createId } from '@eurocomply/core';
 import type { Env } from '../app.js';
 
-// Placeholder for the router that will be implemented in Task 36
-// For now, we create a stub that returns 404 to verify tests fail as expected
-function createExemptionsRouter(_deps: { orm: MikroORM }): Hono<Env> {
-  const router = new Hono<Env>();
-  // Route not implemented yet - should return 404
-  return router;
-}
+import { createExemptionRouter } from './exemptions.js';
 
 interface ExemptionData {
   id: string;
@@ -317,7 +311,7 @@ describe('Exemptions API Integration', () => {
       return next();
     });
 
-    testApp.route('/exemptions', createExemptionsRouter({ orm }));
+    testApp.route('/exemptions', createExemptionRouter({ orm }));
     return testApp;
   }
 
