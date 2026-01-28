@@ -36,3 +36,8 @@ export {
   type ComplianceStackResultRevised,
   type ResolveOptions,
 } from './ComplianceStackResolver.js';
+export {
+  ExemptionService,
+  ExemptionGuardrailError,
+  type CreateExemptionInput,
+} from './ExemptionService.js';
