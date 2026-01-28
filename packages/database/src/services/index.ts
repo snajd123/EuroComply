@@ -41,3 +41,4 @@ export {
   ExemptionGuardrailError,
   type CreateExemptionInput,
 } from './ExemptionService.js';
+export * from './evaluation/index.js';
