@@ -17,6 +17,7 @@ const EXPECTED_TENANT_TABLES = [
   'users',
   'organization_users',
   'tenant_requirement_exemption',
+  'compliance_evidence',
 ] as const;
 
 export interface ProvisioningResult {
