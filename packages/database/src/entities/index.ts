@@ -21,6 +21,7 @@ export { ApiKey } from './ApiKey.js';
 export { Category, CategoryType } from './Category.js';
 export { CategoryAdoption, LinkMode } from './CategoryAdoption.js';
 export { CategoryRegulatoryList } from './CategoryRegulatoryList.js';
+export { CategoryRegulation } from './CategoryRegulation.js';
 export { TenantCategory } from './TenantCategory.js';
 export { TenantCategoryRegulatoryList } from './TenantCategoryRegulatoryList.js';
 export { UnitDefinition } from './UnitDefinition.js';
@@ -47,6 +48,7 @@ import { WebhookEvent } from './WebhookEvent.js';
 import { Category } from './Category.js';
 import { CategoryAdoption } from './CategoryAdoption.js';
 import { CategoryRegulatoryList } from './CategoryRegulatoryList.js';
+import { CategoryRegulation } from './CategoryRegulation.js';
 import { TenantCategory } from './TenantCategory.js';
 import { TenantCategoryRegulatoryList } from './TenantCategoryRegulatoryList.js';
 import { UnitDefinition } from './UnitDefinition.js';
@@ -80,6 +82,7 @@ export const publicOnlyEntities = [
   RegulatoryList,
   RegulatoryListEntry,
   CategoryRegulatoryList,
+  CategoryRegulation,
   Regulation,
   Requirement,
 ];
