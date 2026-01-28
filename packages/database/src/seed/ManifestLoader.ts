@@ -52,15 +52,15 @@ export class ManifestLoader {
       return false;
     }
 
-    const regulation = this.em.create(Regulation, {
-      code: manifest.code,
-      name: manifest.name,
-      description: manifest.description,
-      status: manifest.status,
-      version: manifest.version,
-      effectiveDate: manifest.effectiveDate ? new Date(manifest.effectiveDate) : undefined,
-      metadata: manifest.metadata,
-    });
+    const regulation = new Regulation();
+    regulation.code = manifest.code;
+    regulation.name = manifest.name;
+    regulation.description = manifest.description;
+    regulation.status = manifest.status;
+    if (manifest.version) regulation.version = manifest.version;
+    if (manifest.effectiveDate) regulation.effectiveDate = new Date(manifest.effectiveDate);
+    if (manifest.metadata) regulation.metadata = manifest.metadata;
+    this.em.persist(regulation);
 
     for (const reqManifest of manifest.requirements) {
       await this.loadRequirement(reqManifest, regulation);
@@ -83,20 +83,19 @@ export class ManifestLoader {
       }
     }
 
-    const requirement = this.em.create(Requirement, {
-      regulation,
-      code: manifest.code,
-      name: manifest.name,
-      description: manifest.description,
-      type: manifest.type,
-      severity: manifest.severity,
-      attributeTemplateKey: manifest.attributeTemplateKey,
-      substanceListId,
-      calculationFormula: manifest.calculationFormula,
-      handlerConfig: manifest.handlerConfig as RequirementHandlerConfig,
-      legalReference: manifest.legalReference,
-      allowTenantExemption: manifest.allowTenantExemption ?? true,
-    });
+    const requirement = new Requirement();
+    requirement.regulation = regulation;
+    requirement.code = manifest.code;
+    requirement.name = manifest.name;
+    requirement.description = manifest.description;
+    requirement.type = manifest.type;
+    requirement.severity = manifest.severity;
+    if (manifest.attributeTemplateKey) requirement.attributeTemplateKey = manifest.attributeTemplateKey;
+    if (substanceListId) requirement.substanceListId = substanceListId;
+    if (manifest.calculationFormula) requirement.calculationFormula = manifest.calculationFormula;
+    if (manifest.handlerConfig) requirement.handlerConfig = manifest.handlerConfig as RequirementHandlerConfig;
+    if (manifest.legalReference) requirement.legalReference = manifest.legalReference;
+    requirement.allowTenantExemption = manifest.allowTenantExemption ?? true;
 
     this.em.persist(requirement);
   }
@@ -117,11 +116,10 @@ export class ManifestLoader {
       return false;
     }
 
-    const mapping = this.em.create(CategoryRegulation, {
-      category,
-      regulation,
-      addedBy: 'manifest-loader',
-    });
+    const mapping = new CategoryRegulation();
+    mapping.category = category;
+    mapping.regulation = regulation;
+    mapping.addedBy = 'manifest-loader';
 
     await this.em.persistAndFlush(mapping);
     return true;

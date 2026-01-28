@@ -39,7 +39,7 @@ export class AttributeCheckHandler implements RequirementHandler<AttributeCheckC
   }
 
   async evaluate(context: EvaluationContext): Promise<EvaluationResult> {
-    const config = context.requirement.handlerConfig as AttributeCheckConfig;
+    const config = context.requirement.handlerConfig as unknown as AttributeCheckConfig;
     const { operator, threshold, unit } = config;
 
     // Get attribute value (in real implementation, fetch from ProductVersion attributes)

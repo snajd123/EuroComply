@@ -37,7 +37,7 @@ export class DeclarationHandler implements RequirementHandler<DeclarationConfig>
   }
 
   async evaluate(context: EvaluationContext): Promise<EvaluationResult> {
-    const config = context.requirement.handlerConfig as DeclarationConfig;
+    const config = context.requirement.handlerConfig as unknown as DeclarationConfig;
 
     // Get declaration (in real implementation, query from ComplianceEvidence)
     const declaration = (context as unknown as { _testDeclaration?: Declaration })._testDeclaration;
