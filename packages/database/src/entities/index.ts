@@ -10,6 +10,8 @@ export { Regulation } from './Regulation.js';
 export { Requirement, type RequirementHandlerConfig } from './Requirement.js';
 export { RequirementType } from './enums/RequirementType.js';
 export { RequirementSeverity } from './enums/RequirementSeverity.js';
+export { EvidenceType } from './enums/EvidenceType.js';
+export { EvidenceResult } from './enums/EvidenceResult.js';
 export {
   Organization,
   EnforcementMode,
