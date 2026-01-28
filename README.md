@@ -192,6 +192,8 @@ All architecture and design documentation lives in `docs/plans/`:
 | [11-infrastructure.md](./docs/plans/11-infrastructure.md) | AWS, Terraform, CI/CD |
 | [12-billing.md](./docs/plans/12-billing.md) | Stripe integration, MAU tracking |
 
+- [Compliance Architecture](./docs/compliance-architecture.md) - Regulation-agnostic evaluation engine
+
 ---
 
 ## Compliance
