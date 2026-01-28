@@ -24,6 +24,7 @@ export { CategoryRegulatoryList } from './CategoryRegulatoryList.js';
 export { CategoryRegulation } from './CategoryRegulation.js';
 export { TenantCategory } from './TenantCategory.js';
 export { TenantCategoryRegulatoryList } from './TenantCategoryRegulatoryList.js';
+export { TenantRequirementExemption } from './TenantRequirementExemption.js';
 export { UnitDefinition } from './UnitDefinition.js';
 export {
   AttributeTemplate,
@@ -51,6 +52,7 @@ import { CategoryRegulatoryList } from './CategoryRegulatoryList.js';
 import { CategoryRegulation } from './CategoryRegulation.js';
 import { TenantCategory } from './TenantCategory.js';
 import { TenantCategoryRegulatoryList } from './TenantCategoryRegulatoryList.js';
+import { TenantRequirementExemption } from './TenantRequirementExemption.js';
 import { UnitDefinition } from './UnitDefinition.js';
 import { AttributeTemplate } from './AttributeTemplate.js';
 import { Product } from './Product.js';
@@ -95,6 +97,7 @@ export const tenantOnlyEntities = [
   CategoryAdoption,
   TenantCategory,
   TenantCategoryRegulatoryList,
+  TenantRequirementExemption,
   AttributeTemplate,
   Product,
   ProductVersion,
