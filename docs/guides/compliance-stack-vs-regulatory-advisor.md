@@ -1,732 +1,568 @@
-# Compliance Stack vs. Regulatory Advisor
+# Compliance Architecture: How It All Fits Together
 
-> Understanding the layered compliance architecture in EuroComply
+> Understanding how Category, Regulation, Requirement, and Evaluation work together
 
-**Last Updated:** 2026-01-27
+**Last Updated:** 2026-01-28
 
 ---
 
 ## Executive Summary
 
-EuroComply's compliance system has two distinct layers:
+EuroComply's compliance system has a layered architecture:
 
-| Layer | Component | Purpose | Status |
-|-------|-----------|---------|--------|
-| **Data Layer** | Compliance Stack | "What regulations apply to this category?" | ✅ Implemented |
-| **Evaluation Layer** | Regulatory Advisor | "Is this product compliant?" | 📋 Designed |
+| Layer | Purpose | Status |
+|-------|---------|--------|
+| **Category Configuration** | "What data to collect + what regulations apply" | Partially Implemented |
+| **Compliance Stack** | "Resolve effective requirements for a tenant" | Needs Revision |
+| **Regulatory Advisor** | "Evaluate product and record evidence" | Designed, Not Built |
 
-The **Compliance Stack** (built) determines which regulatory lists apply to a product category. The **Regulatory Advisor** (planned) uses that information to evaluate actual products and produce compliance findings.
-
----
-
-## Part 1: Compliance Stack (Implemented)
-
-### 1.1 What It Does
-
-The Compliance Stack resolves which regulatory lists apply to a tenant's category, using a 3-layer inheritance model:
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    COMPLIANCE STACK RESOLUTION                               │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  Layer 1: SYSTEM BASELINE (public schema)                                   │
-│  ─────────────────────────────────────────                                   │
-│  CategoryRegulatoryList links system categories to regulatory lists         │
-│  Example: "cosmetics" category → COSING_ANNEX_II, REACH_SVHC               │
-│                                                                              │
-│  Layer 2: TENANT ADDITIONS (tenant schema)                                  │
-│  ─────────────────────────────────────────                                   │
-│  TenantCategoryRegulatoryList with source=TENANT_ADDED                      │
-│  Example: Tenant adds stricter internal standard beyond EU requirements     │
-│                                                                              │
-│  Layer 3: TENANT EXEMPTIONS (tenant schema)                                 │
-│  ─────────────────────────────────────────                                   │
-│  TenantCategoryRegulatoryList with isExempted=true                          │
-│  Example: Tenant exempts REACH for products sold outside EU                 │
-│                                                                              │
-│  OUTPUT: EffectiveRegulation[]                                              │
-│  ─────────────────────────────────                                           │
-│  [                                                                           │
-│    { listId, code: "COSING_ANNEX_II", source: "SYSTEM", status: "ACTIVE" },│
-│    { listId, code: "REACH_SVHC", source: "SYSTEM", status: "EXEMPTED" },   │
-│    { listId, code: "INTERNAL_STD", source: "TENANT", status: "ACTIVE" },   │
-│  ]                                                                           │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-### 1.2 Key Components
-
-#### Entities (Database)
-
-| Entity | Schema | Purpose |
-|--------|--------|---------|
-| `Category` | public | System taxonomy (managed by platform) |
-| `RegulatoryList` | public | Regulation metadata (REACH, COSING, RoHS) |
-| `RegulatoryListEntry` | public | Individual restricted substances with thresholds |
-| `CategoryRegulatoryList` | public | Links system categories to regulatory lists |
-| `TenantCategory` | tenant | Tenant's category (can adopt from system or custom) |
-| `CategoryAdoption` | tenant | Links tenant to system category (LIVE/FROZEN/DETACHED) |
-| `TenantCategoryRegulatoryList` | tenant | Tenant additions and exemptions |
-
-#### Service
-
-```typescript
-// packages/database/src/services/ComplianceStackResolver.ts
-
-class ComplianceStackResolver {
-  /**
-   * Resolves effective regulations for a tenant category.
-   *
-   * @param tenantCategoryId - The tenant category to resolve
-   * @param options - Optional: pinnedRegulatoryListIds for FROZEN mode
-   * @returns ComplianceStackResult with all effective regulations
-   */
-  async resolve(
-    tenantCategoryId: string,
-    options?: ResolveOptions
-  ): Promise<ComplianceStackResult>;
-}
-
-interface ComplianceStackResult {
-  tenantCategoryId: string;
-  tenantCategoryPath: string;
-  systemCategoryId?: string;
-  linkMode?: string;  // LIVE | FROZEN | DETACHED
-  effectiveRegulations: EffectiveRegulation[];
-}
-
-interface EffectiveRegulation {
-  regulatoryListId: string;
-  regulatoryListCode: string;
-  source: 'SYSTEM' | 'TENANT';
-  requirement: 'MANDATORY' | 'RECOMMENDED' | 'INFORMATIONAL';
-  status: 'ACTIVE' | 'EXEMPTED';
-  allowExemption: boolean;
-  exemption?: {
-    reason: string;
-    legalRef?: string;
-    exemptedBy: string;
-    exemptedAt: Date;
-  };
-  overrideThreshold?: string;
-}
-```
-
-#### API Endpoints
-
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| GET | `/tenant-categories/:id/regulatory-lists` | Get compliance stack for category |
-| POST | `/tenant-categories/:id/regulatory-lists` | Add tenant-specific regulation |
-| POST | `/tenant-categories/:id/regulatory-lists/:listId/exempt` | Create exemption |
-| DELETE | `/tenant-categories/:id/regulatory-lists/:listId/exempt` | Remove exemption |
-| DELETE | `/tenant-categories/:id/regulatory-lists/:listId` | Remove tenant-added regulation |
-
-### 1.3 What It Does NOT Do
-
-The Compliance Stack is purely about **metadata resolution**. It does NOT:
-
-- ❌ Evaluate actual products
-- ❌ Check substance concentrations against thresholds
-- ❌ Produce compliance findings (PASS/FAIL/WARNING)
-- ❌ Enforce soft gates or require acknowledgments
-- ❌ Create audit trails for product compliance decisions
-- ❌ Generate compliance reports or DPP snapshots
-
-These are the responsibility of the **Regulatory Advisor** (see Part 2).
-
-### 1.4 Link Modes Explained
-
-When a tenant adopts a system category, they choose a link mode:
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    CATEGORY ADOPTION LINK MODES                              │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  LIVE (Default)                                                             │
-│  ───────────────                                                             │
-│  • Always uses current version of regulatory lists                          │
-│  • Automatic updates when platform updates regulations                      │
-│  • Best for: Most tenants who want latest compliance rules                  │
-│                                                                              │
-│  FROZEN                                                                      │
-│  ────────                                                                    │
-│  • Locks to specific regulatory list versions (pinnedRegulatoryListIds)    │
-│  • No automatic updates - tenant controls when to update                    │
-│  • Best for: Products mid-certification, legal audits, stability needs     │
-│                                                                              │
-│  DETACHED                                                                    │
-│  ─────────                                                                   │
-│  • No longer linked to system category                                      │
-│  • Tenant manages all regulatory lists manually                             │
-│  • One-way operation (cannot re-attach)                                     │
-│  • Best for: Highly customized compliance requirements                      │
-│                                                                              │
-│  State Transitions:                                                          │
-│  LIVE ──"freeze"──> FROZEN ──"detach"──> DETACHED                          │
-│    ↑                   │                                                     │
-│    └───"unfreeze"──────┘                                                     │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+**Key Insight from Design Review:** The system uses a **hybrid evaluation model**:
+- **Auto-check** where we have structured data
+- **Declaration/attestation** where we don't
+- **Evidence collection** for everything
 
 ---
 
-## Part 2: Regulatory Advisor (Designed, Not Implemented)
+## Part 1: The Complete Architecture
 
-### 2.1 What It Will Do
-
-The Regulatory Advisor is the **evaluation engine** that checks actual products against compliance rules:
+### 1.1 Overview Diagram
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                    REGULATORY ADVISOR OVERVIEW                               │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  INPUT:                                                                      │
-│  ──────                                                                      │
-│  • Product (with category, materials, substances)                           │
-│  • ReadinessProfile (collection of rules to evaluate)                       │
-│                                                                              │
-│  PROCESS:                                                                    │
-│  ────────                                                                    │
-│  1. Get product's TenantCategory                                            │
-│  2. Resolve applicable regulatory lists (ComplianceStackResolver)           │
-│  3. For each RuleTemplate in ReadinessProfile:                              │
-│     a. Evaluate rule against product data                                   │
-│     b. Check substances against RegulatoryListEntry thresholds              │
-│     c. Generate finding with severity and traceability                      │
-│  4. Apply enforcement mode (ENFORCING vs SILENT)                            │
-│                                                                              │
-│  OUTPUT:                                                                     │
-│  ───────                                                                     │
-│  • Findings[] with severity (BLOCKER, WARNING, INFO)                        │
-│  • Soft gate status (requires acknowledgment?)                              │
-│  • Compliance snapshot for DPP sealing                                      │
-│                                                                              │
+│                           CATEGORY CONFIGURATION                            │
+│                                                                             │
+│  Category "Textiles > Apparel"                                              │
+│      │                                                                      │
+│      ├── AttributeTemplate[]        "What data to collect"                  │
+│      │   • recycled_content_pct     (NUMBER, required)                      │
+│      │   • durability_score         (NUMBER, required)                      │
+│      │   • fiber_composition        (TEXT, required)                        │
+│      │                                                                      │
+│      └── Regulation[]               "What regulations apply"                │
+│          • ESPR                                                             │
+│          • REACH                                                            │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         REGULATION STRUCTURE                                │
+│                                                                             │
+│  Regulation "ESPR"                                                          │
+│      │                                                                      │
+│      ├── status: ACTIVE             (DRAFT | ACTIVE | ARCHIVED)             │
+│      │                                                                      │
+│      └── Requirement[]              "What must be proven"                   │
+│          │                                                                  │
+│          ├── ATTRIBUTE_CHECK        "recycled_content_pct >= 25%"           │
+│          │   └── references: AttributeTemplate                              │
+│          │                                                                  │
+│          ├── SUBSTANCE_SCREEN       "No SVHC above 0.1%"                    │
+│          │   └── references: SubstanceList (REACH SVHC)                     │
+│          │                                                                  │
+│          ├── CALCULATED_CHECK       "Total recycled content from BOM"       │
+│          │   └── formula: sum(material.recycled_pct * material.weight_pct)  │
+│          │                                                                  │
+│          └── DECLARATION            "Confirm durability testing done"       │
+│              └── evidence: Upload test report                               │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              PRODUCT DATA                                   │
+│                                                                             │
+│  Product                                                                    │
+│      │                                                                      │
+│      ├── Attributes (from templates)                                        │
+│      │   • recycled_content_pct: 30                                         │
+│      │   • durability_score: 4                                              │
+│      │                                                                      │
+│      └── BOM (Bill of Materials)                                            │
+│          ├── Material: "Recycled Polyester" 60%                             │
+│          │   └── Substances: [PET] ← Known in our database                  │
+│          ├── Material: "Elastane" 35%                                       │
+│          │   └── Substances: [Polyurethane] ← Known                         │
+│          └── Material: "Blue Dye #7" 5%                                     │
+│              └── Substances: [?] ← Unknown, needs SDS upload                │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    COMPLIANCE EVALUATION (Hybrid Model)                     │
+│                                                                             │
+│  Requirement Type         Data Source              Evaluation               │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│                                                                             │
+│  ATTRIBUTE_CHECK          Direct attribute         Auto-check value         │
+│  "recycled >= 25%"        → 30%                    → 30 >= 25 ✓ PASS       │
+│                                                                             │
+│  CALCULATED_CHECK         Derived from BOM         Auto-calculate + check   │
+│  "total recycled %"       → sum(materials)         → 36% ✓ PASS            │
+│                                                                             │
+│  SUBSTANCE_SCREEN         BOM substances           Match against registers  │
+│  "no SVHC > 0.1%"         → [PET, Polyurethane]    → Not on list ✓ PASS    │
+│                                                                             │
+│  SUBSTANCE_SCREEN         Unknown substance        Request evidence         │
+│  (same requirement)       → "Blue Dye #7"          → "Upload SDS"          │
+│                                                                             │
+│  DECLARATION              User attestation         Record + evidence        │
+│  "durability tested"      → User clicks "Yes"      → Store with evidence    │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           DPP (AUDIT TRAIL)                                 │
+│                                                                             │
+│  Record everything:                                                         │
+│  • Auto-check results (PASS/FAIL + values checked)                          │
+│  • Substance screening results (matched/not found)                          │
+│  • User declarations (attestations + justifications)                        │
+│  • Uploaded evidence (SDS, certificates, test reports)                      │
+│  • Timestamps + who did what                                                │
+│                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 2.2 Core Concepts
+### 1.2 Key Design Principles
 
-#### Rule Templates
+| Principle | Explanation |
+|-----------|-------------|
+| **Regulation owns Requirements** | SubstanceLists are accessed via Regulation, not directly from Category. This ensures every compliance check has legal context. |
+| **Hybrid Evaluation** | Auto-check where data exists, guide user to declare/upload where it doesn't. |
+| **Category defines data shape** | AttributeTemplates on Category tell users what data to provide. |
+| **Evidence for everything** | Even auto-checks record what was checked. Declarations require justification/uploads. |
+| **Tenant override layer** | Tenants can add requirements, exempt from others (with audit trail). |
 
-Configurable compliance rules with validation logic:
+---
 
-```typescript
-interface RuleTemplate {
-  code: string;                    // "COSING_ANNEX_II_CHECK"
-  name: string;                    // "CosIng Prohibited Substances"
-  scope: 'SYSTEM' | 'MARKETPLACE' | 'ORGANIZATION';
-  type: 'SUBSTANCE' | 'ATTRIBUTE' | 'PROCESS' | 'DOCUMENTATION';
-  severity: 'BLOCKER' | 'WARNING' | 'INFO';
+## Part 2: The Compliance Stack (Tenant Resolution Layer)
 
-  // Config-driven validation (preferred)
-  validationLogic: {
-    type: 'regulatory_list_check';
-    config: {
-      listCodes: string[] | null;  // null = inherit from category
-      checkType: 'PROHIBITED' | 'THRESHOLD' | 'RESTRICTED_WITH_CONDITIONS';
-      scope: 'ARTICLE' | 'HOMOGENEOUS_MATERIAL';
-      thresholdOverridePct?: string;
-    };
-  };
+### 2.1 Purpose
 
-  // Legal anchoring
-  regulationDocument?: RegulationDocument;
-  anchorCoordinates?: { page: number; x: number; y: number; };
-}
+The Compliance Stack resolves **which requirements effectively apply** to a tenant's category, considering:
+- System baseline (what platform says applies)
+- Tenant additions (extra requirements tenant adds)
+- Tenant exemptions (requirements tenant is exempt from)
+
+### 2.2 Current Implementation (Needs Revision)
+
+**What we built:**
+```
+Category → CategoryRegulatoryList → RegulatoryList (SubstanceList)
 ```
 
-#### Readiness Profiles
+**Problem:** This maps Category directly to SubstanceList, bypassing the Regulation entity. This creates "double mapping" - Category maps to both Regulations and SubstanceLists.
 
-Collections of rules for specific compliance targets:
+### 2.3 Revised Design
 
-```typescript
-interface ReadinessProfile {
-  code: string;                    // "EU_MARKET_COSMETICS_2025"
-  name: string;                    // "EU Market Entry - Cosmetics"
-  description: string;
-  targetMarket?: string;           // "EU", "US", "GLOBAL"
-  targetRegulations: string[];     // ["REACH", "COSING", "CLP"]
-  rules: ReadinessProfileRule[];   // Rules with optional overrides
-}
+**Category should map to Regulation, not directly to SubstanceList:**
 
-interface ReadinessProfileRule {
-  rule: RuleTemplate;
-  overrideMode?: 'ENFORCING' | 'SILENT' | 'DISABLED';
-  severityOverride?: 'BLOCKER' | 'WARNING' | 'INFO';
-}
+```
+Category → CategoryRegulation → Regulation
+                                    │
+                                    └── Requirement[]
+                                            │
+                                            ├── SUBSTANCE_SCREEN → SubstanceList
+                                            ├── ATTRIBUTE_CHECK → AttributeTemplate
+                                            └── DECLARATION → (evidence spec)
 ```
 
-#### Findings
+**Why this is better:**
+- SubstanceList always has legal context (which Regulation requires it)
+- Single mapping path (DRY principle)
+- Easier to understand: "REACH applies to this category" vs "This category must check against SVHC list"
 
-Results of rule evaluation:
-
-```typescript
-interface Finding {
-  rule: RuleTemplate;
-  severity: 'BLOCKER' | 'WARNING' | 'INFO';
-  status: 'PASS' | 'FAIL' | 'ACKNOWLEDGED';
-
-  // For substance findings
-  substance?: {
-    casNumber: string;
-    name: string;
-    concentration: string;         // "0.05%"
-    threshold: string;             // "0.1%"
-    regulatoryList: string;        // "COSING_ANNEX_II"
-    entryReference: string;        // "Entry 1577"
-  };
-
-  // Traceability
-  traceability?: {
-    materialName: string;          // "Preservative Blend"
-    materialPercentage: string;    // "2%"
-    substanceInMaterial: string;   // "2.5%"
-  };
-
-  // If acknowledged (deviation)
-  deviation?: {
-    reasonCode: string;
-    narrative: string;
-    acknowledgedBy: string;
-    acknowledgedAt: Date;
-  };
-}
-```
-
-#### Enforcement Modes
+### 2.4 Three-Layer Resolution (Revised)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                    ENFORCEMENT MODE BEHAVIOR                                 │
+│                    COMPLIANCE STACK RESOLUTION (Revised)                    │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  SILENT (Default for new orgs)                                              │
-│  ─────────────────────────────                                               │
-│  • Rules evaluate, findings shown as "Advisory"                             │
-│  • No blocking dialogs                                                      │
-│  • User can proceed without acknowledgment                                  │
-│  • Compliance data optionally captured in DPP                               │
-│                                                                              │
-│  ENFORCING                                                                   │
-│  ──────────                                                                  │
-│  • Full soft gate experience                                                │
-│  • BLOCKER findings require acknowledgment + reason code                    │
-│  • Cannot proceed until all blockers acknowledged                           │
-│  • Full audit trail in DPP                                                  │
-│                                                                              │
-│  Per-Rule Override                                                           │
-│  ─────────────────                                                           │
-│  Individual rules can be set to ENFORCING, SILENT, or DISABLED             │
-│  regardless of organization default.                                        │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-### 2.3 PreFlight Evaluation Flow
-
-The core evaluation process:
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    PREFLIGHT EVALUATION FLOW                                 │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  STEP 1: Gather Context                                                     │
-│  ──────────────────────                                                      │
-│  • Load Product with category, materials, substances                        │
-│  • Load ReadinessProfile assigned to product                                │
-│  • Check Organization.enforcementMode                                       │
-│                                                                              │
-│  STEP 2: Resolve Applicable Regulations                                     │
-│  ──────────────────────────────────────                                      │
-│  • Call ComplianceStackResolver.resolve(product.categoryId)                 │
-│  • Get EffectiveRegulation[] (which lists apply, exemptions, etc.)         │
-│                                                                              │
-│  STEP 3: Roll Up Substances                                                 │
-│  ─────────────────────────                                                   │
-│  • For each material in product:                                            │
-│    - Get declared substances with concentrations                            │
-│    - Calculate rolled-up concentration in final product                     │
-│    - Example: Material is 2% of product, substance is 2.5% of material     │
-│               → Substance is 0.05% of final product                        │
-│                                                                              │
-│  STEP 4: Evaluate Rules                                                     │
-│  ──────────────────────                                                      │
-│  For each RuleTemplate in ReadinessProfile:                                 │
-│    a. Skip if rule.overrideMode = DISABLED                                  │
-│    b. If rule.validationLogic.type = 'regulatory_list_check':              │
-│       - Get applicable lists from Step 2 (or explicit listCodes)           │
-│       - Query RegulatoryListEntry for restricted substances                 │
-│       - Cross-reference with rolled-up substances from Step 3              │
-│       - Generate findings for any violations                                │
-│    c. If rule.validationLogic.type = 'attribute_check':                    │
-│       - Evaluate attribute against rule criteria                            │
-│       - Generate finding if criteria not met                                │
-│                                                                              │
-│  STEP 5: Apply Enforcement                                                  │
-│  ─────────────────────────                                                   │
-│  • Determine effective mode (org default vs rule override)                  │
-│  • If ENFORCING + BLOCKER findings:                                         │
-│    - Return soft gate requiring acknowledgment                              │
-│  • If SILENT:                                                               │
-│    - Return findings as advisory only                                       │
-│                                                                              │
-│  STEP 6: Return Results                                                     │
-│  ──────────────────────                                                      │
-│  {                                                                           │
-│    findings: Finding[],                                                     │
-│    requiresAcknowledgment: boolean,                                         │
-│    blockerCount: number,                                                    │
-│    warningCount: number,                                                    │
-│    complianceSnapshot: {...}  // For DPP sealing                           │
-│  }                                                                           │
-│                                                                              │
+│                                                                             │
+│  Layer 1: SYSTEM BASELINE                                                   │
+│  ────────────────────────                                                   │
+│  CategoryRegulation links system categories to regulations                  │
+│  Example: "cosmetics" category → REACH, CosIng, ESPR                        │
+│  Each Regulation brings its Requirements (substance screens, attr checks)   │
+│                                                                             │
+│  Layer 2: TENANT ADDITIONS                                                  │
+│  ─────────────────────────                                                  │
+│  TenantCategoryRegulation with source=TENANT_ADDED                          │
+│  Example: Tenant adds "California Prop 65" regulation for US sales          │
+│                                                                             │
+│  Layer 3: TENANT EXEMPTIONS                                                 │
+│  ─────────────────────────                                                  │
+│  TenantCategoryRequirementExemption for specific requirements               │
+│  Example: Tenant exempts "REACH SVHC screen" for products sold outside EU   │
+│  (Exemption recorded with reason, legal ref, who approved)                  │
+│                                                                             │
+│  OUTPUT: EffectiveRequirement[]                                             │
+│  ──────────────────────────────                                             │
+│  [                                                                          │
+│    { requirement: "SVHC_SCREEN", regulation: "REACH", status: "ACTIVE" },   │
+│    { requirement: "ANNEX_II_CHECK", regulation: "CosIng", status: "ACTIVE"},│
+│    { requirement: "RECYCLED_MIN", regulation: "ESPR", status: "EXEMPTED" }, │
+│  ]                                                                          │
+│                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Part 3: How They Fit Together
+## Part 3: The Regulatory Advisor (Evaluation Engine)
 
-### 3.1 Architecture Diagram
+### 3.1 Purpose
+
+The Regulatory Advisor **evaluates products** against their effective requirements and **records evidence**.
+
+**It is NOT being scrapped.** The core concept is valid. What changed is:
+- Clearer understanding of the data model feeding into it
+- Hybrid evaluation approach (auto-check + declaration)
+- Integration with BOM for substance data
+
+### 3.2 Requirement Types
+
+| Type | What It Checks | Data Source | Evaluation Method |
+|------|----------------|-------------|-------------------|
+| `ATTRIBUTE_CHECK` | Product attribute meets threshold | Product.attributes | Auto-compare value |
+| `CALCULATED_CHECK` | Derived value meets threshold | BOM rollup calculation | Auto-calculate + compare |
+| `SUBSTANCE_SCREEN` | No restricted substances above limit | BOM substances | Match against register |
+| `DECLARATION` | User attests something is true | User input | Record attestation + evidence |
+
+### 3.3 Hybrid Evaluation Flow
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                         COMPLIANCE ARCHITECTURE                              │
+│                         HYBRID EVALUATION FLOW                              │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
+│                                                                             │
+│  For each Requirement:                                                      │
+│                                                                             │
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │                    REGULATORY ADVISOR (Evaluation Layer)             │   │
-│  │                         [NOT YET IMPLEMENTED]                        │   │
+│  │ ATTRIBUTE_CHECK                                                      │   │
 │  ├─────────────────────────────────────────────────────────────────────┤   │
-│  │                                                                      │   │
-│  │   PreFlightService                                                   │   │
-│  │   ├── RuleEvaluator                                                 │   │
-│  │   │   ├── SubstanceRuleEvaluator                                   │   │
-│  │   │   ├── AttributeRuleEvaluator                                   │   │
-│  │   │   └── ProcessRuleEvaluator                                     │   │
-│  │   ├── SubstanceRollupService                                        │   │
-│  │   ├── FindingGenerator                                              │   │
-│  │   └── SoftGateManager                                               │   │
-│  │                                                                      │   │
-│  │   Entities: RuleTemplate, ReadinessProfile, ReasonCode, Finding     │   │
-│  │                                                                      │   │
-│  └────────────────────────────┬────────────────────────────────────────┘   │
-│                               │                                             │
-│                               │ uses                                        │
-│                               ▼                                             │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │                    COMPLIANCE STACK (Data Layer)                     │   │
-│  │                         [IMPLEMENTED ✅]                             │   │
-│  ├─────────────────────────────────────────────────────────────────────┤   │
-│  │                                                                      │   │
-│  │   ComplianceStackResolver                                           │   │
-│  │   └── resolve(tenantCategoryId) → EffectiveRegulation[]            │   │
-│  │                                                                      │   │
-│  │   Entities:                                                          │   │
-│  │   ├── Category (public)                                             │   │
-│  │   ├── RegulatoryList (public)                                       │   │
-│  │   ├── RegulatoryListEntry (public)                                  │   │
-│  │   ├── CategoryRegulatoryList (public)                               │   │
-│  │   ├── TenantCategory (tenant)                                       │   │
-│  │   ├── CategoryAdoption (tenant)                                     │   │
-│  │   └── TenantCategoryRegulatoryList (tenant)                         │   │
-│  │                                                                      │   │
+│  │ IF attribute value exists:                                          │   │
+│  │   → Auto-evaluate against rule                                      │   │
+│  │   → Record: { result: PASS/FAIL, value: 30, threshold: 25 }        │   │
+│  │ IF attribute missing:                                               │   │
+│  │   → Prompt: "Please provide recycled_content_pct"                   │   │
+│  │   → Or mark as INCOMPLETE                                           │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
-│                                                                              │
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │ SUBSTANCE_SCREEN                                                     │   │
+│  ├─────────────────────────────────────────────────────────────────────┤   │
+│  │ FOR each substance in BOM:                                          │   │
+│  │   IF substance in our register:                                     │   │
+│  │     → Check if on restricted list                                   │   │
+│  │     → Auto-evaluate concentration vs threshold                      │   │
+│  │     → Record: { result: PASS/FAIL, cas: "...", conc: 0.05% }       │   │
+│  │   IF substance NOT in register:                                     │   │
+│  │     → Flag for user: "Unknown substance: Blue Dye #7"              │   │
+│  │     → Request: "Upload SDS to verify not restricted"               │   │
+│  │     → Or: "Declare this is not on [SVHC list]"                     │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │ DECLARATION                                                          │   │
+│  ├─────────────────────────────────────────────────────────────────────┤   │
+│  │ Present question to user:                                           │   │
+│  │   "Has durability testing been completed per ESPR Annex I?"        │   │
+│  │   [ ] Yes  [ ] No  [ ] Not Applicable                              │   │
+│  │   [Upload test report]                                              │   │
+│  │                                                                      │   │
+│  │ Record: { answer: "Yes", evidence: "report.pdf", by: "user@...",   │   │
+│  │           at: "2026-01-28T..." }                                    │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 3.2 Data Flow Example
+### 3.4 BOM Integration
 
-Let's trace a complete compliance check for a cosmetic product:
+The BOM (Bill of Materials) is the source of substance data:
+
+```
+Product
+└── BOM
+    ├── Material: "Recycled Polyester" (60% of product)
+    │   ├── recycled: true
+    │   └── Substances:
+    │       └── PET (100% of material)
+    │
+    ├── Material: "Elastane" (35% of product)
+    │   ├── recycled: false
+    │   └── Substances:
+    │       └── Polyurethane (100% of material)
+    │
+    └── Material: "Blue Dye #7" (5% of product)
+        ├── recycled: false
+        └── Substances:
+            └── ??? (unknown - needs SDS)
+```
+
+**Substance rollup calculation:**
+```
+For each substance in BOM:
+  concentration_in_product = material_pct × substance_pct_in_material
+
+Example:
+  PET in product = 60% × 100% = 60%
+  Polyurethane in product = 35% × 100% = 35%
+```
+
+**Calculated attribute example (total recycled content):**
+```
+recycled_content = sum(material.weight_pct for material where material.recycled)
+                 = 60% (only Recycled Polyester is recycled)
+```
+
+---
+
+## Part 4: Regulation Lifecycle
+
+### 4.1 Status Values
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  EXAMPLE: Checking "Hydrating Day Cream" for EU Market Compliance           │
+│                        REGULATION LIFECYCLE                                 │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  PRODUCT DATA:                                                              │
-│  ─────────────                                                               │
-│  Name: Hydrating Day Cream                                                  │
-│  Category: products.cosmetics.skincare (TenantCategory)                     │
-│  Materials:                                                                 │
-│    - Preservative Blend (2% of product)                                    │
-│      └── Formaldehyde (CAS: 50-00-0) - 2.5% of material                   │
-│      └── Ethanol (CAS: 64-17-5) - 97.5% of material                       │
-│  ReadinessProfile: "EU Market Entry - Cosmetics"                           │
-│                                                                              │
-│  STEP 1: ComplianceStackResolver.resolve("products.cosmetics.skincare")    │
+│                                                                             │
+│  DRAFT ──────────▶ ACTIVE ──────────▶ ARCHIVED                              │
+│                                                                             │
+│  • Being prepared   • Can be mapped      • No new mappings                  │
+│  • Not visible to     to categories      • Existing mappings preserved      │
+│    tenants          • Full evaluation    • Historical compliance intact     │
+│  • Platform admin   • Requirements       • Optionally points to successor   │
+│    only               enforced                                              │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 4.2 Mapping Rules
+
+| Action | DRAFT | ACTIVE | ARCHIVED |
+|--------|-------|--------|----------|
+| Create new Category → Regulation mapping | No | Yes | No |
+| Existing mappings continue to work | - | Yes | Yes |
+| Evaluate compliance | No | Yes | Yes (historical) |
+| Show in "available regulations" list | No | Yes | No |
+
+### 4.3 Succession
+
+When a regulation is archived (repealed/replaced):
+
+```typescript
+@Entity()
+class Regulation {
+  @Enum(() => RegulationStatus)
+  status: RegulationStatus;
+
+  // When archived, optionally point to replacement
+  @ManyToOne(() => Regulation, { nullable: true })
+  supersededBy?: Regulation;
+
+  @Property({ nullable: true })
+  archivedAt?: Date;
+
+  @Property({ nullable: true })
+  archiveReason?: string; // "Repealed", "Replaced by ESPR v2", etc.
+}
+```
+
+---
+
+## Part 5: Consistency Checks
+
+### 5.1 Input Dependency Check
+
+When a Regulation is mapped to a Category, the system should verify:
+
+```
+Regulation "ESPR" requires:
+  - AttributeTemplate "recycled_content_pct"
+  - AttributeTemplate "durability_score"
+
+Category "Apparel" has:
+  - AttributeTemplate "recycled_content_pct" ✓
+  - AttributeTemplate "durability_score" ✗ MISSING
+
+Alert: "Category 'Apparel' is missing required AttributeTemplate: durability_score"
+Action: Auto-add template OR block mapping until resolved
+```
+
+### 5.2 Implementation
+
+```typescript
+async function validateRegulationMapping(
+  categoryId: string,
+  regulationId: string
+): Promise<ValidationResult> {
+  const category = await getCategory(categoryId);
+  const regulation = await getRegulation(regulationId);
+
+  const missingAttributes: string[] = [];
+
+  for (const requirement of regulation.requirements) {
+    if (requirement.type === 'ATTRIBUTE_CHECK') {
+      const hasAttribute = category.attributeTemplates.some(
+        t => t.key === requirement.attributeTemplateKey
+      );
+      if (!hasAttribute) {
+        missingAttributes.push(requirement.attributeTemplateKey);
+      }
+    }
+  }
+
+  return {
+    valid: missingAttributes.length === 0,
+    missingAttributes,
+    suggestion: missingAttributes.length > 0
+      ? `Add these AttributeTemplates to Category: ${missingAttributes.join(', ')}`
+      : null
+  };
+}
+```
+
+---
+
+## Part 6: What Changes Are Needed
+
+### 6.1 Does RegulatoryAdvisor Need Rewriting?
+
+**No, but it needs updating:**
+
+| Aspect | Keep | Update |
+|--------|------|--------|
+| Core concept (evaluation engine) | ✓ | |
+| PreFlight evaluation flow | ✓ | |
+| Finding generation | ✓ | |
+| Soft gates / enforcement modes | ✓ | |
+| RuleTemplate entity | | Rename to Requirement, add types |
+| Data model | | Regulation entity, unified Requirements |
+| Evaluation logic | | Add hybrid (auto + declaration) |
+| BOM integration | | Add substance rollup from BOM |
+
+### 6.2 What We Built That Needs Revision
+
+| Current | Change To |
+|---------|-----------|
+| `CategoryRegulatoryList` (Category → SubstanceList) | `CategoryRegulation` (Category → Regulation) |
+| `TenantCategoryRegulatoryList` | `TenantCategoryRegulation` + `TenantRequirementExemption` |
+| `ComplianceStackResolver` returns `EffectiveRegulation[]` (lists) | Returns `EffectiveRequirement[]` |
+
+### 6.3 Summary of Changes
+
+```
+CURRENT:
+Category ──→ CategoryRegulatoryList ──→ RegulatoryList (SubstanceList)
+                                              ↑
+                                        (no legal context)
+
+REVISED:
+Category ──→ CategoryRegulation ──→ Regulation
+                                        │
+                                        └──→ Requirement[]
+                                                  │
+                                                  ├── SUBSTANCE_SCREEN → SubstanceList
+                                                  ├── ATTRIBUTE_CHECK → AttributeTemplate
+                                                  └── DECLARATION → (evidence spec)
+```
+
+---
+
+## Part 7: Entity Model Summary
+
+### 7.1 Revised Entity Relationships
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         ENTITY RELATIONSHIPS                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  PUBLIC SCHEMA (Platform-managed)                                           │
+│  ────────────────────────────────                                           │
+│                                                                             │
+│  Category                                                                   │
+│    ├── AttributeTemplate[] (1:N) - what data to collect                     │
+│    └── CategoryRegulation[] (M:N via junction) - what regulations apply     │
+│                                                                             │
+│  Regulation                                                                 │
+│    ├── status: DRAFT | ACTIVE | ARCHIVED                                    │
+│    ├── supersededBy?: Regulation                                            │
+│    └── Requirement[] (1:N) - what must be proven                            │
+│                                                                             │
+│  Requirement                                                                │
+│    ├── type: ATTRIBUTE_CHECK | SUBSTANCE_SCREEN | CALCULATED_CHECK |        │
+│    │         DECLARATION                                                    │
+│    ├── attributeTemplate?: AttributeTemplate (for ATTRIBUTE_CHECK)          │
+│    ├── substanceList?: SubstanceList (for SUBSTANCE_SCREEN)                 │
+│    ├── calculationFormula?: string (for CALCULATED_CHECK)                   │
+│    ├── validationRule: { operator, threshold, ... }                         │
+│    └── severity: BLOCKER | WARNING | INFO                                   │
+│                                                                             │
+│  SubstanceList (was RegulatoryList)                                         │
+│    └── SubstanceListEntry[] (1:N) - individual substances with thresholds   │
+│                                                                             │
 │  ───────────────────────────────────────────────────────────────────────    │
-│  Result:                                                                    │
-│    effectiveRegulations: [                                                  │
-│      { code: "COSING_ANNEX_II", source: "SYSTEM", status: "ACTIVE" },     │
-│      { code: "COSING_ANNEX_III", source: "SYSTEM", status: "ACTIVE" },    │
-│      { code: "REACH_SVHC", source: "SYSTEM", status: "ACTIVE" },          │
-│    ]                                                                        │
-│                                                                              │
-│  STEP 2: SubstanceRollupService.rollup(product)                            │
-│  ───────────────────────────────────────────────                            │
-│  Result:                                                                    │
-│    rolledUpSubstances: [                                                   │
-│      { cas: "50-00-0", name: "Formaldehyde", concentration: 0.0005 },     │
-│      { cas: "64-17-5", name: "Ethanol", concentration: 0.0195 },          │
-│    ]                                                                        │
-│  (Formaldehyde: 2% × 2.5% = 0.05% = 0.0005)                               │
-│                                                                              │
-│  STEP 3: RuleEvaluator evaluates "COSING_ANNEX_II_CHECK" rule              │
-│  ─────────────────────────────────────────────────────────────              │
-│  Query: SELECT * FROM regulatory_list_entry                                │
-│         WHERE list_code = 'COSING_ANNEX_II'                                │
-│           AND cas_number IN ('50-00-0', '64-17-5')                         │
-│                                                                              │
-│  Found: Entry 1577 - Formaldehyde is PROHIBITED in cosmetics               │
-│                                                                              │
-│  STEP 4: FindingGenerator creates finding                                   │
-│  ─────────────────────────────────────────                                   │
-│  {                                                                           │
-│    rule: "COSING_ANNEX_II_CHECK",                                          │
-│    severity: "BLOCKER",                                                    │
-│    status: "FAIL",                                                         │
-│    message: "Prohibited substance found: Formaldehyde",                    │
-│    substance: {                                                            │
-│      casNumber: "50-00-0",                                                 │
-│      name: "Formaldehyde",                                                 │
-│      concentration: "0.05%",                                               │
-│      regulatoryList: "COSING_ANNEX_II",                                   │
-│      entryReference: "Entry 1577",                                         │
-│    },                                                                       │
-│    traceability: {                                                         │
-│      materialName: "Preservative Blend",                                   │
-│      materialPercentage: "2%",                                             │
-│      substanceInMaterial: "2.5%",                                          │
-│    },                                                                       │
-│  }                                                                           │
-│                                                                              │
-│  STEP 5: SoftGateManager checks enforcement                                 │
-│  ──────────────────────────────────────────                                  │
-│  Organization.enforcementMode = ENFORCING                                   │
-│  → User must acknowledge with reason code before proceeding                │
-│                                                                              │
+│                                                                             │
+│  TENANT SCHEMA (Tenant-specific)                                            │
+│  ───────────────────────────────                                            │
+│                                                                             │
+│  TenantCategory                                                             │
+│    ├── systemCategoryId?: links to public Category                          │
+│    ├── linkMode: LIVE | FROZEN | DETACHED                                   │
+│    └── TenantCategoryRegulation[] - additions beyond system baseline        │
+│                                                                             │
+│  TenantRequirementExemption                                                 │
+│    ├── requirement: Requirement being exempted                              │
+│    ├── reason: string                                                       │
+│    ├── legalRef?: string                                                    │
+│    ├── exemptedBy: string                                                   │
+│    └── exemptedAt: Date                                                     │
+│                                                                             │
+│  ComplianceEvidence                                                         │
+│    ├── product: Product                                                     │
+│    ├── requirement: Requirement                                             │
+│    ├── type: AUTO_CHECK | DECLARATION | DOCUMENT                            │
+│    ├── result: PASS | FAIL | ATTESTED                                       │
+│    ├── details: { value, threshold, ... } or { attestation, ... }          │
+│    ├── documentKey?: string (uploaded file reference)                       │
+│    └── recordedAt: Date                                                     │
+│                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Part 4: Implementation Status
-
-### 4.1 What's Built (Compliance Stack)
-
-| Component | Location | Status |
-|-----------|----------|--------|
-| `Category` entity | `packages/database/src/entities/Category.ts` | ✅ |
-| `TenantCategory` entity | `packages/database/src/entities/TenantCategory.ts` | ✅ |
-| `CategoryAdoption` entity | `packages/database/src/entities/CategoryAdoption.ts` | ✅ |
-| `RegulatoryList` entity | `packages/database/src/entities/RegulatoryList.ts` | ✅ |
-| `RegulatoryListEntry` entity | `packages/database/src/entities/RegulatoryListEntry.ts` | ✅ |
-| `CategoryRegulatoryList` entity | `packages/database/src/entities/CategoryRegulatoryList.ts` | ✅ |
-| `TenantCategoryRegulatoryList` entity | `packages/database/src/entities/TenantCategoryRegulatoryList.ts` | ✅ |
-| `ComplianceStackResolver` service | `packages/database/src/services/ComplianceStackResolver.ts` | ✅ |
-| Tenant regulatory lists API | `apps/api/src/routes/tenant-category-regulatory-lists.ts` | ✅ |
-| Category adoption API | `apps/api/src/routes/category-adoption.ts` | ✅ |
-| FROZEN mode support | `ComplianceStackResolver` + `CategoryAdoption` | ✅ |
-| Exemption workflow | `TenantCategoryRegulatoryList.isExempted` | ✅ |
-| Admin regulatory list API | `apps/api/src/routes/admin/regulatory-lists.ts` | ✅ |
-
-### 4.2 What's Designed But Not Built (Regulatory Advisor)
-
-| Component | Design Doc | Priority |
-|-----------|------------|----------|
-| `RuleTemplate` entity | `docs/plans/13-regulatory-advisor.md` §4.4 | High |
-| `ReadinessProfile` entity | `docs/plans/13-regulatory-advisor.md` §4.3 | High |
-| `ReasonCode` entity | `docs/plans/13-regulatory-advisor.md` §4.6 | High |
-| `RegulationDocument` entity | `docs/plans/13-regulatory-advisor.md` §4.1 | Medium |
-| `RegulationAnchor` entity | `docs/plans/13-regulatory-advisor.md` §4.2 | Medium |
-| `PreFlightService` | `docs/plans/13-regulatory-advisor.md` §7 | High |
-| `SubstanceRollupService` | `docs/plans/2026-01-26-taxonomy-08-substance-rollup.md` | High |
-| `RuleEvaluator` | `docs/plans/13-regulatory-advisor.md` §7 | High |
-| `SoftGateManager` | `docs/plans/13-regulatory-advisor.md` §3 | Medium |
-| Deviation workflow API | `docs/plans/13-regulatory-advisor.md` §8 | Medium |
-| Compliance snapshot for DPP | `docs/plans/13-regulatory-advisor.md` §9 | Medium |
-| Template marketplace | `docs/plans/13-regulatory-advisor.md` §2 | Low |
-
-### 4.3 Database Schema Status
-
-**Public Schema (Implemented):**
-```sql
--- Regulatory data (shared by all tenants)
-regulatory_list (id, code, name, version, ...)
-regulatory_list_entry (id, list_id, cas_number, substance_name, restriction_type, threshold, ...)
-category (id, name, path, ...)
-category_regulatory_list (category_id, regulatory_list_id, requirement, allow_tenant_exemption, ...)
-```
-
-**Tenant Schema (Implemented):**
-```sql
--- Tenant-specific compliance configuration
-tenant_category (id, name, path, system_category_id, link_mode, ...)
-category_adoption (id, system_category_id, local_category_id, mode, pinned_regulatory_list_ids, ...)
-tenant_category_regulatory_list (tenant_category_id, regulatory_list_id, source, is_exempted, exemption_reason, ...)
-```
-
-**Not Yet Implemented:**
-```sql
--- Public schema (Regulatory Advisor)
-rule_template (id, code, name, scope, type, severity, validation_logic, ...)
-reason_code (id, code, name, scope, ...)
-regulation_document (id, name, file_key, ...)
-regulation_anchor (id, document_id, page, coordinates, ...)
-
--- Tenant schema (Regulatory Advisor)
-readiness_profile (id, code, name, ...)
-readiness_profile_rule (profile_id, rule_id, override_mode, ...)
-finding (id, product_version_id, rule_id, severity, status, ...)
-deviation (id, finding_id, reason_code_id, narrative, acknowledged_by, ...)
-```
-
----
-
-## Part 5: Implementation Roadmap
-
-### Phase 1: Substance Rollup (Foundation)
-
-**Goal:** Calculate substance concentrations in final products
-
-```
-Product → Materials → Substances → Rolled-up concentrations
-```
-
-**Key Deliverables:**
-- [ ] `MaterialSubstance` entity (link materials to substances with concentration)
-- [ ] `SubstanceRollupService` with weighted calculation
-- [ ] Unit conversion for concentration (ppm, %, mg/kg)
-- [ ] API: `GET /products/:id/substances` (rolled-up view)
-
-### Phase 2: Rule Evaluation Engine
-
-**Goal:** Evaluate products against configurable rules
-
-**Key Deliverables:**
-- [ ] `RuleTemplate` entity with validation logic schema
-- [ ] `RuleEvaluator` service with pluggable evaluators
-- [ ] `SubstanceRuleEvaluator` (checks against RegulatoryListEntry)
-- [ ] `Finding` entity to store evaluation results
-- [ ] API: `POST /products/:id/preflight` (run evaluation)
-
-### Phase 3: Readiness Profiles
-
-**Goal:** Group rules into compliance targets
-
-**Key Deliverables:**
-- [ ] `ReadinessProfile` entity
-- [ ] `ReadinessProfileRule` junction with overrides
-- [ ] Profile assignment to products
-- [ ] API: CRUD for readiness profiles
-
-### Phase 4: Soft Gates & Deviations
-
-**Goal:** Enforcement mode with acknowledgment workflow
-
-**Key Deliverables:**
-- [ ] `ReasonCode` entity (predefined justifications)
-- [ ] `Deviation` entity (acknowledgment record)
-- [ ] `SoftGateManager` service
-- [ ] API: `POST /findings/:id/acknowledge`
-
-### Phase 5: Compliance Snapshots
-
-**Goal:** Seal compliance state into DPP
-
-**Key Deliverables:**
-- [ ] Snapshot generation at version publish
-- [ ] Immutable storage of findings + deviations
-- [ ] Integration with DPP minting
-
----
-
-## Appendix A: API Reference
-
-### Compliance Stack APIs (Implemented)
-
-```
-# Get compliance stack for a tenant category
-GET /api/tenant-categories/:id/regulatory-lists
-Response: {
-  tenantCategoryId: string,
-  effectiveRegulations: EffectiveRegulation[]
-}
-
-# Add tenant-specific regulation
-POST /api/tenant-categories/:id/regulatory-lists
-Body: { regulatoryListId: string, requirement: string }
-
-# Create exemption
-POST /api/tenant-categories/:id/regulatory-lists/:listId/exempt
-Body: { reason: string, legalRef?: string }
-
-# Remove exemption
-DELETE /api/tenant-categories/:id/regulatory-lists/:listId/exempt
-
-# Remove tenant-added regulation
-DELETE /api/tenant-categories/:id/regulatory-lists/:listId
-```
-
-### Regulatory Advisor APIs (Planned)
-
-```
-# Run PreFlight evaluation
-POST /api/products/:id/preflight
-Response: {
-  findings: Finding[],
-  requiresAcknowledgment: boolean,
-  summary: { blockers: number, warnings: number, info: number }
-}
-
-# Acknowledge deviation
-POST /api/findings/:id/acknowledge
-Body: { reasonCode: string, narrative: string }
-
-# Get readiness profiles
-GET /api/readiness-profiles
-
-# Assign profile to product
-PUT /api/products/:id/readiness-profile
-Body: { profileId: string }
-```
-
----
-
-## Appendix B: Glossary
+## Appendix: Glossary
 
 | Term | Definition |
 |------|------------|
-| **Compliance Stack** | The 3-layer system that resolves which regulations apply to a category |
-| **Regulatory Advisor** | The evaluation engine that checks products against rules |
-| **PreFlight** | The evaluation process run before publishing a product version |
-| **EffectiveRegulation** | A regulatory list that applies to a category after resolution |
-| **RuleTemplate** | A configurable compliance rule with validation logic |
-| **ReadinessProfile** | A collection of rules for a specific compliance target |
-| **Finding** | The result of evaluating a rule against a product |
-| **Deviation** | An acknowledged finding where user proceeds despite violation |
-| **Soft Gate** | A checkpoint that requires acknowledgment but doesn't hard-block |
-| **Link Mode** | How a tenant category relates to system (LIVE/FROZEN/DETACHED) |
+| **Compliance Stack** | The tenant resolution layer that determines effective requirements |
+| **Regulatory Advisor** | The evaluation engine that checks products and records evidence |
+| **Regulation** | A legal framework (ESPR, REACH, CosIng) with status lifecycle |
+| **Requirement** | A specific thing that must be proven for compliance |
+| **AttributeTemplate** | A predefined data field for a category |
+| **SubstanceList** | A list of substances with restrictions (was RegulatoryList) |
+| **BOM** | Bill of Materials - components and substances in a product |
+| **Hybrid Evaluation** | Auto-check where possible, declaration where not |
+| **Evidence** | Proof of compliance (auto-check result, declaration, document) |
+| **Exemption** | Tenant-level exception from a requirement (with audit trail) |
 
 ---
 
 ## Related Documentation
 
-- [Regulatory Advisor & Template Engine](../plans/13-regulatory-advisor.md) - Full design spec
-- [Unified Taxonomy & Compliance Stack Design](../plans/2026-01-27-unified-taxonomy-compliance-stack-design.md) - Original design
-- [Regulatory Vertical System Explained](./regulatory-vertical-system-explained.md) - Beginner guide
-- [Substance Rollup Service](../plans/2026-01-26-taxonomy-08-substance-rollup.md) - Substance calculation design
+- [Regulatory Advisor Design](../plans/13-regulatory-advisor.md) - Full design spec (needs update)
+- [Regulatory Vertical System](./regulatory-vertical-system-explained.md) - System overview
+- [Implementation Plan](../plans/compliance-architecture-revision.md) - Migration plan (to be created)
 
 ---
 
-*Document Version: 1.0*
-*Last Updated: 2026-01-27*
+*Document Version: 2.0*
+*Last Updated: 2026-01-28*
+*Major Revision: Unified architecture from design review session*

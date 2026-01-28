@@ -312,8 +312,9 @@ export function createCategoryAdoptionRouter(options: CategoryAdoptionRouterOpti
           tenantCategory.frozenAtVersion = adoption.frozenAtVersion;
 
           // Capture pinnedRegulatoryListIds from current compliance stack
+          // Use resolveLegacy() which returns the old format with regulatoryListIds
           const resolver = new ComplianceStackResolver(txEm);
-          const stackResult = await resolver.resolve(tenantCategory.id);
+          const stackResult = await resolver.resolveLegacy(tenantCategory.id);
           const regulatoryListIds = stackResult.effectiveRegulations
             .filter(reg => reg.status === 'ACTIVE')
             .map(reg => reg.regulatoryListId);
