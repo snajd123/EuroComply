@@ -1,10 +1,12 @@
 export { BaseEntity } from './BaseEntity.js';
 export { UnitSystem, TargetType, AliasType, ComparisonOperator, Severity, ListRequirement, RegulationSource } from './enums/index.js';
+export { RegulationStatus } from './enums/RegulationStatus.js';
 export { Substance } from './Substance.js';
 export { SubstanceAlias } from './SubstanceAlias.js';
 export { SeedVersion } from './SeedVersion.js';
 export { RegulatoryList } from './RegulatoryList.js';
 export { RegulatoryListEntry } from './RegulatoryListEntry.js';
+export { Regulation } from './Regulation.js';
 export {
   Organization,
   EnforcementMode,
@@ -56,6 +58,7 @@ import { SubstanceAlias } from './SubstanceAlias.js';
 import { SeedVersion } from './SeedVersion.js';
 import { RegulatoryList } from './RegulatoryList.js';
 import { RegulatoryListEntry } from './RegulatoryListEntry.js';
+import { Regulation } from './Regulation.js';
 
 /**
  * Entities that belong ONLY in the PUBLIC schema.
@@ -73,6 +76,7 @@ export const publicOnlyEntities = [
   RegulatoryList,
   RegulatoryListEntry,
   CategoryRegulatoryList,
+  Regulation,
 ];
 
 /**
