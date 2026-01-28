@@ -310,6 +310,24 @@ export class Migration20260122000000 extends Migration {
     this.addSql('CREATE INDEX "idx_requirement_type" ON "public"."requirement" ("type");');
 
     // =====================================================
+    // CategoryRegulation junction table - links categories to regulations
+    // =====================================================
+    this.addSql(`
+      CREATE TABLE "public"."category_regulation" (
+        "id" text PRIMARY KEY,
+        "created_at" timestamptz NOT NULL DEFAULT NOW(),
+        "updated_at" timestamptz NOT NULL DEFAULT NOW(),
+        "category_id" text NOT NULL REFERENCES "public"."category"("id") ON DELETE CASCADE,
+        "regulation_id" text NOT NULL REFERENCES "public"."regulation"("id") ON DELETE CASCADE,
+        "added_at" timestamptz NOT NULL DEFAULT NOW(),
+        "added_by" text,
+        UNIQUE("category_id", "regulation_id")
+      );
+    `);
+    this.addSql('CREATE INDEX "idx_category_regulation_category" ON "public"."category_regulation"("category_id");');
+    this.addSql('CREATE INDEX "idx_category_regulation_regulation" ON "public"."category_regulation"("regulation_id");');
+
+    // =====================================================
     // Seed Version table - tracks seeded data versions
     // =====================================================
     this.addSql(`
@@ -355,6 +373,7 @@ export class Migration20260122000000 extends Migration {
     // Drop in reverse dependency order
     this.addSql('DROP TABLE IF EXISTS "public"."outbox_event" CASCADE;');
     this.addSql('DROP TABLE IF EXISTS "public"."seed_version" CASCADE;');
+    this.addSql('DROP TABLE IF EXISTS "public"."category_regulation" CASCADE;');
     this.addSql('DROP TABLE IF EXISTS "public"."requirement" CASCADE;');
     this.addSql('DROP TABLE IF EXISTS "public"."regulation" CASCADE;');
     this.addSql('DROP TYPE IF EXISTS requirement_severity;');
