@@ -1238,7 +1238,7 @@
               "request": {
                 "method": "GET",
                 "header": [
-                  { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+                  { "key": "Authorization", "value": "Bearer {{jwtToken}}" },
                   { "key": "X-Request-Id", "value": "{{$guid}}" }
                 ],
                 "url": {
@@ -1294,7 +1294,7 @@
               "request": {
                 "method": "POST",
                 "header": [
-                  { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+                  { "key": "Authorization", "value": "Bearer {{jwtToken}}" },
                   { "key": "Content-Type", "value": "application/json" },
                   { "key": "X-Request-Id", "value": "{{$guid}}" }
                 ],
@@ -1330,7 +1330,7 @@
               "request": {
                 "method": "GET",
                 "header": [
-                  { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+                  { "key": "Authorization", "value": "Bearer {{jwtToken}}" },
                   { "key": "X-Request-Id", "value": "{{$guid}}" }
                 ],
                 "url": {
@@ -1381,7 +1381,7 @@
               "request": {
                 "method": "GET",
                 "header": [
-                  { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+                  { "key": "Authorization", "value": "Bearer {{jwtToken}}" },
                   { "key": "X-Request-Id", "value": "{{$guid}}" }
                 ],
                 "url": {
@@ -1433,7 +1433,7 @@
               "request": {
                 "method": "DELETE",
                 "header": [
-                  { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+                  { "key": "Authorization", "value": "Bearer {{jwtToken}}" },
                   { "key": "Content-Type", "value": "application/json" },
                   { "key": "X-Request-Id", "value": "{{$guid}}" }
                 ],
@@ -1493,7 +1493,7 @@
               "request": {
                 "method": "POST",
                 "header": [
-                  { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+                  { "key": "Authorization", "value": "Bearer {{jwtToken}}" },
                   { "key": "Content-Type", "value": "application/json" },
                   { "key": "X-Request-Id", "value": "{{$guid}}" }
                 ],
@@ -1541,7 +1541,7 @@
               "request": {
                 "method": "GET",
                 "header": [
-                  { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+                  { "key": "Authorization", "value": "Bearer {{jwtToken}}" },
                   { "key": "X-Request-Id", "value": "{{$guid}}" }
                 ],
                 "url": {
