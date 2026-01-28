@@ -252,6 +252,64 @@ export class Migration20260122000000 extends Migration {
     this.addSql('CREATE INDEX IF NOT EXISTS "idx_cat_reg_list_list" ON "public"."category_regulatory_list" ("regulatory_list_id");');
 
     // =====================================================
+    // Regulation and Requirement Enums
+    // =====================================================
+    this.addSql(`CREATE TYPE regulation_status AS ENUM ('DRAFT', 'ACTIVE', 'ARCHIVED');`);
+    this.addSql(`CREATE TYPE requirement_type AS ENUM ('ATTRIBUTE_CHECK', 'SUBSTANCE_SCREEN', 'CALCULATED_CHECK', 'DECLARATION');`);
+    this.addSql(`CREATE TYPE requirement_severity AS ENUM ('BLOCKER', 'WARNING', 'INFO');`);
+
+    // =====================================================
+    // Regulation table - regulations like REACH, RoHS, CLP
+    // =====================================================
+    this.addSql(`
+      CREATE TABLE "public"."regulation" (
+        "id" text PRIMARY KEY,
+        "created_at" timestamptz NOT NULL DEFAULT NOW(),
+        "updated_at" timestamptz NOT NULL DEFAULT NOW(),
+        "code" text NOT NULL UNIQUE,
+        "name" text NOT NULL,
+        "description" text,
+        "status" regulation_status NOT NULL DEFAULT 'DRAFT',
+        "version" text,
+        "effective_date" date,
+        "source_url" text,
+        "superseded_by_id" text REFERENCES "public"."regulation"("id"),
+        "archived_at" timestamptz,
+        "archive_reason" text,
+        "metadata" jsonb
+      );
+    `);
+    this.addSql('CREATE INDEX "idx_regulation_status" ON "public"."regulation" ("status");');
+    this.addSql('CREATE INDEX "idx_regulation_code" ON "public"."regulation" ("code");');
+
+    // =====================================================
+    // Requirement table - compliance requirements per regulation
+    // =====================================================
+    this.addSql(`
+      CREATE TABLE "public"."requirement" (
+        "id" text PRIMARY KEY,
+        "created_at" timestamptz NOT NULL DEFAULT NOW(),
+        "updated_at" timestamptz NOT NULL DEFAULT NOW(),
+        "regulation_id" text NOT NULL REFERENCES "public"."regulation"("id") ON DELETE CASCADE,
+        "code" text NOT NULL,
+        "name" text NOT NULL,
+        "description" text,
+        "type" requirement_type NOT NULL,
+        "severity" requirement_severity NOT NULL DEFAULT 'WARNING',
+        "attribute_template_key" text,
+        "substance_list_id" text,
+        "calculation_formula" text,
+        "handler_config" jsonb,
+        "legal_reference" text,
+        "allow_tenant_exemption" boolean NOT NULL DEFAULT true,
+        "sort_order" int NOT NULL DEFAULT 0,
+        UNIQUE("regulation_id", "code")
+      );
+    `);
+    this.addSql('CREATE INDEX "idx_requirement_regulation" ON "public"."requirement" ("regulation_id");');
+    this.addSql('CREATE INDEX "idx_requirement_type" ON "public"."requirement" ("type");');
+
+    // =====================================================
     // Seed Version table - tracks seeded data versions
     // =====================================================
     this.addSql(`
@@ -297,6 +355,11 @@ export class Migration20260122000000 extends Migration {
     // Drop in reverse dependency order
     this.addSql('DROP TABLE IF EXISTS "public"."outbox_event" CASCADE;');
     this.addSql('DROP TABLE IF EXISTS "public"."seed_version" CASCADE;');
+    this.addSql('DROP TABLE IF EXISTS "public"."requirement" CASCADE;');
+    this.addSql('DROP TABLE IF EXISTS "public"."regulation" CASCADE;');
+    this.addSql('DROP TYPE IF EXISTS requirement_severity;');
+    this.addSql('DROP TYPE IF EXISTS requirement_type;');
+    this.addSql('DROP TYPE IF EXISTS regulation_status;');
     this.addSql('DROP TABLE IF EXISTS "public"."category_regulatory_list" CASCADE;');
     this.addSql('DROP TABLE IF EXISTS "public"."regulatory_list_entry" CASCADE;');
     this.addSql('DROP TABLE IF EXISTS "public"."regulatory_list" CASCADE;');
