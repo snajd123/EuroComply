@@ -163,4 +163,64 @@ describe('Comparator', () => {
       expect(results[0].status).toBe('MATCH');
     });
   });
+
+  describe('toConsensusStatus', () => {
+    it('should_convert_MATCH_to_ConsensusStatus_MATCH', () => {
+      expect(Comparator.toConsensusStatus('MATCH')).toBe('MATCH');
+    });
+
+    it('should_convert_CONFLICT_to_ConsensusStatus_CONFLICT', () => {
+      expect(Comparator.toConsensusStatus('CONFLICT')).toBe('CONFLICT');
+    });
+
+    it('should_convert_LOW_CONFIDENCE_to_ConsensusStatus_LOW_CONFIDENCE', () => {
+      expect(Comparator.toConsensusStatus('LOW_CONFIDENCE')).toBe('LOW_CONFIDENCE');
+    });
+
+    it('should_convert_SHADOW_MISSING_to_ConsensusStatus_SHADOW_MISSING', () => {
+      expect(Comparator.toConsensusStatus('SHADOW_MISSING')).toBe('SHADOW_MISSING');
+    });
+  });
+
+  describe('custom options', () => {
+    it('should_use_custom_confidence_threshold', () => {
+      const strictComparator = new Comparator({ confidenceThreshold: 0.99 });
+
+      const primary: ExtractedRequirement[] = [{
+        casNumber: '7439-92-1',
+        thresholdValue: 0.05,
+        unit: 'PERCENT_BY_WEIGHT',
+        legalReference: 'Entry 63',
+        confidenceScore: 0.97, // Above default 0.95, below custom 0.99
+        reasoning: 'Lead restriction',
+      }];
+
+      const shadow: ShadowExtraction = [
+        { cas: '7439-92-1', threshold: 0.05, unit: 'PERCENT_BY_WEIGHT' },
+      ];
+
+      const results = strictComparator.compare(primary, shadow);
+      expect(results[0].status).toBe('LOW_CONFIDENCE');
+    });
+
+    it('should_use_custom_threshold_tolerance', () => {
+      const strictComparator = new Comparator({ thresholdTolerance: 0.1 });
+
+      const primary: ExtractedRequirement[] = [{
+        casNumber: '7439-92-1',
+        thresholdValue: 100, // 100 ppm
+        unit: 'PPM',
+        legalReference: 'Entry 63',
+        confidenceScore: 0.97,
+        reasoning: 'Lead restriction',
+      }];
+
+      const shadow: ShadowExtraction = [
+        { cas: '7439-92-1', threshold: 100.5, unit: 'PPM' }, // 0.5 ppm difference
+      ];
+
+      const results = strictComparator.compare(primary, shadow);
+      expect(results[0].status).toBe('CONFLICT'); // 0.5 ppm > 0.1 tolerance
+    });
+  });
 });
