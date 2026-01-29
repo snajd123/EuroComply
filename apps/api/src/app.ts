@@ -14,6 +14,7 @@ import { createComplianceStackRouter } from './routes/compliance-stack.js';
 import { createExemptionRouter } from './routes/exemptions.js';
 import { createEvidenceRouter } from './routes/evidence.js';
 import { createUnitsRouter, type UnitsRepository, createSubstancesRouter, type SubstancesRepository } from './routes/taxonomy/index.js';
+import { createIngestorRouter } from './routes/admin/ingestor.js';
 import { tenantMiddleware, createTenantMiddlewareWithApiKeys } from './middleware/tenant.js';
 import { adminAuthMiddleware } from './middleware/admin-auth.js';
 import { createUserMiddleware } from './middleware/user.js';
@@ -98,6 +99,11 @@ export function createApp(deps?: AppDependencies): Hono<Env> {
   // Additional admin operations (status, provision, delete)
   if (deps?.organizationsAdminRouter) {
     v1.route('/admin/organizations', deps.organizationsAdminRouter);
+  }
+
+  // Ingestor admin routes (AI regulation ingestion)
+  if (deps?.orm) {
+    v1.route('/admin/ingestor', createIngestorRouter({ orm: deps.orm }));
   }
 
   // API key management routes (JWT-only authentication)
