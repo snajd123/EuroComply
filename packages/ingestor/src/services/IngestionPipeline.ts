@@ -9,6 +9,7 @@ import {
   RequirementType,
   RequirementSeverity,
   ConsensusStatus,
+  ComparisonOperator,
 } from '@eurocomply/database';
 
 export interface IngestionPipelineOptions {
@@ -81,12 +82,12 @@ export class IngestionPipeline {
     // Map extraction to staging input
     const requirements: CreateStagingRequirementInput[] = result.extraction.requirements.map(
       (req, index) => {
-        const comparison = result.comparisons[index];
-        // Default to SHADOW_MISSING if no comparison found (shouldn't happen in practice)
-        const consensusStatus = comparison
-          ? Comparator.toConsensusStatus(comparison.status)
-          : ConsensusStatus.SHADOW_MISSING;
-        const conflictDetails = comparison?.conflictDetails;
+        const comparison = result.comparisons.find(c => c.requirementIndex === index) ?? {
+          requirementIndex: index,
+          status: 'SHADOW_MISSING' as const,
+        };
+        const consensusStatus = Comparator.toConsensusStatus(comparison.status);
+        const conflictDetails = 'conflictDetails' in comparison ? comparison.conflictDetails : undefined;
 
         return {
           code: `REQ_${index + 1}`,
@@ -95,7 +96,7 @@ export class IngestionPipeline {
           substanceName: req.substanceName,
           casNumber: req.casNumber,
           ecNumber: req.ecNumber,
-          operator: req.operator as any, // Map to enum
+          operator: req.operator as ComparisonOperator | undefined,
           thresholdValue: req.thresholdValue,
           unit: req.unit,
           scope: req.scope,

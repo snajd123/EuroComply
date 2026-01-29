@@ -80,4 +80,19 @@ describe('IngestionPipeline', () => {
       );
     });
   });
+
+  describe('ingestAndStage', () => {
+    it('should_throw_error_when_entitymanager_not_provided', async () => {
+      const pipeline = new IngestionPipeline({
+        claudeExtractor: mockClaudeExtractor,
+        geminiShadow: mockGeminiShadow,
+        comparator: mockComparator,
+        // No em provided
+      });
+
+      await expect(
+        pipeline.ingestAndStage('Document text', 'https://example.com', 'user_123')
+      ).rejects.toThrow('EntityManager required for staging');
+    });
+  });
 });
