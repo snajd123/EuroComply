@@ -4,17 +4,17 @@
 
 | Collection | Purpose | Authentication |
 |------------|---------|----------------|
-| `eurocomply-complete.postman_collection.json` | Complete test suite | Various (see below) |
+| `tenant-api.postman_collection.json` | Tenant-scoped endpoints (main collection) | JWT Bearer or `X-API-Key` |
 | `admin-api.postman_collection.json` | Platform admin endpoints only | `X-Admin-Key` header |
-| `tenant-api.postman_collection.json` | Tenant-scoped endpoints only | JWT Bearer or `X-API-Key` |
 | `public-api.postman_collection.json` | Public taxonomy endpoints | None required |
+| `webhooks.postman_collection.json` | Clerk webhook simulation | HMAC signature |
 
 ## Quick Start
 
-**Import the collection:**
+**Import the main collection:**
 
 ```
-eurocomply-complete.postman_collection.json
+tenant-api.postman_collection.json
 ```
 
 ### Required Variables
@@ -26,102 +26,145 @@ Set these in the **Variables** tab after importing:
 | `webhookSecret` | `whsec_Wx4vOyadXO+o3wbuEGcm4wLlsKGfkbmO` | Yes |
 | `adminApiKey` | `6fRoO4fpVQkVMsO39_9wvaZzPz1lF4ZSxCH3YPA3v_Q` | Optional |
 
+### Prerequisites: Seed the Database
+
+Before testing compliance features, seed the database:
+
+```bash
+cd packages/database
+pnpm build
+pnpm seed:all    # Seeds categories + regulations
+```
+
 ### Run Order
 
-1. Import `eurocomply-complete.postman_collection.json` into Postman
-2. Go to **Variables** tab and set `webhookSecret` (and optionally `adminApiKey`)
-3. Run folders in order: Setup → Public API → Admin API → API Keys → Products → Cleanup
-
-All other variables are auto-generated and shared between requests.
+1. Import `tenant-api.postman_collection.json` into Postman
+2. Go to **Variables** tab and set `webhookSecret`
+3. Run folders in order:
+   - **0. Setup** → Creates org + user
+   - **1. JWT Auth → API Key Management** → Creates API keys
+   - **1. JWT Auth → Category Adoption** → Adopts system category
+   - **1. JWT Auth → Compliance** → Tests compliance stack, exemptions, evidence
 
 ---
 
 ## Collection Structure
 
-### 1. Setup (Webhooks)
+### 0. Setup (Webhooks)
 
 Creates organization and users via Clerk webhook simulation.
 
 | Request | Description |
 |---------|-------------|
-| 1.1 Create Organization | Creates org + provisions tenant schema |
-| 1.2 Create First User | Adds first user (MANAGER + isOrgAdmin) |
-| 1.3 Create Second User | Adds second user (NONE permissions) |
+| 0.1 Create Organization | Creates org + provisions tenant schema |
+| 0.2 Create User (Org Admin) | Adds first user with org admin rights |
 
-### 2. Public API (No Auth)
+### 1. JWT Auth (Human/UI)
 
-Endpoints accessible without authentication.
-
-| Request | Description |
-|---------|-------------|
-| 2.1 Health Check | `/health` |
-| 2.2 API Version | `/api/v1` |
-| 2.3 List Units | `/api/v1/taxonomy/units` |
-| 2.4 Get Unit (KGM) | `/api/v1/taxonomy/units/KGM` |
-| 2.5 Convert Units | `/api/v1/taxonomy/units/convert` |
-
-### 3. Admin API (X-Admin-Key)
-
-Organization management endpoints. Requires `adminApiKey`.
+#### API Key Management
 
 | Request | Description |
 |---------|-------------|
-| 3.1 List Organizations | List all orgs |
-| 3.2 Get Organization | Get org by ID |
-| 3.3 Get Org Status | Check provisioning status |
-| 3.4 Admin - No Auth | Verify 401 without key |
+| Create Org Admin API Key | Full admin access key |
+| Create Editor API Key | Design workspace editor |
+| Create Viewer API Key | Design workspace viewer |
+| List API Keys | List all keys (requires Org Admin) |
 
-### 4. API Keys (JWT Auth)
+#### Category Adoption
 
-Create and manage API keys with different authority levels.
+| Request | Description | Variables Set |
+|---------|-------------|---------------|
+| List Available System Categories | Shows adoptable categories | `adoptedCategoryId` |
+| Adopt a System Category | Links tenant to system category | `tenantCategoryId` |
+| Change Mode to FROZEN | Lock to current version | — |
+| Sync (Dry Run) | Preview sync without applying | — |
+| Change Mode to LIVE | Resume auto-updates | — |
+| Remove Category Adoption | Unlink from system category | — |
 
-| Request | Description |
-|---------|-------------|
-| 4.1 Create EDITOR API Key | Design workspace editor |
-| 4.2 Create VIEWER API Key | Design workspace viewer |
-| 4.3 Create Org Admin API Key | Full admin access |
-| 4.4 List API Keys | List all keys (requires Org Admin) |
-| 4.5 Non-Admin Cannot List | Verify 403 for non-admin |
+#### Compliance
 
-### 5. Products (API Key Auth)
+| Request | Description | Variables Set |
+|---------|-------------|---------------|
+| Get Compliance Stack | Returns effective regulations | `requirementId` |
+| Create Exemption | Exempt a requirement | `exemptionId` |
+| List Exemptions | List all exemptions | — |
+| Get Exemption | Get exemption details | — |
+| Revoke Exemption | Revoke with reason | — |
+| Record Evidence | Record evaluation result | — |
+| Get Evidence for Product | List evidence records | — |
 
-Test workspace authorization with products.
+### 2. API Key Auth (Machine)
 
-| Request | Description |
-|---------|-------------|
-| 5.1 Create Category | EDITOR creates category |
-| 5.2 EDITOR Creates Product | 201 success |
-| 5.3 VIEWER Lists Products | 200 success (read allowed) |
-| 5.4 VIEWER Cannot Create | 403 forbidden |
-| 5.5 No Auth | 401 unauthorized |
-| 5.6 Get Product | Get by ID |
-| 5.7 Product Not Found | 404 error |
-
-### 6. Cleanup
-
-Delete test data. Run last.
-
-| Request | Description |
-|---------|-------------|
-| 6.1 Delete Product | Remove test product |
-| 6.2 Delete Category | Remove test category |
-| 6.3 Delete Member | Remove second user via webhook |
-| 6.4 Delete Organization | Remove org and schema (requires adminApiKey) |
+Permission tests using `X-API-Key` header.
 
 ---
 
 ## Variable Flow
 
-Variables are automatically passed between requests:
+Variables are automatically captured and passed between requests:
 
 ```
-1.1 Create Organization  → sets clerkOrgId, orgId, schemaName
-1.2 Create First User    → sets clerkUserId, membershipId
-1.3 Create Second User   → sets clerkUserId2
-4.1-4.3 API Keys         → sets editorApiKey, viewerApiKey, orgAdminApiKey
-5.1 Create Category      → sets categoryId
-5.2 Create Product       → sets productId
+0.1 Create Organization       → clerkOrgId, orgId, schemaName
+0.2 Create User               → clerkUserId, jwtToken
+
+API Keys                      → editorApiKey, viewerApiKey, orgAdminApiKey
+
+List Available Categories     → adoptedCategoryId (first available)
+Adopt a System Category       → tenantCategoryId
+
+Get Compliance Stack          → requirementId (first requirement)
+Create Exemption              → exemptionId
 ```
+
+---
+
+## Compliance Testing Flow
+
+### Full Compliance Test Sequence
+
+1. **Setup** (0. Setup folder)
+   - Create Organization
+   - Create User
+
+2. **Category Adoption** (1. JWT Auth → Category Adoption)
+   - List Available System Categories
+   - Adopt a System Category
+   - (Optional) Test FROZEN/LIVE mode transitions
+
+3. **Compliance Stack** (1. JWT Auth → Compliance)
+   - Get Compliance Stack (captures `requirementId`)
+   - Create Exemption (using captured `requirementId`)
+   - Get Compliance Stack again (verify exemption shows)
+   - Revoke Exemption
+   - Get Compliance Stack again (verify exemption removed)
+
+4. **Evidence** (requires `productVersionId`)
+   - Set `productVersionId` manually OR create a product first
+   - Record Evidence
+   - Get Evidence for Product
+
+### Manual Variable Setup
+
+For evidence tests, you need a `productVersionId`. Either:
+
+1. Create a product via Dashboard Operations → Create Product
+2. Manually set `productVersionId` in Variables tab
+
+---
+
+## Test Coverage
+
+| Category | Endpoints | Folder |
+|----------|-----------|--------|
+| Health | `/health` | — |
+| Webhooks | `/webhooks/clerk` | 0 |
+| API Keys | `/api/v1/api-keys/*` | 1 |
+| Categories | `/api/v1/categories/*` | 1 |
+| Products | `/api/v1/products/*` | 1, 2 |
+| Category Adoption | `/api/v1/category-adoption/*` | 1 |
+| Compliance Stack | `/api/v1/compliance-stack/*` | 1 |
+| Exemptions | `/api/v1/exemptions/*` | 1 |
+| Evidence | `/api/v1/evidence/*` | 1 |
 
 ---
 
@@ -131,27 +174,19 @@ Variables are automatically passed between requests:
 # Install newman
 npm install -g newman
 
-# Run complete collection
-newman run docs/testing/postman/eurocomply-complete.postman_collection.json \
+# Run tenant-api collection
+newman run docs/testing/postman/tenant-api.postman_collection.json \
   --env-var "webhookSecret=whsec_Wx4vOyadXO+o3wbuEGcm4wLlsKGfkbmO" \
-  --env-var "adminApiKey=6fRoO4fpVQkVMsO39_9wvaZzPz1lF4ZSxCH3YPA3v_Q"
+  --env-var "baseUrl=http://localhost:3000"
 
 # Run specific folder
-newman run docs/testing/postman/eurocomply-complete.postman_collection.json \
-  --folder "2. Public API (No Auth)"
+newman run docs/testing/postman/tenant-api.postman_collection.json \
+  --folder "1. JWT Auth (Human/UI)"
 ```
 
 ---
 
-## Test Coverage
+## Related Documentation
 
-| Category | Endpoints | Folder |
-|----------|-----------|--------|
-| Health | `/health` | 2 |
-| Version | `/api/v1` | 2 |
-| Units | `/api/v1/taxonomy/units/*` | 2 |
-| Webhooks | `/webhooks/clerk` | 1, 6 |
-| API Keys | `/api/v1/api-keys/*` | 4 |
-| Admin | `/api/v1/admin/*` | 3 |
-| Products | `/api/v1/products/*` | 5 |
-| Categories | `/api/v1/categories/*` | 5 |
+- [Compliance Testing Guide](../../guides/compliance-testing-guide.md) - Detailed compliance system walkthrough
+- [Compliance Architecture](../../compliance-architecture.md) - System design documentation
