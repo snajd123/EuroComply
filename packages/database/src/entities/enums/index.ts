@@ -12,3 +12,4 @@ export { RequirementSeverity } from './RequirementSeverity.js';
 export { EvidenceType } from './EvidenceType.js';
 export { EvidenceResult } from './EvidenceResult.js';
 export { StagingStatus } from './StagingStatus.js';
+export { IngestionAction } from './IngestionAction.js';
