@@ -7,8 +7,7 @@ import {
 } from '@mikro-orm/core';
 import { BaseEntity } from './BaseEntity.js';
 import { StagingStatus } from './enums/StagingStatus.js';
-// Note: StagingRequirement import will be added in Task 4 when that entity is created
-// import type { StagingRequirement } from './StagingRequirement.js';
+import type { StagingRequirement } from './StagingRequirement.js';
 
 /**
  * Source type for regulation ingestion.
@@ -106,8 +105,7 @@ export class StagingRegulation extends BaseEntity {
 
   /**
    * Requirements extracted for this regulation
-   * Note: Collection type will be properly typed in Task 4 when StagingRequirement is created
    */
   @OneToMany('StagingRequirement', 'stagingRegulation')
-  requirements = new Collection<object>(this);
+  requirements = new Collection<StagingRequirement>(this);
 }
