@@ -559,9 +559,13 @@
                       "",
                       "pm.test('Category adopted', function () {",
                       "    const r = pm.response.json();",
-                      "    pm.expect(r.data.categoryId).to.equal(pm.collectionVariables.get('adoptedCategoryId'));",
-                      "    pm.expect(r.data.adoptedAt).to.be.a('string');",
-                      "    console.log('Adopted:', r.data.categoryName);",
+                      "    pm.expect(r.data.adoption).to.be.an('object');",
+                      "    pm.expect(r.data.adoption.systemCategoryId).to.equal(pm.collectionVariables.get('adoptedCategoryId'));",
+                      "    pm.expect(r.data.adoption.adoptedAt).to.be.a('string');",
+                      "    pm.expect(r.data.tenantCategory).to.be.an('object');",
+                      "    // Capture tenantCategoryId for compliance stack",
+                      "    pm.collectionVariables.set('tenantCategoryId', r.data.tenantCategory.id);",
+                      "    console.log('Adopted - tenantCategoryId:', r.data.tenantCategory.id);",
                       "});"
                     ],
                     "type": "text/javascript"
@@ -985,7 +989,14 @@
                       "pm.test('Returns effective compliance stack', function () {",
                       "    const r = pm.response.json();",
                       "    pm.expect(r.data).to.be.an('object');",
-                      "    console.log('Compliance stack retrieved');",
+                      "    pm.expect(r.data.regulations).to.be.an('array');",
+                      "    console.log('Regulations found:', r.data.regulations.length);",
+                      "    // Capture first requirement ID for exemption testing",
+                      "    if (r.data.regulations.length > 0 && r.data.regulations[0].requirements.length > 0) {",
+                      "        const firstReq = r.data.regulations[0].requirements[0];",
+                      "        pm.collectionVariables.set('requirementId', firstReq.requirementId);",
+                      "        console.log('Captured requirementId:', firstReq.requirementId, '(' + firstReq.requirementCode + ')');",
+                      "    }",
                       "});"
                     ],
                     "type": "text/javascript"
