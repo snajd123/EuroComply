@@ -93,7 +93,7 @@ The **Compliance Evaluation Layer** is an **optional** cross-cutting layer that 
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `complianceEnabled` | `true` | Master toggle - hides entire feature when false |
+| `regulatoryAdvisorEnabled` | `true` | Master toggle - hides entire feature when false |
 | `enforcementMode` | `SILENT` | `ENFORCING` = blockers enforced; `SILENT` = advisory only |
 | `captureComplianceInSilentMode` | `true` | Capture compliance data in DPPs even in silent mode |
 
