@@ -897,7 +897,7 @@ Note: Sovereign Cloud pricing is ~10-20% higher than standard regions.
 | [Security](./03-security.md) | Auth, encryption, compliance |
 | [Data Model](./02-data-model.md) | Database schema |
 | [Integrations](./10-integrations.md) | External systems |
-| [Regulatory Advisor](./13-regulatory-advisor.md) | Regulation PDF storage, AI services |
+| [Compliance Architecture](../architecture/compliance-architecture.md) | Compliance system architecture, regulation storage |
 
 ---
 

@@ -14,6 +14,13 @@ describe('TenantProvisioner', () => {
     }
     orm = await setupTestDb();
     provisioner = new TenantProvisioner(orm);
+
+    // Clean up test schema from previous runs
+    try {
+      await orm.em.execute(`DROP SCHEMA IF EXISTS "${testSchema}" CASCADE`);
+    } catch {
+      // Ignore
+    }
   });
 
   afterAll(async () => {

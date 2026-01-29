@@ -633,7 +633,7 @@ PAID (Proof Service):
 
 The Template Marketplace allows compliance consultants to publish rule templates that other organizations can adopt. Revenue is shared between publishers and the platform.
 
-> **Full Design:** See [Regulatory Advisor](./13-regulatory-advisor.md) for complete marketplace specification.
+> **Full Design:** See [Compliance Architecture](../architecture/compliance-architecture.md) for complete marketplace specification.
 
 ### Revenue Model
 
@@ -1315,7 +1315,7 @@ async function createSubscription(
 | [Operations Workspace](./06-operations-workspace.md) | Shipping & logistics |
 | [Compliance Workspace](./08-compliance-workspace.md) | DPP lifecycle, recall |
 | [Security](./03-security.md) | Organization admin definition |
-| [Regulatory Advisor](./13-regulatory-advisor.md) | Template marketplace, adoption fees |
+| [Compliance Architecture](../architecture/compliance-architecture.md) | Template marketplace, adoption fees |
 
 ---
 

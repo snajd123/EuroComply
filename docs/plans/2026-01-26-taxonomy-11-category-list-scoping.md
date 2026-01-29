@@ -1,17 +1,19 @@
 # Taxonomy Plan 11: Category-List Scoping
 
+> **STATUS: IMPLEMENTED** - This plan has been implemented. The terminology in this document reflects the final naming conventions used in the codebase.
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Implement dual-layer regulatory scoping: CategoryRegulatoryList (public schema for system baseline) and TenantCategoryRegulatoryList (tenant schema for additions + exemptions). Includes ComplianceStackResolver for 3-layer resolution.
+**Goal:** Implement dual-layer regulatory scoping: CategoryRegulation (public schema for system baseline) and TenantRequirementExemption (tenant schema for additions + exemptions). Includes ComplianceStackResolver for 3-layer resolution.
 
 **Architecture:** Create two entity layers:
-1. `CategoryRegulatoryList` (public schema) - Links system Categories to RegulatoryLists with priority, exclusion, compareValue override, and tenant exemption guardrails
-2. `TenantCategoryRegulatoryList` (tenant schema) - Enables tenant additions (extra regulations) and exemptions (with mandatory justification)
+1. `CategoryRegulation` (public schema) - Links system Categories to Regulations with priority, exclusion, compareValue override, and tenant exemption guardrails
+2. `TenantRequirementExemption` (tenant schema) - Enables tenant additions (extra regulations) and exemptions (with mandatory justification)
 
 The `ComplianceStackResolver` service resolves the effective compliance stack:
-- Layer 1 (Bottom): System baseline from CategoryRegulatoryList
-- Layer 2 (Middle): Tenant additions from TenantCategoryRegulatoryList
-- Layer 3 (Top): Tenant exemptions from TenantCategoryRegulatoryList
+- Layer 1 (Bottom): System baseline from CategoryRegulation
+- Layer 2 (Middle): Tenant additions from TenantRequirementExemption
+- Layer 3 (Top): Tenant exemptions from TenantRequirementExemption
 
 **Tech Stack:** MikroORM, PostgreSQL LTREE, TypeScript
 
@@ -65,29 +67,29 @@ git commit -m "feat(database): add ListRequirement enum (PROHIBITION, RESTRICTIO
 
 ---
 
-## Task 2: Create CategoryRegulatoryList Entity
+## Task 2: Create CategoryRegulation Entity
 
 **Files:**
-- Create: `packages/database/src/entities/CategoryRegulatoryList.ts`
-- Test: `packages/database/src/entities/CategoryRegulatoryList.test.ts`
+- Create: `packages/database/src/entities/CategoryRegulation.ts`
+- Test: `packages/database/src/entities/CategoryRegulation.test.ts`
 
 **Step 1: Write the failing test**
 
 ```typescript
-// packages/database/src/entities/CategoryRegulatoryList.test.ts
+// packages/database/src/entities/CategoryRegulation.test.ts
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import type { MikroORM } from '@mikro-orm/postgresql';
 import { Category, CategoryType } from './Category.js';
-import { RegulatoryList } from './RegulatoryList.js';
-import { CategoryRegulatoryList } from './CategoryRegulatoryList.js';
+import { Regulation } from './Regulation.js';
+import { CategoryRegulation } from './CategoryRegulation.js';
 import { ListRequirement } from './enums/index.js';
 import { setupTestDb, teardownTestDb, isDatabaseAvailable } from '../test-utils.js';
 
-describe('CategoryRegulatoryList Entity', () => {
+describe('CategoryRegulation Entity', () => {
   let orm: MikroORM;
   let rootCategoryId: string;
   let childCategoryId: string;
-  let regulatoryListId: string;
+  let regulationId: string;
 
   beforeAll(async () => {
     if (!(await isDatabaseAvailable())) return;
@@ -101,8 +103,8 @@ describe('CategoryRegulatoryList Entity', () => {
   beforeEach(async () => {
     if (!orm) return;
     const em = orm.em.fork();
-    await em.nativeDelete(CategoryRegulatoryList, {});
-    await em.nativeDelete(RegulatoryList, {});
+    await em.nativeDelete(CategoryRegulation, {});
+    await em.nativeDelete(Regulation, {});
     await em.nativeDelete(Category, {});
 
     // Create category hierarchy
@@ -121,8 +123,8 @@ describe('CategoryRegulatoryList Entity', () => {
       parent: rootCategory,
     });
 
-    // Create regulatory list
-    const regulatoryList = em.create(RegulatoryList, {
+    // Create regulation
+    const regulation = em.create(Regulation, {
       code: 'REACH_SVHC',
       name: 'REACH SVHC Candidate List',
       source: 'ECHA',
@@ -130,30 +132,30 @@ describe('CategoryRegulatoryList Entity', () => {
       effectiveDate: new Date('2024-01-01'),
     });
 
-    await em.persistAndFlush([rootCategory, childCategory, regulatoryList]);
+    await em.persistAndFlush([rootCategory, childCategory, regulation]);
     rootCategoryId = rootCategory.id;
     childCategoryId = childCategory.id;
-    regulatoryListId = regulatoryList.id;
+    regulationId = regulation.id;
   });
 
-  it('creates a category-list mapping', async (context) => {
+  it('creates a category-regulation mapping', async (context) => {
     if (!orm) { context.skip(); return; }
     const em = orm.em.fork();
 
     const catRef = await em.findOneOrFail(Category, { id: rootCategoryId });
-    const listRef = await em.findOneOrFail(RegulatoryList, { id: regulatoryListId });
+    const regRef = await em.findOneOrFail(Regulation, { id: regulationId });
 
-    const mapping = em.create(CategoryRegulatoryList, {
+    const mapping = em.create(CategoryRegulation, {
       category: catRef,
-      regulatoryList: listRef,
+      regulation: regRef,
       requirement: ListRequirement.RESTRICTION,
     });
 
     await em.persistAndFlush(mapping);
 
-    const found = await em.findOneOrFail(CategoryRegulatoryList, {
+    const found = await em.findOneOrFail(CategoryRegulation, {
       category: catRef,
-      regulatoryList: listRef,
+      regulation: regRef,
     });
 
     expect(found.requirement).toBe(ListRequirement.RESTRICTION);
@@ -166,18 +168,18 @@ describe('CategoryRegulatoryList Entity', () => {
     const em = orm.em.fork();
 
     const catRef = await em.findOneOrFail(Category, { id: rootCategoryId });
-    const listRef = await em.findOneOrFail(RegulatoryList, { id: regulatoryListId });
+    const regRef = await em.findOneOrFail(Regulation, { id: regulationId });
 
-    const mapping = em.create(CategoryRegulatoryList, {
+    const mapping = em.create(CategoryRegulation, {
       category: catRef,
-      regulatoryList: listRef,
+      regulation: regRef,
       requirement: ListRequirement.RESTRICTION,
       priority: 10,
     });
 
     await em.persistAndFlush(mapping);
 
-    const found = await em.findOneOrFail(CategoryRegulatoryList, { category: catRef });
+    const found = await em.findOneOrFail(CategoryRegulation, { category: catRef });
     expect(found.priority).toBe(10);
   });
 
@@ -186,18 +188,18 @@ describe('CategoryRegulatoryList Entity', () => {
     const em = orm.em.fork();
 
     const catRef = await em.findOneOrFail(Category, { id: childCategoryId });
-    const listRef = await em.findOneOrFail(RegulatoryList, { id: regulatoryListId });
+    const regRef = await em.findOneOrFail(Regulation, { id: regulationId });
 
-    const mapping = em.create(CategoryRegulatoryList, {
+    const mapping = em.create(CategoryRegulation, {
       category: catRef,
-      regulatoryList: listRef,
+      regulation: regRef,
       requirement: ListRequirement.RESTRICTION,
       isExclusion: true,  // Cosmetics exempt from this list
     });
 
     await em.persistAndFlush(mapping);
 
-    const found = await em.findOneOrFail(CategoryRegulatoryList, { category: catRef });
+    const found = await em.findOneOrFail(CategoryRegulation, { category: catRef });
     expect(found.isExclusion).toBe(true);
   });
 
@@ -206,42 +208,42 @@ describe('CategoryRegulatoryList Entity', () => {
     const em = orm.em.fork();
 
     const catRef = await em.findOneOrFail(Category, { id: childCategoryId });
-    const listRef = await em.findOneOrFail(RegulatoryList, { id: regulatoryListId });
+    const regRef = await em.findOneOrFail(Regulation, { id: regulationId });
 
-    const mapping = em.create(CategoryRegulatoryList, {
+    const mapping = em.create(CategoryRegulation, {
       category: catRef,
-      regulatoryList: listRef,
+      regulation: regRef,
       requirement: ListRequirement.RESTRICTION,
       compareValueOverride: '0.01',  // Stricter for cosmetics
     });
 
     await em.persistAndFlush(mapping);
 
-    const found = await em.findOneOrFail(CategoryRegulatoryList, { category: catRef });
+    const found = await em.findOneOrFail(CategoryRegulation, { category: catRef });
     expect(found.compareValueOverride).toBe('0.01');
   });
 
-  it('enforces unique constraint on category + list', async (context) => {
+  it('enforces unique constraint on category + regulation', async (context) => {
     if (!orm) { context.skip(); return; }
     const em = orm.em.fork();
 
     const catRef = await em.findOneOrFail(Category, { id: rootCategoryId });
-    const listRef = await em.findOneOrFail(RegulatoryList, { id: regulatoryListId });
+    const regRef = await em.findOneOrFail(Regulation, { id: regulationId });
 
-    const mapping1 = em.create(CategoryRegulatoryList, {
+    const mapping1 = em.create(CategoryRegulation, {
       category: catRef,
-      regulatoryList: listRef,
+      regulation: regRef,
       requirement: ListRequirement.RESTRICTION,
     });
     await em.persistAndFlush(mapping1);
 
     const em2 = orm.em.fork();
     const catRef2 = await em2.findOneOrFail(Category, { id: rootCategoryId });
-    const listRef2 = await em2.findOneOrFail(RegulatoryList, { id: regulatoryListId });
+    const regRef2 = await em2.findOneOrFail(Regulation, { id: regulationId });
 
-    const mapping2 = em2.create(CategoryRegulatoryList, {
+    const mapping2 = em2.create(CategoryRegulation, {
       category: catRef2,
-      regulatoryList: listRef2,  // Same category + list
+      regulation: regRef2,  // Same category + regulation
       requirement: ListRequirement.PROHIBITION,
     });
 
@@ -253,15 +255,15 @@ describe('CategoryRegulatoryList Entity', () => {
 **Step 2: Run test to verify it fails**
 
 ```bash
-cd packages/database && pnpm test CategoryRegulatoryList.test.ts
+cd packages/database && pnpm test CategoryRegulation.test.ts
 ```
 
-Expected: FAIL with "Cannot find module './CategoryRegulatoryList.js'"
+Expected: FAIL with "Cannot find module './CategoryRegulation.js'"
 
 **Step 3: Write minimal implementation**
 
 ```typescript
-// packages/database/src/entities/CategoryRegulatoryList.ts
+// packages/database/src/entities/CategoryRegulation.ts
 import {
   Entity,
   Property,
@@ -272,13 +274,13 @@ import {
 } from '@mikro-orm/core';
 import { BaseEntity } from './BaseEntity.js';
 import { Category } from './Category.js';
-import { RegulatoryList } from './RegulatoryList.js';
+import { Regulation } from './Regulation.js';
 import { ListRequirement } from './enums/index.js';
 
-@Entity({ tableName: 'category_regulatory_list', schema: 'public' })
-@Unique({ properties: ['category', 'regulatoryList'] })
-@Index({ properties: ['category', 'regulatoryList'] })
-export class CategoryRegulatoryList extends BaseEntity {
+@Entity({ tableName: 'category_regulation', schema: 'public' })
+@Unique({ properties: ['category', 'regulation'] })
+@Index({ properties: ['category', 'regulation'] })
+export class CategoryRegulation extends BaseEntity {
   /**
    * The category this mapping applies to.
    * LTREE inheritance means child categories inherit parent mappings.
@@ -288,27 +290,27 @@ export class CategoryRegulatoryList extends BaseEntity {
   category!: Category;
 
   /**
-   * The regulatory list that applies to this category.
+   * The regulation that applies to this category.
    */
-  @ManyToOne(() => RegulatoryList, { name: 'regulatory_list_id' })
+  @ManyToOne(() => Regulation, { name: 'regulation_id' })
   @Index()
-  regulatoryList!: RegulatoryList;
+  regulation!: Regulation;
 
   /**
-   * The type of requirement this list imposes.
+   * The type of requirement this regulation imposes.
    */
   @Enum({ items: () => ListRequirement })
   requirement!: ListRequirement;
 
   /**
-   * Priority for ordering when multiple lists match at the same depth.
+   * Priority for ordering when multiple regulations match at the same depth.
    * Higher priority = takes precedence.
    */
   @Property({ type: 'smallint', default: 0 })
   priority: number = 0;
 
   /**
-   * If true, this mapping excludes the category from a parent's list.
+   * If true, this mapping excludes the category from a parent's regulation.
    * Used when a child category should NOT inherit a parent's regulatory requirement.
    */
   @Property({ type: 'boolean', default: false, name: 'is_exclusion' })
@@ -316,7 +318,7 @@ export class CategoryRegulatoryList extends BaseEntity {
 
   /**
    * Category-specific compareValue override (agnostic model).
-   * When set, this value is used instead of the default RegulatoryListEntry.compareValue.
+   * When set, this value is used instead of the default Requirement.compareValue.
    * Example: Toys might have 0.01% while general products allow 0.1%.
    */
   @Property({ type: 'decimal', precision: 5, scale: 4, nullable: true, name: 'compare_value_override' })
@@ -334,7 +336,7 @@ export class CategoryRegulatoryList extends BaseEntity {
 **Step 4: Run test to verify it passes**
 
 ```bash
-cd packages/database && pnpm test CategoryRegulatoryList.test.ts
+cd packages/database && pnpm test CategoryRegulation.test.ts
 ```
 
 Expected: PASS (all tests)
@@ -344,35 +346,35 @@ Expected: PASS (all tests)
 ```typescript
 // packages/database/src/entities/index.ts
 // Add to existing exports:
-export { CategoryRegulatoryList } from './CategoryRegulatoryList.js';
+export { CategoryRegulation } from './CategoryRegulation.js';
 ```
 
 ```bash
-git add packages/database/src/entities/CategoryRegulatoryList.ts packages/database/src/entities/CategoryRegulatoryList.test.ts packages/database/src/entities/index.ts
-git commit -m "feat(database): add CategoryRegulatoryList entity for LTREE scoping"
+git add packages/database/src/entities/CategoryRegulation.ts packages/database/src/entities/CategoryRegulation.test.ts packages/database/src/entities/index.ts
+git commit -m "feat(database): add CategoryRegulation entity for LTREE scoping"
 ```
 
 ---
 
-## Task 3: Create CategoryRegulatoryList Migration
+## Task 3: Create CategoryRegulation Migration
 
 **Files:**
-- Create: `packages/database/src/migrations/Migration20260126_CategoryRegulatoryList.ts`
+- Create: `packages/database/src/migrations/Migration20260126_CategoryRegulation.ts`
 
 **Step 1: Create the migration**
 
 ```typescript
-// packages/database/src/migrations/Migration20260126_CategoryRegulatoryList.ts
+// packages/database/src/migrations/Migration20260126_CategoryRegulation.ts
 import { Migration } from '@mikro-orm/migrations';
 
-export class Migration20260126_CategoryRegulatoryList extends Migration {
+export class Migration20260126_CategoryRegulation extends Migration {
   async up(): Promise<void> {
-    // Create category_regulatory_list table
+    // Create category_regulation table
     this.addSql(`
-      CREATE TABLE IF NOT EXISTS public.category_regulatory_list (
+      CREATE TABLE IF NOT EXISTS public.category_regulation (
         id TEXT PRIMARY KEY,
         category_id TEXT NOT NULL REFERENCES public.category(id) ON DELETE CASCADE,
-        regulatory_list_id TEXT NOT NULL REFERENCES public.regulatory_list(id) ON DELETE CASCADE,
+        regulation_id TEXT NOT NULL REFERENCES public.regulation(id) ON DELETE CASCADE,
         requirement TEXT NOT NULL CHECK (requirement IN ('PROHIBITION', 'RESTRICTION', 'DECLARATION')),
         priority SMALLINT NOT NULL DEFAULT 0,
         is_exclusion BOOLEAN NOT NULL DEFAULT false,
@@ -380,30 +382,30 @@ export class Migration20260126_CategoryRegulatoryList extends Migration {
         allow_tenant_exemption BOOLEAN NOT NULL DEFAULT true,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        CONSTRAINT uq_category_regulatory_list UNIQUE (category_id, regulatory_list_id)
+        CONSTRAINT uq_category_regulation UNIQUE (category_id, regulation_id)
       );
     `);
 
     // Create indexes for efficient lookups
     this.addSql(`
-      CREATE INDEX IF NOT EXISTS idx_cat_reg_list_category
-        ON public.category_regulatory_list (category_id);
+      CREATE INDEX IF NOT EXISTS idx_cat_reg_category
+        ON public.category_regulation (category_id);
     `);
 
     this.addSql(`
-      CREATE INDEX IF NOT EXISTS idx_cat_reg_list_list
-        ON public.category_regulatory_list (regulatory_list_id);
+      CREATE INDEX IF NOT EXISTS idx_cat_reg_regulation
+        ON public.category_regulation (regulation_id);
     `);
 
     // Composite index for join performance
     this.addSql(`
-      CREATE INDEX IF NOT EXISTS idx_cat_reg_list_composite
-        ON public.category_regulatory_list (category_id, regulatory_list_id);
+      CREATE INDEX IF NOT EXISTS idx_cat_reg_composite
+        ON public.category_regulation (category_id, regulation_id);
     `);
   }
 
   async down(): Promise<void> {
-    this.addSql('DROP TABLE IF EXISTS public.category_regulatory_list;');
+    this.addSql('DROP TABLE IF EXISTS public.category_regulation;');
   }
 }
 ```
@@ -419,32 +421,32 @@ Expected: Migration applies successfully
 **Step 3: Commit**
 
 ```bash
-git add packages/database/src/migrations/Migration20260126_CategoryRegulatoryList.ts
-git commit -m "feat(database): add migration for category_regulatory_list table"
+git add packages/database/src/migrations/Migration20260126_CategoryRegulation.ts
+git commit -m "feat(database): add migration for category_regulation table"
 ```
 
 ---
 
-## Task 4: Create CategoryRegulatoryListService
+## Task 4: Create CategoryRegulationService
 
 **Files:**
-- Create: `packages/database/src/services/CategoryRegulatoryListService.ts`
-- Test: `packages/database/src/services/CategoryRegulatoryListService.test.ts`
+- Create: `packages/database/src/services/CategoryRegulationService.ts`
+- Test: `packages/database/src/services/CategoryRegulationService.test.ts`
 
 **Step 1: Write the failing test**
 
 ```typescript
-// packages/database/src/services/CategoryRegulatoryListService.test.ts
+// packages/database/src/services/CategoryRegulationService.test.ts
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import type { MikroORM } from '@mikro-orm/postgresql';
 import { Category, CategoryType } from '../entities/Category.js';
-import { RegulatoryList } from '../entities/RegulatoryList.js';
-import { CategoryRegulatoryList } from '../entities/CategoryRegulatoryList.js';
-import { CategoryRegulatoryListService } from './CategoryRegulatoryListService.js';
+import { Regulation } from '../entities/Regulation.js';
+import { CategoryRegulation } from '../entities/CategoryRegulation.js';
+import { CategoryRegulationService } from './CategoryRegulationService.js';
 import { ListRequirement } from '../entities/enums/index.js';
 import { setupTestDb, teardownTestDb, isDatabaseAvailable } from '../test-utils.js';
 
-describe('CategoryRegulatoryListService', () => {
+describe('CategoryRegulationService', () => {
   let orm: MikroORM;
 
   beforeAll(async () => {
@@ -459,8 +461,8 @@ describe('CategoryRegulatoryListService', () => {
   beforeEach(async () => {
     if (!orm) return;
     const em = orm.em.fork();
-    await em.nativeDelete(CategoryRegulatoryList, {});
-    await em.nativeDelete(RegulatoryList, {});
+    await em.nativeDelete(CategoryRegulation, {});
+    await em.nativeDelete(Regulation, {});
     await em.nativeDelete(Category, {});
 
     // Create category hierarchy
@@ -503,8 +505,8 @@ describe('CategoryRegulatoryListService', () => {
       parent: skincare,
     });
 
-    // Create regulatory lists
-    const reachSvhc = em.create(RegulatoryList, {
+    // Create regulations
+    const reachSvhc = em.create(Regulation, {
       code: 'REACH_SVHC',
       name: 'REACH SVHC',
       source: 'ECHA',
@@ -512,7 +514,7 @@ describe('CategoryRegulatoryListService', () => {
       effectiveDate: new Date('2024-01-01'),
     });
 
-    const rohs = em.create(RegulatoryList, {
+    const rohs = em.create(Regulation, {
       code: 'ROHS_RESTRICTED',
       name: 'RoHS Restricted',
       source: 'EU_ROHS',
@@ -520,7 +522,7 @@ describe('CategoryRegulatoryListService', () => {
       effectiveDate: new Date('2024-01-01'),
     });
 
-    const cosingII = em.create(RegulatoryList, {
+    const cosingII = em.create(Regulation, {
       code: 'COSING_ANNEX_II',
       name: 'CosIng Annex II',
       source: 'EU_COSING',
@@ -528,7 +530,7 @@ describe('CategoryRegulatoryListService', () => {
       effectiveDate: new Date('2024-06-01'),
     });
 
-    const cosingIII = em.create(RegulatoryList, {
+    const cosingIII = em.create(Regulation, {
       code: 'COSING_ANNEX_III',
       name: 'CosIng Annex III',
       source: 'EU_COSING',
@@ -550,146 +552,146 @@ describe('CategoryRegulatoryListService', () => {
     const electronicsRef = await em.findOneOrFail(Category, { path: 'products.electronics' });
     const cosmeticsRef = await em.findOneOrFail(Category, { path: 'products.cosmetics' });
 
-    em.create(CategoryRegulatoryList, {
+    em.create(CategoryRegulation, {
       category: rootRef,
-      regulatoryList: reachSvhc,
+      regulation: reachSvhc,
       requirement: ListRequirement.RESTRICTION,
     });
 
-    em.create(CategoryRegulatoryList, {
+    em.create(CategoryRegulation, {
       category: electronicsRef,
-      regulatoryList: rohs,
+      regulation: rohs,
       requirement: ListRequirement.RESTRICTION,
     });
 
-    em.create(CategoryRegulatoryList, {
+    em.create(CategoryRegulation, {
       category: cosmeticsRef,
-      regulatoryList: cosingII,
+      regulation: cosingII,
       requirement: ListRequirement.PROHIBITION,
     });
 
-    em.create(CategoryRegulatoryList, {
+    em.create(CategoryRegulation, {
       category: cosmeticsRef,
-      regulatoryList: cosingIII,
+      regulation: cosingIII,
       requirement: ListRequirement.RESTRICTION,
     });
 
     await em.flush();
   });
 
-  describe('getListsForCategory', () => {
-    it('returns lists inherited from ancestors', async (context) => {
+  describe('getRegulationsForCategory', () => {
+    it('returns regulations inherited from ancestors', async (context) => {
       if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
-      const service = new CategoryRegulatoryListService(em);
+      const service = new CategoryRegulationService(em);
 
       // Moisturizers should inherit: REACH_SVHC (from root), COSING II & III (from cosmetics)
-      const lists = await service.getListsForCategory('products.cosmetics.skincare.moisturizers');
+      const regulations = await service.getRegulationsForCategory('products.cosmetics.skincare.moisturizers');
 
-      expect(lists).toHaveLength(3);
-      const codes = lists.map(l => l.regulatoryList.code).sort();
+      expect(regulations).toHaveLength(3);
+      const codes = regulations.map(r => r.regulation.code).sort();
       expect(codes).toEqual(['COSING_ANNEX_II', 'COSING_ANNEX_III', 'REACH_SVHC']);
     });
 
-    it('returns only applicable lists for electronics', async (context) => {
+    it('returns only applicable regulations for electronics', async (context) => {
       if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
-      const service = new CategoryRegulatoryListService(em);
+      const service = new CategoryRegulationService(em);
 
       // Electronics should get: REACH_SVHC (from root), ROHS (direct)
-      const lists = await service.getListsForCategory('products.electronics');
+      const regulations = await service.getRegulationsForCategory('products.electronics');
 
-      expect(lists).toHaveLength(2);
-      const codes = lists.map(l => l.regulatoryList.code).sort();
+      expect(regulations).toHaveLength(2);
+      const codes = regulations.map(r => r.regulation.code).sort();
       expect(codes).toEqual(['REACH_SVHC', 'ROHS_RESTRICTED']);
     });
 
-    it('returns lists ordered by depth (most specific first)', async (context) => {
+    it('returns regulations ordered by depth (most specific first)', async (context) => {
       if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
-      const service = new CategoryRegulatoryListService(em);
+      const service = new CategoryRegulationService(em);
 
-      const lists = await service.getListsForCategory('products.cosmetics.skincare.moisturizers');
+      const regulations = await service.getRegulationsForCategory('products.cosmetics.skincare.moisturizers');
 
-      // CosIng lists (depth 1) should come before REACH (depth 0)
-      const cosing = lists.filter(l => l.regulatoryList.code.startsWith('COSING'));
-      const reach = lists.find(l => l.regulatoryList.code === 'REACH_SVHC');
+      // CosIng regulations (depth 1) should come before REACH (depth 0)
+      const cosing = regulations.filter(r => r.regulation.code.startsWith('COSING'));
+      const reach = regulations.find(r => r.regulation.code === 'REACH_SVHC');
 
       expect(cosing.length).toBe(2);
       expect(reach).toBeDefined();
 
       // Verify depth ordering
-      const firstCosing = lists.findIndex(l => l.regulatoryList.code.startsWith('COSING'));
-      const reachIndex = lists.findIndex(l => l.regulatoryList.code === 'REACH_SVHC');
+      const firstCosing = regulations.findIndex(r => r.regulation.code.startsWith('COSING'));
+      const reachIndex = regulations.findIndex(r => r.regulation.code === 'REACH_SVHC');
       expect(firstCosing).toBeLessThan(reachIndex);
     });
   });
 
-  describe('getListsForCategory with exclusions', () => {
+  describe('getRegulationsForCategory with exclusions', () => {
     it('respects exclusions from child categories', async (context) => {
       if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
-      const service = new CategoryRegulatoryListService(em);
+      const service = new CategoryRegulationService(em);
 
       // Add exclusion: skincare exempt from REACH_SVHC
       const skincareRef = await em.findOneOrFail(Category, { path: 'products.cosmetics.skincare' });
-      const reachRef = await em.findOneOrFail(RegulatoryList, { code: 'REACH_SVHC' });
+      const reachRef = await em.findOneOrFail(Regulation, { code: 'REACH_SVHC' });
 
-      em.create(CategoryRegulatoryList, {
+      em.create(CategoryRegulation, {
         category: skincareRef,
-        regulatoryList: reachRef,
+        regulation: reachRef,
         requirement: ListRequirement.RESTRICTION,
         isExclusion: true,
       });
       await em.flush();
 
       // Moisturizers should now only get COSING II & III (REACH excluded by skincare)
-      const lists = await service.getListsForCategory('products.cosmetics.skincare.moisturizers');
+      const regulations = await service.getRegulationsForCategory('products.cosmetics.skincare.moisturizers');
 
-      expect(lists).toHaveLength(2);
-      const codes = lists.map(l => l.regulatoryList.code).sort();
+      expect(regulations).toHaveLength(2);
+      const codes = regulations.map(r => r.regulation.code).sort();
       expect(codes).toEqual(['COSING_ANNEX_II', 'COSING_ANNEX_III']);
     });
   });
 
-  describe('getListsForCategory with compareValue override', () => {
+  describe('getRegulationsForCategory with compareValue override', () => {
     it('returns compareValue override when set', async (context) => {
       if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
-      const service = new CategoryRegulatoryListService(em);
+      const service = new CategoryRegulationService(em);
 
       // Add stricter compareValue for cosmetics on REACH
       const cosmeticsRef = await em.findOneOrFail(Category, { path: 'products.cosmetics' });
-      const reachRef = await em.findOneOrFail(RegulatoryList, { code: 'REACH_SVHC' });
+      const reachRef = await em.findOneOrFail(Regulation, { code: 'REACH_SVHC' });
 
-      em.create(CategoryRegulatoryList, {
+      em.create(CategoryRegulation, {
         category: cosmeticsRef,
-        regulatoryList: reachRef,
+        regulation: reachRef,
         requirement: ListRequirement.RESTRICTION,
         compareValueOverride: '0.01',  // Stricter than default 0.1%
       });
       await em.flush();
 
-      const lists = await service.getListsForCategory('products.cosmetics.skincare.moisturizers');
+      const regulations = await service.getRegulationsForCategory('products.cosmetics.skincare.moisturizers');
 
-      const reachMapping = lists.find(l => l.regulatoryList.code === 'REACH_SVHC');
+      const reachMapping = regulations.find(r => r.regulation.code === 'REACH_SVHC');
       expect(reachMapping?.compareValueOverride).toBe('0.01');
     });
   });
 
-  describe('getCurrentListsWithEntries', () => {
-    it('returns lists with entries populated', async (context) => {
+  describe('getCurrentRegulationsWithRequirements', () => {
+    it('returns regulations with requirements populated', async (context) => {
       if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
-      const service = new CategoryRegulatoryListService(em);
+      const service = new CategoryRegulationService(em);
 
-      const result = await service.getCurrentListsWithEntries('products.cosmetics');
+      const result = await service.getCurrentRegulationsWithRequirements('products.cosmetics');
 
       expect(result.length).toBeGreaterThan(0);
-      // Lists should have entries collection available
+      // Regulations should have requirements collection available
       for (const mapping of result) {
-        expect(mapping.regulatoryList).toBeDefined();
-        expect(mapping.regulatoryList.code).toBeDefined();
+        expect(mapping.regulation).toBeDefined();
+        expect(mapping.regulation.code).toBeDefined();
       }
     });
   });
@@ -699,23 +701,23 @@ describe('CategoryRegulatoryListService', () => {
 **Step 2: Run test to verify it fails**
 
 ```bash
-cd packages/database && pnpm test CategoryRegulatoryListService.test.ts
+cd packages/database && pnpm test CategoryRegulationService.test.ts
 ```
 
-Expected: FAIL with "Cannot find module './CategoryRegulatoryListService.js'"
+Expected: FAIL with "Cannot find module './CategoryRegulationService.js'"
 
 **Step 3: Write minimal implementation**
 
 ```typescript
-// packages/database/src/services/CategoryRegulatoryListService.ts
+// packages/database/src/services/CategoryRegulationService.ts
 import { EntityManager, raw } from '@mikro-orm/postgresql';
 import { Category } from '../entities/Category.js';
-import { RegulatoryList } from '../entities/RegulatoryList.js';
-import { CategoryRegulatoryList } from '../entities/CategoryRegulatoryList.js';
+import { Regulation } from '../entities/Regulation.js';
+import { CategoryRegulation } from '../entities/CategoryRegulation.js';
 import { ListRequirement } from '../entities/enums/index.js';
 
-export interface ApplicableList {
-  regulatoryList: RegulatoryList;
+export interface ApplicableRegulation {
+  regulation: Regulation;
   requirement: ListRequirement;
   matchedAt: string;  // The category path where this mapping was defined
   depth: number;
@@ -723,22 +725,22 @@ export interface ApplicableList {
   compareValueOverride?: string;
 }
 
-export class CategoryRegulatoryListService {
+export class CategoryRegulationService {
   constructor(private readonly em: EntityManager) {}
 
   /**
-   * Get all regulatory lists applicable to a category path.
+   * Get all regulations applicable to a category path.
    * Uses LTREE @> operator for ancestor matching, respects exclusions.
    *
    * @param categoryPath - The LTREE path of the target category
-   * @returns Lists ordered by depth (most specific first), then priority
+   * @returns Regulations ordered by depth (most specific first), then priority
    */
-  async getListsForCategory(categoryPath: string): Promise<CategoryRegulatoryList[]> {
+  async getRegulationsForCategory(categoryPath: string): Promise<CategoryRegulation[]> {
     // Step 1: Get all candidate mappings (ancestors of the target path)
     const candidates = await this.em.getConnection().execute<Array<{
       id: string;
       category_id: string;
-      regulatory_list_id: string;
+      regulation_id: string;
       requirement: string;
       priority: number;
       is_exclusion: boolean;
@@ -747,41 +749,41 @@ export class CategoryRegulatoryListService {
       depth: number;
     }>>(`
       SELECT
-        crl.id,
-        crl.category_id,
-        crl.regulatory_list_id,
-        crl.requirement,
-        crl.priority,
-        crl.is_exclusion,
-        crl.compare_value_override,
+        cr.id,
+        cr.category_id,
+        cr.regulation_id,
+        cr.requirement,
+        cr.priority,
+        cr.is_exclusion,
+        cr.compare_value_override,
         c.path,
         c.depth
-      FROM public.category_regulatory_list crl
-      JOIN public.category c ON c.id = crl.category_id
-      JOIN public.regulatory_list rl ON rl.id = crl.regulatory_list_id
+      FROM public.category_regulation cr
+      JOIN public.category c ON c.id = cr.category_id
+      JOIN public.regulation r ON r.id = cr.regulation_id
       WHERE c.path @> ?::ltree
-        AND rl.is_current_version = true
-      ORDER BY c.depth DESC, crl.priority DESC
+        AND r.is_current_version = true
+      ORDER BY c.depth DESC, cr.priority DESC
     `, [categoryPath]);
 
     // Step 2: Process exclusions
-    // An exclusion at depth N removes the list from ancestors at depth < N
-    const exclusions = new Map<string, number>();  // listId -> exclusion depth
+    // An exclusion at depth N removes the regulation from ancestors at depth < N
+    const exclusions = new Map<string, number>();  // regulationId -> exclusion depth
 
     for (const row of candidates) {
       if (row.is_exclusion) {
-        const existingDepth = exclusions.get(row.regulatory_list_id);
+        const existingDepth = exclusions.get(row.regulation_id);
         if (existingDepth === undefined || row.depth > existingDepth) {
-          exclusions.set(row.regulatory_list_id, row.depth);
+          exclusions.set(row.regulation_id, row.depth);
         }
       }
     }
 
-    // Step 3: Filter out excluded lists and return non-exclusion mappings
+    // Step 3: Filter out excluded regulations and return non-exclusion mappings
     const filtered = candidates.filter(row => {
       if (row.is_exclusion) return false;  // Don't include exclusion records
 
-      const exclusionDepth = exclusions.get(row.regulatory_list_id);
+      const exclusionDepth = exclusions.get(row.regulation_id);
       if (exclusionDepth !== undefined && exclusionDepth > row.depth) {
         // This mapping is excluded by a more specific exclusion
         return false;
@@ -795,10 +797,10 @@ export class CategoryRegulatoryListService {
     if (ids.length === 0) return [];
 
     const mappings = await this.em.find(
-      CategoryRegulatoryList,
+      CategoryRegulation,
       { id: { $in: ids } },
       {
-        populate: ['regulatoryList', 'category'],
+        populate: ['regulation', 'category'],
         orderBy: { category: { depth: 'DESC' }, priority: 'DESC' },
       }
     );
@@ -809,37 +811,37 @@ export class CategoryRegulatoryListService {
   }
 
   /**
-   * Get current regulatory lists for a category with their entries populated.
+   * Get current regulations for a category with their requirements populated.
    * Used for compliance evaluation.
    */
-  async getCurrentListsWithEntries(categoryPath: string): Promise<CategoryRegulatoryList[]> {
-    const mappings = await this.getListsForCategory(categoryPath);
+  async getCurrentRegulationsWithRequirements(categoryPath: string): Promise<CategoryRegulation[]> {
+    const mappings = await this.getRegulationsForCategory(categoryPath);
 
-    // Populate entries for each list
+    // Populate requirements for each regulation
     for (const mapping of mappings) {
-      await this.em.populate(mapping.regulatoryList, ['entries']);
+      await this.em.populate(mapping.regulation, ['requirements']);
     }
 
     return mappings;
   }
 
   /**
-   * Add a regulatory list to a category.
+   * Add a regulation to a category.
    */
-  async addListToCategory(input: {
+  async addRegulationToCategory(input: {
     categoryId: string;
-    regulatoryListId: string;
+    regulationId: string;
     requirement: ListRequirement;
     priority?: number;
     isExclusion?: boolean;
     compareValueOverride?: string;
-  }): Promise<CategoryRegulatoryList> {
+  }): Promise<CategoryRegulation> {
     const category = await this.em.findOneOrFail(Category, { id: input.categoryId });
-    const list = await this.em.findOneOrFail(RegulatoryList, { id: input.regulatoryListId });
+    const regulation = await this.em.findOneOrFail(Regulation, { id: input.regulationId });
 
-    const mapping = this.em.create(CategoryRegulatoryList, {
+    const mapping = this.em.create(CategoryRegulation, {
       category,
-      regulatoryList: list,
+      regulation,
       requirement: input.requirement,
       priority: input.priority ?? 0,
       isExclusion: input.isExclusion ?? false,
@@ -851,12 +853,12 @@ export class CategoryRegulatoryListService {
   }
 
   /**
-   * Remove a regulatory list from a category.
+   * Remove a regulation from a category.
    */
-  async removeListFromCategory(categoryId: string, regulatoryListId: string): Promise<void> {
-    const mapping = await this.em.findOne(CategoryRegulatoryList, {
+  async removeRegulationFromCategory(categoryId: string, regulationId: string): Promise<void> {
+    const mapping = await this.em.findOne(CategoryRegulation, {
       category: { id: categoryId },
-      regulatoryList: { id: regulatoryListId },
+      regulation: { id: regulationId },
     });
 
     if (mapping) {
@@ -867,11 +869,11 @@ export class CategoryRegulatoryListService {
   /**
    * Get all mappings for a specific category (not inherited).
    */
-  async getDirectMappings(categoryId: string): Promise<CategoryRegulatoryList[]> {
+  async getDirectMappings(categoryId: string): Promise<CategoryRegulation[]> {
     return this.em.find(
-      CategoryRegulatoryList,
+      CategoryRegulation,
       { category: { id: categoryId } },
-      { populate: ['regulatoryList'] }
+      { populate: ['regulation'] }
     );
   }
 }
@@ -880,7 +882,7 @@ export class CategoryRegulatoryListService {
 **Step 4: Run test to verify it passes**
 
 ```bash
-cd packages/database && pnpm test CategoryRegulatoryListService.test.ts
+cd packages/database && pnpm test CategoryRegulationService.test.ts
 ```
 
 Expected: PASS (all tests)
@@ -890,38 +892,38 @@ Expected: PASS (all tests)
 ```typescript
 // packages/database/src/services/index.ts
 // Add to existing exports:
-export { CategoryRegulatoryListService } from './CategoryRegulatoryListService.js';
+export { CategoryRegulationService } from './CategoryRegulationService.js';
 ```
 
 ```bash
-git add packages/database/src/services/CategoryRegulatoryListService.ts packages/database/src/services/CategoryRegulatoryListService.test.ts packages/database/src/services/index.ts
-git commit -m "feat(database): add CategoryRegulatoryListService with LTREE inheritance"
+git add packages/database/src/services/CategoryRegulationService.ts packages/database/src/services/CategoryRegulationService.test.ts packages/database/src/services/index.ts
+git commit -m "feat(database): add CategoryRegulationService with LTREE inheritance"
 ```
 
 ---
 
-## Task 5: Add API Route for Category Lists
+## Task 5: Add API Route for Category Regulations
 
 **Files:**
-- Create: `apps/api/src/routes/taxonomy/category-lists.ts`
+- Create: `apps/api/src/routes/taxonomy/category-regulations.ts`
 - Modify: `apps/api/src/routes/taxonomy/index.ts`
 
 **Step 1: Create the router**
 
 ```typescript
-// apps/api/src/routes/taxonomy/category-lists.ts
+// apps/api/src/routes/taxonomy/category-regulations.ts
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import type { MikroORM } from '@mikro-orm/postgresql';
-import { CategoryRegulatoryListService } from '@eurocomply/database';
+import { CategoryRegulationService } from '@eurocomply/database';
 import type { Env } from '../../app.js';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-export interface CategoryListsRouterOptions {
+export interface CategoryRegulationsRouterOptions {
   orm: MikroORM;
 }
 
@@ -937,25 +939,25 @@ const pathParam = z.object({
 // Router
 // ============================================================================
 
-export function createCategoryListsRouter(options: CategoryListsRouterOptions): Hono<Env> {
+export function createCategoryRegulationsRouter(options: CategoryRegulationsRouterOptions): Hono<Env> {
   const { orm } = options;
   const router = new Hono<Env>();
 
-  // GET /taxonomy/categories/:path/regulatory-lists
-  // Get all regulatory lists applicable to a category (with inheritance)
-  router.get('/:path/regulatory-lists', async (c) => {
+  // GET /taxonomy/categories/:path/regulations
+  // Get all regulations applicable to a category (with inheritance)
+  router.get('/:path/regulations', async (c) => {
     const categoryPath = c.req.param('path');
     const em = orm.em.fork();
-    const service = new CategoryRegulatoryListService(em);
+    const service = new CategoryRegulationService(em);
 
     try {
-      const mappings = await service.getListsForCategory(categoryPath);
+      const mappings = await service.getRegulationsForCategory(categoryPath);
 
       return c.json({
         data: mappings.map(m => ({
-          listId: m.regulatoryList.id,
-          listCode: m.regulatoryList.code,
-          listName: m.regulatoryList.name,
+          regulationId: m.regulation.id,
+          regulationCode: m.regulation.code,
+          regulationName: m.regulation.name,
           requirement: m.requirement,
           matchedAt: m.category.path,
           depth: m.category.depth,
@@ -984,10 +986,10 @@ export function createCategoryListsRouter(options: CategoryListsRouterOptions): 
 ```typescript
 // apps/api/src/routes/taxonomy/index.ts
 // Add import:
-import { createCategoryListsRouter } from './category-lists.js';
+import { createCategoryRegulationsRouter } from './category-regulations.js';
 
 // Add route registration:
-taxonomy.route('/categories', createCategoryListsRouter({ orm }));
+taxonomy.route('/categories', createCategoryRegulationsRouter({ orm }));
 ```
 
 **Step 3: Verify build**
@@ -1001,8 +1003,8 @@ Expected: Build succeeds
 **Step 4: Commit**
 
 ```bash
-git add apps/api/src/routes/taxonomy/category-lists.ts apps/api/src/routes/taxonomy/index.ts
-git commit -m "feat(api): add category regulatory lists route with LTREE inheritance"
+git add apps/api/src/routes/taxonomy/category-regulations.ts apps/api/src/routes/taxonomy/index.ts
+git commit -m "feat(api): add category regulations route with LTREE inheritance"
 ```
 
 ---
@@ -1018,7 +1020,7 @@ git commit -m "feat(api): add category regulatory lists route with LTREE inherit
 ```typescript
 // packages/database/src/entities/enums/RegulationSource.ts
 export enum RegulationSource {
-  INHERITED = 'INHERITED',      // From system baseline (resolved from CategoryRegulatoryList)
+  INHERITED = 'INHERITED',      // From system baseline (resolved from CategoryRegulation)
   TENANT_ADDED = 'TENANT_ADDED',  // Tenant-specific addition
 }
 ```
@@ -1048,24 +1050,24 @@ git commit -m "feat(database): add RegulationSource enum (INHERITED, TENANT_ADDE
 
 ---
 
-## Task 7: Create TenantCategoryRegulatoryList Entity
+## Task 7: Create TenantRequirementExemption Entity
 
 **Files:**
-- Create: `packages/database/src/entities/tenant/TenantCategoryRegulatoryList.ts`
-- Test: `packages/database/src/entities/tenant/TenantCategoryRegulatoryList.test.ts`
+- Create: `packages/database/src/entities/tenant/TenantRequirementExemption.ts`
+- Test: `packages/database/src/entities/tenant/TenantRequirementExemption.test.ts`
 
 **Step 1: Write the failing test**
 
 ```typescript
-// packages/database/src/entities/tenant/TenantCategoryRegulatoryList.test.ts
+// packages/database/src/entities/tenant/TenantRequirementExemption.test.ts
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import type { MikroORM } from '@mikro-orm/postgresql';
 import { TenantCategory } from './TenantCategory.js';
-import { TenantCategoryRegulatoryList } from './TenantCategoryRegulatoryList.js';
+import { TenantRequirementExemption } from './TenantRequirementExemption.js';
 import { ListRequirement, RegulationSource } from '../enums/index.js';
 import { setupTestDb, teardownTestDb, isDatabaseAvailable } from '../../test-utils.js';
 
-describe('TenantCategoryRegulatoryList Entity', () => {
+describe('TenantRequirementExemption Entity', () => {
   let orm: MikroORM;
   let tenantCategoryId: string;
 
@@ -1081,7 +1083,7 @@ describe('TenantCategoryRegulatoryList Entity', () => {
   beforeEach(async () => {
     if (!orm) return;
     const em = orm.em.fork();
-    await em.nativeDelete(TenantCategoryRegulatoryList, {});
+    await em.nativeDelete(TenantRequirementExemption, {});
     await em.nativeDelete(TenantCategory, {});
 
     // Create tenant category
@@ -1095,22 +1097,22 @@ describe('TenantCategoryRegulatoryList Entity', () => {
     tenantCategoryId = tenantCategory.id;
   });
 
-  it('creates a tenant-added regulatory list mapping', async (context) => {
+  it('creates a tenant-added regulation mapping', async (context) => {
     if (!orm) { context.skip(); return; }
     const em = orm.em.fork();
 
     const tenantCatRef = await em.findOneOrFail(TenantCategory, { id: tenantCategoryId });
 
-    const mapping = em.create(TenantCategoryRegulatoryList, {
+    const mapping = em.create(TenantRequirementExemption, {
       tenantCategory: tenantCatRef,
-      regulatoryListId: 'reg-list-uuid',
+      regulationId: 'regulation-uuid',
       requirement: ListRequirement.RESTRICTION,
       source: RegulationSource.TENANT_ADDED,
     });
 
     await em.persistAndFlush(mapping);
 
-    const found = await em.findOneOrFail(TenantCategoryRegulatoryList, {
+    const found = await em.findOneOrFail(TenantRequirementExemption, {
       tenantCategory: tenantCatRef,
     });
 
@@ -1125,9 +1127,9 @@ describe('TenantCategoryRegulatoryList Entity', () => {
 
     const tenantCatRef = await em.findOneOrFail(TenantCategory, { id: tenantCategoryId });
 
-    const mapping = em.create(TenantCategoryRegulatoryList, {
+    const mapping = em.create(TenantRequirementExemption, {
       tenantCategory: tenantCatRef,
-      regulatoryListId: 'rohs-uuid',
+      regulationId: 'rohs-uuid',
       requirement: ListRequirement.RESTRICTION,
       source: RegulationSource.INHERITED,
       isExempted: true,
@@ -1139,7 +1141,7 @@ describe('TenantCategoryRegulatoryList Entity', () => {
 
     await em.persistAndFlush(mapping);
 
-    const found = await em.findOneOrFail(TenantCategoryRegulatoryList, {
+    const found = await em.findOneOrFail(TenantRequirementExemption, {
       tenantCategory: tenantCatRef,
     });
 
@@ -1156,9 +1158,9 @@ describe('TenantCategoryRegulatoryList Entity', () => {
 
     const tenantCatRef = await em.findOneOrFail(TenantCategory, { id: tenantCategoryId });
 
-    const mapping = em.create(TenantCategoryRegulatoryList, {
+    const mapping = em.create(TenantRequirementExemption, {
       tenantCategory: tenantCatRef,
-      regulatoryListId: 'reach-uuid',
+      regulationId: 'reach-uuid',
       requirement: ListRequirement.RESTRICTION,
       source: RegulationSource.INHERITED,
       overrideThreshold: '0.005',  // Stricter than the law
@@ -1166,22 +1168,22 @@ describe('TenantCategoryRegulatoryList Entity', () => {
 
     await em.persistAndFlush(mapping);
 
-    const found = await em.findOneOrFail(TenantCategoryRegulatoryList, {
+    const found = await em.findOneOrFail(TenantRequirementExemption, {
       tenantCategory: tenantCatRef,
     });
 
     expect(found.overrideThreshold).toBe('0.005');
   });
 
-  it('enforces unique constraint on tenantCategory + regulatoryListId', async (context) => {
+  it('enforces unique constraint on tenantCategory + regulationId', async (context) => {
     if (!orm) { context.skip(); return; }
     const em = orm.em.fork();
 
     const tenantCatRef = await em.findOneOrFail(TenantCategory, { id: tenantCategoryId });
 
-    const mapping1 = em.create(TenantCategoryRegulatoryList, {
+    const mapping1 = em.create(TenantRequirementExemption, {
       tenantCategory: tenantCatRef,
-      regulatoryListId: 'same-list-uuid',
+      regulationId: 'same-regulation-uuid',
       requirement: ListRequirement.RESTRICTION,
       source: RegulationSource.TENANT_ADDED,
     });
@@ -1190,9 +1192,9 @@ describe('TenantCategoryRegulatoryList Entity', () => {
     const em2 = orm.em.fork();
     const tenantCatRef2 = await em2.findOneOrFail(TenantCategory, { id: tenantCategoryId });
 
-    const mapping2 = em2.create(TenantCategoryRegulatoryList, {
+    const mapping2 = em2.create(TenantRequirementExemption, {
       tenantCategory: tenantCatRef2,
-      regulatoryListId: 'same-list-uuid',  // Same list
+      regulationId: 'same-regulation-uuid',  // Same regulation
       requirement: ListRequirement.PROHIBITION,
       source: RegulationSource.INHERITED,
     });
@@ -1205,15 +1207,15 @@ describe('TenantCategoryRegulatoryList Entity', () => {
 **Step 2: Run test to verify it fails**
 
 ```bash
-cd packages/database && pnpm test TenantCategoryRegulatoryList.test.ts
+cd packages/database && pnpm test TenantRequirementExemption.test.ts
 ```
 
-Expected: FAIL with "Cannot find module './TenantCategoryRegulatoryList.js'"
+Expected: FAIL with "Cannot find module './TenantRequirementExemption.js'"
 
 **Step 3: Write minimal implementation**
 
 ```typescript
-// packages/database/src/entities/tenant/TenantCategoryRegulatoryList.ts
+// packages/database/src/entities/tenant/TenantRequirementExemption.ts
 import {
   Entity,
   Property,
@@ -1226,9 +1228,9 @@ import { BaseEntity } from '../BaseEntity.js';
 import { TenantCategory } from './TenantCategory.js';
 import { ListRequirement, RegulationSource } from '../enums/index.js';
 
-@Entity({ tableName: 'tenant_category_regulatory_list' })
-@Unique({ properties: ['tenantCategory', 'regulatoryListId'] })
-export class TenantCategoryRegulatoryList extends BaseEntity {
+@Entity({ tableName: 'tenant_requirement_exemption' })
+@Unique({ properties: ['tenantCategory', 'regulationId'] })
+export class TenantRequirementExemption extends BaseEntity {
   /**
    * The tenant category this mapping applies to.
    */
@@ -1237,22 +1239,22 @@ export class TenantCategoryRegulatoryList extends BaseEntity {
   tenantCategory!: TenantCategory;
 
   /**
-   * Soft link to public.regulatory_list.
+   * Soft link to public.regulation.
    * Uses text ID instead of FK to avoid cross-schema constraints.
    */
-  @Property({ type: 'text', name: 'regulatory_list_id' })
+  @Property({ type: 'text', name: 'regulation_id' })
   @Index()
-  regulatoryListId!: string;
+  regulationId!: string;
 
   /**
-   * The type of requirement this list imposes.
+   * The type of requirement this regulation imposes.
    */
   @Enum({ items: () => ListRequirement })
   requirement!: ListRequirement;
 
   /**
    * Source of this regulation mapping.
-   * INHERITED = resolved from system baseline (CategoryRegulatoryList)
+   * INHERITED = resolved from system baseline (CategoryRegulation)
    * TENANT_ADDED = tenant-specific addition
    */
   @Enum({ items: () => RegulationSource })
@@ -1312,7 +1314,7 @@ export class TenantCategoryRegulatoryList extends BaseEntity {
 **Step 4: Run test to verify it passes**
 
 ```bash
-cd packages/database && pnpm test TenantCategoryRegulatoryList.test.ts
+cd packages/database && pnpm test TenantRequirementExemption.test.ts
 ```
 
 Expected: PASS (all tests)
@@ -1322,17 +1324,17 @@ Expected: PASS (all tests)
 ```typescript
 // packages/database/src/entities/tenant/index.ts
 // Add to existing exports:
-export { TenantCategoryRegulatoryList } from './TenantCategoryRegulatoryList.js';
+export { TenantRequirementExemption } from './TenantRequirementExemption.js';
 ```
 
 ```bash
-git add packages/database/src/entities/tenant/TenantCategoryRegulatoryList.ts packages/database/src/entities/tenant/TenantCategoryRegulatoryList.test.ts packages/database/src/entities/tenant/index.ts
-git commit -m "feat(database): add TenantCategoryRegulatoryList entity for tenant additions and exemptions"
+git add packages/database/src/entities/tenant/TenantRequirementExemption.ts packages/database/src/entities/tenant/TenantRequirementExemption.test.ts packages/database/src/entities/tenant/index.ts
+git commit -m "feat(database): add TenantRequirementExemption entity for tenant additions and exemptions"
 ```
 
 ---
 
-## Task 8: Create TenantCategoryRegulatoryList Migration
+## Task 8: Create TenantRequirementExemption Migration
 
 **Files:**
 - Modify: `packages/database/src/migrations/tenant/Migration_TenantSchema.ts` (or create new migration)
@@ -1342,10 +1344,10 @@ git commit -m "feat(database): add TenantCategoryRegulatoryList entity for tenan
 ```typescript
 // Add to tenant schema migration
 this.addSql(`
-  CREATE TABLE IF NOT EXISTS tenant_category_regulatory_list (
+  CREATE TABLE IF NOT EXISTS tenant_requirement_exemption (
     id TEXT PRIMARY KEY,
     tenant_category_id TEXT NOT NULL REFERENCES tenant_category(id) ON DELETE CASCADE,
-    regulatory_list_id TEXT NOT NULL,  -- Soft link to public.regulatory_list
+    regulation_id TEXT NOT NULL,  -- Soft link to public.regulation
     requirement TEXT NOT NULL CHECK (requirement IN ('PROHIBITION', 'RESTRICTION', 'DECLARATION')),
     source TEXT NOT NULL CHECK (source IN ('INHERITED', 'TENANT_ADDED')),
 
@@ -1362,7 +1364,7 @@ this.addSql(`
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
-    CONSTRAINT uq_tenant_cat_reg_list UNIQUE (tenant_category_id, regulatory_list_id),
+    CONSTRAINT uq_tenant_req_exemption UNIQUE (tenant_category_id, regulation_id),
     CONSTRAINT chk_exemption_reason CHECK (
       is_exempted = false OR exemption_reason IS NOT NULL
     )
@@ -1371,13 +1373,13 @@ this.addSql(`
 
 // Create indexes
 this.addSql(`
-  CREATE INDEX IF NOT EXISTS idx_tcrl_tenant_category
-    ON tenant_category_regulatory_list (tenant_category_id);
+  CREATE INDEX IF NOT EXISTS idx_tre_tenant_category
+    ON tenant_requirement_exemption (tenant_category_id);
 `);
 
 this.addSql(`
-  CREATE INDEX IF NOT EXISTS idx_tcrl_reg_list
-    ON tenant_category_regulatory_list (regulatory_list_id);
+  CREATE INDEX IF NOT EXISTS idx_tre_regulation
+    ON tenant_requirement_exemption (regulation_id);
 `);
 ```
 
@@ -1397,7 +1399,7 @@ Expected: Migration applies successfully
 
 ```bash
 git add packages/database/src/migrations/
-git commit -m "feat(database): add tenant_category_regulatory_list table migration"
+git commit -m "feat(database): add tenant_requirement_exemption table migration"
 ```
 
 ---
@@ -1415,8 +1417,8 @@ git commit -m "feat(database): add tenant_category_regulatory_list table migrati
 
 import { EntityManager } from '@mikro-orm/postgresql';
 import { TenantCategory } from '../entities/tenant/TenantCategory.js';
-import { TenantCategoryRegulatoryList } from '../entities/tenant/TenantCategoryRegulatoryList.js';
-import { CategoryRegulatoryList } from '../entities/CategoryRegulatoryList.js';
+import { TenantRequirementExemption } from '../entities/tenant/TenantRequirementExemption.js';
+import { CategoryRegulation } from '../entities/CategoryRegulation.js';
 import { ListRequirement, RegulationSource } from '../entities/enums/index.js';
 
 // ============================================================================
@@ -1424,8 +1426,8 @@ import { ListRequirement, RegulationSource } from '../entities/enums/index.js';
 // ============================================================================
 
 export interface EffectiveRegulation {
-  regulatoryListId: string;
-  regulatoryListCode: string;
+  regulationId: string;
+  regulationCode: string;
   source: 'SYSTEM' | 'TENANT';
   requirement: ListRequirement;
   status: 'ACTIVE' | 'EXEMPTED';
@@ -1461,9 +1463,9 @@ export class ComplianceStackResolver {
    * Resolve the effective compliance stack for a TenantCategory.
    *
    * Resolution order:
-   * 1. Get system baseline (from CategoryRegulatoryList via systemCategoryId)
-   * 2. Get tenant additions (TenantCategoryRegulatoryList where source = TENANT_ADDED)
-   * 3. Apply tenant exemptions (TenantCategoryRegulatoryList where isExempted = true)
+   * 1. Get system baseline (from CategoryRegulation via systemCategoryId)
+   * 2. Get tenant additions (TenantRequirementExemption where source = TENANT_ADDED)
+   * 3. Apply tenant exemptions (TenantRequirementExemption where isExempted = true)
    *
    * @param tenantCategoryId - The TenantCategory UUID
    * @returns Resolved compliance stack with effective regulations
@@ -1489,7 +1491,7 @@ export class ComplianceStackResolver {
 
     // Step 3: Get tenant overrides and additions
     const tenantRecords = await this.em.find(
-      TenantCategoryRegulatoryList,
+      TenantRequirementExemption,
       { tenantCategory: { id: tenantCategoryId } }
     );
 
@@ -1498,9 +1500,9 @@ export class ComplianceStackResolver {
 
     // Add system baseline first
     for (const baseline of systemBaseline) {
-      effectiveMap.set(baseline.regulatoryListId, {
-        regulatoryListId: baseline.regulatoryListId,
-        regulatoryListCode: baseline.regulatoryListCode,
+      effectiveMap.set(baseline.regulationId, {
+        regulationId: baseline.regulationId,
+        regulationCode: baseline.regulationCode,
         source: 'SYSTEM',
         requirement: baseline.requirement,
         status: 'ACTIVE',
@@ -1513,10 +1515,10 @@ export class ComplianceStackResolver {
     for (const record of tenantRecords) {
       if (record.source === RegulationSource.TENANT_ADDED) {
         // Tenant addition - new regulation
-        const listCode = await this.getListCode(record.regulatoryListId);
-        effectiveMap.set(record.regulatoryListId, {
-          regulatoryListId: record.regulatoryListId,
-          regulatoryListCode: listCode,
+        const regCode = await this.getRegulationCode(record.regulationId);
+        effectiveMap.set(record.regulationId, {
+          regulationId: record.regulationId,
+          regulationCode: regCode,
           source: 'TENANT',
           requirement: record.requirement,
           status: 'ACTIVE',
@@ -1525,7 +1527,7 @@ export class ComplianceStackResolver {
         });
       } else if (record.source === RegulationSource.INHERITED && record.isExempted) {
         // Exemption for system baseline
-        const existing = effectiveMap.get(record.regulatoryListId);
+        const existing = effectiveMap.get(record.regulationId);
         if (existing) {
           existing.status = 'EXEMPTED';
           existing.exemption = {
@@ -1547,8 +1549,8 @@ export class ComplianceStackResolver {
    * Uses LTREE inheritance if the category is adopted from a system category.
    */
   private async getSystemBaseline(tenantCategory: TenantCategory): Promise<Array<{
-    regulatoryListId: string;
-    regulatoryListCode: string;
+    regulationId: string;
+    regulationCode: string;
     requirement: ListRequirement;
     allowExemption: boolean;
     overrideThreshold?: string;
@@ -1557,34 +1559,34 @@ export class ComplianceStackResolver {
       return [];  // Custom category, no system baseline
     }
 
-    // Query CategoryRegulatoryList using LTREE inheritance
+    // Query CategoryRegulation using LTREE inheritance
     const rows = await this.em.getConnection().execute<Array<{
-      regulatory_list_id: string;
+      regulation_id: string;
       code: string;
       requirement: string;
       allow_tenant_exemption: boolean;
       compare_value_override: string | null;
     }>>(`
-      SELECT DISTINCT ON (crl.regulatory_list_id)
-        crl.regulatory_list_id,
-        rl.code,
-        crl.requirement,
-        crl.allow_tenant_exemption,
-        crl.compare_value_override
-      FROM public.category_regulatory_list crl
-      JOIN public.category c ON c.id = crl.category_id
-      JOIN public.regulatory_list rl ON rl.id = crl.regulatory_list_id
+      SELECT DISTINCT ON (cr.regulation_id)
+        cr.regulation_id,
+        r.code,
+        cr.requirement,
+        cr.allow_tenant_exemption,
+        cr.compare_value_override
+      FROM public.category_regulation cr
+      JOIN public.category c ON c.id = cr.category_id
+      JOIN public.regulation r ON r.id = cr.regulation_id
       WHERE c.path @> (
         SELECT path FROM public.category WHERE id = ?
       )::ltree
-        AND rl.is_current_version = true
-        AND crl.is_exclusion = false
-      ORDER BY crl.regulatory_list_id, c.depth DESC
+        AND r.is_current_version = true
+        AND cr.is_exclusion = false
+      ORDER BY cr.regulation_id, c.depth DESC
     `, [tenantCategory.systemCategoryId]);
 
     return rows.map(row => ({
-      regulatoryListId: row.regulatory_list_id,
-      regulatoryListCode: row.code,
+      regulationId: row.regulation_id,
+      regulationCode: row.code,
       requirement: row.requirement as ListRequirement,
       allowExemption: row.allow_tenant_exemption,
       overrideThreshold: row.compare_value_override ?? undefined,
@@ -1592,12 +1594,12 @@ export class ComplianceStackResolver {
   }
 
   /**
-   * Get regulatory list code by ID.
+   * Get regulation code by ID.
    */
-  private async getListCode(regulatoryListId: string): Promise<string> {
+  private async getRegulationCode(regulationId: string): Promise<string> {
     const [row] = await this.em.getConnection().execute<Array<{ code: string }>>(`
-      SELECT code FROM public.regulatory_list WHERE id = ?
-    `, [regulatoryListId]);
+      SELECT code FROM public.regulation WHERE id = ?
+    `, [regulationId]);
     return row?.code ?? 'UNKNOWN';
   }
 }
@@ -1610,10 +1612,10 @@ export class ComplianceStackResolver {
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import type { MikroORM } from '@mikro-orm/postgresql';
 import { Category, CategoryType } from '../entities/Category.js';
-import { RegulatoryList } from '../entities/RegulatoryList.js';
-import { CategoryRegulatoryList } from '../entities/CategoryRegulatoryList.js';
+import { Regulation } from '../entities/Regulation.js';
+import { CategoryRegulation } from '../entities/CategoryRegulation.js';
 import { TenantCategory } from '../entities/tenant/TenantCategory.js';
-import { TenantCategoryRegulatoryList } from '../entities/tenant/TenantCategoryRegulatoryList.js';
+import { TenantRequirementExemption } from '../entities/tenant/TenantRequirementExemption.js';
 import { ComplianceStackResolver } from './ComplianceStackResolver.js';
 import { ListRequirement, RegulationSource } from '../entities/enums/index.js';
 import { setupTestDb, teardownTestDb, isDatabaseAvailable } from '../test-utils.js';
@@ -1622,8 +1624,8 @@ describe('ComplianceStackResolver', () => {
   let orm: MikroORM;
   let systemCategoryId: string;
   let tenantCategoryId: string;
-  let reachListId: string;
-  let rohsListId: string;
+  let reachRegId: string;
+  let rohsRegId: string;
 
   beforeAll(async () => {
     if (!(await isDatabaseAvailable())) return;
@@ -1639,10 +1641,10 @@ describe('ComplianceStackResolver', () => {
     const em = orm.em.fork();
 
     // Clean up in order (respecting FKs)
-    await em.nativeDelete(TenantCategoryRegulatoryList, {});
+    await em.nativeDelete(TenantRequirementExemption, {});
     await em.nativeDelete(TenantCategory, {});
-    await em.nativeDelete(CategoryRegulatoryList, {});
-    await em.nativeDelete(RegulatoryList, {});
+    await em.nativeDelete(CategoryRegulation, {});
+    await em.nativeDelete(Regulation, {});
     await em.nativeDelete(Category, {});
 
     // Create system category
@@ -1653,8 +1655,8 @@ describe('ComplianceStackResolver', () => {
       depth: 1,
     });
 
-    // Create regulatory lists
-    const reachList = em.create(RegulatoryList, {
+    // Create regulations
+    const reachReg = em.create(Regulation, {
       code: 'REACH_SVHC',
       name: 'REACH SVHC',
       source: 'ECHA',
@@ -1663,7 +1665,7 @@ describe('ComplianceStackResolver', () => {
       isCurrentVersion: true,
     });
 
-    const rohsList = em.create(RegulatoryList, {
+    const rohsReg = em.create(Regulation, {
       code: 'ROHS_RESTRICTED',
       name: 'RoHS Restricted',
       source: 'EU_ROHS',
@@ -1672,23 +1674,23 @@ describe('ComplianceStackResolver', () => {
       isCurrentVersion: true,
     });
 
-    await em.persistAndFlush([systemCategory, reachList, rohsList]);
+    await em.persistAndFlush([systemCategory, reachReg, rohsReg]);
 
     systemCategoryId = systemCategory.id;
-    reachListId = reachList.id;
-    rohsListId = rohsList.id;
+    reachRegId = reachReg.id;
+    rohsRegId = rohsReg.id;
 
     // Create system baseline mappings
-    em.create(CategoryRegulatoryList, {
+    em.create(CategoryRegulation, {
       category: systemCategory,
-      regulatoryList: reachList,
+      regulation: reachReg,
       requirement: ListRequirement.RESTRICTION,
       allowTenantExemption: true,
     });
 
-    em.create(CategoryRegulatoryList, {
+    em.create(CategoryRegulation, {
       category: systemCategory,
-      regulatoryList: rohsList,
+      regulation: rohsReg,
       requirement: ListRequirement.RESTRICTION,
       allowTenantExemption: true,
     });
@@ -1717,7 +1719,7 @@ describe('ComplianceStackResolver', () => {
     expect(result.systemCategoryId).toBe(systemCategoryId);
     expect(result.effectiveRegulations).toHaveLength(2);
 
-    const reachReg = result.effectiveRegulations.find(r => r.regulatoryListCode === 'REACH_SVHC');
+    const reachReg = result.effectiveRegulations.find(r => r.regulationCode === 'REACH_SVHC');
     expect(reachReg).toBeDefined();
     expect(reachReg!.source).toBe('SYSTEM');
     expect(reachReg!.status).toBe('ACTIVE');
@@ -1729,9 +1731,9 @@ describe('ComplianceStackResolver', () => {
 
     // Add tenant-specific regulation
     const tenantCatRef = await em.findOneOrFail(TenantCategory, { id: tenantCategoryId });
-    em.create(TenantCategoryRegulatoryList, {
+    em.create(TenantRequirementExemption, {
       tenantCategory: tenantCatRef,
-      regulatoryListId: 'iec-62368-uuid',
+      regulationId: 'iec-62368-uuid',
       requirement: ListRequirement.RESTRICTION,
       source: RegulationSource.TENANT_ADDED,
     });
@@ -1744,7 +1746,7 @@ describe('ComplianceStackResolver', () => {
 
     const tenantReg = result.effectiveRegulations.find(r => r.source === 'TENANT');
     expect(tenantReg).toBeDefined();
-    expect(tenantReg!.regulatoryListId).toBe('iec-62368-uuid');
+    expect(tenantReg!.regulationId).toBe('iec-62368-uuid');
   });
 
   it('applies tenant exemptions', async (context) => {
@@ -1753,9 +1755,9 @@ describe('ComplianceStackResolver', () => {
 
     // Add exemption for RoHS
     const tenantCatRef = await em.findOneOrFail(TenantCategory, { id: tenantCategoryId });
-    em.create(TenantCategoryRegulatoryList, {
+    em.create(TenantRequirementExemption, {
       tenantCategory: tenantCatRef,
-      regulatoryListId: rohsListId,
+      regulationId: rohsRegId,
       requirement: ListRequirement.RESTRICTION,
       source: RegulationSource.INHERITED,
       isExempted: true,
@@ -1769,7 +1771,7 @@ describe('ComplianceStackResolver', () => {
     const resolver = new ComplianceStackResolver(em);
     const result = await resolver.resolve(tenantCategoryId);
 
-    const rohsReg = result.effectiveRegulations.find(r => r.regulatoryListCode === 'ROHS_RESTRICTED');
+    const rohsReg = result.effectiveRegulations.find(r => r.regulationCode === 'ROHS_RESTRICTED');
     expect(rohsReg).toBeDefined();
     expect(rohsReg!.status).toBe('EXEMPTED');
     expect(rohsReg!.exemption).toBeDefined();
@@ -1827,33 +1829,33 @@ git commit -m "feat(database): add ComplianceStackResolver for 3-layer complianc
 
 **Public Schema (System Baseline):**
 - `ListRequirement` enum (PROHIBITION, RESTRICTION, DECLARATION)
-- `CategoryRegulatoryList` entity with:
+- `CategoryRegulation` entity with:
   - Priority and exclusion support
   - CompareValue override for category-specific thresholds
   - `allowTenantExemption` guardrail flag
-- Database migration for `category_regulatory_list` table
-- `CategoryRegulatoryListService` with LTREE `@>` inheritance queries
-- API route for querying applicable lists by category path
+- Database migration for `category_regulation` table
+- `CategoryRegulationService` with LTREE `@>` inheritance queries
+- API route for querying applicable regulations by category path
 
 **Tenant Schema (Additions + Exemptions):**
 - `RegulationSource` enum (INHERITED, TENANT_ADDED)
-- `TenantCategoryRegulatoryList` entity with:
-  - Soft link to regulatory_list (no cross-schema FK)
+- `TenantRequirementExemption` entity with:
+  - Soft link to regulation (no cross-schema FK)
   - Exemption fields (reason, legalRef, exemptedBy, exemptedAt)
   - Override threshold support
-- Database migration for `tenant_category_regulatory_list` table
+- Database migration for `tenant_requirement_exemption` table
 
 **Compliance Stack Resolution:**
 - `ComplianceStackResolver` service implementing 3-layer resolution:
-  - Layer 1: System baseline from CategoryRegulatoryList
-  - Layer 2: Tenant additions from TenantCategoryRegulatoryList
-  - Layer 3: Tenant exemptions from TenantCategoryRegulatoryList
+  - Layer 1: System baseline from CategoryRegulation
+  - Layer 2: Tenant additions from TenantRequirementExemption
+  - Layer 3: Tenant exemptions from TenantRequirementExemption
 - `EffectiveRegulation` interface for resolved regulations
 - Full test coverage
 
 **Key Features:**
 - **Dual-layer architecture:** System baseline + tenant customization
-- **LTREE inheritance:** Child categories automatically inherit parent list mappings
+- **LTREE inheritance:** Child categories automatically inherit parent regulation mappings
 - **Guardrail protection:** System can mark regulations as non-exemptable
 - **Audit trail:** All exemptions require justification with user/timestamp
 - **Threshold overrides:** Tenants can be stricter (but not more lenient) than law
@@ -1862,29 +1864,29 @@ git commit -m "feat(database): add ComplianceStackResolver for 3-layer complianc
 **Implementation Refinements (for hardening):**
 
 1. **Stoichiometry & Threshold Fallback (Plan 14):**
-   - Plan 9/10 discussed adding a `stoichiometric_factor` to `RegulatoryListEntry`
+   - Plan 9/10 discussed adding a `stoichiometric_factor` to `Requirement`
    - The Evaluation Service (Plan 14) should implement this resolution hierarchy:
      ```
-     1. TenantCategoryRegulatoryList.overrideThreshold (if non-null)
-     2. CategoryRegulatoryList.compareValueOverride (if non-null)
-     3. RegulatoryListEntry.compareValue (default list entry compareValue)
+     1. TenantRequirementExemption.overrideThreshold (if non-null)
+     2. CategoryRegulation.compareValueOverride (if non-null)
+     3. Requirement.compareValue (default requirement compareValue)
      ```
-   - This allows tenant > category > list-entry threshold precedence
+   - This allows tenant > category > requirement threshold precedence
 
 2. **Temporal Scoping (Future Enhancement):**
-   - Current implementation filters `rl.is_current_version = true` (correct for 99% of use cases)
+   - Current implementation filters `r.is_current_version = true` (correct for 99% of use cases)
    - Future enhancement: Add optional `atDate?: Date` parameter to `ComplianceStackResolver.resolve()`
-   - This enables forensic auditing: "Which lists were scoped to this category on the day this product was manufactured 2 years ago?"
+   - This enables forensic auditing: "Which regulations were scoped to this category on the day this product was manufactured 2 years ago?"
 
 3. **FROZEN Mode Support (Plan 05):**
-   - When `CategoryAdoption.mode = FROZEN`, resolver should use `pinnedRegulatoryListIds[]`
+   - When `CategoryAdoption.mode = FROZEN`, resolver should use `pinnedRegulationIds[]`
    - This enables version pinning for predictable compliance evaluation
 
 **Next Plans:**
 - **Plan 05:** Category Service rewrite (split into admin/tenant services)
 - **Plan 12:** RegulatoryImportService (admin import pipeline)
 - **Plan 14:** Vertical rule evaluators (add JUSTIFIED_EXEMPTION status, threshold fallback)
-- **Plan 15:** Initial list seeders (populate CategoryRegulatoryList links)
+- **Plan 15:** Initial regulation seeders (populate CategoryRegulation links)
 
 ---
 

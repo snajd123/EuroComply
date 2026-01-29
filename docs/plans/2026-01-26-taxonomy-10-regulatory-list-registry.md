@@ -1,10 +1,12 @@
-# Taxonomy Plan 10: Regulatory List Registry
+# Taxonomy Plan 10: Regulation Registry
+
+> **IMPLEMENTED** - see [2026-01-28-compliance-architecture-revision.md](./2026-01-28-compliance-architecture-revision.md) for implementation details.
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Implement versioned RegulatoryList and RegulatoryListEntry entities for data-driven vertical compliance checking.
+**Goal:** Implement versioned Regulation and Requirement entities for data-driven vertical compliance checking.
 
-**Architecture:** Create `RegulatoryList` and `RegulatoryListEntry` entities in public schema. Lists are versioned (immutable once created). Entries link to Substances with forensic snapshots of CAS/name at import time. Service provides CRUD and version management.
+**Architecture:** Create `Regulation` and `Requirement` entities in public schema. Regulations are versioned (immutable once created). Requirements link to Substances with forensic snapshots of CAS/name at import time. Service provides CRUD and version management.
 
 **Tech Stack:** MikroORM, PostgreSQL, TypeScript
 
@@ -69,11 +71,11 @@ afterAll(async () => {
 ```
 
 ### Taxonomy Routes (Public - No Auth)
-RegulatoryLists are **public reference data** - no authentication required:
+Regulations are **public reference data** - no authentication required:
 ```typescript
 // File: apps/api/src/routes/taxonomy/index.ts
 const taxonomy = new Hono<Env>();
-taxonomy.route('/regulatory-lists', createRegulatoryListsRouter({ orm }));
+taxonomy.route('/regulations', createRegulationsRouter({ orm }));
 v1.route('/taxonomy', taxonomy);  // No middleware - public routes
 ```
 
@@ -87,8 +89,8 @@ c.json({ data: items, meta: { total: items.length } })
 c.json({ success: true, data: { ... } })
 
 // Errors (use exact format)
-c.json({ error: 'Not Found', message: 'Regulatory list not found: INVALID_CODE' }, 404)
-c.json({ error: 'Bad Request', message: 'Invalid list code format' }, 400)
+c.json({ error: 'Not Found', message: 'Regulation not found: INVALID_CODE' }, 404)
+c.json({ error: 'Bad Request', message: 'Invalid regulation code format' }, 400)
 ```
 
 ---
@@ -125,7 +127,7 @@ export enum ComparisonOperator {
 // packages/database/src/entities/enums/Severity.ts
 /**
  * Severity levels for compliance findings.
- * Stored in RegulatoryListEntry, used by evaluator.
+ * Stored in Requirement, used by evaluator.
  */
 export enum Severity {
   BLOCKER = 'BLOCKER',  // Blocks release/approval
@@ -160,22 +162,22 @@ git commit -m "feat(database): add ComparisonOperator and Severity enums for agn
 
 ---
 
-## Task 2: Create RegulatoryList Entity
+## Task 2: Create Regulation Entity
 
 **Files:**
-- Create: `packages/database/src/entities/RegulatoryList.ts`
-- Test: `packages/database/src/entities/RegulatoryList.test.ts`
+- Create: `packages/database/src/entities/Regulation.ts`
+- Test: `packages/database/src/entities/Regulation.test.ts`
 
 **Step 1: Write the failing test**
 
 ```typescript
-// packages/database/src/entities/RegulatoryList.test.ts
+// packages/database/src/entities/Regulation.test.ts
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import type { MikroORM } from '@mikro-orm/postgresql';
-import { RegulatoryList } from './RegulatoryList.js';
+import { Regulation } from './Regulation.js';
 import { setupTestDb, teardownTestDb, isDatabaseAvailable } from '../test-utils.js';
 
-describe('RegulatoryList Entity', () => {
+describe('Regulation Entity', () => {
   let orm: MikroORM;
 
   beforeAll(async () => {
@@ -190,14 +192,14 @@ describe('RegulatoryList Entity', () => {
   beforeEach(async () => {
     if (!orm) return;
     const em = orm.em.fork();
-    await em.nativeDelete(RegulatoryList, {});
+    await em.nativeDelete(Regulation, {});
   });
 
-  it('creates regulatory list with required fields', async (context) => {
+  it('creates regulation with required fields', async (context) => {
     if (!orm) { context.skip(); return; }
     const em = orm.em.fork();
 
-    const list = em.create(RegulatoryList, {
+    const regulation = em.create(Regulation, {
       code: 'COSING_ANNEX_II',
       name: 'CosIng Annex II - Prohibited Substances',
       source: 'EU_COSING',
@@ -206,9 +208,9 @@ describe('RegulatoryList Entity', () => {
       sourceUrl: 'https://ec.europa.eu/growth/tools-databases/cosing/',
     });
 
-    await em.persistAndFlush(list);
+    await em.persistAndFlush(regulation);
 
-    const found = await em.findOneOrFail(RegulatoryList, { code: 'COSING_ANNEX_II' });
+    const found = await em.findOneOrFail(Regulation, { code: 'COSING_ANNEX_II' });
     expect(found.name).toBe('CosIng Annex II - Prohibited Substances');
     expect(found.source).toBe('EU_COSING');
     expect(found.version).toBe('2024-06');
@@ -220,17 +222,17 @@ describe('RegulatoryList Entity', () => {
     if (!orm) { context.skip(); return; }
     const em = orm.em.fork();
 
-    const list1 = em.create(RegulatoryList, {
+    const reg1 = em.create(Regulation, {
       code: 'REACH_SVHC',
       name: 'REACH SVHC Candidate List',
       source: 'ECHA',
       version: '2024-01',
       effectiveDate: new Date('2024-01-15'),
     });
-    await em.persistAndFlush(list1);
+    await em.persistAndFlush(reg1);
 
     const em2 = orm.em.fork();
-    const list2 = em2.create(RegulatoryList, {
+    const reg2 = em2.create(Regulation, {
       code: 'REACH_SVHC',
       name: 'REACH SVHC Candidate List',
       source: 'ECHA',
@@ -238,14 +240,14 @@ describe('RegulatoryList Entity', () => {
       effectiveDate: new Date('2024-01-15'),
     });
 
-    await expect(em2.persistAndFlush(list2)).rejects.toThrow();
+    await expect(em2.persistAndFlush(reg2)).rejects.toThrow();
   });
 
   it('allows same code with different versions', async (context) => {
     if (!orm) { context.skip(); return; }
     const em = orm.em.fork();
 
-    const v1 = em.create(RegulatoryList, {
+    const v1 = em.create(Regulation, {
       code: 'ROHS_RESTRICTED',
       name: 'RoHS Restricted Substances',
       source: 'EU_ROHS',
@@ -254,7 +256,7 @@ describe('RegulatoryList Entity', () => {
       isCurrentVersion: false,
     });
 
-    const v2 = em.create(RegulatoryList, {
+    const v2 = em.create(Regulation, {
       code: 'ROHS_RESTRICTED',
       name: 'RoHS Restricted Substances',
       source: 'EU_ROHS',
@@ -265,7 +267,7 @@ describe('RegulatoryList Entity', () => {
 
     await em.persistAndFlush([v1, v2]);
 
-    const versions = await em.find(RegulatoryList, { code: 'ROHS_RESTRICTED' });
+    const versions = await em.find(Regulation, { code: 'ROHS_RESTRICTED' });
     expect(versions).toHaveLength(2);
   });
 
@@ -273,7 +275,7 @@ describe('RegulatoryList Entity', () => {
     if (!orm) { context.skip(); return; }
     const em = orm.em.fork();
 
-    const v1 = em.create(RegulatoryList, {
+    const v1 = em.create(Regulation, {
       code: 'EFSA_LIMITS',
       name: 'EFSA Migration Limits',
       source: 'EU_EFSA',
@@ -284,7 +286,7 @@ describe('RegulatoryList Entity', () => {
     });
     await em.persistAndFlush(v1);
 
-    const v2 = em.create(RegulatoryList, {
+    const v2 = em.create(Regulation, {
       code: 'EFSA_LIMITS',
       name: 'EFSA Migration Limits',
       source: 'EU_EFSA',
@@ -295,7 +297,7 @@ describe('RegulatoryList Entity', () => {
     });
     await em.persistAndFlush(v2);
 
-    const current = await em.findOneOrFail(RegulatoryList, {
+    const current = await em.findOneOrFail(Regulation, {
       code: 'EFSA_LIMITS',
       isCurrentVersion: true,
     }, { populate: ['previousVersion'] });
@@ -304,11 +306,11 @@ describe('RegulatoryList Entity', () => {
     expect(current.previousVersion?.version).toBe('2023-01');
   });
 
-  it('creates list with allowTenantExemption: false and verifies persistence', async (context) => {
+  it('creates regulation with allowTenantExemption: false and verifies persistence', async (context) => {
     if (!orm) { context.skip(); return; }
     const em = orm.em.fork();
 
-    const list = em.create(RegulatoryList, {
+    const regulation = em.create(Regulation, {
       code: 'COSING_ANNEX_II_PROHIBITED',
       name: 'CosIng Annex II - Prohibited (No Exemptions)',
       source: 'EU_COSING',
@@ -317,9 +319,9 @@ describe('RegulatoryList Entity', () => {
       allowTenantExemption: false,  // Prohibited substances cannot be exempted
     });
 
-    await em.persistAndFlush(list);
+    await em.persistAndFlush(regulation);
 
-    const found = await em.findOneOrFail(RegulatoryList, { code: 'COSING_ANNEX_II_PROHIBITED' });
+    const found = await em.findOneOrFail(Regulation, { code: 'COSING_ANNEX_II_PROHIBITED' });
     expect(found.allowTenantExemption).toBe(false);
   });
 
@@ -327,7 +329,7 @@ describe('RegulatoryList Entity', () => {
     if (!orm) { context.skip(); return; }
     const em = orm.em.fork();
 
-    const list = em.create(RegulatoryList, {
+    const regulation = em.create(Regulation, {
       code: 'REACH_AUTHORIZATION',
       name: 'REACH Authorization List',
       source: 'ECHA',
@@ -336,9 +338,9 @@ describe('RegulatoryList Entity', () => {
       // allowTenantExemption not specified - should default to true
     });
 
-    await em.persistAndFlush(list);
+    await em.persistAndFlush(regulation);
 
-    const found = await em.findOneOrFail(RegulatoryList, { code: 'REACH_AUTHORIZATION' });
+    const found = await em.findOneOrFail(Regulation, { code: 'REACH_AUTHORIZATION' });
     expect(found.allowTenantExemption).toBe(true);
   });
 });
@@ -347,15 +349,15 @@ describe('RegulatoryList Entity', () => {
 **Step 2: Run test to verify it fails**
 
 ```bash
-cd packages/database && pnpm test RegulatoryList.test.ts
+cd packages/database && pnpm test Regulation.test.ts
 ```
 
-Expected: FAIL with "Cannot find module './RegulatoryList.js'"
+Expected: FAIL with "Cannot find module './Regulation.js'"
 
 **Step 3: Write minimal implementation**
 
 ```typescript
-// packages/database/src/entities/RegulatoryList.ts
+// packages/database/src/entities/Regulation.ts
 import {
   Entity,
   Property,
@@ -367,9 +369,9 @@ import {
 } from '@mikro-orm/core';
 import { BaseEntity } from './BaseEntity.js';
 
-@Entity({ tableName: 'regulatory_list', schema: 'public' })
+@Entity({ tableName: 'regulation', schema: 'public' })
 @Unique({ properties: ['code', 'version'] })
-export class RegulatoryList extends BaseEntity {
+export class Regulation extends BaseEntity {
   /**
    * Stable identifier for this regulatory framework.
    * Examples: 'COSING_ANNEX_II', 'REACH_SVHC', 'ROHS_RESTRICTED'
@@ -440,19 +442,19 @@ export class RegulatoryList extends BaseEntity {
   allowTenantExemption: boolean = true;
 
   /**
-   * Link to the previous version of this list for history traversal.
+   * Link to the previous version of this regulation for history traversal.
    */
-  @ManyToOne(() => RegulatoryList, { nullable: true, name: 'previous_version_id' })
-  previousVersion?: RegulatoryList;
+  @ManyToOne(() => Regulation, { nullable: true, name: 'previous_version_id' })
+  previousVersion?: Regulation;
 
-  // Note: entries collection will be added when RegulatoryListEntry is created
+  // Note: requirements collection will be added when Requirement is created
 }
 ```
 
 **Step 4: Run test to verify it passes**
 
 ```bash
-cd packages/database && pnpm test RegulatoryList.test.ts
+cd packages/database && pnpm test Regulation.test.ts
 ```
 
 Expected: PASS (all tests)
@@ -462,38 +464,38 @@ Expected: PASS (all tests)
 ```typescript
 // packages/database/src/entities/index.ts
 // Add to existing exports:
-export { RegulatoryList } from './RegulatoryList.js';
+export { Regulation } from './Regulation.js';
 ```
 
 ```bash
-git add packages/database/src/entities/RegulatoryList.ts packages/database/src/entities/RegulatoryList.test.ts packages/database/src/entities/index.ts
-git commit -m "feat(database): add RegulatoryList entity with versioning support"
+git add packages/database/src/entities/Regulation.ts packages/database/src/entities/Regulation.test.ts packages/database/src/entities/index.ts
+git commit -m "feat(database): add Regulation entity with versioning support"
 ```
 
 ---
 
-## Task 3: Create RegulatoryListEntry Entity
+## Task 3: Create Requirement Entity
 
 **Files:**
-- Create: `packages/database/src/entities/RegulatoryListEntry.ts`
-- Test: `packages/database/src/entities/RegulatoryListEntry.test.ts`
-- Modify: `packages/database/src/entities/RegulatoryList.ts` (add entries collection)
+- Create: `packages/database/src/entities/Requirement.ts`
+- Test: `packages/database/src/entities/Requirement.test.ts`
+- Modify: `packages/database/src/entities/Regulation.ts` (add requirements collection)
 
 **Step 1: Write the failing test**
 
 ```typescript
-// packages/database/src/entities/RegulatoryListEntry.test.ts
+// packages/database/src/entities/Requirement.test.ts
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import type { MikroORM } from '@mikro-orm/postgresql';
-import { RegulatoryList } from './RegulatoryList.js';
-import { RegulatoryListEntry } from './RegulatoryListEntry.js';
+import { Regulation } from './Regulation.js';
+import { Requirement } from './Requirement.js';
 import { Substance } from './Substance.js';
 import { ComparisonOperator, Severity } from './enums/index.js';
 import { setupTestDb, teardownTestDb, isDatabaseAvailable } from '../test-utils.js';
 
-describe('RegulatoryListEntry Entity', () => {
+describe('Requirement Entity', () => {
   let orm: MikroORM;
-  let listId: string;
+  let regulationId: string;
   let substanceId: string;
 
   beforeAll(async () => {
@@ -508,14 +510,14 @@ describe('RegulatoryListEntry Entity', () => {
   beforeEach(async () => {
     if (!orm) return;
     const em = orm.em.fork();
-    await em.nativeDelete(RegulatoryListEntry, {});
-    await em.nativeDelete(RegulatoryList, {});
+    await em.nativeDelete(Requirement, {});
+    await em.nativeDelete(Regulation, {});
     await em.nativeDelete(Substance, {});
 
-    // Create test list
-    const list = em.create(RegulatoryList, {
-      code: 'TEST_LIST',
-      name: 'Test Regulatory List',
+    // Create test regulation
+    const regulation = em.create(Regulation, {
+      code: 'TEST_REG',
+      name: 'Test Regulation',
       source: 'TEST',
       version: '2024-01',
       effectiveDate: new Date('2024-01-01'),
@@ -527,20 +529,20 @@ describe('RegulatoryListEntry Entity', () => {
       primaryName: 'Formaldehyde',
     });
 
-    await em.persistAndFlush([list, substance]);
-    listId = list.id;
+    await em.persistAndFlush([regulation, substance]);
+    regulationId = regulation.id;
     substanceId = substance.id;
   });
 
-  it('creates entry with PRESENT operator (prohibited substance)', async (context) => {
+  it('creates requirement with PRESENT operator (prohibited substance)', async (context) => {
     if (!orm) { context.skip(); return; }
     const em = orm.em.fork();
 
-    const listRef = await em.findOneOrFail(RegulatoryList, { id: listId });
+    const regulationRef = await em.findOneOrFail(Regulation, { id: regulationId });
     const substanceRef = await em.findOneOrFail(Substance, { id: substanceId });
 
-    const entry = em.create(RegulatoryListEntry, {
-      list: listRef,
+    const requirement = em.create(Requirement, {
+      regulation: regulationRef,
       substance: substanceRef,
       casNumberSnapshot: '50-00-0',
       substanceNameSnapshot: 'Formaldehyde',
@@ -551,10 +553,10 @@ describe('RegulatoryListEntry Entity', () => {
       legalReference: 'Entry 1577',
     });
 
-    await em.persistAndFlush(entry);
+    await em.persistAndFlush(requirement);
 
-    const found = await em.findOneOrFail(RegulatoryListEntry, {
-      list: listRef,
+    const found = await em.findOneOrFail(Requirement, {
+      regulation: regulationRef,
       substance: substanceRef,
     });
 
@@ -566,15 +568,15 @@ describe('RegulatoryListEntry Entity', () => {
     expect(found.legalReference).toBe('Entry 1577');
   });
 
-  it('creates entry with GT operator (threshold restriction)', async (context) => {
+  it('creates requirement with GT operator (threshold restriction)', async (context) => {
     if (!orm) { context.skip(); return; }
     const em = orm.em.fork();
 
-    const listRef = await em.findOneOrFail(RegulatoryList, { id: listId });
+    const regulationRef = await em.findOneOrFail(Regulation, { id: regulationId });
     const substanceRef = await em.findOneOrFail(Substance, { id: substanceId });
 
-    const entry = em.create(RegulatoryListEntry, {
-      list: listRef,
+    const requirement = em.create(Requirement, {
+      regulation: regulationRef,
       substance: substanceRef,
       casNumberSnapshot: '50-00-0',
       substanceNameSnapshot: 'Formaldehyde',
@@ -585,24 +587,24 @@ describe('RegulatoryListEntry Entity', () => {
       legalReference: 'Annex XVII Entry 28',
     });
 
-    await em.persistAndFlush(entry);
+    await em.persistAndFlush(requirement);
 
-    const found = await em.findOneOrFail(RegulatoryListEntry, { list: listRef });
+    const found = await em.findOneOrFail(Requirement, { regulation: regulationRef });
     expect(found.operator).toBe(ComparisonOperator.GT);
     expect(found.compareValue).toBe('0.1');
     expect(found.issueType).toBe('CHEMICAL_LIMIT_EXCEEDED');
     expect(found.severity).toBe(Severity.WARNING);
   });
 
-  it('creates entry with conditional restriction and conditions JSONB', async (context) => {
+  it('creates requirement with conditional restriction and conditions JSONB', async (context) => {
     if (!orm) { context.skip(); return; }
     const em = orm.em.fork();
 
-    const listRef = await em.findOneOrFail(RegulatoryList, { id: listId });
+    const regulationRef = await em.findOneOrFail(Regulation, { id: regulationId });
     const substanceRef = await em.findOneOrFail(Substance, { id: substanceId });
 
-    const entry = em.create(RegulatoryListEntry, {
-      list: listRef,
+    const requirement = em.create(Requirement, {
+      regulation: regulationRef,
       substance: substanceRef,
       casNumberSnapshot: '50-00-0',
       substanceNameSnapshot: 'Formaldehyde',
@@ -617,9 +619,9 @@ describe('RegulatoryListEntry Entity', () => {
       legalReference: 'CosIng Annex III Entry 13',
     });
 
-    await em.persistAndFlush(entry);
+    await em.persistAndFlush(requirement);
 
-    const found = await em.findOneOrFail(RegulatoryListEntry, { list: listRef });
+    const found = await em.findOneOrFail(Requirement, { regulation: regulationRef });
     expect(found.operator).toBe(ComparisonOperator.GT);
     expect(found.conditions).toEqual({
       application_area: 'spray_products',
@@ -627,15 +629,15 @@ describe('RegulatoryListEntry Entity', () => {
     });
   });
 
-  it('enforces unique constraint on list + substance', async (context) => {
+  it('enforces unique constraint on regulation + substance', async (context) => {
     if (!orm) { context.skip(); return; }
     const em = orm.em.fork();
 
-    const listRef = await em.findOneOrFail(RegulatoryList, { id: listId });
+    const regulationRef = await em.findOneOrFail(Regulation, { id: regulationId });
     const substanceRef = await em.findOneOrFail(Substance, { id: substanceId });
 
-    const entry1 = em.create(RegulatoryListEntry, {
-      list: listRef,
+    const req1 = em.create(Requirement, {
+      regulation: regulationRef,
       substance: substanceRef,
       casNumberSnapshot: '50-00-0',
       substanceNameSnapshot: 'Formaldehyde',
@@ -643,15 +645,15 @@ describe('RegulatoryListEntry Entity', () => {
       issueType: 'PROHIBITED_SUBSTANCE',
       severity: Severity.BLOCKER,
     });
-    await em.persistAndFlush(entry1);
+    await em.persistAndFlush(req1);
 
     const em2 = orm.em.fork();
-    const listRef2 = await em2.findOneOrFail(RegulatoryList, { id: listId });
+    const regulationRef2 = await em2.findOneOrFail(Regulation, { id: regulationId });
     const substanceRef2 = await em2.findOneOrFail(Substance, { id: substanceId });
 
-    const entry2 = em2.create(RegulatoryListEntry, {
-      list: listRef2,
-      substance: substanceRef2,  // Same list + substance - should fail
+    const req2 = em2.create(Requirement, {
+      regulation: regulationRef2,
+      substance: substanceRef2,  // Same regulation + substance - should fail
       casNumberSnapshot: '50-00-0',
       substanceNameSnapshot: 'Formaldehyde',
       operator: ComparisonOperator.GT,
@@ -660,18 +662,18 @@ describe('RegulatoryListEntry Entity', () => {
       severity: Severity.WARNING,
     });
 
-    await expect(em2.persistAndFlush(entry2)).rejects.toThrow();
+    await expect(em2.persistAndFlush(req2)).rejects.toThrow();
   });
 
   it('preserves snapshot when substance is updated', async (context) => {
     if (!orm) { context.skip(); return; }
     const em = orm.em.fork();
 
-    const listRef = await em.findOneOrFail(RegulatoryList, { id: listId });
+    const regulationRef = await em.findOneOrFail(Regulation, { id: regulationId });
     const substanceRef = await em.findOneOrFail(Substance, { id: substanceId });
 
-    const entry = em.create(RegulatoryListEntry, {
-      list: listRef,
+    const requirement = em.create(Requirement, {
+      regulation: regulationRef,
       substance: substanceRef,
       casNumberSnapshot: '50-00-0',
       substanceNameSnapshot: 'Formaldehyde',  // Snapshot at creation time
@@ -679,14 +681,14 @@ describe('RegulatoryListEntry Entity', () => {
       issueType: 'PROHIBITED_SUBSTANCE',
       severity: Severity.BLOCKER,
     });
-    await em.persistAndFlush(entry);
+    await em.persistAndFlush(requirement);
 
     // Update substance name
     substanceRef.primaryName = 'Methanal';  // IUPAC name
     await em.persistAndFlush(substanceRef);
 
     // Snapshot should be unchanged
-    const found = await em.findOneOrFail(RegulatoryListEntry, { list: listRef });
+    const found = await em.findOneOrFail(Requirement, { regulation: regulationRef });
     expect(found.substanceNameSnapshot).toBe('Formaldehyde');  // Original name preserved
   });
 });
@@ -695,15 +697,15 @@ describe('RegulatoryListEntry Entity', () => {
 **Step 2: Run test to verify it fails**
 
 ```bash
-cd packages/database && pnpm test RegulatoryListEntry.test.ts
+cd packages/database && pnpm test Requirement.test.ts
 ```
 
-Expected: FAIL with "Cannot find module './RegulatoryListEntry.js'"
+Expected: FAIL with "Cannot find module './Requirement.js'"
 
 **Step 3: Write minimal implementation**
 
 ```typescript
-// packages/database/src/entities/RegulatoryListEntry.ts
+// packages/database/src/entities/Requirement.ts
 import {
   Entity,
   Property,
@@ -713,19 +715,19 @@ import {
   Index,
 } from '@mikro-orm/core';
 import { BaseEntity } from './BaseEntity.js';
-import { RegulatoryList } from './RegulatoryList.js';
+import { Regulation } from './Regulation.js';
 import { Substance } from './Substance.js';
 import { ComparisonOperator, Severity } from './enums/index.js';
 
-@Entity({ tableName: 'regulatory_list_entry', schema: 'public' })
-@Unique({ properties: ['list', 'substance'] })
-@Index({ properties: ['list'] })
-export class RegulatoryListEntry extends BaseEntity {
+@Entity({ tableName: 'requirement', schema: 'public' })
+@Unique({ properties: ['regulation', 'substance'] })
+@Index({ properties: ['regulation'] })
+export class Requirement extends BaseEntity {
   /**
-   * The regulatory list this entry belongs to.
+   * The regulation this requirement belongs to.
    */
-  @ManyToOne(() => RegulatoryList, { name: 'list_id' })
-  list!: RegulatoryList;
+  @ManyToOne(() => Regulation, { name: 'regulation_id' })
+  regulation!: Regulation;
 
   /**
    * Live reference to the substance (for joins and lookups).
@@ -832,26 +834,26 @@ export class RegulatoryListEntry extends BaseEntity {
 }
 ```
 
-**Step 4: Update RegulatoryList with entries collection**
+**Step 4: Update Regulation with requirements collection**
 
 ```typescript
-// packages/database/src/entities/RegulatoryList.ts
+// packages/database/src/entities/Regulation.ts
 // Add import at top:
-import { RegulatoryListEntry } from './RegulatoryListEntry.js';
+import { Requirement } from './Requirement.js';
 
 // Add at end of class, before closing brace:
 
   /**
-   * Entries (substance restrictions) in this list.
+   * Requirements (substance restrictions) in this regulation.
    */
-  @OneToMany(() => RegulatoryListEntry, entry => entry.list)
-  entries = new Collection<RegulatoryListEntry>(this);
+  @OneToMany(() => Requirement, req => req.regulation)
+  requirements = new Collection<Requirement>(this);
 ```
 
 **Step 5: Run test to verify it passes**
 
 ```bash
-cd packages/database && pnpm test RegulatoryListEntry.test.ts
+cd packages/database && pnpm test Requirement.test.ts
 ```
 
 Expected: PASS (all tests)
@@ -861,32 +863,32 @@ Expected: PASS (all tests)
 ```typescript
 // packages/database/src/entities/index.ts
 // Add to existing exports:
-export { RegulatoryListEntry } from './RegulatoryListEntry.js';
+export { Requirement } from './Requirement.js';
 ```
 
 ```bash
-git add packages/database/src/entities/RegulatoryListEntry.ts packages/database/src/entities/RegulatoryListEntry.test.ts packages/database/src/entities/RegulatoryList.ts packages/database/src/entities/index.ts
-git commit -m "feat(database): add RegulatoryListEntry entity with forensic snapshots"
+git add packages/database/src/entities/Requirement.ts packages/database/src/entities/Requirement.test.ts packages/database/src/entities/Regulation.ts packages/database/src/entities/index.ts
+git commit -m "feat(database): add Requirement entity with forensic snapshots"
 ```
 
 ---
 
-## Task 4: Create RegulatoryList Migration
+## Task 4: Create Regulation Migration
 
 **Files:**
-- Create: `packages/database/src/migrations/Migration20260126_RegulatoryList.ts`
+- Create: `packages/database/src/migrations/Migration20260126_Regulation.ts`
 
 **Step 1: Create the migration**
 
 ```typescript
-// packages/database/src/migrations/Migration20260126_RegulatoryList.ts
+// packages/database/src/migrations/Migration20260126_Regulation.ts
 import { Migration } from '@mikro-orm/migrations';
 
-export class Migration20260126_RegulatoryList extends Migration {
+export class Migration20260126_Regulation extends Migration {
   async up(): Promise<void> {
-    // Create regulatory_list table
+    // Create regulation table
     this.addSql(`
-      CREATE TABLE IF NOT EXISTS public.regulatory_list (
+      CREATE TABLE IF NOT EXISTS public.regulation (
         id TEXT PRIMARY KEY,
         code TEXT NOT NULL,
         name TEXT NOT NULL,
@@ -898,30 +900,30 @@ export class Migration20260126_RegulatoryList extends Migration {
         source_url TEXT,
         description TEXT,
         allow_tenant_exemption BOOLEAN NOT NULL DEFAULT true,
-        previous_version_id TEXT REFERENCES public.regulatory_list(id),
+        previous_version_id TEXT REFERENCES public.regulation(id),
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        CONSTRAINT uq_regulatory_list_code_version UNIQUE (code, version)
+        CONSTRAINT uq_regulation_code_version UNIQUE (code, version)
       );
     `);
 
     // Create indexes
     this.addSql(`
-      CREATE INDEX IF NOT EXISTS idx_regulatory_list_code
-        ON public.regulatory_list (code);
+      CREATE INDEX IF NOT EXISTS idx_regulation_code
+        ON public.regulation (code);
     `);
 
     this.addSql(`
-      CREATE INDEX IF NOT EXISTS idx_regulatory_list_current
-        ON public.regulatory_list (code)
+      CREATE INDEX IF NOT EXISTS idx_regulation_current
+        ON public.regulation (code)
         WHERE is_current_version = true;
     `);
 
-    // Create regulatory_list_entry table with agnostic evaluation fields
+    // Create requirement table with agnostic evaluation fields
     this.addSql(`
-      CREATE TABLE IF NOT EXISTS public.regulatory_list_entry (
+      CREATE TABLE IF NOT EXISTS public.requirement (
         id TEXT PRIMARY KEY,
-        list_id TEXT NOT NULL REFERENCES public.regulatory_list(id) ON DELETE CASCADE,
+        regulation_id TEXT NOT NULL REFERENCES public.regulation(id) ON DELETE CASCADE,
         substance_id TEXT NOT NULL REFERENCES public.substance(id),
         cas_number_snapshot TEXT NOT NULL,
         substance_name_snapshot TEXT NOT NULL,
@@ -942,30 +944,30 @@ export class Migration20260126_RegulatoryList extends Migration {
 
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        CONSTRAINT uq_regulatory_list_entry_list_substance UNIQUE (list_id, substance_id)
+        CONSTRAINT uq_requirement_regulation_substance UNIQUE (regulation_id, substance_id)
       );
     `);
 
-    // Create indexes for entry lookups
+    // Create indexes for requirement lookups
     this.addSql(`
-      CREATE INDEX IF NOT EXISTS idx_regulatory_list_entry_list
-        ON public.regulatory_list_entry (list_id);
+      CREATE INDEX IF NOT EXISTS idx_requirement_regulation
+        ON public.requirement (regulation_id);
     `);
 
     this.addSql(`
-      CREATE INDEX IF NOT EXISTS idx_regulatory_list_entry_substance
-        ON public.regulatory_list_entry (substance_id);
+      CREATE INDEX IF NOT EXISTS idx_requirement_substance
+        ON public.requirement (substance_id);
     `);
 
     this.addSql(`
-      CREATE INDEX IF NOT EXISTS idx_regulatory_list_entry_cas
-        ON public.regulatory_list_entry (cas_number_snapshot);
+      CREATE INDEX IF NOT EXISTS idx_requirement_cas
+        ON public.requirement (cas_number_snapshot);
     `);
   }
 
   async down(): Promise<void> {
-    this.addSql('DROP TABLE IF EXISTS public.regulatory_list_entry;');
-    this.addSql('DROP TABLE IF EXISTS public.regulatory_list;');
+    this.addSql('DROP TABLE IF EXISTS public.requirement;');
+    this.addSql('DROP TABLE IF EXISTS public.regulation;');
   }
 }
 ```
@@ -989,32 +991,32 @@ Expected: No pending changes (schema is in sync)
 **Step 4: Commit**
 
 ```bash
-git add packages/database/src/migrations/Migration20260126_RegulatoryList.ts
-git commit -m "feat(database): add migration for regulatory_list and regulatory_list_entry tables"
+git add packages/database/src/migrations/Migration20260126_Regulation.ts
+git commit -m "feat(database): add migration for regulation and requirement tables"
 ```
 
 ---
 
-## Task 5: Create RegulatoryListService
+## Task 5: Create RegulationService
 
 **Files:**
-- Create: `packages/database/src/services/RegulatoryListService.ts`
-- Test: `packages/database/src/services/RegulatoryListService.test.ts`
+- Create: `packages/database/src/services/RegulationService.ts`
+- Test: `packages/database/src/services/RegulationService.test.ts`
 
 **Step 1: Write the failing test**
 
 ```typescript
-// packages/database/src/services/RegulatoryListService.test.ts
+// packages/database/src/services/RegulationService.test.ts
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import type { MikroORM } from '@mikro-orm/postgresql';
-import { RegulatoryList } from '../entities/RegulatoryList.js';
-import { RegulatoryListEntry } from '../entities/RegulatoryListEntry.js';
+import { Regulation } from '../entities/Regulation.js';
+import { Requirement } from '../entities/Requirement.js';
 import { Substance } from '../entities/Substance.js';
-import { RegulatoryListService } from './RegulatoryListService.js';
+import { RegulationService } from './RegulationService.js';
 import { ComparisonOperator, Severity } from '../entities/enums/index.js';
 import { setupTestDb, teardownTestDb, isDatabaseAvailable } from '../test-utils.js';
 
-describe('RegulatoryListService', () => {
+describe('RegulationService', () => {
   let orm: MikroORM;
 
   beforeAll(async () => {
@@ -1029,18 +1031,18 @@ describe('RegulatoryListService', () => {
   beforeEach(async () => {
     if (!orm) return;
     const em = orm.em.fork();
-    await em.nativeDelete(RegulatoryListEntry, {});
-    await em.nativeDelete(RegulatoryList, {});
+    await em.nativeDelete(Requirement, {});
+    await em.nativeDelete(Regulation, {});
     await em.nativeDelete(Substance, {});
   });
 
-  describe('createList', () => {
-    it('creates a new regulatory list', async (context) => {
+  describe('createRegulation', () => {
+    it('creates a new regulation', async (context) => {
       if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
-      const svc = new RegulatoryListService(em);
+      const svc = new RegulationService(em);
 
-      const list = await svc.createList({
+      const regulation = await svc.createRegulation({
         code: 'COSING_ANNEX_II',
         name: 'CosIng Annex II - Prohibited Substances',
         source: 'EU_COSING',
@@ -1049,20 +1051,20 @@ describe('RegulatoryListService', () => {
         sourceUrl: 'https://ec.europa.eu/cosing/',
       });
 
-      expect(list.id).toBeDefined();
-      expect(list.code).toBe('COSING_ANNEX_II');
-      expect(list.isCurrentVersion).toBe(true);
+      expect(regulation.id).toBeDefined();
+      expect(regulation.code).toBe('COSING_ANNEX_II');
+      expect(regulation.isCurrentVersion).toBe(true);
     });
   });
 
   describe('getCurrentVersion', () => {
-    it('returns the current version of a list', async (context) => {
+    it('returns the current version of a regulation', async (context) => {
       if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
-      const svc = new RegulatoryListService(em);
+      const svc = new RegulationService(em);
 
       // Create two versions
-      await svc.createList({
+      await svc.createRegulation({
         code: 'REACH_SVHC',
         name: 'REACH SVHC',
         source: 'ECHA',
@@ -1071,7 +1073,7 @@ describe('RegulatoryListService', () => {
         isCurrentVersion: false,
       });
 
-      await svc.createList({
+      await svc.createRegulation({
         code: 'REACH_SVHC',
         name: 'REACH SVHC',
         source: 'ECHA',
@@ -1084,41 +1086,41 @@ describe('RegulatoryListService', () => {
       expect(current?.version).toBe('2024-01');
     });
 
-    it('returns null for non-existent list', async (context) => {
+    it('returns null for non-existent regulation', async (context) => {
       if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
-      const svc = new RegulatoryListService(em);
+      const svc = new RegulationService(em);
 
       const result = await svc.getCurrentVersion('NONEXISTENT');
       expect(result).toBeNull();
     });
   });
 
-  describe('getListsByCodes', () => {
+  describe('getRegulationsByCodes', () => {
     it('returns current versions for multiple codes', async (context) => {
       if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
-      const svc = new RegulatoryListService(em);
+      const svc = new RegulationService(em);
 
-      await svc.createList({
-        code: 'LIST_A',
-        name: 'List A',
+      await svc.createRegulation({
+        code: 'REG_A',
+        name: 'Regulation A',
         source: 'TEST',
         version: '2024-01',
         effectiveDate: new Date('2024-01-01'),
       });
 
-      await svc.createList({
-        code: 'LIST_B',
-        name: 'List B',
+      await svc.createRegulation({
+        code: 'REG_B',
+        name: 'Regulation B',
         source: 'TEST',
         version: '2024-01',
         effectiveDate: new Date('2024-01-01'),
       });
 
-      const lists = await svc.getListsByCodes(['LIST_A', 'LIST_B']);
-      expect(lists).toHaveLength(2);
-      expect(lists.map(l => l.code).sort()).toEqual(['LIST_A', 'LIST_B']);
+      const regulations = await svc.getRegulationsByCodes(['REG_A', 'REG_B']);
+      expect(regulations).toHaveLength(2);
+      expect(regulations.map(r => r.code).sort()).toEqual(['REG_A', 'REG_B']);
     });
   });
 
@@ -1126,10 +1128,10 @@ describe('RegulatoryListService', () => {
     it('returns all versions ordered by effective date', async (context) => {
       if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
-      const svc = new RegulatoryListService(em);
+      const svc = new RegulationService(em);
 
-      await svc.createList({
-        code: 'VERSIONED_LIST',
+      await svc.createRegulation({
+        code: 'VERSIONED_REG',
         name: 'Test',
         source: 'TEST',
         version: '2022-01',
@@ -1137,8 +1139,8 @@ describe('RegulatoryListService', () => {
         isCurrentVersion: false,
       });
 
-      await svc.createList({
-        code: 'VERSIONED_LIST',
+      await svc.createRegulation({
+        code: 'VERSIONED_REG',
         name: 'Test',
         source: 'TEST',
         version: '2023-01',
@@ -1146,8 +1148,8 @@ describe('RegulatoryListService', () => {
         isCurrentVersion: false,
       });
 
-      await svc.createList({
-        code: 'VERSIONED_LIST',
+      await svc.createRegulation({
+        code: 'VERSIONED_REG',
         name: 'Test',
         source: 'TEST',
         version: '2024-01',
@@ -1155,22 +1157,22 @@ describe('RegulatoryListService', () => {
         isCurrentVersion: true,
       });
 
-      const versions = await svc.getVersionHistory('VERSIONED_LIST');
+      const versions = await svc.getVersionHistory('VERSIONED_REG');
       expect(versions).toHaveLength(3);
       expect(versions[0].version).toBe('2024-01');  // Most recent first
       expect(versions[2].version).toBe('2022-01');
     });
   });
 
-  describe('getEntriesForList', () => {
-    it('returns all entries for a list', async (context) => {
+  describe('getRequirementsForRegulation', () => {
+    it('returns all requirements for a regulation', async (context) => {
       if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
-      const svc = new RegulatoryListService(em);
+      const svc = new RegulationService(em);
 
-      // Create list
-      const list = await svc.createList({
-        code: 'TEST_LIST',
+      // Create regulation
+      const regulation = await svc.createRegulation({
+        code: 'TEST_REG',
         name: 'Test',
         source: 'TEST',
         version: '2024-01',
@@ -1182,8 +1184,8 @@ describe('RegulatoryListService', () => {
       const s2 = em.create(Substance, { casNumber: '75-56-9', primaryName: 'Propylene oxide' });
       await em.persistAndFlush([s1, s2]);
 
-      // Add entries with agnostic evaluation fields
-      await svc.addEntry(list.id, {
+      // Add requirements with agnostic evaluation fields
+      await svc.addRequirement(regulation.id, {
         substanceId: s1.id,
         operator: ComparisonOperator.PRESENT,
         issueType: 'PROHIBITED_SUBSTANCE',
@@ -1191,7 +1193,7 @@ describe('RegulatoryListService', () => {
         legalReference: 'Entry 1',
       });
 
-      await svc.addEntry(list.id, {
+      await svc.addRequirement(regulation.id, {
         substanceId: s2.id,
         operator: ComparisonOperator.GT,
         compareValue: '0.1',
@@ -1200,8 +1202,8 @@ describe('RegulatoryListService', () => {
         legalReference: 'Entry 2',
       });
 
-      const entries = await svc.getEntriesForList(list.id);
-      expect(entries).toHaveLength(2);
+      const requirements = await svc.getRequirementsForRegulation(regulation.id);
+      expect(requirements).toHaveLength(2);
     });
   });
 
@@ -1209,10 +1211,10 @@ describe('RegulatoryListService', () => {
     it('returns version effective at a specific date', async (context) => {
       if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
-      const svc = new RegulatoryListService(em);
+      const svc = new RegulationService(em);
 
-      const v1 = await svc.createList({
-        code: 'TEMPORAL_LIST',
+      const v1 = await svc.createRegulation({
+        code: 'TEMPORAL_REG',
         name: 'Test',
         source: 'TEST',
         version: '2023-01',
@@ -1224,8 +1226,8 @@ describe('RegulatoryListService', () => {
       v1.supersededDate = new Date('2024-01-01');
       await em.persistAndFlush(v1);
 
-      await svc.createList({
-        code: 'TEMPORAL_LIST',
+      await svc.createRegulation({
+        code: 'TEMPORAL_REG',
         name: 'Test',
         source: 'TEST',
         version: '2024-01',
@@ -1234,11 +1236,11 @@ describe('RegulatoryListService', () => {
       });
 
       // Query for date in 2023 - should get v2023
-      const pastVersion = await svc.getVersionAtDate('TEMPORAL_LIST', new Date('2023-06-15'));
+      const pastVersion = await svc.getVersionAtDate('TEMPORAL_REG', new Date('2023-06-15'));
       expect(pastVersion?.version).toBe('2023-01');
 
       // Query for date in 2024 - should get v2024
-      const currentVersion = await svc.getVersionAtDate('TEMPORAL_LIST', new Date('2024-06-15'));
+      const currentVersion = await svc.getVersionAtDate('TEMPORAL_REG', new Date('2024-06-15'));
       expect(currentVersion?.version).toBe('2024-01');
     });
   });
@@ -1248,22 +1250,22 @@ describe('RegulatoryListService', () => {
 **Step 2: Run test to verify it fails**
 
 ```bash
-cd packages/database && pnpm test RegulatoryListService.test.ts
+cd packages/database && pnpm test RegulationService.test.ts
 ```
 
-Expected: FAIL with "Cannot find module './RegulatoryListService.js'"
+Expected: FAIL with "Cannot find module './RegulationService.js'"
 
 **Step 3: Write minimal implementation**
 
 ```typescript
-// packages/database/src/services/RegulatoryListService.ts
+// packages/database/src/services/RegulationService.ts
 import { EntityManager } from '@mikro-orm/postgresql';
-import { RegulatoryList } from '../entities/RegulatoryList.js';
-import { RegulatoryListEntry } from '../entities/RegulatoryListEntry.js';
+import { Regulation } from '../entities/Regulation.js';
+import { Requirement } from '../entities/Requirement.js';
 import { Substance } from '../entities/Substance.js';
 import { ComparisonOperator, Severity } from '../entities/enums/index.js';
 
-export interface CreateListInput {
+export interface CreateRegulationInput {
   code: string;
   name: string;
   source: string;
@@ -1276,7 +1278,7 @@ export interface CreateListInput {
   previousVersionId?: string;
 }
 
-export interface AddEntryInput {
+export interface AddRequirementInput {
   substanceId: string;
   // Agnostic evaluation fields
   operator: ComparisonOperator;
@@ -1290,14 +1292,14 @@ export interface AddEntryInput {
   notes?: string;
 }
 
-export class RegulatoryListService {
+export class RegulationService {
   constructor(private readonly em: EntityManager) {}
 
   /**
-   * Create a new regulatory list version.
+   * Create a new regulation version.
    */
-  async createList(input: CreateListInput): Promise<RegulatoryList> {
-    const list = this.em.create(RegulatoryList, {
+  async createRegulation(input: CreateRegulationInput): Promise<Regulation> {
+    const regulation = this.em.create(Regulation, {
       code: input.code,
       name: input.name,
       source: input.source,
@@ -1310,54 +1312,54 @@ export class RegulatoryListService {
     });
 
     if (input.previousVersionId) {
-      const previous = await this.em.findOne(RegulatoryList, { id: input.previousVersionId });
+      const previous = await this.em.findOne(Regulation, { id: input.previousVersionId });
       if (previous) {
-        list.previousVersion = previous;
+        regulation.previousVersion = previous;
       }
     }
 
-    await this.em.persistAndFlush(list);
-    return list;
+    await this.em.persistAndFlush(regulation);
+    return regulation;
   }
 
   /**
-   * Get the current (latest) version of a list by code.
+   * Get the current (latest) version of a regulation by code.
    */
-  async getCurrentVersion(code: string): Promise<RegulatoryList | null> {
-    return this.em.findOne(RegulatoryList, {
+  async getCurrentVersion(code: string): Promise<Regulation | null> {
+    return this.em.findOne(Regulation, {
       code,
       isCurrentVersion: true,
     });
   }
 
   /**
-   * Get current versions for multiple list codes.
+   * Get current versions for multiple regulation codes.
    */
-  async getListsByCodes(codes: string[]): Promise<RegulatoryList[]> {
-    return this.em.find(RegulatoryList, {
+  async getRegulationsByCodes(codes: string[]): Promise<Regulation[]> {
+    return this.em.find(Regulation, {
       code: { $in: codes },
       isCurrentVersion: true,
     });
   }
 
   /**
-   * Get all versions of a list, ordered by effective date (newest first).
+   * Get all versions of a regulation, ordered by effective date (newest first).
    */
-  async getVersionHistory(code: string): Promise<RegulatoryList[]> {
+  async getVersionHistory(code: string): Promise<Regulation[]> {
     return this.em.find(
-      RegulatoryList,
+      Regulation,
       { code },
       { orderBy: { effectiveDate: 'DESC' } }
     );
   }
 
   /**
-   * Get the version of a list that was effective at a specific date.
+   * Get the version of a regulation that was effective at a specific date.
    * Used for forensic/point-in-time compliance queries.
    */
-  async getVersionAtDate(code: string, date: Date): Promise<RegulatoryList | null> {
+  async getVersionAtDate(code: string, date: Date): Promise<Regulation | null> {
     return this.em.findOne(
-      RegulatoryList,
+      Regulation,
       {
         code,
         effectiveDate: { $lte: date },
@@ -1371,14 +1373,14 @@ export class RegulatoryListService {
   }
 
   /**
-   * Add an entry (substance restriction) to a list.
+   * Add a requirement (substance restriction) to a regulation.
    */
-  async addEntry(listId: string, input: AddEntryInput): Promise<RegulatoryListEntry> {
-    const list = await this.em.findOneOrFail(RegulatoryList, { id: listId });
+  async addRequirement(regulationId: string, input: AddRequirementInput): Promise<Requirement> {
+    const regulation = await this.em.findOneOrFail(Regulation, { id: regulationId });
     const substance = await this.em.findOneOrFail(Substance, { id: input.substanceId });
 
-    const entry = this.em.create(RegulatoryListEntry, {
-      list,
+    const requirement = this.em.create(Requirement, {
+      regulation,
       substance,
       casNumberSnapshot: substance.casNumber,
       substanceNameSnapshot: substance.primaryName,
@@ -1394,46 +1396,46 @@ export class RegulatoryListService {
       notes: input.notes,
     });
 
-    await this.em.persistAndFlush(entry);
-    return entry;
+    await this.em.persistAndFlush(requirement);
+    return requirement;
   }
 
   /**
-   * Get all entries for a list.
+   * Get all requirements for a regulation.
    */
-  async getEntriesForList(
-    listId: string,
+  async getRequirementsForRegulation(
+    regulationId: string,
     options?: { populate?: boolean }
-  ): Promise<RegulatoryListEntry[]> {
+  ): Promise<Requirement[]> {
     return this.em.find(
-      RegulatoryListEntry,
-      { list: { id: listId } },
+      Requirement,
+      { regulation: { id: regulationId } },
       { populate: options?.populate ? ['substance'] : [] }
     );
   }
 
   /**
-   * Get entries for multiple lists (used during evaluation).
+   * Get requirements for multiple regulations (used during evaluation).
    */
-  async getEntriesForLists(listIds: string[]): Promise<RegulatoryListEntry[]> {
+  async getRequirementsForRegulations(regulationIds: string[]): Promise<Requirement[]> {
     return this.em.find(
-      RegulatoryListEntry,
-      { list: { id: { $in: listIds } } },
+      Requirement,
+      { regulation: { id: { $in: regulationIds } } },
       { populate: ['substance'] }
     );
   }
 
   /**
-   * Find entries by CAS number across all current lists.
+   * Find requirements by CAS number across all current regulations.
    */
-  async findEntriesByCas(casNumber: string): Promise<RegulatoryListEntry[]> {
+  async findRequirementsByCas(casNumber: string): Promise<Requirement[]> {
     return this.em.find(
-      RegulatoryListEntry,
+      Requirement,
       {
         casNumberSnapshot: casNumber,
-        list: { isCurrentVersion: true },
+        regulation: { isCurrentVersion: true },
       },
-      { populate: ['list'] }
+      { populate: ['regulation'] }
     );
   }
 }
@@ -1442,7 +1444,7 @@ export class RegulatoryListService {
 **Step 4: Run test to verify it passes**
 
 ```bash
-cd packages/database && pnpm test RegulatoryListService.test.ts
+cd packages/database && pnpm test RegulationService.test.ts
 ```
 
 Expected: PASS (all tests)
@@ -1451,38 +1453,38 @@ Expected: PASS (all tests)
 
 ```typescript
 // packages/database/src/services/index.ts (create if doesn't exist)
-export { RegulatoryListService } from './RegulatoryListService.js';
+export { RegulationService } from './RegulationService.js';
 ```
 
 ```bash
-git add packages/database/src/services/RegulatoryListService.ts packages/database/src/services/RegulatoryListService.test.ts packages/database/src/services/index.ts
-git commit -m "feat(database): add RegulatoryListService with version management"
+git add packages/database/src/services/RegulationService.ts packages/database/src/services/RegulationService.test.ts packages/database/src/services/index.ts
+git commit -m "feat(database): add RegulationService with version management"
 ```
 
 ---
 
-## Task 6: Create RegulatoryList API Routes
+## Task 6: Create Regulation API Routes
 
 **Files:**
-- Create: `apps/api/src/routes/taxonomy/regulatory-lists.ts`
+- Create: `apps/api/src/routes/taxonomy/regulations.ts`
 - Modify: `apps/api/src/routes/taxonomy/index.ts`
 
 **Step 1: Create the router**
 
 ```typescript
-// apps/api/src/routes/taxonomy/regulatory-lists.ts
+// apps/api/src/routes/taxonomy/regulations.ts
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import type { MikroORM } from '@mikro-orm/postgresql';
-import { RegulatoryList, RegulatoryListService } from '@eurocomply/database';
+import { Regulation, RegulationService } from '@eurocomply/database';
 import type { Env } from '../../app.js';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-export interface RegulatoryListsRouterOptions {
+export interface RegulationsRouterOptions {
   orm: MikroORM;
 }
 
@@ -1490,11 +1492,11 @@ export interface RegulatoryListsRouterOptions {
 // Schemas
 // ============================================================================
 
-const listQuery = z.object({
+const regulationQuery = z.object({
   source: z.string().optional(),
 });
 
-const entriesQuery = z.object({
+const requirementsQuery = z.object({
   operator: z.enum(['GT', 'GTE', 'LT', 'LTE', 'EQ', 'PRESENT', 'ABSENT']).optional(),
   severity: z.enum(['BLOCKER', 'WARNING', 'INFO']).optional(),
 });
@@ -1503,78 +1505,78 @@ const entriesQuery = z.object({
 // Router
 // ============================================================================
 
-export function createRegulatoryListsRouter(options: RegulatoryListsRouterOptions): Hono<Env> {
+export function createRegulationsRouter(options: RegulationsRouterOptions): Hono<Env> {
   const { orm } = options;
   const router = new Hono<Env>();
 
-  // GET /taxonomy/regulatory-lists
-  // List all current regulatory lists
-  router.get('/', zValidator('query', listQuery), async (c) => {
+  // GET /taxonomy/regulations
+  // List all current regulations
+  router.get('/', zValidator('query', regulationQuery), async (c) => {
     const query = c.req.valid('query');
     const em = orm.em.fork();
 
     const where: Record<string, unknown> = { isCurrentVersion: true };
     if (query.source) where.source = query.source;
 
-    const lists = await em.find(RegulatoryList, where, { orderBy: { code: 'ASC' } });
+    const regulations = await em.find(Regulation, where, { orderBy: { code: 'ASC' } });
 
     return c.json({
-      data: lists.map(l => ({
-        id: l.id,
-        code: l.code,
-        name: l.name,
-        source: l.source,
-        version: l.version,
-        effectiveDate: l.effectiveDate.toISOString(),
-        sourceUrl: l.sourceUrl,
-        allowTenantExemption: l.allowTenantExemption,
+      data: regulations.map(r => ({
+        id: r.id,
+        code: r.code,
+        name: r.name,
+        source: r.source,
+        version: r.version,
+        effectiveDate: r.effectiveDate.toISOString(),
+        sourceUrl: r.sourceUrl,
+        allowTenantExemption: r.allowTenantExemption,
       })),
-      meta: { total: lists.length },
+      meta: { total: regulations.length },
     });
   });
 
-  // GET /taxonomy/regulatory-lists/:code
-  // Get current version of a specific list
+  // GET /taxonomy/regulations/:code
+  // Get current version of a specific regulation
   router.get('/:code', async (c) => {
     const code = c.req.param('code').toUpperCase();
     const em = orm.em.fork();
-    const service = new RegulatoryListService(em);
+    const service = new RegulationService(em);
 
-    const list = await service.getCurrentVersion(code);
-    if (!list) {
+    const regulation = await service.getCurrentVersion(code);
+    if (!regulation) {
       return c.json(
-        { error: 'Not Found', message: `Regulatory list not found: ${code}` },
+        { error: 'Not Found', message: `Regulation not found: ${code}` },
         404
       );
     }
 
     return c.json({
       data: {
-        id: list.id,
-        code: list.code,
-        name: list.name,
-        source: list.source,
-        version: list.version,
-        effectiveDate: list.effectiveDate.toISOString(),
-        supersededDate: list.supersededDate?.toISOString(),
-        sourceUrl: list.sourceUrl,
-        description: list.description,
-        allowTenantExemption: list.allowTenantExemption,
+        id: regulation.id,
+        code: regulation.code,
+        name: regulation.name,
+        source: regulation.source,
+        version: regulation.version,
+        effectiveDate: regulation.effectiveDate.toISOString(),
+        supersededDate: regulation.supersededDate?.toISOString(),
+        sourceUrl: regulation.sourceUrl,
+        description: regulation.description,
+        allowTenantExemption: regulation.allowTenantExemption,
       },
     });
   });
 
-  // GET /taxonomy/regulatory-lists/:code/versions
-  // Get version history for a list
+  // GET /taxonomy/regulations/:code/versions
+  // Get version history for a regulation
   router.get('/:code/versions', async (c) => {
     const code = c.req.param('code').toUpperCase();
     const em = orm.em.fork();
-    const service = new RegulatoryListService(em);
+    const service = new RegulationService(em);
 
     const versions = await service.getVersionHistory(code);
     if (versions.length === 0) {
       return c.json(
-        { error: 'Not Found', message: `Regulatory list not found: ${code}` },
+        { error: 'Not Found', message: `Regulation not found: ${code}` },
         404
       );
     }
@@ -1591,48 +1593,48 @@ export function createRegulatoryListsRouter(options: RegulatoryListsRouterOption
     });
   });
 
-  // GET /taxonomy/regulatory-lists/:code/entries
-  // Get entries for current version of a list
-  router.get('/:code/entries', zValidator('query', entriesQuery), async (c) => {
+  // GET /taxonomy/regulations/:code/requirements
+  // Get requirements for current version of a regulation
+  router.get('/:code/requirements', zValidator('query', requirementsQuery), async (c) => {
     const code = c.req.param('code').toUpperCase();
     const query = c.req.valid('query');
     const em = orm.em.fork();
-    const service = new RegulatoryListService(em);
+    const service = new RegulationService(em);
 
-    const list = await service.getCurrentVersion(code);
-    if (!list) {
+    const regulation = await service.getCurrentVersion(code);
+    if (!regulation) {
       return c.json(
-        { error: 'Not Found', message: `Regulatory list not found: ${code}` },
+        { error: 'Not Found', message: `Regulation not found: ${code}` },
         404
       );
     }
 
-    let entries = await service.getEntriesForList(list.id, { populate: true });
+    let requirements = await service.getRequirementsForRegulation(regulation.id, { populate: true });
 
     // Filter by operator or severity if provided
     if (query.operator) {
-      entries = entries.filter(e => e.operator === query.operator);
+      requirements = requirements.filter(r => r.operator === query.operator);
     }
     if (query.severity) {
-      entries = entries.filter(e => e.severity === query.severity);
+      requirements = requirements.filter(r => r.severity === query.severity);
     }
 
     return c.json({
-      data: entries.map(e => ({
-        id: e.id,
-        casNumber: e.casNumberSnapshot,
-        substanceName: e.substanceNameSnapshot,
+      data: requirements.map(r => ({
+        id: r.id,
+        casNumber: r.casNumberSnapshot,
+        substanceName: r.substanceNameSnapshot,
         // Agnostic evaluation fields
-        operator: e.operator,
-        compareValue: e.compareValue,
-        issueType: e.issueType,
-        severity: e.severity,
+        operator: r.operator,
+        compareValue: r.compareValue,
+        issueType: r.issueType,
+        severity: r.severity,
         // Optional
-        stoichiometricFactor: e.stoichiometricFactor,
-        conditions: e.conditions,
-        legalReference: e.legalReference,
+        stoichiometricFactor: r.stoichiometricFactor,
+        conditions: r.conditions,
+        legalReference: r.legalReference,
       })),
-      meta: { total: entries.length },
+      meta: { total: requirements.length },
     });
   });
 
@@ -1645,10 +1647,10 @@ export function createRegulatoryListsRouter(options: RegulatoryListsRouterOption
 ```typescript
 // apps/api/src/routes/taxonomy/index.ts
 // Add import:
-import { createRegulatoryListsRouter } from './regulatory-lists.js';
+import { createRegulationsRouter } from './regulations.js';
 
 // Add route registration (after existing taxonomy routes):
-taxonomy.route('/regulatory-lists', createRegulatoryListsRouter({ orm }));
+taxonomy.route('/regulations', createRegulationsRouter({ orm }));
 ```
 
 **Step 4: Verify build**
@@ -1662,8 +1664,8 @@ Expected: Build succeeds
 **Step 5: Commit**
 
 ```bash
-git add apps/api/src/routes/taxonomy/regulatory-lists.ts apps/api/src/routes/taxonomy/index.ts
-git commit -m "feat(api): add regulatory-lists public taxonomy routes"
+git add apps/api/src/routes/taxonomy/regulations.ts apps/api/src/routes/taxonomy/index.ts
+git commit -m "feat(api): add regulations public taxonomy routes"
 ```
 
 ---
@@ -1671,20 +1673,20 @@ git commit -m "feat(api): add regulatory-lists public taxonomy routes"
 ## Task 7: Integration Test
 
 **Files:**
-- Create: `apps/api/src/routes/taxonomy/regulatory-lists.test.ts`
+- Create: `apps/api/src/routes/taxonomy/regulations.test.ts`
 
 **Step 1: Write integration test**
 
 ```typescript
-// apps/api/src/routes/taxonomy/regulatory-lists.integration.test.ts
+// apps/api/src/routes/taxonomy/regulations.integration.test.ts
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Hono } from 'hono';
 import type { MikroORM } from '@mikro-orm/postgresql';
-import { RegulatoryList, RegulatoryListEntry, Substance, ComparisonOperator, Severity } from '@eurocomply/database';
+import { Regulation, Requirement, Substance, ComparisonOperator, Severity } from '@eurocomply/database';
 import { setupTestDb, teardownTestDb, isDatabaseAvailable } from '@eurocomply/database/test-utils';
-import { createRegulatoryListsRouter } from './regulatory-lists.js';
+import { createRegulationsRouter } from './regulations.js';
 
-interface ListResponse {
+interface RegulationResponse {
   data: Array<{ code: string; name: string; version: string }>;
   meta: { total: number };
 }
@@ -1693,7 +1695,7 @@ interface SingleResponse {
   data: { code: string; name: string; version: string };
 }
 
-interface EntriesResponse {
+interface RequirementsResponse {
   data: Array<{
     casNumber: string;
     substanceName: string;
@@ -1710,7 +1712,7 @@ interface ErrorResponse {
   message: string;
 }
 
-describe('Regulatory Lists API Integration', () => {
+describe('Regulations API Integration', () => {
   let orm: MikroORM;
   let app: Hono;
 
@@ -1719,7 +1721,7 @@ describe('Regulatory Lists API Integration', () => {
 
     orm = await setupTestDb();
     app = new Hono();
-    app.route('/regulatory-lists', createRegulatoryListsRouter({ orm }));
+    app.route('/regulations', createRegulationsRouter({ orm }));
   });
 
   afterAll(async () => {
@@ -1729,14 +1731,14 @@ describe('Regulatory Lists API Integration', () => {
   beforeEach(async () => {
     if (!orm) return;
     const em = orm.em.fork();
-    await em.nativeDelete(RegulatoryListEntry, {});
-    await em.nativeDelete(RegulatoryList, {});
+    await em.nativeDelete(Requirement, {});
+    await em.nativeDelete(Regulation, {});
     await em.nativeDelete(Substance, {});
 
     // Seed test data
-    const list = em.create(RegulatoryList, {
+    const regulation = em.create(Regulation, {
       code: 'TEST_COSING',
-      name: 'Test CosIng List',
+      name: 'Test CosIng Regulation',
       source: 'EU_COSING',
       version: '2024-06',
       effectiveDate: new Date('2024-06-01'),
@@ -1748,10 +1750,10 @@ describe('Regulatory Lists API Integration', () => {
       primaryName: 'Formaldehyde',
     });
 
-    await em.persistAndFlush([list, substance]);
+    await em.persistAndFlush([regulation, substance]);
 
-    const entry = em.create(RegulatoryListEntry, {
-      list,
+    const requirement = em.create(Requirement, {
+      regulation,
       substance,
       casNumberSnapshot: '50-00-0',
       substanceNameSnapshot: 'Formaldehyde',
@@ -1761,17 +1763,17 @@ describe('Regulatory Lists API Integration', () => {
       legalReference: 'Entry 1577',
     });
 
-    await em.persistAndFlush(entry);
+    await em.persistAndFlush(requirement);
   });
 
-  describe('GET /regulatory-lists', () => {
-    it('returns all current regulatory lists', async (context) => {
+  describe('GET /regulations', () => {
+    it('returns all current regulations', async (context) => {
       if (!orm) { context.skip(); return; }
 
-      const res = await app.request('/regulatory-lists');
+      const res = await app.request('/regulations');
       expect(res.status).toBe(200);
 
-      const body = (await res.json()) as ListResponse;
+      const body = (await res.json()) as RegulationResponse;
       expect(body.data).toHaveLength(1);
       expect(body.data[0].code).toBe('TEST_COSING');
       expect(body.meta.total).toBe(1);
@@ -1780,37 +1782,37 @@ describe('Regulatory Lists API Integration', () => {
     it('filters by source', async (context) => {
       if (!orm) { context.skip(); return; }
 
-      const res = await app.request('/regulatory-lists?source=EU_COSING');
+      const res = await app.request('/regulations?source=EU_COSING');
       expect(res.status).toBe(200);
 
-      const body = (await res.json()) as ListResponse;
+      const body = (await res.json()) as RegulationResponse;
       expect(body.data).toHaveLength(1);
 
-      const res2 = await app.request('/regulatory-lists?source=NONEXISTENT');
+      const res2 = await app.request('/regulations?source=NONEXISTENT');
       expect(res2.status).toBe(200);
 
-      const body2 = (await res2.json()) as ListResponse;
+      const body2 = (await res2.json()) as RegulationResponse;
       expect(body2.data).toHaveLength(0);
     });
   });
 
-  describe('GET /regulatory-lists/:code', () => {
-    it('returns a specific list by code', async (context) => {
+  describe('GET /regulations/:code', () => {
+    it('returns a specific regulation by code', async (context) => {
       if (!orm) { context.skip(); return; }
 
-      const res = await app.request('/regulatory-lists/TEST_COSING');
+      const res = await app.request('/regulations/TEST_COSING');
       expect(res.status).toBe(200);
 
       const body = (await res.json()) as SingleResponse;
       expect(body.data.code).toBe('TEST_COSING');
-      expect(body.data.name).toBe('Test CosIng List');
+      expect(body.data.name).toBe('Test CosIng Regulation');
       expect(body.data.version).toBe('2024-06');
     });
 
-    it('returns 404 for non-existent list', async (context) => {
+    it('returns 404 for non-existent regulation', async (context) => {
       if (!orm) { context.skip(); return; }
 
-      const res = await app.request('/regulatory-lists/NONEXISTENT');
+      const res = await app.request('/regulations/NONEXISTENT');
       expect(res.status).toBe(404);
 
       const body = (await res.json()) as ErrorResponse;
@@ -1818,14 +1820,14 @@ describe('Regulatory Lists API Integration', () => {
     });
   });
 
-  describe('GET /regulatory-lists/:code/entries', () => {
-    it('returns entries for a list with agnostic fields', async (context) => {
+  describe('GET /regulations/:code/requirements', () => {
+    it('returns requirements for a regulation with agnostic fields', async (context) => {
       if (!orm) { context.skip(); return; }
 
-      const res = await app.request('/regulatory-lists/TEST_COSING/entries');
+      const res = await app.request('/regulations/TEST_COSING/requirements');
       expect(res.status).toBe(200);
 
-      const body = (await res.json()) as EntriesResponse;
+      const body = (await res.json()) as RequirementsResponse;
       expect(body.data).toHaveLength(1);
       expect(body.data[0].casNumber).toBe('50-00-0');
       expect(body.data[0].substanceName).toBe('Formaldehyde');
@@ -1834,35 +1836,35 @@ describe('Regulatory Lists API Integration', () => {
       expect(body.data[0].severity).toBe('BLOCKER');
     });
 
-    it('filters entries by operator', async (context) => {
+    it('filters requirements by operator', async (context) => {
       if (!orm) { context.skip(); return; }
 
-      const res = await app.request('/regulatory-lists/TEST_COSING/entries?operator=PRESENT');
+      const res = await app.request('/regulations/TEST_COSING/requirements?operator=PRESENT');
       expect(res.status).toBe(200);
 
-      const body = (await res.json()) as EntriesResponse;
+      const body = (await res.json()) as RequirementsResponse;
       expect(body.data).toHaveLength(1);
 
-      const res2 = await app.request('/regulatory-lists/TEST_COSING/entries?operator=GT');
+      const res2 = await app.request('/regulations/TEST_COSING/requirements?operator=GT');
       expect(res2.status).toBe(200);
 
-      const body2 = (await res2.json()) as EntriesResponse;
+      const body2 = (await res2.json()) as RequirementsResponse;
       expect(body2.data).toHaveLength(0);
     });
 
-    it('filters entries by severity', async (context) => {
+    it('filters requirements by severity', async (context) => {
       if (!orm) { context.skip(); return; }
 
-      const res = await app.request('/regulatory-lists/TEST_COSING/entries?severity=BLOCKER');
+      const res = await app.request('/regulations/TEST_COSING/requirements?severity=BLOCKER');
       expect(res.status).toBe(200);
 
-      const body = (await res.json()) as EntriesResponse;
+      const body = (await res.json()) as RequirementsResponse;
       expect(body.data).toHaveLength(1);
 
-      const res2 = await app.request('/regulatory-lists/TEST_COSING/entries?severity=WARNING');
+      const res2 = await app.request('/regulations/TEST_COSING/requirements?severity=WARNING');
       expect(res2.status).toBe(200);
 
-      const body2 = (await res2.json()) as EntriesResponse;
+      const body2 = (await res2.json()) as RequirementsResponse;
       expect(body2.data).toHaveLength(0);
     });
   });
@@ -1872,7 +1874,7 @@ describe('Regulatory Lists API Integration', () => {
 **Step 2: Run integration test**
 
 ```bash
-cd apps/api && pnpm test regulatory-lists.test.ts
+cd apps/api && pnpm test regulations.test.ts
 ```
 
 Expected: PASS (all tests)
@@ -1880,8 +1882,8 @@ Expected: PASS (all tests)
 **Step 3: Commit**
 
 ```bash
-git add apps/api/src/routes/taxonomy/regulatory-lists.test.ts
-git commit -m "test(api): add integration tests for regulatory-lists routes"
+git add apps/api/src/routes/taxonomy/regulations.test.ts
+git commit -m "test(api): add integration tests for regulations routes"
 ```
 
 ---
@@ -1890,18 +1892,18 @@ git commit -m "test(api): add integration tests for regulatory-lists routes"
 
 **Plan 10 delivers:**
 - `ComparisonOperator` and `Severity` enums for agnostic evaluation
-- `RegulatoryList` entity with versioning support and `allowTenantExemption` flag
-- `RegulatoryListEntry` entity with forensic snapshots
+- `Regulation` entity with versioning support and `allowTenantExemption` flag
+- `Requirement` entity with forensic snapshots
 - Database migration for both tables
-- `RegulatoryListService` with version management
-- Public API routes for regulatory list access (including `allowTenantExemption` in responses)
+- `RegulationService` with version management
+- Public API routes for regulation access (including `allowTenantExemption` in responses)
 - Full test coverage (including `allowTenantExemption` persistence and default value tests)
 
 **Next Plans:**
-- **Plan 11:** CategoryRegulatoryList (category-list scoping)
-- **Plan 12:** RegulatoryImportService (admin import pipeline)
+- **Plan 11:** CategoryRegulation (category-regulation scoping)
+- **Plan 12:** RegulationImportService (admin import pipeline)
 - **Plan 14:** Vertical rule evaluators
-- **Plan 15:** Initial list seeders
+- **Plan 15:** Initial regulation seeders
 
 ---
 

@@ -1,7 +1,7 @@
 # Compliance Workspace (DPP Snapshot Engine)
 
 **Status:** Active
-**Last Updated:** 2026-01-26
+**Last Updated:** 2026-01-28
 
 ---
 
@@ -79,12 +79,12 @@ The Compliance Workspace is the **convergence point** where Design, Marketing, a
 
 | Authority | Compliance Workspace Capabilities |
 |-----------|----------------------------------|
-| **MANAGER** | Configure snapshot rules, manage revocations, access all DPPs, **adopt templates from marketplace**, **manage readiness profiles**, **assign profiles to products**, **configure per-rule override modes** |
+| **MANAGER** | Configure snapshot rules, manage revocations, access all DPPs, **manage tenant requirement exemptions** |
 | **EDITOR** | View all DPPs, trigger manual re-snapshots (rare), manage recalls |
 | **CONTRIBUTOR** | View DPPs for their products, download verification reports |
 | **VIEWER** | Read-only access to DPP registry, **view compliance dashboard** |
 
-> **Governance Note:** The Compliance Workspace is the **sole control center** for regulatory rule governance. Design and Operations workspaces have read-only compliance views - they can see compliance status and acknowledge deviations, but cannot change profiles or rule configurations.
+> **Governance Note:** The Compliance Workspace is the **sole control center** for regulatory compliance governance. Design and Operations workspaces have read-only compliance views - they can see compliance status and acknowledge deviations, but cannot change exemption configurations.
 
 **Note:** Most Compliance Workspace operations are automated. Human intervention is rare and typically limited to recall management.
 
@@ -275,12 +275,10 @@ export class DPPSnapshot extends BaseEntity {
   decommissionedAt?: Date;
 
   // ─────────────────────────────────────────────────────────────
-  // COMPLIANCE PROFILE (Regulatory Advisor Integration)
-  // See: docs/plans/13-regulatory-advisor.md
+  // COMPLIANCE SNAPSHOT (Compliance Evaluation Integration)
+  // See: docs/guides/compliance-evaluation-system.md
+  // Uses ComplianceStackResolver to gather effective requirements
   // ─────────────────────────────────────────────────────────────
-  @ManyToOne(() => ReadinessProfile, { nullable: true })
-  readinessProfile?: ReadinessProfile;
-
   @Property({ type: 'jsonb', nullable: true })
   complianceSnapshot?: ComplianceProfileSnapshot;
 
@@ -390,82 +388,123 @@ interface RecallOverlayData {
 }
 
 // ─────────────────────────────────────────────────────────────
-// COMPLIANCE PROFILE SNAPSHOT (Regulatory Advisor)
+// COMPLIANCE PROFILE SNAPSHOT (Compliance Evaluation)
 // Frozen at DPP provisioning for forensic audit trail
+// Uses ComplianceStackResolver to gather effective requirements
 // ─────────────────────────────────────────────────────────────
 
 interface ComplianceProfileSnapshot {
-  profileId: string;
-  profileName: string;           // "EU Market Entry - ESPR"
-  profileVersion: string;        // "v2.3"
   evaluatedAt: string;           // ISO timestamp
+  regulationCodes: string[];     // Regulations evaluated (via ComplianceStackResolver)
 
   // Overall compliance status
   overallStatus: 'PASS' | 'PASS_WITH_WARNINGS' | 'PASS_WITH_DEVIATIONS';
 
   // Summary counts
-  ruleCount: number;
+  requirementCount: number;      // Total requirements evaluated
   passCount: number;
   warningCount: number;
   blockerCount: number;          // Should be 0 if PASS_WITH_DEVIATIONS
+  exemptedCount: number;         // Requirements skipped due to TenantRequirementExemption
 
   // All deviations must be documented to reach PROVISIONED
   deviations: DeviationSnapshot[];
 
-  // Full rule evaluation results for forensic audit
-  ruleEvaluations: RuleEvaluationSnapshot[];
+  // Full requirement evaluation results for forensic audit
+  // Each includes a requirementSnapshot for historical integrity
+  requirementEvaluations: RequirementEvaluationSnapshot[];
 }
 
 interface DeviationSnapshot {
-  ruleId: string;
-  ruleName: string;
+  requirementId: string;
+  requirementCode: string;
+  requirementName: string;
   severity: 'BLOCKER' | 'WARNING';
-  reasonCodeId: string;
-  reasonLabel: string;
   narrative: string;
   acknowledgedBy: string;        // User ID
   acknowledgedAt: string;        // ISO timestamp
   regulationReference?: string;  // "ESPR Art. 5(2)"
 }
 
-interface RuleEvaluationSnapshot {
-  ruleId: string;
-  ruleName: string;
-  ruleCategory: string;
-  severity: 'BLOCKER' | 'WARNING' | 'INFO';
-  status: 'PASS' | 'FAIL' | 'SKIPPED' | 'DISABLED';
+/**
+ * Snapshot of a requirement evaluation for forensic audit.
+ * Uses RequirementHandler plugin system for evaluation.
+ *
+ * @see docs/guides/compliance-evaluation-system.md
+ */
+interface RequirementEvaluationSnapshot {
+  requirementId: string;
+  requirementCode: string;
+  requirementName: string;
+  requirementType: 'ATTRIBUTE_CHECK' | 'SUBSTANCE_SCREEN' | 'DECLARATION' | 'CALCULATED_CHECK';
+  severity: 'BLOCKER' | 'WARNING' | 'INFORMATIONAL';
+  status: 'PASS' | 'FAIL' | 'INCOMPLETE' | 'EXEMPTED';
   actualValue?: string;
   expectedValue?: string;
-  regulationAnchorId?: string;
   legalReference?: string;
 
-  // Per-rule enforcement mode at evaluation time
-  // Resolved from: ReadinessProfileRule.overrideMode → Organization.enforcementMode
+  // Regulation context
+  regulationCode: string;
+  regulationName: string;
+
+  // Per-requirement enforcement mode at evaluation time
+  // Resolved from Organization.enforcementMode
   effectiveMode: 'ENFORCING' | 'SILENT' | 'DISABLED';
 
   // ─────────────────────────────────────────────────────────────
-  // SUBSTANCE-SPECIFIC FINDINGS (for regulatory_list_check rules)
-  // See: docs/plans/13-regulatory-advisor.md Section 4.5.1
+  // REQUIREMENT SNAPSHOT (frozen copy for audit integrity)
+  // Even if the requirement changes later, this preserves the
+  // exact state at time of evaluation.
+  // See: docs/guides/compliance-evaluation-system.md
+  // ─────────────────────────────────────────────────────────────
+  requirementSnapshot: RequirementSnapshotData;
+
+  // ─────────────────────────────────────────────────────────────
+  // SUBSTANCE-SPECIFIC FINDINGS (for SUBSTANCE_SCREEN requirements)
   // ─────────────────────────────────────────────────────────────
   substanceFindings?: SubstanceFindingSnapshot[];
+
+  // ─────────────────────────────────────────────────────────────
+  // EXEMPTION INFO (if status = 'EXEMPTED')
+  // ─────────────────────────────────────────────────────────────
+  exemption?: {
+    reason: string;
+    legalReference?: string;
+    exemptedBy: string;
+    exemptedAt: string;
+  };
+}
+
+/**
+ * Frozen snapshot of requirement at evaluation time.
+ * Preserves audit integrity even when requirements change.
+ */
+interface RequirementSnapshotData {
+  code: string;
+  name: string;
+  type: 'ATTRIBUTE_CHECK' | 'SUBSTANCE_SCREEN' | 'DECLARATION' | 'CALCULATED_CHECK';
+  severity: 'BLOCKER' | 'WARNING' | 'INFORMATIONAL';
+  handlerConfig: Record<string, unknown>;
+  regulationCode: string;
+  regulationName: string;
+  allowTenantExemption: boolean;
+  snapshotAt: string;            // ISO timestamp when snapshot was taken
 }
 
 /**
  * Snapshot of a substance compliance finding for forensic audit.
  * Captures full traceability from material to product.
  *
- * @see docs/plans/13-regulatory-advisor.md (SubstanceFinding interface)
- * @see docs/plans/2026-01-26-taxonomy-14-vertical-rule-evaluation.md
+ * @see docs/guides/compliance-evaluation-system.md (SubstanceFinding interface)
  */
 interface SubstanceFindingSnapshot {
   substance: {
     casNumber: string;
     name: string;
   };
-  appliedList: {
-    code: string;           // 'COSING_ANNEX_II'
-    name: string;           // 'CosIng Annex II - Prohibited Substances'
-    version: string;        // '2024-06'
+  appliedRegulation: {
+    code: string;           // 'REACH'
+    name: string;           // 'REACH Regulation'
   };
   restrictionType: 'PROHIBITED' | 'THRESHOLD' | 'RESTRICTED_WITH_CONDITIONS';
   thresholdPct?: string;
@@ -1069,7 +1108,7 @@ export class SnapshotEngineService {
   @OnEvent('DPP_PROVISIONED')
   async generateForensicPackage(payload: { dppId: string; organizationId: string }): Promise<void> {
     const dpp = await this.em.findOneOrFail(DPPSnapshot, payload.dppId, {
-      populate: ['complianceSnapshot', 'readinessProfile'],
+      populate: ['complianceSnapshot'],
     });
 
     // 1. Generate self-contained HTML viewer
@@ -1733,12 +1772,7 @@ async function verifyMerkleProof(
 
 ### Level 3 Forensic Seal - Compliance Audit View
 
-> **Reference:** See [Regulatory Advisor](./13-regulatory-advisor.md) for complete compliance profile design.
-
-> **Per-Rule Mode Display:** Each rule in the matrix shows its `effectiveMode` at evaluation time:
-> - `ENFORCING` → Shows PASS/FAIL status normally
-> - `SILENT` → Shows "ADVISORY" badge - rule was evaluated but didn't block
-> - `DISABLED` → Shows "DISABLED BY POLICY" - rule was skipped entirely
+> **Reference:** See [Compliance Evaluation System](../guides/compliance-evaluation-system.md) for complete compliance evaluation design.
 
 For authenticated auditors, Level 3 includes a tiered compliance audit view that presents compliance information in progressive detail:
 
@@ -1750,28 +1784,28 @@ For authenticated auditors, Level 3 includes a tiered compliance audit view that
 │  TIER 1: EXCEPTION SUMMARY (Default View)                                   │
 │  ═══════════════════════════════════════                                     │
 │                                                                              │
-│  Readiness Profile: EU Market Entry - ESPR v2.3                             │
+│  Regulations: ESPR, REACH                                                   │
 │  Evaluated: 2026-01-15T14:32:00Z                                            │
-│  Status: PASS_WITH_DEVIATIONS (47 rules, 2 deviations)                      │
+│  Status: PASS_WITH_DEVIATIONS (47 requirements, 2 deviations)               │
 │                                                                              │
 │  ┌────────────────────────────────────────────────────────────────────┐     │
 │  │  ⚠️  DOCUMENTED DEVIATIONS                                          │     │
 │  ├────────────────────────────────────────────────────────────────────┤     │
 │  │                                                                     │     │
 │  │  1. Recycled Content Below Threshold                               │     │
-│  │     Rule: MIN_RECYCLED_CONTENT | Severity: BLOCKER                 │     │
+│  │     Requirement: MIN_RECYCLED_CONTENT | Severity: BLOCKER          │     │
 │  │     Expected: ≥25% | Actual: 18%                                   │     │
 │  │     Regulation: ESPR Article 5(2) [📖 View]                        │     │
-│  │     Reason: PENDING_SUPPLIER_TRANSITION                            │     │
+│  │     Justification: PENDING_SUPPLIER_TRANSITION                     │     │
 │  │     "Supplier upgrading to recycled feedstock in Q2 2026.          │     │
 │  │      Current batch uses legacy material from existing inventory."  │     │
 │  │     Acknowledged: Jane Smith (jane@brand.com) @ 2026-01-15         │     │
 │  │                                                                     │     │
 │  │  2. Carbon Footprint Exceeds Benchmark                             │     │
-│  │     Rule: CARBON_BENCHMARK | Severity: WARNING                     │     │
+│  │     Requirement: CARBON_BENCHMARK | Severity: WARNING              │     │
 │  │     Expected: ≤10.0 kg CO₂e | Actual: 12.5 kg CO₂e                │     │
 │  │     Regulation: PEF Category Rules [📖 View]                       │     │
-│  │     Reason: OTHER                                                  │     │
+│  │     Justification: OTHER                                           │     │
 │  │     "Industry benchmark based on 2024 data; our facility uses      │     │
 │  │      renewable energy but grid carbon factor still high."          │     │
 │  │     Acknowledged: Jane Smith (jane@brand.com) @ 2026-01-15         │     │
@@ -1782,11 +1816,11 @@ For authenticated auditors, Level 3 includes a tiered compliance audit view that
 │                                                                              │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  TIER 2: RULE MATRIX (Expanded View)                                        │
-│  ═══════════════════════════════════                                         │
+│  TIER 2: REQUIREMENT MATRIX (Expanded View)                                 │
+│  ═══════════════════════════════════════════                                 │
 │                                                                              │
 │  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │ Category           │ Rule                  │ Status │ Value        │    │
+│  │ Category           │ Requirement           │ Status │ Value        │    │
 │  ├─────────────────────────────────────────────────────────────────────┤    │
 │  │ Material Compliance                                                 │    │
 │  │                    │ MIN_RECYCLED_CONTENT  │ ⚠️ DEV │ 18% (≥25%)   │    │
@@ -1812,19 +1846,19 @@ For authenticated auditors, Level 3 includes a tiered compliance audit view that
 │  ═════════════════════════════════════                                       │
 │                                                                              │
 │  2026-01-15 14:32:00  DPP PROVISIONED                                       │
-│                       Profile: EU Market Entry - ESPR v2.3                   │
+│                       Regulations: ESPR, REACH                              │
 │                       Status: PASS_WITH_DEVIATIONS                          │
 │                       Hash: 0x7f3a...                                       │
 │                                                                              │
 │  2026-01-15 14:30:45  DEVIATION ACKNOWLEDGED                                │
-│                       Rule: CARBON_BENCHMARK                                │
+│                       Requirement: CARBON_BENCHMARK                         │
 │                       User: jane@brand.com                                  │
-│                       Reason: OTHER (custom explanation)                    │
+│                       Justification: OTHER (custom explanation)             │
 │                                                                              │
 │  2026-01-15 14:28:12  DEVIATION ACKNOWLEDGED                                │
-│                       Rule: MIN_RECYCLED_CONTENT                            │
+│                       Requirement: MIN_RECYCLED_CONTENT                     │
 │                       User: jane@brand.com                                  │
-│                       Reason: PENDING_SUPPLIER_TRANSITION                   │
+│                       Justification: PENDING_SUPPLIER_TRANSITION            │
 │                                                                              │
 │  2026-01-15 14:25:00  PREFLIGHT EVALUATION                                  │
 │                       Result: 2 Blockers, 0 Warnings                        │
@@ -1843,24 +1877,20 @@ For authenticated auditors, Level 3 includes a tiered compliance audit view that
 // GET /api/v1/dpp/:id/forensic-seal (requires auditor authentication)
 interface ForensicSealResponse {
   dppId: string;
-  complianceProfile: ComplianceProfileSnapshot;
+  complianceSnapshot: ComplianceProfileSnapshot;
 
   // Tiered views
   exceptionSummary: {
-    profileName: string;
-    profileVersion: string;
+    regulationCodes: string[];
     evaluatedAt: string;
     overallStatus: string;
     deviations: DeviationSnapshot[];
   };
 
-  ruleMatrix: {
+  requirementMatrix: {
     categories: {
       name: string;
-      rules: (RuleEvaluationSnapshot & {
-        // Display hints for UI rendering
-        displayBadge?: 'ADVISORY' | 'DISABLED BY POLICY';
-      })[];
+      requirements: RequirementEvaluationSnapshot[];
     }[];
   };
 
@@ -2317,20 +2347,15 @@ POST   /api/v1/compliance/verify/batch            # Batch proof receipts
 
 ---
 
-## 14. Regulatory Advisor Integration
+## 14. Compliance Evaluation Integration
 
-The Compliance Workspace integrates with the Regulatory Advisor system to ensure DPPs are only provisioned after compliance evaluation and any deviations are properly documented.
+The Compliance Workspace integrates with the Compliance Evaluation system to ensure DPPs are only provisioned after compliance evaluation and any deviations are properly documented.
 
-> **Full Design:** See [Regulatory Advisor](./13-regulatory-advisor.md) for complete system specification.
-
-> **Feature Toggles:** This integration respects the organization's Regulatory Advisor settings:
-> - If `regulatoryAdvisorEnabled = false`: PreFlight skipped, no compliance data in DPP, Forensic Seal omits compliance section
-> - If `enforcementMode = 'SILENT'`: PreFlight runs but no soft gates; compliance captured only if `captureComplianceInSilentMode = true`
-> - If `enforcementMode = 'ENFORCING'`: Full soft gate workflow; blockers must be acknowledged before DPP provisioning
+> **Full Design:** See [Compliance Evaluation System](../guides/compliance-evaluation-system.md) and [Compliance Architecture](../architecture/compliance-architecture.md) for complete system specification.
 
 ### 14.1 PreFlight Gate in Snapshot Pipeline
 
-Before a DPP can transition from COMMISSIONED to PROVISIONED, the PreFlight service must evaluate the product against the organization's readiness profile:
+Before a DPP can transition from COMMISSIONED to PROVISIONED, the PreFlight service must evaluate the product against applicable regulations. The **ComplianceStackResolver** determines which requirements apply based on category inheritance and tenant exemptions.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -2347,12 +2372,29 @@ Before a DPP can transition from COMMISSIONED to PROVISIONED, the PreFlight serv
 │  └────────┬────────┘                                                        │
 │           │                                                                  │
 │           ▼                                                                  │
+│  ┌─────────────────────────────────────────────────────────────────────────┐│
+│  │  ComplianceStackResolver                                                ││
+│  │  ───────────────────────                                                ││
+│  │  1. Walk CategoryRegulation LTREE to find applicable regulations        ││
+│  │  2. Load Requirements for each Regulation                               ││
+│  │  3. Apply TenantRequirementExemption overrides (if any)                 ││
+│  │  4. Return effective requirements with exemption status                 ││
+│  └────────┬────────────────────────────────────────────────────────────────┘│
+│           │                                                                  │
+│           ▼                                                                  │
 │  ┌─────────────────┐     ┌───────────────────────────────────────────────┐ │
-│  │  PreFlight      │────▶│  SOFT GATE EVALUATION                         │ │
+│  │  PreFlight      │────▶│  SOFT GATE EVALUATION (RequirementHandlers)   │ │
 │  │  Evaluation     │     │                                                │ │
-│  └────────┬────────┘     │  ✓ PASS → Continue to snapshot                │ │
+│  └────────┬────────┘     │  For each ACTIVE requirement:                  │ │
+│           │              │  • AttributeCheckHandler → ATTRIBUTE_CHECK     │ │
+│           │              │  • SubstanceScreenHandler → SUBSTANCE_SCREEN   │ │
+│           │              │  • DeclarationHandler → DECLARATION            │ │
+│           │              │                                                │ │
+│           │              │  Results:                                      │ │
+│           │              │  ✓ PASS → Continue to snapshot                │ │
 │           │              │  ⚠️ WARNINGS → Continue with warnings frozen   │ │
 │           │              │  ⛔ BLOCKERS → Require acknowledgment          │ │
+│           │              │  ○ EXEMPTED → Skipped (logged for audit)       │ │
 │           │              │                                                │ │
 │           │              │  User can:                                     │ │
 │           │              │  1. Fix issues and re-evaluate                 │ │
@@ -2361,11 +2403,14 @@ Before a DPP can transition from COMMISSIONED to PROVISIONED, the PreFlight serv
 │           │              └───────────────────────────────────────────────┘ │
 │           │                                                                  │
 │           ▼                                                                  │
-│  ┌─────────────────┐                                                        │
-│  │  Create         │  Freeze compliance profile in snapshot                 │
-│  │  Compliance     │  (immutable audit trail)                               │
-│  │  Snapshot       │                                                        │
-│  └────────┬────────┘                                                        │
+│  ┌─────────────────────────────────────────────────────────────────────────┐│
+│  │  Create Compliance Snapshot                                             ││
+│  │  ─────────────────────────                                              ││
+│  │  • Capture requirementSnapshot for EACH requirement evaluated           ││
+│  │  • Include exemption details for skipped requirements                   ││
+│  │  • Record to ComplianceEvidence (tenant schema) for audit trail         ││
+│  │  • Freeze snapshot data (immutable from this point)                     ││
+│  └────────┬────────────────────────────────────────────────────────────────┘│
 │           │                                                                  │
 │           ▼                                                                  │
 │  ┌─────────────────┐                                                        │
@@ -2379,52 +2424,93 @@ Before a DPP can transition from COMMISSIONED to PROVISIONED, the PreFlight serv
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
+> **Reference:** See [Compliance Evaluation System Guide](../guides/compliance-evaluation-system.md) for detailed handler documentation.
+
 ### 14.2 Soft Gate Implementation
+
+The soft gate uses the **ComplianceStackResolver** to get effective requirements, then evaluates each using the appropriate **RequirementHandler**.
 
 ```typescript
 interface SoftGateResult {
   canProceed: boolean;
   requiresAcknowledgment: boolean;
 
-  blockers: PreFlightFinding[];
-  warnings: PreFlightFinding[];
-  infos: PreFlightFinding[];
+  blockers: RequirementEvaluation[];
+  warnings: RequirementEvaluation[];
+  infos: RequirementEvaluation[];
+  exempted: RequirementEvaluation[];  // Skipped due to TenantRequirementExemption
 
   // If blockers exist, user must provide these before proceeding
   pendingAcknowledgments: {
     findingId: string;
-    ruleId: string;
+    requirementId: string;
+    requirementCode: string;
     severity: 'BLOCKER' | 'WARNING';
   }[];
 }
 
 async function evaluateSoftGate(
   productVersionId: string,
-  readinessProfileId: string
+  tenantCategoryId: string
 ): Promise<SoftGateResult> {
-  const findings = await preFlightService.evaluate(productVersionId, readinessProfileId);
+  // 1. Resolve effective requirements using ComplianceStackResolver
+  const complianceStack = await complianceStackResolver.resolve(tenantCategoryId);
 
-  // Only ENFORCING rules can block; SILENT/DISABLED rules don't create soft gates
-  const blockers = findings.filter(f =>
-    f.severity === 'BLOCKER' &&
-    f.status === 'FAIL' &&
-    f.effectiveMode === 'ENFORCING'
+  // 2. Evaluate each ACTIVE requirement using RequirementHandlers
+  const evaluations: RequirementEvaluation[] = [];
+
+  for (const regulation of complianceStack.regulations) {
+    for (const req of regulation.requirements) {
+      if (req.status === 'EXEMPTED') {
+        // Log exempted requirement but don't evaluate
+        evaluations.push({
+          ...req,
+          evaluationStatus: 'EXEMPTED',
+          exemption: req.exemption,
+        });
+        continue;
+      }
+
+      // Dispatch to appropriate handler based on requirement type
+      const handler = requirementEvaluatorEngine.getHandler(req.type);
+      const result = await handler.evaluate({
+        requirement: req,
+        product: await loadProductData(productVersionId),
+      });
+
+      evaluations.push({
+        ...req,
+        evaluationStatus: result.status,
+        details: result.details,
+      });
+    }
+  }
+
+  // 3. Categorize by severity and status
+  // Only ENFORCING requirements can block; SILENT/DISABLED don't create soft gates
+  const blockers = evaluations.filter(e =>
+    e.severity === 'BLOCKER' &&
+    e.evaluationStatus === 'FAIL' &&
+    e.effectiveMode === 'ENFORCING'
   );
-  const warnings = findings.filter(f =>
-    f.severity === 'WARNING' &&
-    f.status === 'FAIL' &&
-    f.effectiveMode === 'ENFORCING'
+  const warnings = evaluations.filter(e =>
+    e.severity === 'WARNING' &&
+    e.evaluationStatus === 'FAIL' &&
+    e.effectiveMode === 'ENFORCING'
   );
+  const exempted = evaluations.filter(e => e.evaluationStatus === 'EXEMPTED');
 
   return {
     canProceed: blockers.length === 0,
     requiresAcknowledgment: blockers.length > 0,
     blockers,
     warnings,
-    infos: findings.filter(f => f.severity === 'INFO'),
+    infos: evaluations.filter(e => e.severity === 'INFORMATIONAL'),
+    exempted,
     pendingAcknowledgments: blockers.map(b => ({
       findingId: b.id,
-      ruleId: b.ruleId,
+      requirementId: b.requirementId,
+      requirementCode: b.requirementCode,
       severity: 'BLOCKER',
     })),
   };
@@ -2436,7 +2522,7 @@ async function evaluateSoftGate(
 ```typescript
 interface DeviationAcknowledgment {
   findingId: string;
-  reasonCodeId: string;       // From predefined reason codes
+  requirementId: string;      // Requirement being acknowledged
   narrative: string;          // Required free-text explanation
   acknowledgedBy: string;     // User ID
 }
@@ -2445,14 +2531,10 @@ async function acknowledgeDeviation(
   batchId: string,
   acknowledgment: DeviationAcknowledgment
 ): Promise<void> {
-  // 1. Validate reason code exists and is appropriate
-  const reasonCode = await reasonCodeRepo.findOneOrFail(acknowledgment.reasonCodeId);
-
-  // 2. Create deviation record
-  const deviation = new RuleDeviation({
+  // 1. Create deviation record
+  const deviation = new ComplianceDeviation({
     batch: batchId,
-    rule: acknowledgment.ruleId,
-    reasonCode: reasonCode,
+    requirementId: acknowledgment.requirementId,
     narrative: acknowledgment.narrative,
     acknowledgedBy: acknowledgment.acknowledgedBy,
     acknowledgedAt: new Date(),
@@ -2460,8 +2542,8 @@ async function acknowledgeDeviation(
 
   await em.persistAndFlush(deviation);
 
-  // 3. Check if all blockers acknowledged
-  const gateResult = await evaluateSoftGate(batchId, profileId);
+  // 2. Check if all blockers acknowledged
+  const gateResult = await evaluateSoftGate(batchId, tenantCategoryId);
   if (gateResult.pendingAcknowledgments.length === 0) {
     // All blockers acknowledged - can proceed to snapshot
     await eventBus.emit('SOFT_GATE_CLEARED', { batchId });
@@ -2487,77 +2569,96 @@ POST   /api/v1/compliance/batches/:id/proceed           # Clear gate and proceed
 GET    /api/v1/compliance/dpps/:id/forensic-seal        # Full audit view (auth required)
 ```
 
+### 14.4a Evidence API Integration
+
+After evaluation, results are recorded to the **ComplianceEvidence** entity (in tenant schema) with a requirement snapshot for historical audit integrity.
+
+```typescript
+/**
+ * Record compliance evidence after each requirement evaluation.
+ * The requirementSnapshot preserves the exact state of the requirement
+ * at evaluation time, ensuring audit trail integrity even if the
+ * requirement definition changes later.
+ *
+ * @see docs/guides/compliance-evaluation-system.md
+ */
+async function recordEvidence(
+  productVersionId: string,
+  evaluation: RequirementEvaluation,
+  requirement: Requirement
+): Promise<ComplianceEvidence> {
+  // Create snapshot of requirement at evaluation time
+  const requirementSnapshot: RequirementSnapshotData = {
+    code: requirement.code,
+    name: requirement.name,
+    type: requirement.type,
+    severity: requirement.severity,
+    handlerConfig: requirement.handlerConfig,
+    regulationCode: requirement.regulation.code,
+    regulationName: requirement.regulation.name,
+    allowTenantExemption: requirement.allowTenantExemption,
+    snapshotAt: new Date().toISOString(),
+  };
+
+  const evidence = new ComplianceEvidence({
+    productVersionId,
+    requirementId: requirement.id,
+    requirementSnapshot,
+    type: mapToEvidenceType(requirement.type),
+    result: evaluation.evaluationStatus,
+    details: evaluation.details,
+    recordedBy: currentUser.id,
+    recordedAt: new Date(),
+  });
+
+  await em.persistAndFlush(evidence);
+  return evidence;
+}
+
+// Evidence types map to requirement types
+function mapToEvidenceType(reqType: RequirementType): EvidenceType {
+  switch (reqType) {
+    case 'ATTRIBUTE_CHECK':
+    case 'CALCULATED_CHECK':
+      return EvidenceType.AUTO_CHECK;
+    case 'SUBSTANCE_SCREEN':
+      return EvidenceType.AUTO_CHECK;
+    case 'DECLARATION':
+      return EvidenceType.DECLARATION;
+    default:
+      return EvidenceType.AUTO_CHECK;
+  }
+}
+```
+
+**Evidence API Endpoints:**
+
+```
+# Record evidence (used internally by evaluation engine)
+POST   /api/v1/evidence                               # Record with requirementSnapshot
+
+# Query evidence
+GET    /api/v1/evidence/:productVersionId             # All evidence for product version
+GET    /api/v1/evidence/:productVersionId/:reqId      # Evidence for specific requirement
+
+# Compliance stack resolution
+GET    /api/v1/compliance-stack/:tenantCategoryId     # Get effective requirements
+
+# Exemption management
+POST   /api/v1/exemptions                             # Create TenantRequirementExemption
+GET    /api/v1/exemptions                             # List exemptions
+DELETE /api/v1/exemptions/:id                         # Revoke exemption (soft delete)
+```
+
 ### 14.5 API Extensions for Compliance Governance
 
 ```
-# Marketplace & Template Adoption (MANAGER only)
-GET    /api/v1/compliance/marketplace/templates         # Browse available templates
-POST   /api/v1/compliance/templates/:id/adopt           # Adopt template into org
-GET    /api/v1/compliance/templates                     # List adopted templates
-
-# Readiness Profile Management (MANAGER only)
-GET    /api/v1/compliance/profiles                      # List org's readiness profiles
-POST   /api/v1/compliance/profiles                      # Create profile
-PUT    /api/v1/compliance/profiles/:id                  # Update profile
-DELETE /api/v1/compliance/profiles/:id                  # Delete profile
-
-# Profile Rule Override (MANAGER only)
-PUT    /api/v1/compliance/profiles/:profileId/rules/:ruleId
-       # Body: { overrideMode: 'ENFORCING'|'SILENT'|'DISABLED', reason: string }
-PUT    /api/v1/compliance/profiles/:profileId/rules/bulk
-       # Body: { updates: [{ ruleId, overrideMode }], reason: string }
-
-# Profile Assignment to Products (MANAGER only)
-PUT    /api/v1/compliance/products/:productId/profile
-       # Body: { readinessProfileId: string }
-GET    /api/v1/compliance/products/:productId/profile   # Get assigned profile
-
 # Compliance Dashboard
 GET    /api/v1/compliance/dashboard                     # Org-wide compliance summary
 GET    /api/v1/compliance/dashboard/products            # Products by compliance status
 ```
 
-### 14.6 API Types for Rule Override
-
-```typescript
-// PUT /api/v1/compliance/profiles/:profileId/rules/:ruleId
-interface UpdateRuleOverrideRequest {
-  overrideMode: 'ENFORCING' | 'SILENT' | 'DISABLED';
-  reason: string;  // Required audit trail
-}
-
-interface UpdateRuleOverrideResponse {
-  profileId: string;
-  ruleId: string;
-  previousMode: 'ENFORCING' | 'SILENT' | 'DISABLED' | null;
-  newMode: 'ENFORCING' | 'SILENT' | 'DISABLED';
-  setBy: string;
-  setAt: string;  // ISO timestamp
-}
-
-// PUT /api/v1/compliance/profiles/:profileId/rules/bulk
-interface BulkUpdateRuleOverrideRequest {
-  updates: {
-    ruleId: string;
-    overrideMode: 'ENFORCING' | 'SILENT' | 'DISABLED';
-  }[];
-  reason: string;  // Single reason for all changes
-}
-
-interface BulkUpdateRuleOverrideResponse {
-  profileId: string;
-  updated: number;
-  changes: {
-    ruleId: string;
-    previousMode: 'ENFORCING' | 'SILENT' | 'DISABLED' | null;
-    newMode: 'ENFORCING' | 'SILENT' | 'DISABLED';
-  }[];
-  setBy: string;
-  setAt: string;
-}
-```
-
-### 14.7 Pending Reviews Queue (Approval Gate)
+### 14.6 Pending Reviews Queue (Approval Gate)
 
 When a ProductVersion is submitted with `complianceStatus = PENDING_REVIEW`, it appears in the Compliance Manager's pending reviews queue.
 
@@ -2567,7 +2668,7 @@ When a ProductVersion is submitted with `complianceStatus = PENDING_REVIEW`, it 
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │  COMPLIANCE WORKSPACE                                                        │
 ├──────────────────────────────────────────────────────────────────────────────┤
-│  [Dashboard] [Profiles] [Templates] [Pending Reviews (3)]                   │
+│  [Dashboard] [Exemptions] [Pending Reviews (3)]                             │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │  PENDING COMPLIANCE REVIEWS                                                  │
@@ -2593,7 +2694,7 @@ When a ProductVersion is submitted with `complianceStatus = PENDING_REVIEW`, it 
 │                                                                              │
 │  Submitted by: john.designer@acme.com                                        │
 │  Submitted at: 2026-01-21 14:30 UTC                                          │
-│  Profile: ESPR Apparel Pack v2.3                                             │
+│  Regulations: ESPR, REACH                                                    │
 │                                                                              │
 │  DEVIATIONS REQUIRING AUTHORIZATION                                          │
 │  ══════════════════════════════════                                          │
@@ -2604,12 +2705,9 @@ When a ProductVersion is submitted with `complianceStatus = PENDING_REVIEW`, it 
 │  │    📖 View: ESPR Article 5(2)                                          │ │
 │  │                                                                         │ │
 │  │    Designer's Justification:                                           │ │
-│  │    Reason Code: SMALL_VOLUME_EXEMPTION                                 │ │
-│  │    Narrative: "Limited edition run of 500 units for brand anniversary. │ │
-│  │                Supplier cannot source recycled cotton in required      │ │
-│  │                quantities for this small batch."                       │ │
-│  │                                                                         │ │
-│  │    ⚠️ AI Flag: Exemption may not apply under ESPR Art. 7(3)           │ │
+│  │    "Limited edition run of 500 units for brand anniversary.            │ │
+│  │     Supplier cannot source recycled cotton in required                 │ │
+│  │     quantities for this small batch."                                  │ │
 │  └────────────────────────────────────────────────────────────────────────┘ │
 │                                                                              │
 │  ┌────────────────────────────────────────────────────────────────────────┐ │
@@ -2617,8 +2715,7 @@ When a ProductVersion is submitted with `complianceStatus = PENDING_REVIEW`, it 
 │  │    📖 View: REACH Annex XVII                                           │ │
 │  │                                                                         │ │
 │  │    Designer's Justification:                                           │ │
-│  │    Reason Code: PENDING_SUPPLIER_DATA                                  │ │
-│  │    Narrative: "Waiting on supplier lab results. ETA: 2026-01-25"       │ │
+│  │    "Waiting on supplier lab results. ETA: 2026-01-25"                  │ │
 │  └────────────────────────────────────────────────────────────────────────┘ │
 │                                                                              │
 │  AUTHORIZATION DECISION                                                      │
@@ -2692,7 +2789,7 @@ interface ReviewDetailResponse {
   };
   auditResult: {
     id: string;
-    profileAuditLabel: string;
+    regulationCodes: string[];
     evaluatedAt: string;
     summary: {
       total: number;
@@ -2704,23 +2801,16 @@ interface ReviewDetailResponse {
   };
   deviations: {
     id: string;
-    ruleId: string;
-    ruleName: string;
+    requirementId: string;
+    requirementCode: string;
+    requirementName: string;
     severity: 'BLOCKER' | 'WARNING';
-    reasonCode: {
-      code: string;
-      label: string;
-    };
     narrative: string;
     acknowledgedBy: string;
     acknowledgedAt: string;
     legalAnchor?: {
       reference: string;
       viewerUrl: string;
-    };
-    aiSanityCheck?: {
-      flagged: boolean;
-      warning?: string;
     };
   }[];
 }
@@ -2753,56 +2843,15 @@ interface RejectReviewResponse {
 }
 ```
 
-### 14.8 Category Default Profile Assignment
-
-Compliance Managers can assign a default ReadinessProfile to categories. Products in that category automatically use this profile unless explicitly overridden at the product level.
-
-**Profile Resolution Hierarchy:**
-
-```
-Resolved Profile =
-  1. Product.readinessProfileId (if explicitly assigned)
-  2. ELSE Product.category.defaultProfileId
-  3. ELSE null → triggers SYSTEM_PROFILE_REQUIRED blocker
-```
-
-**API Endpoints:**
-
-```
-# Category Default Profile (MANAGER only)
-PUT    /api/v1/compliance/categories/:id/default-profile
-       # Body: { defaultProfileId: string | null }
-GET    /api/v1/compliance/categories/:id/default-profile
-```
-
-**API Types:**
-
-```typescript
-// PUT /api/v1/compliance/categories/:id/default-profile
-interface SetCategoryDefaultProfileRequest {
-  defaultProfileId: string | null;  // null to unset
-}
-
-interface SetCategoryDefaultProfileResponse {
-  categoryId: string;
-  categoryName: string;
-  defaultProfileId: string | null;
-  previousProfileId: string | null;
-  setBy: string;
-  setAt: string;
-}
-```
-
-### 14.9 Updated Authority Model
+### 14.7 Updated Authority Model
 
 | Action | Required Authority |
 |--------|-------------------|
 | View pending reviews queue | Compliance MANAGER only |
 | Authorize version release | Compliance MANAGER only |
 | Reject version review | Compliance MANAGER only |
-| Assign category default profile | Compliance MANAGER only |
+| Manage tenant requirement exemptions | Compliance MANAGER only |
 | View compliance dashboard | Compliance VIEWER+ |
-| Manage readiness profiles | Compliance MANAGER only |
 
 ---
 
@@ -2817,9 +2866,8 @@ interface SetCategoryDefaultProfileResponse {
 | [Marketing Workspace](./07-marketing-workspace.md) | Source of content, assets |
 | [Verifiable Credentials](./09-verifiable-credentials.md) | VC issuance, DID management |
 | [Billing](./12-billing.md) | DPP pricing, recall fees |
-| [Regulatory Advisor](./13-regulatory-advisor.md) | Rule templates, soft gates, forensic seal |
-| [Taxonomy Plan 10 - Regulatory List Registry](./2026-01-26-taxonomy-10-regulatory-list-registry.md) | RegulatoryList versioning for forensic snapshots |
-| [Taxonomy Plan 14 - Vertical Rule Evaluation](./2026-01-26-taxonomy-14-vertical-rule-evaluation.md) | SubstanceFinding traceability |
+| [Compliance Evaluation System](../guides/compliance-evaluation-system.md) | RequirementHandler plugins, evidence API, forensic seal |
+| [Compliance Architecture](../architecture/compliance-architecture.md) | Technical reference for compliance system |
 
 ---
 
@@ -2827,8 +2875,6 @@ interface SetCategoryDefaultProfileResponse {
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 2.4 | 2026-01-21 | Added Approval Gate workflow: Pending Reviews Queue (Section 14.7), Category Default Profile Assignment (Section 14.8), authorize/reject APIs, updated authority model |
-| 2.3 | 2026-01-21 | Added feature toggle conditional behavior note to Regulatory Advisor section |
-| 2.2 | 2026-01-21 | Added Regulatory Advisor integration: compliance profile in DPP snapshot, forensic seal with tiered audit view, soft gate workflow, PreFlight evaluation in snapshot pipeline |
+| 3.0 | 2026-01-28 | Removed deprecated concepts (ReadinessProfile, RuleTemplate, ReasonCode, RuleDeviation), updated to current Regulation/Requirement architecture with ComplianceStackResolver and TenantRequirementExemption |
 | 2.1 | 2026-01-21 | Added RFC 8785 canonicalization, facility publicAlias for trade secrets, Merkle visualization, set-based SQL for recall propagation |
 | 2.0 | 2026-01-21 | Consolidated from Prisma design, converted to MikroORM entities |

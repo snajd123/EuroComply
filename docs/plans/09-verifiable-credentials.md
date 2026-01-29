@@ -1609,7 +1609,7 @@ GET    /api/v1/export/package/:id                 # Download export package
 | [Design Workspace](./05-design-workspace.md) | Taxonomy-driven attributes |
 | [Compliance Workspace](./08-compliance-workspace.md) | DPP snapshot integration |
 | [Business Model](./00-business-model.md) | DPP pricing (includes 10-year hosting) |
-| [Regulatory Advisor](./13-regulatory-advisor.md) | Compliance profile in DPP signature |
+| [Compliance Evaluation System](../guides/compliance-evaluation-system.md) | Compliance evaluation in DPP signature |
 
 ---
 

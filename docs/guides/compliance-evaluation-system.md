@@ -13,11 +13,12 @@
 3. [How Requirements Work](#how-requirements-work)
 4. [The Handler Plugin System](#the-handler-plugin-system)
 5. [Compliance Stack Resolution](#compliance-stack-resolution)
-6. [Exemptions and Guardrails](#exemptions-and-guardrails)
-7. [Evidence and Audit Trail](#evidence-and-audit-trail)
-8. [API Reference](#api-reference)
-9. [Data Flow Example](#data-flow-example)
-10. [Adding New Regulations](#adding-new-regulations)
+6. [Category Adoption and Link Modes](#category-adoption-and-link-modes)
+7. [Exemptions and Guardrails](#exemptions-and-guardrails)
+8. [Evidence and Audit Trail](#evidence-and-audit-trail)
+9. [API Reference](#api-reference)
+10. [Data Flow Example](#data-flow-example)
+11. [Adding New Regulations](#adding-new-regulations)
 
 ---
 
@@ -447,6 +448,105 @@ const result = await resolver.resolve(tenantCategoryId);
   ]
 }
 ```
+
+---
+
+## Category Adoption and Link Modes
+
+### How Tenants Connect to System Categories
+
+When a tenant wants to use the platform's regulatory framework, they **adopt** a system category. This creates a `TenantCategory` in their schema linked to a `Category` in the public schema.
+
+The key feature is the **link mode** which controls how tightly coupled the tenant is to system updates:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      CATEGORY ADOPTION MODES                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌────────────┐                                                             │
+│  │    LIVE    │  "Always follow the system"                                 │
+│  └────────────┘                                                             │
+│  • Tenant always sees current system baseline                               │
+│  • When platform adds new regulations, tenant gets them automatically       │
+│  • When platform updates requirements, tenant sees updates immediately      │
+│  • BEST FOR: Tenants who trust the platform and want automatic updates      │
+│                                                                             │
+│  ┌────────────┐                                                             │
+│  │   FROZEN   │  "Lock to a specific version"                               │
+│  └────────────┘                                                             │
+│  • Tenant locked to regulations that existed at freeze time                 │
+│  • pinnedRegulationIds captures exactly which regulations apply             │
+│  • System updates don't affect tenant until they explicitly sync            │
+│  • updateAvailable flag indicates when newer version exists                 │
+│  • BEST FOR: Certification periods, audit preparation, stable releases      │
+│                                                                             │
+│  ┌────────────┐                                                             │
+│  │  DETACHED  │  "Go fully independent"                                     │
+│  └────────────┘                                                             │
+│  • Tenant category becomes completely custom                                │
+│  • No longer linked to any system category                                  │
+│  • PERMANENT: Cannot be re-linked once detached                             │
+│  • BEST FOR: Highly specialized requirements that diverge from standard     │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### The CategoryAdoption Entity
+
+Lives in the tenant schema and tracks the relationship:
+
+```typescript
+interface CategoryAdoption {
+  id: string;
+  systemCategoryId: string;      // Links to public.category
+  localCategory: TenantCategory; // The tenant's category
+  mode: 'LIVE' | 'FROZEN' | 'DETACHED';
+  adoptedAt: Date;
+  adoptedVersion: number;        // System version when adopted
+  frozenAtVersion?: number;      // System version when frozen
+  updateAvailable: boolean;      // True if system has newer version
+  pinnedRegulationIds?: string[];// Captured regulation IDs (FROZEN only)
+}
+```
+
+### Mode Transitions
+
+```
+                    ┌──────────────┐
+         adopt()   │     LIVE     │
+    ─────────────> │   (default)  │
+                    └──────┬───────┘
+                           │
+              patch(FROZEN)│ patch(LIVE)
+                           │ (bidirectional)
+                           v
+                    ┌──────────────┐
+                    │    FROZEN    │
+                    │              │
+                    └──────┬───────┘
+                           │
+              patch(DETACHED) (one-way)
+                           │
+                           v
+                    ┌──────────────┐
+                    │   DETACHED   │
+                    │  (terminal)  │
+                    └──────────────┘
+```
+
+**Note:** DETACHED is permanent. Once detached, a category cannot be re-linked to the system.
+
+### API for Category Adoption
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v1/category-adoption` | GET | List adopted categories |
+| `/api/v1/category-adoption/available` | GET | List categories available for adoption |
+| `/api/v1/category-adoption/:categoryId` | POST | Adopt a system category (starts in LIVE) |
+| `/api/v1/category-adoption/:categoryId` | PATCH | Change mode (body: `{ mode: "FROZEN" }`) |
+| `/api/v1/category-adoption/:categoryId` | DELETE | Remove adoption |
+| `/api/v1/category-adoption/:categoryId/sync` | POST | Manual sync for FROZEN mode |
 
 ---
 

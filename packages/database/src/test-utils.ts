@@ -65,7 +65,7 @@ export async function clearTestDb(em: EntityManager): Promise<void> {
   const connection = em.getConnection();
   // Only clear PUBLIC schema tables - these match publicEntities in entities/index.ts
   // Tenant tables (User, Product, Category, etc.) only exist in tenant schemas
-  const publicTables = ['outbox_event', 'organizations', 'webhook_events', 'api_keys', 'unit_definition', 'substance_alias', 'substance', 'seed_version', 'category_regulatory_list', 'category_regulation', 'regulatory_list', 'regulatory_list_entry', 'category', 'requirement', 'regulation'];
+  const publicTables = ['outbox_event', 'organizations', 'webhook_events', 'api_keys', 'unit_definition', 'substance_alias', 'substance', 'seed_version', 'category_regulation', 'category', 'requirement', 'regulation'];
 
   for (const table of publicTables) {
     try {

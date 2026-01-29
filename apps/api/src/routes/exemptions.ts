@@ -176,7 +176,7 @@ export function createExemptionRouter(options: ExemptionRouterOptions): Hono<Env
         await txEm.execute(`SET search_path TO "${schema}", public`);
         const where: Record<string, unknown> = {};
         if (tenantCategoryId) {
-          where.tenantCategory = { id: tenantCategoryId };
+          where['tenantCategory'] = { id: tenantCategoryId };
         }
         return txEm.find(TenantRequirementExemption, where, { populate: ['tenantCategory'] });
       });

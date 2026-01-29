@@ -129,27 +129,26 @@ export function createEvidenceRouter(deps: EvidenceRouterDependencies): Hono<Env
         // Parse snapshotAt string to Date for storage
         const snapshotAt = new Date(body.requirementSnapshot.snapshotAt);
 
-        const newEvidence = txEm.create(ComplianceEvidence, {
-          productVersionId: body.productVersionId,
-          requirementId: body.requirementId,
-          type: body.type,
-          result: body.result,
-          details: body.details,
-          documentKey: body.documentKey,
-          requirementSnapshot: {
-            code: body.requirementSnapshot.code,
-            name: body.requirementSnapshot.name,
-            type: body.requirementSnapshot.type,
-            severity: body.requirementSnapshot.severity,
-            regulationCode: body.requirementSnapshot.regulationCode,
-            regulationName: body.requirementSnapshot.regulationName,
-            handlerConfig: body.requirementSnapshot.handlerConfig,
-            legalReference: body.requirementSnapshot.legalReference,
-            snapshotAt,
-          },
-          recordedBy: userId,
-          recordedAt: new Date(),
-        });
+        const newEvidence = new ComplianceEvidence();
+        newEvidence.productVersionId = body.productVersionId;
+        newEvidence.requirementId = body.requirementId;
+        newEvidence.type = body.type;
+        newEvidence.result = body.result;
+        newEvidence.details = body.details;
+        newEvidence.documentKey = body.documentKey;
+        newEvidence.requirementSnapshot = {
+          code: body.requirementSnapshot.code,
+          name: body.requirementSnapshot.name,
+          type: body.requirementSnapshot.type,
+          severity: body.requirementSnapshot.severity,
+          regulationCode: body.requirementSnapshot.regulationCode,
+          regulationName: body.requirementSnapshot.regulationName,
+          handlerConfig: body.requirementSnapshot.handlerConfig,
+          legalReference: body.requirementSnapshot.legalReference,
+          snapshotAt,
+        };
+        newEvidence.recordedBy = userId;
+        newEvidence.recordedAt = new Date();
 
         txEm.persist(newEvidence);
         await txEm.flush();

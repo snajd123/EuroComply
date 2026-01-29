@@ -1,18 +1,20 @@
-# Taxonomy Plan 14: Vertical Rule Evaluation
+# Taxonomy Plan 14: Vertical Requirement Evaluation
+
+> **STATUS: IMPLEMENTED** - This plan has been implemented. The terminology and architecture have been updated to use the RequirementHandler plugin system.
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Extend RuleTemplate validationLogic schema and PreFlightAuditService to support data-driven vertical compliance checks using RegulatoryLists.
+**Goal:** Extend the compliance evaluation system to support data-driven vertical compliance checks using Regulations via the RequirementHandler plugin architecture.
 
-**Architecture:** Add new validationLogic types (`regulatory_list_check`, `aggregate_metric_threshold`) to RuleTemplate. Create evaluator services that cross-reference rolled-up substances against RegulatoryListEntries. Enrich AuditFinding with traceability and legal references.
+**Architecture:** Create RequirementHandler plugins and RequirementEvaluatorEngine that cross-reference rolled-up substances against Requirements. Enrich AuditFinding with traceability and legal references.
 
 **Tech Stack:** MikroORM, PostgreSQL, TypeScript, Decimal.js
 
 **Prerequisites:**
 - Plan 8 (Substance Rollup)
 - Plan 9 (Raw Material Rollup)
-- Plan 10 (Regulatory List Registry)
-- Plan 11 (Category-List Scoping)
+- Plan 10 (Regulation Registry)
+- Plan 11 (Category-Regulation Scoping)
 
 **Reference:** See `docs/plans/2026-01-26-regulatory-vertical-system-design.md` Sections 2, 4, 6
 
@@ -31,56 +33,56 @@
 import { describe, it, expect } from 'vitest';
 import {
   ValidationLogic,
-  RegulatoryListCheckConfig,
+  RegulationCheckConfig,
   AggregateMetricThresholdConfig,
-  isRegulatoryListCheck,
+  isRegulationCheck,
   isAggregateMetricThreshold,
 } from './validation-logic.js';
 
 describe('ValidationLogic Types', () => {
-  describe('RegulatoryListCheck', () => {
-    it('should validate a regulatory_list_check config with ARTICLE scope', () => {
+  describe('RegulationCheck', () => {
+    it('should validate a regulation_check config with ARTICLE scope', () => {
       const logic: ValidationLogic = {
-        type: 'regulatory_list_check',
+        type: 'regulation_check',
         config: {
-          listCodes: ['COSING_ANNEX_II'],
+          regulationCodes: ['COSING_ANNEX_II'],
           scope: 'ARTICLE',
         },
       };
 
-      expect(isRegulatoryListCheck(logic)).toBe(true);
-      const config = logic.config as RegulatoryListCheckConfig;
-      expect(config.listCodes).toEqual(['COSING_ANNEX_II']);
+      expect(isRegulationCheck(logic)).toBe(true);
+      const config = logic.config as RegulationCheckConfig;
+      expect(config.regulationCodes).toEqual(['COSING_ANNEX_II']);
       expect(config.scope).toBe('ARTICLE');
     });
 
-    it('should support null listCodes for category inheritance', () => {
+    it('should support null regulationCodes for category inheritance', () => {
       const logic: ValidationLogic = {
-        type: 'regulatory_list_check',
+        type: 'regulation_check',
         config: {
-          listCodes: null,
+          regulationCodes: null,
           scope: 'HOMOGENEOUS_MATERIAL',
           compareValueOverride: '0.01',
         },
       };
 
-      expect(isRegulatoryListCheck(logic)).toBe(true);
-      const config = logic.config as RegulatoryListCheckConfig;
-      expect(config.listCodes).toBeNull();
+      expect(isRegulationCheck(logic)).toBe(true);
+      const config = logic.config as RegulationCheckConfig;
+      expect(config.regulationCodes).toBeNull();
       expect(config.compareValueOverride).toBe('0.01');
     });
 
     it('should support conditionKey for conditional restrictions', () => {
       const logic: ValidationLogic = {
-        type: 'regulatory_list_check',
+        type: 'regulation_check',
         config: {
-          listCodes: ['COSING_ANNEX_III'],
+          regulationCodes: ['COSING_ANNEX_III'],
           scope: 'ARTICLE',
           conditionKey: 'application_area',
         },
       };
 
-      const config = logic.config as RegulatoryListCheckConfig;
+      const config = logic.config as RegulationCheckConfig;
       expect(config.conditionKey).toBe('application_area');
     });
   });
@@ -122,7 +124,7 @@ describe('ValidationLogic Types', () => {
   describe('Type Guards', () => {
     it('should correctly identify non-matching types', () => {
       const required: ValidationLogic = { type: 'required', config: {} };
-      expect(isRegulatoryListCheck(required)).toBe(false);
+      expect(isRegulationCheck(required)).toBe(false);
       expect(isAggregateMetricThreshold(required)).toBe(false);
     });
   });
@@ -176,23 +178,26 @@ export interface CustomConfig {
 }
 
 // ─────────────────────────────────────────────────────────────
-// New Types for Vertical Compliance
+// New Types for Vertical Compliance (RequirementHandler System)
 // ─────────────────────────────────────────────────────────────
 
 /**
- * Configuration for regulatory list compliance checks.
- * Used with type: 'regulatory_list_check'
+ * Configuration for regulation compliance checks.
+ * Used with type: 'regulation_check'
  *
  * IMPORTANT: This config is AGNOSTIC. The actual evaluation logic
- * (operator, compareValue, issueType, severity) comes from RegulatoryListEntry.
- * This config only specifies WHICH lists to check and HOW to scope the evaluation.
+ * (operator, compareValue, issueType, severity) comes from Requirement.
+ * This config only specifies WHICH regulations to check and HOW to scope the evaluation.
+ *
+ * The RequirementEvaluatorEngine uses RequirementHandler plugins to evaluate
+ * each requirement type, enabling extensible rule evaluation without code changes.
  */
-export interface RegulatoryListCheckConfig {
+export interface RegulationCheckConfig {
   /**
-   * Explicit list codes to check against.
-   * If null, inherits from CategoryRegulatoryList based on product category.
+   * Explicit regulation codes to check against.
+   * If null, inherits from CategoryRegulation based on product category.
    */
-  listCodes: string[] | null;
+  regulationCodes: string[] | null;
 
   /**
    * Evaluation scope.
@@ -202,13 +207,13 @@ export interface RegulatoryListCheckConfig {
   scope: 'ARTICLE' | 'HOMOGENEOUS_MATERIAL';
 
   /**
-   * Override the compareValue from RegulatoryListEntry (category-specific stricter thresholds).
-   * If null, uses the compareValue defined in the list entry.
+   * Override the compareValue from Requirement (category-specific stricter thresholds).
+   * If null, uses the compareValue defined in the requirement.
    */
   compareValueOverride?: string | null;
 
   /**
-   * For conditional restrictions: key to check in entry.conditions
+   * For conditional restrictions: key to check in requirement.conditions
    */
   conditionKey?: string;
 }
@@ -251,7 +256,7 @@ export type ValidationLogicType =
   | 'substance_threshold'      // Legacy - Plan 8
   | 'substance_presence'       // Legacy - Plan 8
   | 'substance_authorization'  // Legacy - Plan 8
-  | 'regulatory_list_check'    // New - data-driven
+  | 'regulation_check'         // New - data-driven via RequirementHandler
   | 'aggregate_metric_threshold';  // New - rollup metrics
 
 export type ValidationLogicConfig =
@@ -259,7 +264,7 @@ export type ValidationLogicConfig =
   | PatternConfig
   | RangeConfig
   | CustomConfig
-  | RegulatoryListCheckConfig
+  | RegulationCheckConfig
   | AggregateMetricThresholdConfig;
 
 export interface ValidationLogic {
@@ -271,10 +276,10 @@ export interface ValidationLogic {
 // Type Guards
 // ─────────────────────────────────────────────────────────────
 
-export function isRegulatoryListCheck(
+export function isRegulationCheck(
   logic: ValidationLogic
-): logic is ValidationLogic & { config: RegulatoryListCheckConfig } {
-  return logic.type === 'regulatory_list_check';
+): logic is ValidationLogic & { config: RegulationCheckConfig } {
+  return logic.type === 'regulation_check';
 }
 
 export function isAggregateMetricThreshold(
@@ -301,7 +306,7 @@ export * from './validation-logic.js';
 
 ```bash
 git add packages/database/src/types/validation-logic.ts packages/database/src/types/validation-logic.test.ts packages/database/src/types/index.ts
-git commit -m "feat(database): add ValidationLogic types for regulatory_list_check and aggregate_metric_threshold"
+git commit -m "feat(database): add ValidationLogic types for regulation_check and aggregate_metric_threshold"
 ```
 
 ---
@@ -330,8 +335,8 @@ describe('AuditFinding Types', () => {
   describe('SubstanceFinding', () => {
     it('should create a valid substance finding', () => {
       const finding: SubstanceFinding = {
-        ruleCode: 'COSING_PROHIBITION_CHECK',
-        ruleName: 'CosIng Prohibited Substances',
+        requirementCode: 'COSING_PROHIBITION_CHECK',
+        requirementName: 'CosIng Prohibited Substances',
         severity: 'BLOCKER',
         status: 'FAILED',
         effectiveMode: 'ENFORCING',
@@ -343,7 +348,7 @@ describe('AuditFinding Types', () => {
           scope: 'ARTICLE',
         },
         evaluationContext: {
-          appliedList: {
+          appliedRegulation: {
             code: 'COSING_ANNEX_II',
             name: 'CosIng Annex II',
             version: '2024-06',
@@ -377,8 +382,8 @@ describe('AuditFinding Types', () => {
   describe('MetricFinding', () => {
     it('should create a valid metric finding', () => {
       const finding: MetricFinding = {
-        ruleCode: 'CRMA_RISK_LIMIT',
-        ruleName: 'CRMA Supply Risk Limit',
+        requirementCode: 'CRMA_RISK_LIMIT',
+        requirementName: 'CRMA Supply Risk Limit',
         severity: 'WARNING',
         status: FindingStatus.FAILED,
         effectiveMode: 'ENFORCING',
@@ -404,8 +409,8 @@ describe('AuditFinding Types', () => {
   describe('JUSTIFIED_EXEMPTION status', () => {
     it('should create a finding with JUSTIFIED_EXEMPTION status', () => {
       const finding: SubstanceFinding = {
-        ruleCode: 'REACH_SVHC_CHECK',
-        ruleName: 'REACH SVHC Compliance',
+        requirementCode: 'REACH_SVHC_CHECK',
+        requirementName: 'REACH SVHC Compliance',
         severity: 'INFO',
         status: FindingStatus.JUSTIFIED_EXEMPTION,
         effectiveMode: 'ENFORCING',
@@ -415,7 +420,7 @@ describe('AuditFinding Types', () => {
           legalRef: 'Regulation (EC) No 1907/2006 Article 2(5)(a)',
         },
         evaluationContext: {
-          appliedList: {
+          appliedRegulation: {
             code: 'REACH_SVHC',
             name: 'REACH SVHC Candidate List',
             version: '2024-01',
@@ -479,8 +484,8 @@ export enum FindingStatus {
 }
 
 export interface AuditFindingBase {
-  ruleCode: string;
-  ruleName: string;
+  requirementCode: string;
+  requirementName: string;
   severity: 'BLOCKER' | 'WARNING' | 'INFO';
   status: FindingStatus;
   effectiveMode: 'ENFORCING' | 'SILENT' | 'DISABLED';
@@ -521,7 +526,7 @@ export interface SubstanceFinding extends AuditFindingBase {
   };
 
   evaluationContext: {
-    appliedList: {
+    appliedRegulation: {
       code: string;
       name: string;
       version: string;
@@ -572,7 +577,7 @@ export type AuditFinding = SubstanceFinding | MetricFinding | AuditFindingBase;
 // ─────────────────────────────────────────────────────────────
 
 export function isSubstanceFinding(finding: AuditFinding): finding is SubstanceFinding {
-  return 'evaluationContext' in finding && 'appliedList' in (finding as SubstanceFinding).evaluationContext;
+  return 'evaluationContext' in finding && 'appliedRegulation' in (finding as SubstanceFinding).evaluationContext;
 }
 
 export function isMetricFinding(finding: AuditFinding): finding is MetricFinding {
@@ -602,33 +607,35 @@ git commit -m "feat(database): add SubstanceFinding and MetricFinding types with
 
 ---
 
-## Task 3: Create RegulatoryListCheckEvaluator
+## Task 3: Create RequirementHandler Plugin System and RequirementEvaluatorEngine
 
 **Files:**
-- Create: `packages/database/src/services/evaluators/RegulatoryListCheckEvaluator.ts`
-- Test: `packages/database/src/services/evaluators/RegulatoryListCheckEvaluator.test.ts`
+- Create: `packages/database/src/services/handlers/RequirementHandler.ts` (interface)
+- Create: `packages/database/src/services/handlers/SubstanceThresholdHandler.ts` (plugin)
+- Create: `packages/database/src/services/RequirementEvaluatorEngine.ts` (engine)
+- Test: `packages/database/src/services/RequirementEvaluatorEngine.test.ts`
 
 **Step 1: Write the failing test**
 
 ```typescript
-// packages/database/src/services/evaluators/RegulatoryListCheckEvaluator.test.ts
+// packages/database/src/services/RequirementEvaluatorEngine.test.ts
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import type { MikroORM } from '@mikro-orm/postgresql';
-import { RegulatoryList } from '../../entities/RegulatoryList.js';
-import { RegulatoryListEntry } from '../../entities/RegulatoryListEntry.js';
+import { Regulation } from '../../entities/Regulation.js';
+import { Requirement } from '../../entities/Requirement.js';
 import { Substance } from '../../entities/Substance.js';
 import { Category, CategoryType } from '../../entities/Category.js';
-import { CategoryRegulatoryList } from '../../entities/CategoryRegulatoryList.js';
+import { CategoryRegulation } from '../../entities/CategoryRegulation.js';
 import {
-  RegulatoryListCheckEvaluator,
+  RequirementEvaluatorEngine,
   EvaluatorInput,
-} from './RegulatoryListCheckEvaluator.js';
-import { ComparisonOperator, Severity, ListRequirement } from '../../entities/enums/index.js';
-import { RegulatoryListCheckConfig } from '../../types/validation-logic.js';
+} from './RequirementEvaluatorEngine.js';
+import { ComparisonOperator, Severity, RegulationRequirement } from '../../entities/enums/index.js';
+import { RegulationCheckConfig } from '../../types/validation-logic.js';
 import { FindingStatus } from '../../types/audit-finding.js';
 import { setupTestDb, teardownTestDb, isDatabaseAvailable } from '../../test-utils.js';
 
-describe('RegulatoryListCheckEvaluator', () => {
+describe('RequirementEvaluatorEngine', () => {
   let orm: MikroORM;
 
   beforeAll(async () => {
@@ -643,9 +650,9 @@ describe('RegulatoryListCheckEvaluator', () => {
   beforeEach(async () => {
     if (!orm) return;
     const em = orm.em.fork();
-    await em.nativeDelete(CategoryRegulatoryList, {});
-    await em.nativeDelete(RegulatoryListEntry, {});
-    await em.nativeDelete(RegulatoryList, {});
+    await em.nativeDelete(CategoryRegulation, {});
+    await em.nativeDelete(Requirement, {});
+    await em.nativeDelete(Regulation, {});
     await em.nativeDelete(Category, {});
     await em.nativeDelete(Substance, {});
 
@@ -662,8 +669,8 @@ describe('RegulatoryListCheckEvaluator', () => {
       depth: 1,
     });
 
-    // Create regulatory list
-    const cosingII = em.create(RegulatoryList, {
+    // Create regulation
+    const cosingII = em.create(Regulation, {
       code: 'COSING_ANNEX_II',
       name: 'CosIng Annex II',
       source: 'EU_COSING',
@@ -673,9 +680,9 @@ describe('RegulatoryListCheckEvaluator', () => {
 
     await em.persistAndFlush([formaldehyde, lead, zinc, cosmetics, cosingII]);
 
-    // Create list entries with agnostic evaluation data
-    em.create(RegulatoryListEntry, {
-      list: cosingII,
+    // Create requirements with agnostic evaluation data
+    em.create(Requirement, {
+      regulation: cosingII,
       substance: formaldehyde,
       casNumberSnapshot: '50-00-0',
       substanceNameSnapshot: 'Formaldehyde',
@@ -685,8 +692,8 @@ describe('RegulatoryListCheckEvaluator', () => {
       legalReference: 'Entry 1577',
     });
 
-    em.create(RegulatoryListEntry, {
-      list: cosingII,
+    em.create(Requirement, {
+      regulation: cosingII,
       substance: lead,
       casNumberSnapshot: '7439-92-1',
       substanceNameSnapshot: 'Lead',
@@ -697,11 +704,11 @@ describe('RegulatoryListCheckEvaluator', () => {
       legalReference: 'Entry 1234',
     });
 
-    // Link category to list
-    em.create(CategoryRegulatoryList, {
+    // Link category to regulation
+    em.create(CategoryRegulation, {
       category: cosmetics,
-      regulatoryList: cosingII,
-      requirement: ListRequirement.PROHIBITION,
+      regulation: cosingII,
+      requirement: RegulationRequirement.PROHIBITION,
     });
 
     await em.flush();
@@ -711,10 +718,10 @@ describe('RegulatoryListCheckEvaluator', () => {
     it('fails when prohibited substance is present (PRESENT operator)', async (context) => {
       if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
-      const evaluator = new RegulatoryListCheckEvaluator(em);
+      const engine = new RequirementEvaluatorEngine(em);
 
-      const config: RegulatoryListCheckConfig = {
-        listCodes: ['COSING_ANNEX_II'],
+      const config: RegulationCheckConfig = {
+        regulationCodes: ['COSING_ANNEX_II'],
         scope: 'ARTICLE',
       };
 
@@ -722,7 +729,7 @@ describe('RegulatoryListCheckEvaluator', () => {
         scope: 'ARTICLE',
         substances: [
           {
-            casNumber: '50-00-0',  // Formaldehyde - PRESENT operator in entry
+            casNumber: '50-00-0',  // Formaldehyde - PRESENT operator in requirement
             primaryName: 'Formaldehyde',
             effectiveConcentrationPct: '0.05',
             traceability: [
@@ -732,22 +739,22 @@ describe('RegulatoryListCheckEvaluator', () => {
         ],
       };
 
-      const findings = await evaluator.evaluate(config, input, 'products.cosmetics');
+      const findings = await engine.evaluate(config, input, 'products.cosmetics');
 
       expect(findings).toHaveLength(1);
       expect(findings[0].status).toBe('FAILED');
-      expect(findings[0].issueType).toBe('PROHIBITED_SUBSTANCE');  // From entry.issueType
-      expect(findings[0].severity).toBe('BLOCKER');  // From entry.severity
+      expect(findings[0].issueType).toBe('PROHIBITED_SUBSTANCE');  // From requirement.issueType
+      expect(findings[0].severity).toBe('BLOCKER');  // From requirement.severity
       expect(findings[0].substance?.casNumber).toBe('50-00-0');
     });
 
-    it('passes when substance not in list', async (context) => {
+    it('passes when substance not in regulation', async (context) => {
       if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
-      const evaluator = new RegulatoryListCheckEvaluator(em);
+      const engine = new RequirementEvaluatorEngine(em);
 
-      const config: RegulatoryListCheckConfig = {
-        listCodes: ['COSING_ANNEX_II'],
+      const config: RegulationCheckConfig = {
+        regulationCodes: ['COSING_ANNEX_II'],
         scope: 'ARTICLE',
       };
 
@@ -755,7 +762,7 @@ describe('RegulatoryListCheckEvaluator', () => {
         scope: 'ARTICLE',
         substances: [
           {
-            casNumber: '7440-66-6',  // Zinc - not in list
+            casNumber: '7440-66-6',  // Zinc - not in regulation
             primaryName: 'Zinc',
             effectiveConcentrationPct: '1.0',
             traceability: [],
@@ -763,18 +770,18 @@ describe('RegulatoryListCheckEvaluator', () => {
         ],
       };
 
-      const findings = await evaluator.evaluate(config, input, 'products.cosmetics');
+      const findings = await engine.evaluate(config, input, 'products.cosmetics');
 
-      expect(findings).toHaveLength(0);  // No violations - substance not in list
+      expect(findings).toHaveLength(0);  // No violations - substance not in regulation
     });
 
     it('fails when concentration exceeds threshold (GT operator)', async (context) => {
       if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
-      const evaluator = new RegulatoryListCheckEvaluator(em);
+      const engine = new RequirementEvaluatorEngine(em);
 
-      const config: RegulatoryListCheckConfig = {
-        listCodes: ['COSING_ANNEX_II'],
+      const config: RegulationCheckConfig = {
+        regulationCodes: ['COSING_ANNEX_II'],
         scope: 'ARTICLE',
       };
 
@@ -790,21 +797,21 @@ describe('RegulatoryListCheckEvaluator', () => {
         ],
       };
 
-      const findings = await evaluator.evaluate(config, input, 'products.cosmetics');
+      const findings = await engine.evaluate(config, input, 'products.cosmetics');
 
       expect(findings).toHaveLength(1);
       expect(findings[0].status).toBe('FAILED');
-      expect(findings[0].issueType).toBe('CHEMICAL_LIMIT_EXCEEDED');  // From entry.issueType
-      expect(findings[0].severity).toBe('WARNING');  // From entry.severity
+      expect(findings[0].issueType).toBe('CHEMICAL_LIMIT_EXCEEDED');  // From requirement.issueType
+      expect(findings[0].severity).toBe('WARNING');  // From requirement.severity
     });
 
     it('passes when concentration below threshold', async (context) => {
       if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
-      const evaluator = new RegulatoryListCheckEvaluator(em);
+      const engine = new RequirementEvaluatorEngine(em);
 
-      const config: RegulatoryListCheckConfig = {
-        listCodes: ['COSING_ANNEX_II'],
+      const config: RegulationCheckConfig = {
+        regulationCodes: ['COSING_ANNEX_II'],
         scope: 'ARTICLE',
       };
 
@@ -820,20 +827,20 @@ describe('RegulatoryListCheckEvaluator', () => {
         ],
       };
 
-      const findings = await evaluator.evaluate(config, input, 'products.cosmetics');
+      const findings = await engine.evaluate(config, input, 'products.cosmetics');
 
       expect(findings).toHaveLength(0);
     });
   });
 
-  describe('evaluate with null listCodes (category inheritance)', () => {
-    it('uses lists from category when listCodes is null', async (context) => {
+  describe('evaluate with null regulationCodes (category inheritance)', () => {
+    it('uses regulations from category when regulationCodes is null', async (context) => {
       if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
-      const evaluator = new RegulatoryListCheckEvaluator(em);
+      const engine = new RequirementEvaluatorEngine(em);
 
-      const config: RegulatoryListCheckConfig = {
-        listCodes: null,  // Inherit from category
+      const config: RegulationCheckConfig = {
+        regulationCodes: null,  // Inherit from category
         scope: 'ARTICLE',
       };
 
@@ -849,10 +856,10 @@ describe('RegulatoryListCheckEvaluator', () => {
         ],
       };
 
-      const findings = await evaluator.evaluate(config, input, 'products.cosmetics');
+      const findings = await engine.evaluate(config, input, 'products.cosmetics');
 
       expect(findings).toHaveLength(1);
-      expect(findings[0].evaluationContext.appliedList.code).toBe('COSING_ANNEX_II');
+      expect(findings[0].evaluationContext.appliedRegulation.code).toBe('COSING_ANNEX_II');
     });
   });
 
@@ -860,10 +867,10 @@ describe('RegulatoryListCheckEvaluator', () => {
     it('fails when ANY individual material exceeds threshold (RoHS pattern)', async (context) => {
       if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
-      const evaluator = new RegulatoryListCheckEvaluator(em);
+      const engine = new RequirementEvaluatorEngine(em);
 
-      const config: RegulatoryListCheckConfig = {
-        listCodes: ['COSING_ANNEX_II'],
+      const config: RegulationCheckConfig = {
+        regulationCodes: ['COSING_ANNEX_II'],
         scope: 'HOMOGENEOUS_MATERIAL',
       };
 
@@ -892,19 +899,19 @@ describe('RegulatoryListCheckEvaluator', () => {
             materialVersionId: 'housing-001',
             supplier: 'Plastics Inc',
             substances: [
-              { casNumber: '7440-66-6', primaryName: 'Zinc', concentrationPct: '0.5' },  // Not in list
+              { casNumber: '7440-66-6', primaryName: 'Zinc', concentrationPct: '0.5' },  // Not in regulation
             ],
           },
         ],
       };
 
-      const findings = await evaluator.evaluate(config, input, 'products.electronics');
+      const findings = await engine.evaluate(config, input, 'products.electronics');
 
-      // Only the M3 Screw should fail (Lead entry has GT operator with compareValue 0.001)
+      // Only the M3 Screw should fail (Lead requirement has GT operator with compareValue 0.001)
       expect(findings).toHaveLength(1);
       expect(findings[0].status).toBe('FAILED');
-      expect(findings[0].issueType).toBe('CHEMICAL_LIMIT_EXCEEDED');  // From entry.issueType
-      expect(findings[0].severity).toBe('WARNING');  // From entry.severity
+      expect(findings[0].issueType).toBe('CHEMICAL_LIMIT_EXCEEDED');  // From requirement.issueType
+      expect(findings[0].severity).toBe('WARNING');  // From requirement.severity
       expect(findings[0].evaluationContext.traceability[0].materialName).toBe('M3 Screw');
       expect(findings[0].evaluationContext.traceability[0].supplier).toBe('Fastener Co');
       expect(findings[0].evaluationContext.reason).toContain('M3 Screw');
@@ -914,10 +921,10 @@ describe('RegulatoryListCheckEvaluator', () => {
     it('passes when all individual materials are below threshold', async (context) => {
       if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
-      const evaluator = new RegulatoryListCheckEvaluator(em);
+      const engine = new RequirementEvaluatorEngine(em);
 
-      const config: RegulatoryListCheckConfig = {
-        listCodes: ['COSING_ANNEX_II'],
+      const config: RegulationCheckConfig = {
+        regulationCodes: ['COSING_ANNEX_II'],
         scope: 'HOMOGENEOUS_MATERIAL',
       };
 
@@ -943,7 +950,7 @@ describe('RegulatoryListCheckEvaluator', () => {
         ],
       };
 
-      const findings = await evaluator.evaluate(config, input, 'products.electronics');
+      const findings = await engine.evaluate(config, input, 'products.electronics');
 
       expect(findings).toHaveLength(0);
     });
@@ -951,10 +958,10 @@ describe('RegulatoryListCheckEvaluator', () => {
     it('returns multiple findings when multiple materials violate', async (context) => {
       if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
-      const evaluator = new RegulatoryListCheckEvaluator(em);
+      const engine = new RequirementEvaluatorEngine(em);
 
-      const config: RegulatoryListCheckConfig = {
-        listCodes: ['COSING_ANNEX_II'],
+      const config: RegulationCheckConfig = {
+        regulationCodes: ['COSING_ANNEX_II'],
         scope: 'HOMOGENEOUS_MATERIAL',
       };
 
@@ -980,7 +987,7 @@ describe('RegulatoryListCheckEvaluator', () => {
         ],
       };
 
-      const findings = await evaluator.evaluate(config, input, 'products.cosmetics');
+      const findings = await engine.evaluate(config, input, 'products.cosmetics');
 
       // Both materials contain prohibited Formaldehyde (PRESENT operator triggers on any > 0)
       expect(findings).toHaveLength(2);
@@ -993,14 +1000,14 @@ describe('RegulatoryListCheckEvaluator', () => {
     it('returns JUSTIFIED_EXEMPTION when regulation is exempted for tenant', async (context) => {
       if (!orm) { context.skip(); return; }
       const em = orm.em.fork();
-      const evaluator = new RegulatoryListCheckEvaluator(em);
+      const engine = new RequirementEvaluatorEngine(em);
 
-      // Note: In a real test, you would set up TenantCategoryRegulatoryList with
+      // Note: In a real test, you would set up TenantCategoryRegulation with
       // status='EXEMPTED' via the ComplianceStackResolver. For this unit test,
       // we demonstrate the expected behavior.
 
-      const config: RegulatoryListCheckConfig = {
-        listCodes: ['COSING_ANNEX_II'],
+      const config: RegulationCheckConfig = {
+        regulationCodes: ['COSING_ANNEX_II'],
         scope: 'ARTICLE',
       };
 
@@ -1019,7 +1026,7 @@ describe('RegulatoryListCheckEvaluator', () => {
       // When tenantCategoryId is provided and regulation is exempted,
       // expect JUSTIFIED_EXEMPTION instead of FAILED
       // This test validates the interface - full integration tests in E2E suite
-      const findings = await evaluator.evaluate(
+      const findings = await engine.evaluate(
         config,
         input,
         'products.cosmetics',
@@ -1027,22 +1034,22 @@ describe('RegulatoryListCheckEvaluator', () => {
       );
 
       // Without actual exemption setup, this returns FAILED
-      // With exemption setup (via TenantCategoryRegulatoryList), would return:
+      // With exemption setup (via TenantCategoryRegulation), would return:
       // - status: FindingStatus.JUSTIFIED_EXEMPTION
       // - exemption.reason: 'Medical device exemption...'
       // - exemption.legalRef: 'Regulation (EC) No 1907/2006 Article 2(5)(a)'
       expect(findings.length).toBeGreaterThanOrEqual(0);
     });
 
-    it('skips substance checks for exempted regulations', async (context) => {
+    it('skips requirement checks for exempted regulations', async (context) => {
       if (!orm) { context.skip(); return; }
       // When a regulation is exempted via ComplianceStackResolver:
-      // 1. No substance-level evaluation occurs
+      // 1. No requirement-level evaluation occurs
       // 2. A single JUSTIFIED_EXEMPTION finding is returned for the whole regulation
       // 3. The exemption reason and legal reference are included
 
       // This behavior ensures:
-      // - Performance: no unnecessary substance lookups
+      // - Performance: no unnecessary requirement lookups
       // - Clarity: clear indication that exemption applies
       // - Auditability: exemption reason is preserved in findings
     });
@@ -1053,25 +1060,228 @@ describe('RegulatoryListCheckEvaluator', () => {
 **Step 2: Run test to verify it fails**
 
 ```bash
-cd packages/database && pnpm test RegulatoryListCheckEvaluator.test.ts
+cd packages/database && pnpm test RequirementHandler.test.ts
 ```
 
 Expected: FAIL
 
 **Step 3: Write minimal implementation**
 
+First, create the RequirementHandler interface (plugin system):
+
 ```typescript
-// packages/database/src/services/evaluators/RegulatoryListCheckEvaluator.ts
-import { EntityManager } from '@mikro-orm/postgresql';
+// packages/database/src/services/handlers/RequirementHandler.ts
+import { Requirement } from '../../entities/Requirement.js';
+import { SubstanceFinding } from '../../types/audit-finding.js';
+
+/**
+ * RequirementHandler Plugin Interface
+ *
+ * Handlers are responsible for evaluating specific requirement types.
+ * The RequirementEvaluatorEngine uses these plugins to process requirements
+ * in an extensible manner - new requirement types can be added without
+ * modifying the core engine.
+ */
+export interface RequirementHandler {
+  /**
+   * Returns true if this handler can evaluate the given requirement.
+   */
+  canHandle(requirement: Requirement): boolean;
+
+  /**
+   * Evaluates the requirement against the provided substance data.
+   * Returns a finding if violation detected, null otherwise.
+   */
+  evaluate(
+    requirement: Requirement,
+    substanceData: SubstanceInput,
+    config: HandlerConfig
+  ): SubstanceFinding | null;
+}
+
+export interface SubstanceInput {
+  casNumber: string;
+  primaryName: string;
+  concentrationPct: string;
+  materialName?: string;
+  materialVersionId?: string;
+  supplier?: string;
+}
+
+export interface HandlerConfig {
+  scope: 'ARTICLE' | 'HOMOGENEOUS_MATERIAL';
+  compareValueOverride?: string | null;
+}
+```
+
+Then, create the SubstanceThresholdHandler (example plugin):
+
+```typescript
+// packages/database/src/services/handlers/SubstanceThresholdHandler.ts
 import Decimal from 'decimal.js';
-import { RegulatoryList } from '../../entities/RegulatoryList.js';
-import { RegulatoryListEntry } from '../../entities/RegulatoryListEntry.js';
-import { CategoryRegulatoryListService } from '../CategoryRegulatoryListService.js';
-import { RegulatoryListService } from '../RegulatoryListService.js';
-import { ComplianceStackResolver, EffectiveRegulation } from '../ComplianceStackResolver.js';
-import { RegulatoryListCheckConfig } from '../../types/validation-logic.js';
-import { SubstanceFinding, SubstanceTraceability, FindingStatus } from '../../types/audit-finding.js';
-import { ComparisonOperator, Severity } from '../../entities/enums/index.js';
+import { Requirement } from '../../entities/Requirement.js';
+import { SubstanceFinding, FindingStatus } from '../../types/audit-finding.js';
+import { ComparisonOperator } from '../../entities/enums/index.js';
+import { RequirementHandler, SubstanceInput, HandlerConfig } from './RequirementHandler.js';
+
+/**
+ * SubstanceThresholdHandler - Handles threshold-based requirement evaluation.
+ *
+ * Supports operators: GT, GTE, LT, LTE, EQ, PRESENT, ABSENT
+ * Used for REACH, RoHS, CosIng, and other substance threshold regulations.
+ */
+export class SubstanceThresholdHandler implements RequirementHandler {
+  canHandle(requirement: Requirement): boolean {
+    // Handles any requirement with a comparison operator
+    return requirement.operator !== undefined && requirement.operator !== null;
+  }
+
+  evaluate(
+    requirement: Requirement,
+    substanceData: SubstanceInput,
+    config: HandlerConfig
+  ): SubstanceFinding | null {
+    const isViolation = this.checkViolation(substanceData.concentrationPct, requirement, config);
+
+    if (!isViolation) {
+      return null;
+    }
+
+    return this.buildFinding(requirement, substanceData, config);
+  }
+
+  private checkViolation(
+    concentrationPct: string,
+    requirement: Requirement,
+    config: HandlerConfig
+  ): boolean {
+    const rawConcentration = new Decimal(concentrationPct);
+
+    // Apply stoichiometric factor if present
+    const concentration = requirement.stoichiometricFactor
+      ? rawConcentration.mul(requirement.stoichiometricFactor)
+      : rawConcentration;
+
+    // Get compareValue: config override takes precedence
+    const compareValue = config.compareValueOverride
+      ? new Decimal(config.compareValueOverride)
+      : requirement.compareValue
+        ? new Decimal(requirement.compareValue)
+        : null;
+
+    return this.compare(concentration, requirement.operator, compareValue);
+  }
+
+  private compare(
+    value: Decimal,
+    operator: ComparisonOperator,
+    compareValue: Decimal | null
+  ): boolean {
+    switch (operator) {
+      case ComparisonOperator.GT:
+        return compareValue !== null && value.gt(compareValue);
+      case ComparisonOperator.GTE:
+        return compareValue !== null && value.gte(compareValue);
+      case ComparisonOperator.LT:
+        return compareValue !== null && value.lt(compareValue);
+      case ComparisonOperator.LTE:
+        return compareValue !== null && value.lte(compareValue);
+      case ComparisonOperator.EQ:
+        return compareValue !== null && value.eq(compareValue);
+      case ComparisonOperator.PRESENT:
+        return value.gt(0);
+      case ComparisonOperator.ABSENT:
+        return !value.eq(0);
+      default:
+        return false;
+    }
+  }
+
+  private buildFinding(
+    requirement: Requirement,
+    substanceData: SubstanceInput,
+    config: HandlerConfig
+  ): SubstanceFinding {
+    const regulation = requirement.regulation;
+
+    return {
+      requirementCode: `VERTICAL_${regulation.code}_CHECK`,
+      requirementName: `${regulation.name} Compliance Check`,
+      severity: requirement.severity,
+      status: FindingStatus.FAILED,
+      effectiveMode: 'ENFORCING',
+      issueType: requirement.issueType,
+      substance: {
+        casNumber: substanceData.casNumber,
+        primaryName: substanceData.primaryName,
+        effectiveConcentrationPct: substanceData.concentrationPct,
+        scope: config.scope,
+      },
+      evaluationContext: {
+        appliedRegulation: {
+          code: regulation.code,
+          name: regulation.name,
+          version: regulation.version,
+          sourceUrl: regulation.sourceUrl || '',
+        },
+        legalReference: requirement.legalReference || '',
+        categoryTrigger: '',
+        reason: this.buildReason(requirement, substanceData),
+        traceability: substanceData.materialName ? [{
+          materialName: substanceData.materialName,
+          materialVersionId: substanceData.materialVersionId || '',
+          supplier: substanceData.supplier,
+          concentrationInMaterial: substanceData.concentrationPct,
+          contributionToProduct: substanceData.concentrationPct,
+        }] : [],
+      },
+      remediation: {
+        suggestion: this.buildSuggestion(requirement.issueType, substanceData.primaryName),
+        alternativeCas: requirement.alternativeCas || [],
+      },
+    };
+  }
+
+  private buildReason(requirement: Requirement, substanceData: SubstanceInput): string {
+    switch (requirement.issueType) {
+      case 'PROHIBITED_SUBSTANCE':
+        return `${substanceData.primaryName} is prohibited.`;
+      case 'CHEMICAL_LIMIT_EXCEEDED':
+        return `${substanceData.primaryName} exceeds threshold of ${requirement.compareValue}%.`;
+      case 'RESTRICTED_CONDITIONS':
+        return `${substanceData.primaryName} is restricted under specific conditions.`;
+      default:
+        return `${substanceData.primaryName} violates regulation (${requirement.issueType}).`;
+    }
+  }
+
+  private buildSuggestion(issueType: string, substanceName: string): string {
+    switch (issueType) {
+      case 'PROHIBITED_SUBSTANCE':
+        return `Remove ${substanceName} or use an approved alternative.`;
+      case 'CHEMICAL_LIMIT_EXCEEDED':
+        return `Reduce concentration of ${substanceName} below threshold.`;
+      default:
+        return `Review compliance requirements for ${substanceName}.`;
+    }
+  }
+}
+```
+
+Finally, create the RequirementEvaluatorEngine:
+
+```typescript
+// packages/database/src/services/RequirementEvaluatorEngine.ts
+import { EntityManager } from '@mikro-orm/postgresql';
+import { Regulation } from '../entities/Regulation.js';
+import { Requirement } from '../entities/Requirement.js';
+import { CategoryRegulationService } from './CategoryRegulationService.js';
+import { RegulationService } from './RegulationService.js';
+import { ComplianceStackResolver, EffectiveRegulation } from './ComplianceStackResolver.js';
+import { RequirementHandler, SubstanceInput, HandlerConfig } from './handlers/RequirementHandler.js';
+import { SubstanceThresholdHandler } from './handlers/SubstanceThresholdHandler.js';
+import { RegulationCheckConfig } from '../types/validation-logic.js';
+import { SubstanceFinding, FindingStatus } from '../types/audit-finding.js';
 
 /**
  * For ARTICLE scope: pre-rolled substance totals for the whole product
@@ -1091,7 +1301,6 @@ export interface RolledUpSubstance {
 
 /**
  * For HOMOGENEOUS_MATERIAL scope: individual material with its substances
- * Each material is evaluated independently (RoHS requirement)
  */
 export interface MaterialSubstanceData {
   materialName: string;
@@ -1100,7 +1309,7 @@ export interface MaterialSubstanceData {
   substances: Array<{
     casNumber: string;
     primaryName: string;
-    concentrationPct: string;  // Concentration within THIS material
+    concentrationPct: string;
   }>;
 }
 
@@ -1111,76 +1320,95 @@ export type EvaluatorInput =
   | { scope: 'ARTICLE'; substances: RolledUpSubstance[] }
   | { scope: 'HOMOGENEOUS_MATERIAL'; materials: MaterialSubstanceData[] };
 
-export class RegulatoryListCheckEvaluator {
-  private readonly categoryListService: CategoryRegulatoryListService;
-  private readonly listService: RegulatoryListService;
+/**
+ * RequirementEvaluatorEngine
+ *
+ * Central engine for evaluating regulatory requirements using a plugin architecture.
+ * Handlers are registered for different requirement types and invoked based on
+ * the requirement's characteristics.
+ *
+ * Key features:
+ * - Plugin-based handler system (RequirementHandler interface)
+ * - Exemption handling via ComplianceStackResolver
+ * - Scope-aware evaluation (ARTICLE vs HOMOGENEOUS_MATERIAL)
+ * - Data-driven evaluation (operators/thresholds from database)
+ */
+export class RequirementEvaluatorEngine {
+  private readonly categoryRegulationService: CategoryRegulationService;
+  private readonly regulationService: RegulationService;
   private readonly complianceStackResolver: ComplianceStackResolver;
+  private readonly handlers: RequirementHandler[] = [];
 
   constructor(private readonly em: EntityManager) {
-    this.categoryListService = new CategoryRegulatoryListService(em);
-    this.listService = new RegulatoryListService(em);
+    this.categoryRegulationService = new CategoryRegulationService(em);
+    this.regulationService = new RegulationService(em);
     this.complianceStackResolver = new ComplianceStackResolver(em);
+
+    // Register default handlers
+    this.registerHandler(new SubstanceThresholdHandler());
   }
 
   /**
-   * Evaluate substances against regulatory lists.
+   * Register a RequirementHandler plugin.
+   * Handlers are checked in registration order.
+   */
+  registerHandler(handler: RequirementHandler): void {
+    this.handlers.push(handler);
+  }
+
+  /**
+   * Evaluate substances against regulatory requirements.
    *
    * For ARTICLE scope: receives pre-rolled totals, checks product-level concentrations
    * For HOMOGENEOUS_MATERIAL scope: receives flattened materials list, checks EACH material independently
    *
    * EXEMPTION HANDLING: Before evaluating a regulation, checks ComplianceStackResolver
    * for exemptions. Exempted regulations return JUSTIFIED_EXEMPTION status without
-   * substance evaluation.
-   *
-   * @param config - Validation configuration including scope
-   * @param input - Either rolled-up substances (ARTICLE) or individual materials (HOMOGENEOUS_MATERIAL)
-   * @param categoryPath - Product category for list inheritance
-   * @param tenantCategoryId - Optional tenant category ID for exemption resolution
+   * requirement evaluation.
    */
   async evaluate(
-    config: RegulatoryListCheckConfig,
+    config: RegulationCheckConfig,
     input: EvaluatorInput,
     categoryPath: string,
     tenantCategoryId?: string
   ): Promise<SubstanceFinding[]> {
     const findings: SubstanceFinding[] = [];
 
-    // Step 1: Resolve which lists to check
-    const lists = await this.resolveLists(config, categoryPath);
-    if (lists.length === 0) return [];
+    // Step 1: Resolve which regulations to check
+    const regulations = await this.resolveRegulations(config, categoryPath);
+    if (regulations.length === 0) return [];
 
-    // Step 2: Check for exemptions via ComplianceStackResolver (if tenant context provided)
+    // Step 2: Check for exemptions via ComplianceStackResolver
     let effectiveRegs: EffectiveRegulation[] = [];
     if (tenantCategoryId) {
       effectiveRegs = await this.complianceStackResolver.resolve(tenantCategoryId);
     }
 
-    // Step 3: Process each list - check exemptions before evaluating substances
-    for (const list of lists) {
-      // Check if this list/regulation is exempted for this tenant
+    // Step 3: Process each regulation - check exemptions before evaluating
+    for (const regulation of regulations) {
       const exemptedReg = effectiveRegs.find(
-        reg => reg.regulatoryListCode === list.code && reg.status === 'EXEMPTED'
+        reg => reg.regulationCode === regulation.code && reg.status === 'EXEMPTED'
       );
 
       if (exemptedReg) {
-        // Return JUSTIFIED_EXEMPTION - skip substance checks for exempted regulations
+        // Return JUSTIFIED_EXEMPTION - skip requirement checks
         findings.push({
-          ruleCode: `VERTICAL_${list.code}_CHECK`,
-          ruleName: `${list.name} Compliance Check`,
+          requirementCode: `VERTICAL_${regulation.code}_CHECK`,
+          requirementName: `${regulation.name} Compliance Check`,
           severity: 'INFO',
           status: FindingStatus.JUSTIFIED_EXEMPTION,
           effectiveMode: 'ENFORCING',
-          issueType: 'PROHIBITED_SUBSTANCE',  // Placeholder - exemption applies to all issue types
+          issueType: 'PROHIBITED_SUBSTANCE',
           exemption: {
             reason: exemptedReg.exemption!.reason,
             legalRef: exemptedReg.exemption!.legalRef,
           },
           evaluationContext: {
-            appliedList: {
-              code: list.code,
-              name: list.name,
-              version: list.version,
-              sourceUrl: list.sourceUrl || '',
+            appliedRegulation: {
+              code: regulation.code,
+              name: regulation.name,
+              version: regulation.version,
+              sourceUrl: regulation.sourceUrl || '',
             },
             legalReference: exemptedReg.exemption!.legalRef || '',
             categoryTrigger: categoryPath,
@@ -1191,100 +1419,69 @@ export class RegulatoryListCheckEvaluator {
             suggestion: 'No action required - exemption applies to this tenant category',
           },
         });
-        continue;  // Skip substance checks for exempted regulations
+        continue;
       }
-
-      // Not exempted - proceed with normal substance evaluation
     }
 
-    // Step 4: Get all entries for non-exempted lists
-    const nonExemptedListIds = lists
-      .filter(l => !effectiveRegs.find(r => r.regulatoryListCode === l.code && r.status === 'EXEMPTED'))
-      .map(l => l.id);
+    // Step 4: Get all requirements for non-exempted regulations
+    const nonExemptedRegIds = regulations
+      .filter(r => !effectiveRegs.find(er => er.regulationCode === r.code && er.status === 'EXEMPTED'))
+      .map(r => r.id);
 
-    if (nonExemptedListIds.length === 0) {
-      return findings;  // All lists were exempted
+    if (nonExemptedRegIds.length === 0) {
+      return findings;
     }
 
-    const entries = await this.listService.getEntriesForLists(nonExemptedListIds);
+    const requirements = await this.regulationService.getRequirementsForRegulations(nonExemptedRegIds);
 
     // Step 5: Build lookup map by CAS
-    const entryByCas = new Map<string, { entry: RegulatoryListEntry; list: RegulatoryList }>();
-    for (const entry of entries) {
-      const list = lists.find(l => l.id === entry.list.id);
-      if (list) {
-        entryByCas.set(entry.casNumberSnapshot, { entry, list });
+    const requirementByCas = new Map<string, { requirement: Requirement; regulation: Regulation }>();
+    for (const requirement of requirements) {
+      const regulation = regulations.find(r => r.id === requirement.regulation.id);
+      if (regulation) {
+        requirementByCas.set(requirement.casNumberSnapshot, { requirement, regulation });
       }
     }
 
-    // Step 6: Evaluate based on scope
+    // Step 6: Evaluate based on scope using handlers
+    const handlerConfig: HandlerConfig = {
+      scope: config.scope,
+      compareValueOverride: config.compareValueOverride,
+    };
+
     if (input.scope === 'ARTICLE') {
-      findings.push(...this.evaluateArticleScope(input.substances, entryByCas, config));
+      findings.push(...this.evaluateArticleScope(input.substances, requirementByCas, handlerConfig));
     } else {
-      findings.push(...this.evaluateHomogeneousMaterialScope(input.materials, entryByCas, config));
+      findings.push(...this.evaluateHomogeneousMaterialScope(input.materials, requirementByCas, handlerConfig));
     }
 
     return findings;
   }
 
-  /**
-   * ARTICLE scope: Check rolled-up totals (whole product concentration)
-   */
   private evaluateArticleScope(
     substances: RolledUpSubstance[],
-    entryByCas: Map<string, { entry: RegulatoryListEntry; list: RegulatoryList }>,
-    config: RegulatoryListCheckConfig
+    requirementByCas: Map<string, { requirement: Requirement; regulation: Regulation }>,
+    config: HandlerConfig
   ): SubstanceFinding[] {
     const findings: SubstanceFinding[] = [];
 
     for (const substance of substances) {
-      const match = entryByCas.get(substance.casNumber);
+      const match = requirementByCas.get(substance.casNumber);
       if (!match) continue;
 
-      const { entry, list } = match;
-      const isViolation = this.checkViolation(substance.effectiveConcentrationPct, entry, config);
+      const { requirement } = match;
+      const substanceInput: SubstanceInput = {
+        casNumber: substance.casNumber,
+        primaryName: substance.primaryName,
+        concentrationPct: substance.effectiveConcentrationPct,
+      };
 
-      if (isViolation) {
-        // entry.issueType and entry.severity are used in buildFinding (agnostic)
-        findings.push(this.buildFinding(substance, entry, list, config));
-      }
-    }
-
-    return findings;
-  }
-
-  /**
-   * HOMOGENEOUS_MATERIAL scope: Check EACH material independently
-   *
-   * Critical for RoHS: A laptop with 500 components where 1 screw has 0.2% Lead
-   * is a violation, even if total laptop concentration is 0.000001% Lead.
-   */
-  private evaluateHomogeneousMaterialScope(
-    materials: MaterialSubstanceData[],
-    entryByCas: Map<string, { entry: RegulatoryListEntry; list: RegulatoryList }>,
-    config: RegulatoryListCheckConfig
-  ): SubstanceFinding[] {
-    const findings: SubstanceFinding[] = [];
-
-    // Check EVERY material independently
-    for (const material of materials) {
-      for (const substance of material.substances) {
-        const match = entryByCas.get(substance.casNumber);
-        if (!match) continue;
-
-        const { entry, list } = match;
-        // Check concentration WITHIN THIS MATERIAL, not product total
-        const isViolation = this.checkViolation(substance.concentrationPct, entry, config);
-
-        if (isViolation) {
-          // entry.issueType and entry.severity are used in buildHomogeneousMaterialFinding (agnostic)
-          findings.push(this.buildHomogeneousMaterialFinding(
-            substance,
-            material,
-            entry,
-            list,
-            config
-          ));
+      // Find handler and evaluate
+      const handler = this.handlers.find(h => h.canHandle(requirement));
+      if (handler) {
+        const finding = handler.evaluate(requirement, substanceInput, config);
+        if (finding) {
+          findings.push(finding);
         }
       }
     }
@@ -1292,219 +1489,51 @@ export class RegulatoryListCheckEvaluator {
     return findings;
   }
 
-  private async resolveLists(
-    config: RegulatoryListCheckConfig,
-    categoryPath: string
-  ): Promise<RegulatoryList[]> {
-    if (config.listCodes) {
-      return this.listService.getListsByCodes(config.listCodes);
-    }
+  private evaluateHomogeneousMaterialScope(
+    materials: MaterialSubstanceData[],
+    requirementByCas: Map<string, { requirement: Requirement; regulation: Regulation }>,
+    config: HandlerConfig
+  ): SubstanceFinding[] {
+    const findings: SubstanceFinding[] = [];
 
-    // Inherit from category
-    const mappings = await this.categoryListService.getListsForCategory(categoryPath);
-    return mappings.map(m => m.regulatoryList);
-  }
+    for (const material of materials) {
+      for (const substance of material.substances) {
+        const match = requirementByCas.get(substance.casNumber);
+        if (!match) continue;
 
-  /**
-   * Check if a concentration violates the regulatory entry.
-   *
-   * AGNOSTIC EVALUATION: The entry itself defines the operator and compareValue.
-   * This method just executes the comparison - no hardcoded rule types.
-   *
-   * @param concentrationPct - The concentration to check (string for precision)
-   * @param entry - The regulatory list entry with operator/compareValue
-   * @param config - Validation config (for compareValueOverride)
-   * @returns true if violation detected, false otherwise
-   */
-  private checkViolation(
-    concentrationPct: string,
-    entry: RegulatoryListEntry,
-    config: RegulatoryListCheckConfig
-  ): boolean {
-    const rawConcentration = new Decimal(concentrationPct);
-
-    // Apply stoichiometric factor if present (element-based regulations)
-    // Example: If law limits Cobalt but user declared Cobalt Sulfate,
-    // multiply concentration by factor (e.g., 0.38) before comparison
-    const concentration = entry.stoichiometricFactor
-      ? rawConcentration.mul(entry.stoichiometricFactor)
-      : rawConcentration;
-
-    // Get compareValue: config override takes precedence (category-specific stricter thresholds)
-    const compareValue = config.compareValueOverride
-      ? new Decimal(config.compareValueOverride)
-      : entry.compareValue
-        ? new Decimal(entry.compareValue)
-        : null;
-
-    // Execute the agnostic comparison based on entry.operator
-    return this.compare(concentration, entry.operator, compareValue);
-  }
-
-  /**
-   * Execute agnostic comparison.
-   * The operator comes from the database - no hardcoded rule types.
-   */
-  private compare(
-    value: Decimal,
-    operator: ComparisonOperator,
-    compareValue: Decimal | null
-  ): boolean {
-    switch (operator) {
-      case ComparisonOperator.GT:
-        return compareValue !== null && value.gt(compareValue);
-      case ComparisonOperator.GTE:
-        return compareValue !== null && value.gte(compareValue);
-      case ComparisonOperator.LT:
-        return compareValue !== null && value.lt(compareValue);
-      case ComparisonOperator.LTE:
-        return compareValue !== null && value.lte(compareValue);
-      case ComparisonOperator.EQ:
-        return compareValue !== null && value.eq(compareValue);
-      case ComparisonOperator.PRESENT:
-        return value.gt(0);  // Any concentration > 0 is a violation
-      case ComparisonOperator.ABSENT:
-        return !value.eq(0);  // Violation if NOT zero (must be absent)
-      default:
-        return false;
-    }
-  }
-
-  /**
-   * Build finding for ARTICLE scope violations.
-   * Uses entry.issueType and entry.severity from the database (agnostic).
-   */
-  private buildFinding(
-    substance: RolledUpSubstance,
-    entry: RegulatoryListEntry,
-    list: RegulatoryList,
-    config: RegulatoryListCheckConfig
-  ): SubstanceFinding {
-    return {
-      ruleCode: `VERTICAL_${list.code}_CHECK`,
-      ruleName: `${list.name} Compliance Check`,
-      severity: entry.severity,  // From database - agnostic
-      status: 'FAILED',
-      effectiveMode: 'ENFORCING',
-      issueType: entry.issueType,  // From database - agnostic
-      substance: {
-        casNumber: substance.casNumber,
-        primaryName: substance.primaryName,
-        effectiveConcentrationPct: substance.effectiveConcentrationPct,
-        scope: config.scope,
-      },
-      evaluationContext: {
-        appliedList: {
-          code: list.code,
-          name: list.name,
-          version: list.version,
-          sourceUrl: list.sourceUrl || '',
-        },
-        legalReference: entry.legalReference || '',
-        categoryTrigger: '', // Set by caller
-        reason: this.buildReason(entry.issueType, substance, entry),
-        traceability: substance.traceability.map(t => ({
-          materialName: t.materialName,
-          materialVersionId: t.materialVersionId,
-          supplier: t.supplier,
-          concentrationInMaterial: t.concentrationInMaterial,
-          contributionToProduct: t.contributionToProduct,
-        })),
-      },
-      remediation: {
-        suggestion: this.buildSuggestion(entry.issueType, substance.primaryName),
-        alternativeCas: entry.alternativeCas || [],
-      },
-    };
-  }
-
-  /**
-   * Build finding for HOMOGENEOUS_MATERIAL scope violations.
-   * The traceability pinpoints the EXACT material causing the violation.
-   * Uses entry.issueType and entry.severity from the database (agnostic).
-   */
-  private buildHomogeneousMaterialFinding(
-    substance: { casNumber: string; primaryName: string; concentrationPct: string },
-    material: MaterialSubstanceData,
-    entry: RegulatoryListEntry,
-    list: RegulatoryList,
-    config: RegulatoryListCheckConfig
-  ): SubstanceFinding {
-    // Build reason based on entry.issueType
-    const reason = entry.issueType === 'PROHIBITED_SUBSTANCE'
-      ? `Product blocked because ${substance.primaryName} in '${material.materialName}' from '${material.supplier || 'Unknown Supplier'}' is prohibited.`
-      : `Product blocked because ${substance.primaryName} in '${material.materialName}' from '${material.supplier || 'Unknown Supplier'}' exceeds ${entry.compareValue}% threshold (found ${substance.concentrationPct}%).`;
-
-    return {
-      ruleCode: `VERTICAL_${list.code}_CHECK`,
-      ruleName: `${list.name} Compliance Check`,
-      severity: entry.severity,  // From database - agnostic
-      status: 'FAILED',
-      effectiveMode: 'ENFORCING',
-      issueType: entry.issueType,  // From database - agnostic
-      substance: {
-        casNumber: substance.casNumber,
-        primaryName: substance.primaryName,
-        effectiveConcentrationPct: substance.concentrationPct,
-        scope: 'HOMOGENEOUS_MATERIAL',
-      },
-      evaluationContext: {
-        appliedList: {
-          code: list.code,
-          name: list.name,
-          version: list.version,
-          sourceUrl: list.sourceUrl || '',
-        },
-        legalReference: entry.legalReference || '',
-        categoryTrigger: '',
-        reason,
-        traceability: [{
+        const { requirement } = match;
+        const substanceInput: SubstanceInput = {
+          casNumber: substance.casNumber,
+          primaryName: substance.primaryName,
+          concentrationPct: substance.concentrationPct,
           materialName: material.materialName,
           materialVersionId: material.materialVersionId,
           supplier: material.supplier,
-          concentrationInMaterial: substance.concentrationPct,
-          contributionToProduct: substance.concentrationPct,  // Same for homogeneous material
-        }],
-      },
-      remediation: {
-        suggestion: `Replace or remove '${material.materialName}' from ${material.supplier || 'supplier'}, or request reformulation without ${substance.primaryName}.`,
-        alternativeCas: entry.alternativeCas || [],
-      },
-    };
+        };
+
+        const handler = this.handlers.find(h => h.canHandle(requirement));
+        if (handler) {
+          const finding = handler.evaluate(requirement, substanceInput, config);
+          if (finding) {
+            findings.push(finding);
+          }
+        }
+      }
+    }
+
+    return findings;
   }
 
-  /**
-   * Build human-readable reason string.
-   * issueType comes from the database (entry.issueType) - agnostic.
-   */
-  private buildReason(issueType: string, substance: RolledUpSubstance, entry: RegulatoryListEntry): string {
-    switch (issueType) {
-      case 'PROHIBITED_SUBSTANCE':
-        return `${substance.primaryName} is prohibited.`;
-      case 'CHEMICAL_LIMIT_EXCEEDED':
-        return `${substance.primaryName} exceeds threshold of ${entry.compareValue}%.`;
-      case 'RESTRICTED_CONDITIONS':
-        return `${substance.primaryName} is restricted under specific conditions.`;
-      default:
-        // Agnostic: any issueType string from the database is valid
-        return `${substance.primaryName} violates regulation (${issueType}).`;
+  private async resolveRegulations(
+    config: RegulationCheckConfig,
+    categoryPath: string
+  ): Promise<Regulation[]> {
+    if (config.regulationCodes) {
+      return this.regulationService.getRegulationsByCodes(config.regulationCodes);
     }
-  }
 
-  /**
-   * Build remediation suggestion.
-   * issueType comes from the database (entry.issueType) - agnostic.
-   */
-  private buildSuggestion(issueType: string, substanceName: string): string {
-    switch (issueType) {
-      case 'PROHIBITED_SUBSTANCE':
-        return `Remove ${substanceName} or use an approved alternative.`;
-      case 'CHEMICAL_LIMIT_EXCEEDED':
-        return `Reduce concentration of ${substanceName} below threshold.`;
-      default:
-        // Agnostic: generic suggestion for any issueType
-        return `Review compliance requirements for ${substanceName}.`;
-    }
+    const mappings = await this.categoryRegulationService.getRegulationsForCategory(categoryPath);
+    return mappings.map(m => m.regulation);
   }
 }
 ```
@@ -1512,7 +1541,7 @@ export class RegulatoryListCheckEvaluator {
 **Step 4: Run test to verify it passes**
 
 ```bash
-cd packages/database && pnpm test RegulatoryListCheckEvaluator.test.ts
+cd packages/database && pnpm test RequirementEvaluatorEngine.test.ts
 ```
 
 Expected: PASS
@@ -1520,13 +1549,18 @@ Expected: PASS
 **Step 5: Export and commit**
 
 ```typescript
-// packages/database/src/services/evaluators/index.ts
-export { RegulatoryListCheckEvaluator } from './RegulatoryListCheckEvaluator.js';
+// packages/database/src/services/handlers/index.ts
+export { RequirementHandler, SubstanceInput, HandlerConfig } from './RequirementHandler.js';
+export { SubstanceThresholdHandler } from './SubstanceThresholdHandler.js';
+
+// packages/database/src/services/index.ts
+export { RequirementEvaluatorEngine } from './RequirementEvaluatorEngine.js';
+export * from './handlers/index.js';
 ```
 
 ```bash
-git add packages/database/src/services/evaluators/RegulatoryListCheckEvaluator.ts packages/database/src/services/evaluators/RegulatoryListCheckEvaluator.test.ts packages/database/src/services/evaluators/index.ts
-git commit -m "feat(database): add RegulatoryListCheckEvaluator for vertical compliance checks"
+git add packages/database/src/services/handlers/RequirementHandler.ts packages/database/src/services/handlers/SubstanceThresholdHandler.ts packages/database/src/services/RequirementEvaluatorEngine.ts packages/database/src/services/RequirementEvaluatorEngine.test.ts packages/database/src/services/handlers/index.ts
+git commit -m "feat(database): add RequirementEvaluatorEngine with plugin handler architecture"
 ```
 
 ---
@@ -1777,8 +1811,8 @@ import { SubstanceFinding, MetricFinding, FindingStatus } from './audit-finding.
  * Shown when a regulation is exempted via ComplianceStackResolver.
  */
 export interface ExemptionEntry {
-  regulatoryListCode: string;
-  regulatoryListName: string;
+  regulationCode: string;
+  regulationName: string;
   status: 'JUSTIFIED_EXEMPTION';
   exemptionReason: string;
   exemptionLegalRef?: string;
@@ -1822,16 +1856,16 @@ export interface PreFlightReport {
 
   /**
    * Exempted regulations (JUSTIFIED_EXEMPTION status).
-   * These regulations were not evaluated for substance violations
+   * These regulations were not evaluated for requirement violations
    * because the tenant has a valid exemption via ComplianceStackResolver.
    */
   exemptions: ExemptionEntry[];
 
   /** Regulations that passed all checks */
   passed: Array<{
-    regulatoryListCode: string;
-    regulatoryListName: string;
-    substancesChecked: number;
+    regulationCode: string;
+    regulationName: string;
+    requirementsChecked: number;
   }>;
 }
 
@@ -1842,8 +1876,8 @@ export function buildExemptionEntries(findings: SubstanceFinding[]): ExemptionEn
   return findings
     .filter(f => f.status === FindingStatus.JUSTIFIED_EXEMPTION)
     .map(f => ({
-      regulatoryListCode: f.evaluationContext.appliedList.code,
-      regulatoryListName: f.evaluationContext.appliedList.name,
+      regulationCode: f.evaluationContext.appliedRegulation.code,
+      regulationName: f.evaluationContext.appliedRegulation.name,
       status: 'JUSTIFIED_EXEMPTION' as const,
       exemptionReason: f.exemption?.reason || 'Unknown reason',
       exemptionLegalRef: f.exemption?.legalRef,
@@ -1858,14 +1892,35 @@ export function buildExemptionEntries(findings: SubstanceFinding[]): ExemptionEn
 ## Summary
 
 **Plan 14 delivers:**
-- Extended `ValidationLogic` types with `regulatory_list_check` and `aggregate_metric_threshold`
+- Extended `ValidationLogic` types with `regulation_check` and `aggregate_metric_threshold`
 - `SubstanceFinding` and `MetricFinding` interfaces with traceability
 - **`FindingStatus` enum** with `PASSED`, `FAILED`, `JUSTIFIED_EXEMPTION`, and `NOT_EVALUATED` values
-- `RegulatoryListCheckEvaluator` with **agnostic** operator-based evaluation
+- **`RequirementHandler` plugin interface** for extensible requirement evaluation
+- **`RequirementEvaluatorEngine`** with plugin-based handler architecture
+- **`SubstanceThresholdHandler`** plugin for threshold-based requirements
 - **ComplianceStackResolver integration** for exemption handling
 - `MetricThresholdEvaluator` for supply risk threshold checks
 - **PreFlightReport structure** with dedicated exemptions section
 - Full test coverage including HOMOGENEOUS_MATERIAL and JUSTIFIED_EXEMPTION scenarios
+
+**RequirementHandler Plugin Architecture:**
+
+```typescript
+// Plugin interface - implement to add new requirement types
+export interface RequirementHandler {
+  canHandle(requirement: Requirement): boolean;
+  evaluate(
+    requirement: Requirement,
+    substanceData: SubstanceInput,
+    config: HandlerConfig
+  ): SubstanceFinding | null;
+}
+
+// Engine registers and invokes handlers
+const engine = new RequirementEvaluatorEngine(em);
+engine.registerHandler(new SubstanceThresholdHandler());
+engine.registerHandler(new CustomHandler());  // Add custom handlers
+```
 
 **FindingStatus Enum:**
 
@@ -1880,21 +1935,21 @@ export enum FindingStatus {
 
 **JUSTIFIED_EXEMPTION Flow:**
 
-1. Caller provides `tenantCategoryId` to `RegulatoryListCheckEvaluator.evaluate()`
-2. Evaluator calls `ComplianceStackResolver.resolve(tenantCategoryId)`
+1. Caller provides `tenantCategoryId` to `RequirementEvaluatorEngine.evaluate()`
+2. Engine calls `ComplianceStackResolver.resolve(tenantCategoryId)`
 3. For each regulation with `status === 'EXEMPTED'`:
-   - Skip substance-level evaluation
+   - Skip requirement-level evaluation
    - Return finding with `status: FindingStatus.JUSTIFIED_EXEMPTION`
    - Include `exemption.reason` and `exemption.legalRef` from resolver
-4. Non-exempted regulations proceed with normal substance evaluation
+4. Non-exempted regulations proceed with normal requirement evaluation via handlers
 
 **Agnostic Evaluation Model:**
 
-The evaluator does NOT contain hardcoded rule types. Instead, it reads:
-- `entry.operator` (GT, GTE, LT, LTE, EQ, PRESENT, ABSENT) from the database
-- `entry.compareValue` (threshold) from the database
-- `entry.issueType` (string) from the database
-- `entry.severity` (BLOCKER, WARNING, INFO) from the database
+The handlers do NOT contain hardcoded rule types. Instead, they read:
+- `requirement.operator` (GT, GTE, LT, LTE, EQ, PRESENT, ABSENT) from the database
+- `requirement.compareValue` (threshold) from the database
+- `requirement.issueType` (string) from the database
+- `requirement.severity` (BLOCKER, WARNING, INFO) from the database
 
 This means new rule types can be added via admin import **without code changes**.
 
@@ -1908,20 +1963,20 @@ This means new rule types can be added via admin import **without code changes**
 **RoHS Example:** A laptop with 500 components where one M3 screw has 0.2% Lead is a violation, even if total laptop is 0.000001% Lead. The traceability array pinpoints the exact violating component.
 
 **Stoichiometry Support:**
-When `RegulatoryListEntry.stoichiometricFactor` is present (from Plan 10), the evaluator applies it before comparison. Example: Cobalt Sulfate at 1% with factor 0.38 → effective 0.38% Cobalt.
+When `Requirement.stoichiometricFactor` is present (from Plan 10), the handler applies it before comparison. Example: Cobalt Sulfate at 1% with factor 0.38 → effective 0.38% Cobalt.
 
 **CompareValue Resolution Hierarchy:**
 1. `config.compareValueOverride` (category-specific stricter threshold from Plan 11)
-2. `RegulatoryListEntry.compareValue` (default list entry compareValue from Plan 10)
+2. `Requirement.compareValue` (default requirement compareValue from Plan 10)
 
 **Integration Points:**
-- Evaluators receive input from Plan 8 (SubstanceRollupService) - caller decides scope
-- Evaluators query lists from Plan 10 (RegulatoryListService)
-- Category inheritance from Plan 11 (CategoryRegulatoryListService)
+- Engine receives input from Plan 8 (SubstanceRollupService) - caller decides scope
+- Engine queries regulations from Plan 10 (RegulationService)
+- Category inheritance from Plan 11 (CategoryRegulationService)
 - **Exemption resolution from Plan 11 (ComplianceStackResolver)** - determines which regulations are exempted
 
 **Audit Defensibility:**
-- `appliedList.version` and `sourceUrl` enable reports linking to EU Official Journal
+- `appliedRegulation.version` and `sourceUrl` enable reports linking to EU Official Journal
 - `alternativeCas` moves tool from "Police Officer" to "Engineer" (suggesting fixes)
 - **Exemptions section** provides clear audit trail of why regulations were not evaluated
 
@@ -1932,3 +1987,4 @@ When `RegulatoryListEntry.stoichiometricFactor` is present (from Plan 10), the e
 
 *Plan created: 2026-01-26*
 *Updated: 2026-01-27 - Added JUSTIFIED_EXEMPTION status and ComplianceStackResolver integration*
+*Updated: 2026-01-28 - Refactored to RequirementHandler plugin system and RequirementEvaluatorEngine*

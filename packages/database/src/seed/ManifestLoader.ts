@@ -71,15 +71,16 @@ export class ManifestLoader {
   }
 
   private async loadRequirement(manifest: ManifestRequirement, regulation: Regulation): Promise<void> {
+    // Substance lists are Regulations with type SUBSTANCE_SCREEN
     let substanceListId: string | undefined;
     if (manifest.substanceListCode) {
       const substanceList = await this.em.findOne(
-        'RegulatoryList',
+        Regulation,
         { code: manifest.substanceListCode },
         { schema: 'public' }
       );
       if (substanceList) {
-        substanceListId = (substanceList as { id: string }).id;
+        substanceListId = substanceList.id;
       }
     }
 

@@ -4,11 +4,8 @@
 
 **Last Updated:** 2026-01-28
 
-> **Important Update:** This guide has been revised to reflect the new compliance architecture. Key changes:
-> - `CategoryRegulatoryList` → `CategoryRegulation` (links categories to regulations)
-> - `RegulatoryList` → `Regulation` with `Requirement[]` (regulations now own requirements)
-> - `TenantCategoryRegulatoryList` → `TenantRequirementExemption` (exemptions at requirement level)
-> - For detailed implementation, see [Compliance Evaluation System Guide](./compliance-evaluation-system.md)
+> This guide uses the current compliance architecture: `Regulation` with `Requirement[]`, `CategoryRegulation` for category mappings, and `TenantRequirementExemption` for tenant exemptions.
+> For detailed implementation, see [Compliance Evaluation System Guide](./compliance-evaluation-system.md)
 
 ---
 
@@ -298,10 +295,10 @@
 │  ─────────────────────────               ───────────────────────            │
 │                                                                             │
 │  ┌─────────────────────────────┐        ┌─────────────────────────────┐    │
-│  │ • Regulatory Lists          │        │ • TenantCategories          │    │
+│  │ • Regulations               │        │ • TenantCategories          │    │
 │  │   (REACH, COSING, RoHS)     │        │   (adopt system OR custom)  │    │
 │  │                             │        │                             │    │
-│  │ • Regulatory List Entries   │        │ • Products                  │    │
+│  │ • Requirements              │        │ • Products                  │    │
 │  │   (which substances are     │        │   (assigned to categories)  │    │
 │  │    restricted and how)      │        │                             │    │
 │  │                             │        │ • Raw Materials             │    │
@@ -311,9 +308,9 @@
 │  │ • System Categories         │        │   (what % of each substance │    │
 │  │   (shared taxonomy)         │        │    is in each material)     │    │
 │  │                             │        │                             │    │
-│  │ • CategoryRegulatoryList    │        │ • Attribute Templates       │    │
+│  │ • CategoryRegulation        │        │ • Attribute Templates       │    │
 │  │   (which paths get which    │        │   (custom fields)           │    │
-│  │    regulatory lists)        │        │                             │    │
+│  │    regulations)             │        │                             │    │
 │  │                             │        │                             │    │
 │  │ Stored in: PUBLIC schema    │        │ Stored in: TENANT schema    │    │
 │  │ Shared by: All tenants      │        │ Isolated: Only their org    │    │
@@ -629,8 +626,8 @@
 │                                                                             │
 │  The SQL query uses the @> operator:                                       │
 │                                                                             │
-│    SELECT * FROM category_regulatory_list crl                              │
-│    JOIN category c ON c.id = crl.category_id                               │
+│    SELECT * FROM category_regulation cr                                    │
+│    JOIN category c ON c.id = cr.category_id                                │
 │    WHERE c.path @> 'products.cosmetics.skincare.moisturizers'              │
 │                                                                             │
 │    This finds ALL ancestors automatically!                                 │
@@ -661,10 +658,10 @@
 │  In the database:                                                          │
 │                                                                             │
 │     ┌─────────────────────────────────────────────────────────────────┐    │
-│     │  CategoryRegulatoryList                                         │    │
+│     │  CategoryRegulation                                             │    │
 │     ├─────────────────────────────────────────────────────────────────┤    │
 │     │  category:      medical_devices                                 │    │
-│     │  regulatoryList: REACH_SVHC                                     │    │
+│     │  regulation:    REACH_SVHC                                      │    │
 │     │  isExclusion:   TRUE    <-- This breaks the inheritance chain! │    │
 │     └─────────────────────────────────────────────────────────────────┘    │
 │                                                                             │
@@ -1325,20 +1322,20 @@
 │     DETACHED = completely independent, full control                        │
 │                                                                             │
 │  8. COMPLIANCE STACK (3 Layers)                                            │
-│     Layer 1: System baseline (from CategoryRegulatoryList)                 │
-│     Layer 2: Tenant additions (from TenantCategoryRegulatoryList)          │
-│     Layer 3: Tenant exemptions (subtract with justification)               │
+│     Layer 1: System baseline (from CategoryRegulation)                     │
+│     Layer 2: Tenant additions (tenant-specific regulations)                │
+│     Layer 3: Tenant exemptions (TenantRequirementExemption)                │
 │                                                                             │
 │  9. EXEMPTIONS WITH AUDIT TRAIL                                            │
-│     Tenants can exempt certain regulations with:                           │
+│     Tenants can exempt certain requirements with:                          │
 │       - Required justification (reason + legal reference)                  │
 │       - Automatic audit trail (who, when)                                  │
 │       - Subject to allowTenantExemption guardrails                         │
 │                                                                             │
 │ 10. allowTenantExemption GUARDRAIL                                         │
-│     Critical regulations can be marked non-exemptable:                     │
-│       - Set on RegulatoryList (global)                                     │
-│       - Set on CategoryRegulatoryList (per-mapping)                        │
+│     Critical requirements can be marked non-exemptable:                    │
+│       - Set on Regulation (global)                                         │
+│       - Set on CategoryRegulation (per-mapping)                            │
 │       - If EITHER is false, exemption is blocked                           │
 │                                                                             │
 │ 11. EVALUATION SCOPE                                                       │
@@ -1370,7 +1367,7 @@
 │                                                                             │
 │                                                                             │
 │  ┌─────────────────┐         ┌─────────────────────────┐                   │
-│  │    Substance    │         │    RegulatoryList       │                   │
+│  │    Substance    │         │    Regulation           │                   │
 │  ├─────────────────┤         ├─────────────────────────┤                   │
 │  │ id              │         │ id                      │                   │
 │  │ casNumber       │         │ code                    │                   │
@@ -1379,7 +1376,7 @@
 │  └────────┬────────┘         │ version                 │                   │
 │           │                  │ effectiveDate           │                   │
 │           │                  │ isCurrentVersion        │                   │
-│           │                  │ allowTenantExemption    │ <-- NEW!          │
+│           │                  │ allowTenantExemption    │                   │
 │           │                  │ previousVersion (FK)--->│ (self-reference)  │
 │           │                  └───────────┬─────────────┘                   │
 │           │                              │                                 │
@@ -1387,30 +1384,30 @@
 │           │      │                                                         │
 │           v      v                                                         │
 │  ┌─────────────────────────────────┐                                       │
-│  │    RegulatoryListEntry          │                                       │
+│  │    Requirement                  │                                       │
 │  ├─────────────────────────────────┤                                       │
 │  │ id                              │                                       │
-│  │ list (FK) ──────────────────────│───> RegulatoryList                    │
+│  │ regulation (FK) ────────────────│───> Regulation                        │
 │  │ substance (FK) ─────────────────│───> Substance                         │
 │  │ casNumberSnapshot               │                                       │
 │  │ substanceNameSnapshot           │                                       │
-│  │ restrictionType                 │                                       │
+│  │ type (ATTRIBUTE_CHECK, etc.)    │                                       │
 │  │ thresholdPct                    │                                       │
-│  │ conditions (JSONB)              │                                       │
+│  │ config (JSONB)                  │                                       │
 │  │ legalReference                  │                                       │
 │  └─────────────────────────────────┘                                       │
 │                                                                             │
 │                                                                             │
 │  ┌─────────────────┐         ┌─────────────────────────┐                   │
-│  │    Category     │         │ CategoryRegulatoryList  │                   │
+│  │    Category     │         │ CategoryRegulation      │                   │
 │  │ (System Taxon.) │         │ (System Mappings)       │                   │
 │  ├─────────────────┤         ├─────────────────────────┤                   │
 │  │ id              │<────────│ category (FK)           │                   │
-│  │ name            │         │ regulatoryList (FK) ────│───> RegulatoryList│
+│  │ name            │         │ regulation (FK) ────────│───> Regulation    │
 │  │ path (LTREE)    │         │ requirement             │                   │
 │  │ depth           │         │ priority                │                   │
 │  │ parent (FK)     │         │ isExclusion             │                   │
-│  └─────────────────┘         │ allowTenantExemption    │ <-- NEW!          │
+│  └─────────────────┘         │ allowTenantExemption    │                   │
 │                              │ thresholdOverridePct    │                   │
 │                              └─────────────────────────┘                   │
 │                                                                             │
@@ -1453,27 +1450,22 @@
 │  │ systemCategoryId (FK) ──────────│───> Category (public schema)          │
 │  │ mode                            │     LIVE | FROZEN | DETACHED          │
 │  │ frozenAt                        │     (timestamp for FROZEN mode)       │
-│  │ pinnedRegulatoryListIds[]       │     (for FROZEN: specific versions)   │
+│  │ pinnedRegulationIds[]           │     (for FROZEN: specific versions)   │
 │  └─────────────────────────────────┘                                       │
 │                                                                             │
 │                                                                             │
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │    TenantCategoryRegulatoryList                                     │   │
-│  │    (Tenant additions/exemptions)                                    │   │
+│  │    TenantRequirementExemption                                       │   │
+│  │    (Tenant exemptions with audit trail)                             │   │
 │  ├─────────────────────────────────────────────────────────────────────┤   │
 │  │ id                                                                  │   │
 │  │ categoryAdoptionId (FK) ────────│───> CategoryAdoption              │   │
 │  │   OR                                                                │   │
 │  │ tenantCategoryId (FK) ──────────│───> TenantCategory                │   │
 │  │                                                                     │   │
-│  │ regulatoryListId (FK) ──────────│───> RegulatoryList (public)       │   │
+│  │ requirementId (FK) ─────────────│───> Requirement (public)          │   │
 │  │                                                                     │   │
-│  │ source                          │     SYSTEM_INHERITED | TENANT_ADDED   │
-│  │ requirement                     │     MANDATORY | RECOMMENDED | CUSTOM  │
-│  │                                                                     │   │
-│  │ --- Exemption Fields ---                                            │   │
-│  │ isExempted                      │     TRUE if exempted              │   │
-│  │ exemptionReason                 │     "Why this exemption?"         │   │
+│  │ justification                   │     "Why this exemption?"             │
 │  │ legalReference                  │     "Article X of Regulation Y"   │   │
 │  │ exemptedBy (FK)                 │     User who created exemption    │   │
 │  │ exemptedAt                      │     Timestamp of exemption        │   │
@@ -1490,13 +1482,13 @@
 │          v                                                                  │
 │   CategoryAdoption (tenant)                                                 │
 │          │                                                                  │
-│          │ has tenant-specific regulatory config                           │
+│          │ may have exemptions via                                          │
 │          v                                                                  │
-│   TenantCategoryRegulatoryList (tenant)                                    │
+│   TenantRequirementExemption (tenant)                                       │
 │          │                                                                  │
 │          │ references                                                       │
 │          v                                                                  │
-│   RegulatoryList (public)                                                   │
+│   Requirement (public) ───> Regulation (public)                             │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```

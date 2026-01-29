@@ -144,25 +144,7 @@ export class Category extends BaseEntity {
   @Property({ columnType: 'ltree' })
   path!: string; // "products.apparel.tops"
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // DEPRECATED: Use CategoryRegulatoryList instead
-  // This field provided informational display only (e.g., "This category is
-  // subject to ESPR, WEEE, RoHS"). For actual compliance evaluation, the system
-  // uses CategoryRegulatoryList in public schema, which links category LTREE
-  // paths to RegulatoryList entities with proper inheritance via @> operator.
-  // See: docs/plans/02-data-model.md (CategoryRegulatoryList section)
-  // ═══════════════════════════════════════════════════════════════════════════
-  @Property({ type: 'jsonb', nullable: true })
-  /** @deprecated Use CategoryRegulatoryList for compliance evaluation */
-  regulationRefs?: string[]; // ["ESPR", "WEEE", "RoHS"] - display only
 
-  // ─────────────────────────────────────────────────────────────
-  // DEFAULT COMPLIANCE PROFILE (Approval Gate Workflow)
-  // Products in this category use this profile if no explicit override
-  // See: docs/plans/13-regulatory-advisor.md for profile resolution hierarchy
-  // ─────────────────────────────────────────────────────────────
-  @Property({ name: 'default_profile_id', nullable: true })
-  defaultProfileId?: string; // Reference to ReadinessProfile.id
 
   @Property({ default: true })
   isActive!: boolean;
@@ -178,7 +160,6 @@ export class Category extends BaseEntity {
 // src/modules/taxonomy/entities/attribute-template.entity.ts
 import { Entity, Property, ManyToOne, OneToMany, Collection, Enum, Index, Unique } from '@mikro-orm/core';
 import { BaseEntity } from '../../shared/entities/base.entity';
-import { RuleTemplate } from '../../compliance/entities/rule-template.entity';
 
 export enum AttributeType {
   TEXT = 'TEXT',
@@ -248,17 +229,7 @@ export class AttributeTemplate extends BaseEntity {
   @Enum({ items: () => UnitSystem, nullable: true })
   unitSystem?: UnitSystem;
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // DEPRECATED: Use RuleTemplate.severity = BLOCKER instead
-  // This field is retained for backward compatibility only.
-  // UI should derive "required" status from linked RuleTemplates:
-  //   - BLOCKER severity = required field (red indicator)
-  //   - WARNING severity = recommended field (amber indicator)
-  //   - INFO severity = informational (blue indicator)
-  // See: docs/plans/13-regulatory-advisor.md
-  // ═══════════════════════════════════════════════════════════════════════════
   @Property({ default: false })
-  /** @deprecated Use RuleTemplate.severity instead */
   isRequired!: boolean;
 
   @Property({ default: true })
@@ -282,18 +253,6 @@ export class AttributeTemplate extends BaseEntity {
 
   @Property({ length: 100, nullable: true })
   rollupSource?: string;
-
-  // NOTE: Severity is now managed at RuleTemplate level via Regulatory Advisor
-  // See: docs/plans/13-regulatory-advisor.md
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // REGULATORY ADVISOR INTEGRATION
-  // Links this attribute to compliance rules from the Regulatory Advisor system
-  // See: docs/plans/13-regulatory-advisor.md
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  @OneToMany(() => RuleTemplate, rule => rule.attributeTemplate)
-  rules = new Collection<RuleTemplate>(this);
 }
 ```
 
@@ -1332,9 +1291,6 @@ export class DiffCalculationService {
     }
 
     // 6. Check main product has all required attributes
-    // NOTE: This is a basic pre-release check. Authoritative severity
-    // comes from RuleTemplate via PreFlightAuditService.
-    // See: docs/plans/13-regulatory-advisor.md
     const productRequired = requiredByCategory.get(product.category.id) || [];
     const productValues = valuesByProduct.get(product.id) || new Set();
 
@@ -1342,7 +1298,7 @@ export class DiffCalculationService {
       if (!productValues.has(attr.code)) {
         errors.push({
           type: 'MISSING_ATTRIBUTE',
-          severity: 'WARNING',  // Severity defined in RuleTemplate, not AttributeTemplate
+          severity: 'WARNING',
           entityType: 'product',
           entityId: product.id,
           entityName: product.name,
@@ -1362,7 +1318,7 @@ export class DiffCalculationService {
         if (!materialValues.has(attr.code)) {
           errors.push({
             type: 'MISSING_ATTRIBUTE',
-            severity: 'WARNING',  // Severity defined in RuleTemplate, not AttributeTemplate
+            severity: 'WARNING',
             entityType: 'material',
             entityId: material.id,
             entityName: material.name,
@@ -1384,12 +1340,16 @@ export class DiffCalculationService {
     material: Product,
     errors: ValidationError[]
   ): Promise<void> {
-    const regulationRefs = material.category.regulationRefs || [];
+    // Check if category has regulations requiring traceability via CategoryRegulation
+    const categoryRegulations = await this.em.find(
+      CategoryRegulation,
+      { category: { path: { $ancestor: material.category.path } } },
+      { populate: ['regulation'] }
+    );
 
-    const requiresTraceability =
-      regulationRefs.includes('CONFLICT_MINERALS') ||
-      regulationRefs.includes('EUDR') ||
-      regulationRefs.includes('REACH');
+    const requiresTraceability = categoryRegulations.some(cr =>
+      ['CONFLICT_MINERALS', 'EUDR', 'REACH'].includes(cr.regulation.code)
+    );
 
     if (requiresTraceability && !entry.facility) {
       errors.push({
@@ -1772,32 +1732,20 @@ PUT    /api/v1/design/materials/:id          # Update material
 
 The Design Workspace integrates with the Regulatory Advisor system to provide real-time compliance guidance during product design. This transforms the workspace from a pure data-entry tool into an intelligent design assistant.
 
-> **Full Design:** See [Regulatory Advisor](./13-regulatory-advisor.md) for complete system specification.
+> **Full Design:** See [Compliance Evaluation System](../guides/compliance-evaluation-system.md) and [Compliance Architecture](../architecture/compliance-architecture.md) for complete system specification.
 
 > **Feature Toggles:** This integration respects the organization's Regulatory Advisor settings:
 > - If `regulatoryAdvisorEnabled = false`: All features in this section are hidden
 > - If `enforcementMode = 'SILENT'`: PreFlight runs but shows advisory info only (no gates)
 > - If `enforcementMode = 'ENFORCING'`: Full soft gate experience with acknowledgment workflow
 
-### 10.1 Rule Template Linkage
+### 10.1 Requirement-Based Compliance
 
-Attribute templates link to rule templates that define compliance requirements:
-
-```typescript
-// AttributeTemplate.rules relationship (defined in Section 4.3)
-// Each attribute can have multiple rules checking its value
-
-// Example: A "recycled_content_percentage" attribute might have rules:
-// - ESPR minimum 25% recycled content (Blocker)
-// - Industry best practice 50% (Warning)
-// - Premium certification 80% (Info)
-```
-
-**Rule Resolution Flow:**
+The compliance system evaluates products against Requirements linked to Regulations:
 
 ```
 ┌─────────────────────┐     ┌──────────────────┐     ┌─────────────────┐
-│  AttributeTemplate  │────▶│   RuleTemplate   │────▶│ RegulationAnchor│
+│  AttributeTemplate  │────▶│   Requirement    │────▶│   Regulation    │
 │  (what to collect)  │     │  (how to check)  │     │ (legal source)  │
 └─────────────────────┘     └──────────────────┘     └─────────────────┘
          │                          │                        │
@@ -2019,17 +1967,16 @@ Provides legal context for individual attributes, enabling the UI to show linked
 interface AttributeLegalContext {
   attributeCode: string;
   attributeLabel: string;
-  linkedRules: {
-    ruleId: string;
-    ruleName: string;
+  linkedRequirements: {
+    requirementId: string;
+    requirementName: string;
     severity: 'BLOCKER' | 'WARNING' | 'INFO';
-    effectiveMode: 'ENFORCING' | 'SILENT' | 'DISABLED';
-    legalAnchor?: {
+    legalReference?: {
       reference: string;      // "ESPR Art. 5(2)"
       documentTitle: string;  // "ESPR - Ecodesign for Sustainable Products"
       viewerUrl: string;      // "/regulations/xyz?page=12&anchor=abc"
     };
-    validationLogic?: {
+    handlerConfig?: {
       operator: string;       // ">=", "<=", "contains", "matches"
       threshold?: number;     // e.g., 25 for "≥25%"
       pattern?: string;       // e.g., regex for format validation
@@ -2049,8 +1996,8 @@ interface AttributeLegalContext {
 │  │ 18                                                             %      │ │
 │  └───────────────────────────────────────────────────────────────────────┘ │
 │                                                                              │
-│  ⚠️ Below minimum: requires ≥25% per ESPR Art. 5(2)                        │
-│     📖 View regulation text                                                 │
+│  Below minimum: requires >=25% per ESPR Art. 5(2)                           │
+│     View regulation text                                                    │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -2069,15 +2016,7 @@ POST   /api/v1/design/versions/:id/submit              # Trigger approval gate
 GET    /api/v1/design/versions/:id/submission-status   # Get current compliance status
 
 # Legal context for attributes
-GET    /api/v1/design/attributes/:code/legal-context   # Get rules linked to attribute
-
-# Readiness profiles (READ-ONLY from Design Workspace)
-GET    /api/v1/design/versions/:id/readiness-profile   # Get assigned profile (read-only)
-
-# Profile assignment is done via Compliance Workspace:
-# PUT /api/v1/compliance/products/:id/readiness-profile
-# PUT /api/v1/compliance/categories/:id/default-profile
-# See: 08-compliance-workspace.md
+GET    /api/v1/design/attributes/:code/legal-context   # Get requirements linked to attribute
 
 # Regulation viewer
 GET    /api/v1/regulations/anchors/:id/context         # Get anchor with PDF URL
@@ -2096,7 +2035,7 @@ GET    /api/v1/regulations/documents/:id/viewer-url    # Get signed viewer URL
 | [Marketing Workspace](./07-marketing-workspace.md) | Content enrichment |
 | [Compliance Workspace](./08-compliance-workspace.md) | DPP issuance |
 | [Verifiable Credentials](./09-verifiable-credentials.md) | Signing |
-| [Regulatory Advisor](./13-regulatory-advisor.md) | Rule templates, PreFlight validation |
+| [Compliance Evaluation System](../guides/compliance-evaluation-system.md) | Requirement handlers, PreFlight validation |
 | [Taxonomy Plan 5 - Category Service](./2026-01-26-taxonomy-05-category-service.md) | Category LTREE hierarchy |
 | [Taxonomy Plan 6 - Attribute Service](./2026-01-26-taxonomy-06-attribute-service.md) | AttributeTemplate inheritance |
 | [Taxonomy Plan 7 - Material Substances](./2026-01-26-taxonomy-07-material-substances.md) | Substance declarations on materials |
@@ -2108,9 +2047,10 @@ GET    /api/v1/regulations/documents/:id/viewer-url    # Get signed viewer URL
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 2.5 | 2026-01-21 | Deprecated AttributeTemplate.isRequired with migration note to RuleTemplate.severity |
-| 2.4 | 2026-01-21 | Added Approval Gate workflow: real-time advisory mode (Section 10.2), submission workflow (Section 10.6), legal context API (Section 10.7); Category.defaultProfileId field |
-| 2.3 | 2026-01-21 | Made compliance view read-only; removed profile selector; profile assignment moved to Compliance Workspace |
+| 2.6 | 2026-01-28 | Removed old terminology; updated to Requirement-based architecture |
+| 2.5 | 2026-01-21 | Added AttributeTemplate.isRequired field |
+| 2.4 | 2026-01-21 | Added Approval Gate workflow: real-time advisory mode (Section 10.2), submission workflow (Section 10.6), legal context API (Section 10.7) |
+| 2.3 | 2026-01-21 | Made compliance view read-only |
 | 2.2 | 2026-01-21 | Added feature toggle conditional behavior note to Regulatory Advisor section |
-| 2.1 | 2026-01-21 | Added Regulatory Advisor integration (Section 10); AttributeTemplate.rules relationship; PreFlight validation; soft gates |
+| 2.1 | 2026-01-21 | Added Regulatory Advisor integration (Section 10); PreFlight validation; soft gates |
 | 2.0 | 2026-01-21 | Consolidated from design-workspace-design, taxonomy-engine-design; MikroORM entities; optimized N+1 queries; recursive BOM traversal |

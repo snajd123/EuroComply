@@ -1,8 +1,14 @@
 # Unified Taxonomy & Compliance Stack Design
 
-**Status:** Approved
+**Status:** IMPLEMENTED
 **Created:** 2026-01-27
 **Author:** Brainstorm Session
+
+> **Note:** This design has been implemented. Terminology has been updated to reflect the final implementation:
+> - `RegulatoryList` → `Regulation`
+> - `RegulatoryListEntry` → `Requirement`
+> - `CategoryRegulatoryList` → `CategoryRegulation`
+> - `TenantCategoryRegulatoryList` → `TenantRequirementExemption`
 
 ---
 
@@ -53,9 +59,9 @@ Two category types with an adoption bridge:
 │  ├── version (for sync tracking)                               │
 │  └── Managed by PLATFORM ADMINS                                │
 │                                                                 │
-│  CategoryRegulatoryList (System Baseline)                       │
+│  CategoryRegulation (System Baseline)                       │
 │  ├── category_id → Category                                    │
-│  ├── regulatory_list_id → RegulatoryList                       │
+│  ├── regulation_id → Regulation                       │
 │  ├── requirement (MANDATORY | RECOMMENDED)                      │
 │  └── allowTenantExemption (guardrail flag)                     │
 └─────────────────────────────────────────────────────────────────┘
@@ -71,7 +77,7 @@ Two category types with an adoption bridge:
 │  ├── mode: LIVE | FROZEN | DETACHED                            │
 │  └── frozenAtVersion (for version pinning)                     │
 │                                                                 │
-│  TenantCategoryRegulatoryList (additions + exemptions)          │
+│  TenantRequirementExemption (additions + exemptions)          │
 │  ├── Tenant-added regulations                                   │
 │  └── Justified exemptions from system baseline                  │
 └─────────────────────────────────────────────────────────────────┘
@@ -97,17 +103,17 @@ Allow tenants to:
 1. **Add extra regulations** beyond the system baseline
 2. **Exempt from baseline regulations** with mandatory justification
 
-### Entity: TenantCategoryRegulatoryList
+### Entity: TenantRequirementExemption
 
 ```typescript
-@Entity({ tableName: 'tenant_category_regulatory_list' })
-export class TenantCategoryRegulatoryList extends BaseEntity {
+@Entity({ tableName: 'tenant_category_regulation' })
+export class TenantRequirementExemption extends BaseEntity {
   // Core Fields
   @ManyToOne(() => TenantCategory)
   tenantCategory!: TenantCategory;
 
-  @Property({ type: 'text', name: 'regulatory_list_id' })
-  regulatoryListId!: string;  // Soft link to public.regulatory_list
+  @Property({ type: 'text', name: 'regulation_id' })
+  regulatoryListId!: string;  // Soft link to public.regulation
 
   @Enum(() => ListRequirement)
   requirement!: ListRequirement;  // MANDATORY | RECOMMENDED | INFORMATIONAL
@@ -149,7 +155,7 @@ export class TenantCategoryRegulatoryList extends BaseEntity {
 
 ```typescript
 // Before allowing exemption
-const systemLink = await getSystemCategoryRegulatoryList(regulatoryListId);
+const systemLink = await getSystemCategoryRegulation(regulatoryListId);
 if (!systemLink.allowTenantExemption) {
   return error(c, 'FORBIDDEN', 'This regulation cannot be exempted', 403, {
     regulatoryListCode: systemLink.code,
@@ -163,26 +169,26 @@ if (!systemLink.allowTenantExemption) {
 ```sql
 -- Effective regulations for a TenantCategory
 SELECT
-  crl.regulatory_list_id,
+  crl.regulation_id,
   crl.requirement,
   'SYSTEM' as source,
   COALESCE(tcrl.is_exempted, false) as is_exempted,
   tcrl.exemption_reason
-FROM public.category_regulatory_list crl
-LEFT JOIN tenant.tenant_category_regulatory_list tcrl
-  ON tcrl.regulatory_list_id = crl.regulatory_list_id
+FROM public.category_regulation crl
+LEFT JOIN tenant.tenant_category_regulation tcrl
+  ON tcrl.regulation_id = crl.regulation_id
   AND tcrl.tenant_category_id = :tenantCategoryId
 WHERE crl.category_id = :systemCategoryId
 
 UNION
 
 SELECT
-  tcrl.regulatory_list_id,
+  tcrl.regulation_id,
   tcrl.requirement,
   'TENANT' as source,
   false as is_exempted,
   NULL as exemption_reason
-FROM tenant.tenant_category_regulatory_list tcrl
+FROM tenant.tenant_category_regulation tcrl
 WHERE tcrl.tenant_category_id = :tenantCategoryId
   AND tcrl.source = 'TENANT_ADDED'
 ```
@@ -202,7 +208,7 @@ WHERE tcrl.tenant_category_id = :tenantCategoryId
 ### Version Pinning (FROZEN Mode)
 
 When a tenant freezes their adoption:
-- Store `pinnedRegulatoryListIds[]` - the specific UUIDs of list versions
+- Store `pinnedRegulationIds[]` - the specific UUIDs of list versions
 - Query resolves against those exact versions, not current
 - Enables "time machine" compliance - prove compliance as of a specific date
 
@@ -223,7 +229,7 @@ Product in category "system.electronics"
 │ 2. Get CategoryAdoption     │
 │    mode = FROZEN            │
 │    frozenAtVersion = 3      │
-│    pinnedRegulatoryListIds  │
+│    pinnedRegulationIds  │
 └─────────────────────────────┘
          │
          ▼
@@ -373,13 +379,13 @@ Base: `/api/v1`
 
 ```typescript
 // POST /tenant-categories/:id/regulatory-lists
-const addRegulatoryListSchema = z.object({
+const addRegulationSchema = z.object({
   regulatoryListId: z.string().min(1),
   requirement: z.enum(['MANDATORY', 'RECOMMENDED', 'INFORMATIONAL']),
 });
 
 // POST /tenant-categories/:id/regulatory-lists/:listId/exempt
-const exemptRegulatoryListSchema = z.object({
+const exemptRegulationSchema = z.object({
   reason: z.string().min(10).max(1000),
   legalRef: z.string().max(255).optional(),
 });
@@ -436,10 +442,10 @@ const exemptRegulatoryListSchema = z.object({
 | Plan | Change Level | Description |
 |------|--------------|-------------|
 | **Plan 05** (Category Service) | MAJOR REWRITE | Split into SystemCategoryService (admin) and TenantCategoryService (tenant). Add adoption endpoints (already done). Add sync/diff engine. |
-| **Plan 10** (Regulatory Lists) | MINOR UPDATE | Add `allowTenantExemption: boolean` flag to RegulatoryList entity. Add to seeder data. |
-| **Plan 11** (Category-List Scoping) | MAJOR REWRITE | Create CategoryRegulatoryList (public). Create TenantCategoryRegulatoryList (tenant). Implement "Compliance Stack" resolver. Handle LTREE ancestor traversal. Handle LIVE/FROZEN/DETACHED modes. |
+| **Plan 10** (Regulatory Lists) | MINOR UPDATE | Add `allowTenantExemption: boolean` flag to Regulation entity. Add to seeder data. |
+| **Plan 11** (Category-List Scoping) | MAJOR REWRITE | Create CategoryRegulation (public). Create TenantRequirementExemption (tenant). Implement "Compliance Stack" resolver. Handle LTREE ancestor traversal. Handle LIVE/FROZEN/DETACHED modes. |
 | **Plan 14** (Rule Evaluation) | MODERATE UPDATE | Add JUSTIFIED_EXEMPTION result status. Include exemptionReason in findings. Label findings by source (SYSTEM/TENANT). Handle overrideThreshold comparisons. |
-| **Plan 15** (Regulatory Seeders) | MODERATE UPDATE | Seed CategoryRegulatoryList links. Define which system categories get which regulations. |
+| **Plan 15** (Regulatory Seeders) | MODERATE UPDATE | Seed CategoryRegulation links. Define which system categories get which regulations. |
 
 ### Plans Unchanged
 
@@ -449,16 +455,16 @@ Plans 01-04, 06-09, 12 deal with infrastructure, substances, units, and material
 
 | Entity | Schema | Purpose |
 |--------|--------|---------|
-| `CategoryRegulatoryList` | public | Links system categories to regulatory lists |
-| `TenantCategoryRegulatoryList` | tenant | Tenant additions + exemptions with audit trail |
+| `CategoryRegulation` | public | Links system categories to regulatory lists |
+| `TenantRequirementExemption` | tenant | Tenant additions + exemptions with audit trail |
 
 ### Modified Entities
 
 | Entity | Changes |
 |--------|---------|
-| `RegulatoryList` | Add `allowTenantExemption: boolean` |
+| `Regulation` | Add `allowTenantExemption: boolean` |
 | `TenantCategory` | Add `originalNameSnapshot: string` |
-| `CategoryAdoption` | Add `pinnedRegulatoryListIds: string[]` |
+| `CategoryAdoption` | Add `pinnedRegulationIds: string[]` |
 
 ### Implementation Order
 
@@ -472,32 +478,32 @@ Plans 01-04, 06-09, 12 deal with infrastructure, substances, units, and material
 
 ## 8. Database Schema Updates
 
-### New Table: CategoryRegulatoryList (public schema)
+### New Table: CategoryRegulation (public schema)
 
 ```sql
-CREATE TABLE public.category_regulatory_list (
+CREATE TABLE public.category_regulation (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   category_id UUID NOT NULL REFERENCES public.category(id),
-  regulatory_list_id UUID NOT NULL REFERENCES public.regulatory_list(id),
+  regulation_id UUID NOT NULL REFERENCES public.regulation(id),
   requirement VARCHAR(20) NOT NULL DEFAULT 'MANDATORY',
   allow_tenant_exemption BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
-  UNIQUE(category_id, regulatory_list_id)
+  UNIQUE(category_id, regulation_id)
 );
 
-CREATE INDEX idx_crl_category ON public.category_regulatory_list(category_id);
-CREATE INDEX idx_crl_list ON public.category_regulatory_list(regulatory_list_id);
+CREATE INDEX idx_crl_category ON public.category_regulation(category_id);
+CREATE INDEX idx_crl_list ON public.category_regulation(regulation_id);
 ```
 
-### New Table: TenantCategoryRegulatoryList (tenant schema)
+### New Table: TenantRequirementExemption (tenant schema)
 
 ```sql
-CREATE TABLE tenant_category_regulatory_list (
+CREATE TABLE tenant_category_regulation (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_category_id UUID NOT NULL REFERENCES tenant_category(id),
-  regulatory_list_id UUID NOT NULL,  -- Soft link to public.regulatory_list
+  regulation_id UUID NOT NULL,  -- Soft link to public.regulation
   requirement VARCHAR(20) NOT NULL DEFAULT 'MANDATORY',
   source VARCHAR(20) NOT NULL DEFAULT 'TENANT_ADDED',
 
@@ -514,17 +520,17 @@ CREATE TABLE tenant_category_regulatory_list (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
-  UNIQUE(tenant_category_id, regulatory_list_id)
+  UNIQUE(tenant_category_id, regulation_id)
 );
 
-CREATE INDEX idx_tcrl_category ON tenant_category_regulatory_list(tenant_category_id);
-CREATE INDEX idx_tcrl_list ON tenant_category_regulatory_list(regulatory_list_id);
+CREATE INDEX idx_tcrl_category ON tenant_category_regulation(tenant_category_id);
+CREATE INDEX idx_tcrl_list ON tenant_category_regulation(regulation_id);
 ```
 
-### Modified Table: RegulatoryList (public schema)
+### Modified Table: Regulation (public schema)
 
 ```sql
-ALTER TABLE public.regulatory_list
+ALTER TABLE public.regulation
 ADD COLUMN allow_tenant_exemption BOOLEAN NOT NULL DEFAULT true;
 ```
 
@@ -539,7 +545,7 @@ ADD COLUMN original_name_snapshot VARCHAR(255);
 
 ```sql
 ALTER TABLE category_adoption
-ADD COLUMN pinned_regulatory_list_ids UUID[];
+ADD COLUMN pinned_regulation_ids UUID[];
 ```
 
 ---
@@ -563,3 +569,4 @@ This should be done after implementation is complete.
 | Version | Date | Changes |
 |---------|------|---------|
 | 1.0 | 2026-01-27 | Initial design from brainstorm session |
+| 1.1 | 2026-01-28 | Updated terminology and marked as IMPLEMENTED |

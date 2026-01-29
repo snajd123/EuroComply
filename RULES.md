@@ -800,6 +800,107 @@ docs/testing/postman/
 
 ---
 
+## 17. Technical Debt and Legacy Code Management
+
+### No Parallel Systems Without Documentation
+
+**NEVER create alternative implementations without documenting the transition plan.**
+
+When replacing a system:
+1. Document the old vs new approach in a plan document
+2. Create migration path before implementing new system
+3. Delete old system completely when migration is done
+4. **Never leave two systems doing the same thing**
+
+```
+❌ BAD: "I'll add the new Regulation system and deprecate RegulatoryList later"
+✅ GOOD: "Plan: Replace RegulatoryList → Regulation, migrate data, delete old code"
+```
+
+### Dead Code Removal Checklist
+
+When removing entities, services, or features:
+
+- [ ] Delete entity files and tests
+- [ ] Remove from exports (`index.ts`)
+- [ ] Remove from entity arrays (`publicEntities`, `tenantEntities`)
+- [ ] Update provisioner expected tables (`EXPECTED_TENANT_TABLES`)
+- [ ] Remove related routes and services
+- [ ] Remove route registrations from `app.ts`
+- [ ] Update Postman collections
+- [ ] Remove from documentation
+- [ ] Search for remaining references: `grep -rn "EntityName" --include="*.ts"`
+- [ ] Run full test suite to catch broken references
+
+### Code-Documentation Alignment
+
+**Documentation MUST match implementation. No exceptions.**
+
+When code changes:
+1. Update docs in the same commit/PR
+2. Remove docs for deleted features (don't mark as "deprecated")
+3. Add docs for new features immediately
+
+**Quarterly architecture audit:**
+1. Compare documented entities vs implemented entities
+2. Compare documented API endpoints vs actual routes
+3. Check for features documented but not implemented
+4. Check for features implemented but not documented
+
+### Test Isolation
+
+**Tests MUST be isolated** - one test cannot affect another:
+
+```typescript
+// ✅ GOOD: Unique test data per test
+const testSchema = `test_${createId()}`;
+const testOrg = em.create(Organization, {
+  name: `Test Org ${createId()}`,
+  schemaName: testSchema
+});
+
+// ✅ GOOD: Cleanup after each test
+afterEach(async () => {
+  await em.execute(`DROP SCHEMA IF EXISTS "${testSchema}" CASCADE`);
+});
+
+// ❌ BAD: Shared state between tests
+let sharedOrg: Organization;  // Other tests might modify this!
+```
+
+Rules:
+- Use unique test data (random IDs, unique schema names)
+- Clean up after each test in `afterEach`
+- Don't rely on test execution order
+- Integration tests sharing database MUST use transactions or unique schemas
+
+### Technical Debt Tracking
+
+When you identify technical debt:
+
+1. **Document it immediately** with `TECH_DEBT:` prefix
+2. **Include context**: what, why it's debt, impact, suggested fix
+3. **Review quarterly**: prioritize and schedule fixes
+
+```typescript
+// TECH_DEBT: Test isolation - API tests fail when run in parallel
+// Impact: CI is flaky, developers can't trust test results
+// Fix: Add unique schema per test file, proper cleanup in afterEach
+// Priority: HIGH - blocking reliable CI
+```
+
+### What Counts as Technical Debt
+
+| Is Technical Debt | Is NOT Technical Debt |
+|-------------------|----------------------|
+| Two systems doing the same thing | Feature not yet implemented |
+| Tests that interfere with each other | Missing optional features |
+| Docs that don't match code | Code that works but could be cleaner |
+| Dead code that's never cleaned up | TODO comments for future enhancements |
+| Missing error handling for known cases | Performance optimizations not yet done |
+
+---
+
 ## Enforcement
 
 These rules are enforced through:
@@ -844,7 +945,7 @@ These rules are enforced through:
 
 ---
 
-**Last Updated**: 2026-01-27
-**Version**: 1.7
+**Last Updated**: 2026-01-28
+**Version**: 1.8
 
 > Note: For Claude-specific workflow instructions, see [CLAUDE.md](./CLAUDE.md)

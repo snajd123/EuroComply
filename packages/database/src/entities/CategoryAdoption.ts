@@ -33,6 +33,6 @@ export class CategoryAdoption extends BaseEntity {
   @Property({ type: 'boolean', default: false, name: 'update_available' })
   updateAvailable: boolean = false;
 
-  @Property({ type: 'array', nullable: true, name: 'pinned_regulatory_list_ids' })
-  pinnedRegulatoryListIds?: string[];
+  @Property({ type: 'array', nullable: true, name: 'pinned_regulation_ids' })
+  pinnedRegulationIds?: string[];
 }

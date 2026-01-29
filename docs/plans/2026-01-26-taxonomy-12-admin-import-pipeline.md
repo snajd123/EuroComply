@@ -1,16 +1,18 @@
 # Taxonomy Plan 12: Admin Import Pipeline
 
+> **Status:** IMPLEMENTED - Terminology updated 2026-01-28
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Implement admin-managed CSV/JSON import pipeline for regulatory list updates with validation, preview, and immutable versioning.
+**Goal:** Implement admin-managed CSV/JSON import pipeline for regulation updates with validation, preview, and immutable versioning.
 
-**Architecture:** Create `RegulatoryImportService` that parses uploaded files, validates CAS checksums, computes diffs against existing data, stages changes for preview, and applies as new immutable list versions. Admin API endpoints for upload, preview, and apply operations.
+**Architecture:** Create `RegulatoryImportService` that parses uploaded files, validates CAS checksums, computes diffs against existing data, stages changes for preview, and applies as new immutable regulation versions. Admin API endpoints for upload, preview, and apply operations.
 
 **Tech Stack:** MikroORM, PostgreSQL, Hono, csv-parse, TypeScript
 
 **Prerequisites:**
 - Plan 4 (Substance Registry) - for CAS validation
-- Plan 10 (Regulatory List Registry) - for list entities
+- Plan 10 (Regulation Registry) - for regulation entities
 
 **Reference:** See `docs/plans/2026-01-26-regulatory-vertical-system-design.md` Section 5
 
@@ -131,14 +133,14 @@ export interface ImportChanges {
 @Index({ properties: ['listCode', 'appliedAt'] })
 export class RegulatoryImportLog extends BaseEntity {
   /**
-   * Code of the regulatory list that was imported.
+   * Code of the regulation that was imported.
    */
   @Property({ type: 'text', name: 'list_code' })
   @Index()
   listCode!: string;
 
   /**
-   * Version string of the imported list.
+   * Version string of the imported regulation.
    */
   @Property({ type: 'text' })
   version!: string;
@@ -268,7 +270,7 @@ git commit -m "feat(database): add migration for regulatory_import_log table"
 ```typescript
 // packages/database/src/services/import/parsers.test.ts
 import { describe, it, expect } from 'vitest';
-import { parseCSV, parseJSON, RegulatoryListImport } from './parsers.js';
+import { parseCSV, parseJSON, RegulationImport } from './parsers.js';
 
 describe('Import Parsers', () => {
   describe('parseCSV', () => {
@@ -393,7 +395,7 @@ import { parse } from 'csv-parse/sync';
  * Import entry with agnostic evaluation fields.
  * The operator + compareValue define how to evaluate (no hardcoded rule types).
  */
-export interface RegulatoryListEntryImport {
+export interface RequirementImport {
   casNumber: string;
   ecNumber?: string;
 
@@ -413,14 +415,14 @@ export interface RegulatoryListEntryImport {
   notes?: string;
 }
 
-export interface RegulatoryListImport {
+export interface RegulationImport {
   code: string;
   name: string;
   source: string;
   version: string;
   effectiveDate: string;
   sourceUrl?: string;
-  entries: RegulatoryListEntryImport[];
+  entries: RequirementImport[];
 }
 
 export interface CSVMetadata {
@@ -433,7 +435,7 @@ export interface CSVMetadata {
 }
 
 /**
- * Parse CSV content into RegulatoryListImport structure.
+ * Parse CSV content into RegulationImport structure.
  *
  * Expected columns (agnostic evaluation model):
  * - cas_number (required): CAS registry number
@@ -449,21 +451,21 @@ export interface CSVMetadata {
 export async function parseCSV(
   content: string,
   metadata: CSVMetadata
-): Promise<RegulatoryListImport> {
+): Promise<RegulationImport> {
   const records = parse(content, {
     columns: true,
     skip_empty_lines: true,
     trim: true,
   });
 
-  const entries: RegulatoryListEntryImport[] = records.map((row: Record<string, string>) => ({
+  const entries: RequirementImport[] = records.map((row: Record<string, string>) => ({
     casNumber: row.cas_number?.trim(),
     ecNumber: row.ec_number?.trim() || undefined,
     // Agnostic evaluation fields
-    operator: row.operator?.trim() as RegulatoryListEntryImport['operator'],
+    operator: row.operator?.trim() as RequirementImport['operator'],
     compareValue: row.compare_value?.trim() || undefined,
     issueType: row.issue_type?.trim(),
-    severity: row.severity?.trim() as RegulatoryListEntryImport['severity'],
+    severity: row.severity?.trim() as RequirementImport['severity'],
     // Optional fields
     stoichiometricFactor: row.stoichiometric_factor?.trim() || undefined,
     legalReference: row.legal_reference?.trim() || undefined,
@@ -482,9 +484,9 @@ export async function parseCSV(
 }
 
 /**
- * Parse JSON content into RegulatoryListImport structure.
+ * Parse JSON content into RegulationImport structure.
  */
-export function parseJSON(content: string): RegulatoryListImport {
+export function parseJSON(content: string): RegulationImport {
   const data = JSON.parse(content);
 
   const requiredFields = ['code', 'name', 'source', 'version', 'effectiveDate', 'entries'];
@@ -504,7 +506,7 @@ export function parseJSON(content: string): RegulatoryListImport {
     entries: data.entries.map((e: Record<string, unknown>) => ({
       casNumber: e.casNumber as string,
       ecNumber: e.ecNumber as string | undefined,
-      restrictionType: e.restrictionType as RegulatoryListEntryImport['restrictionType'],
+      restrictionType: e.restrictionType as RequirementImport['restrictionType'],
       thresholdPct: e.thresholdPct as string | undefined,
       stoichiometricFactor: e.stoichiometricFactor as string | undefined,
       conditions: e.conditions as Record<string, string> | undefined,
@@ -527,7 +529,7 @@ Expected: PASS
 
 ```bash
 git add packages/database/src/services/import/parsers.ts packages/database/src/services/import/parsers.test.ts
-git commit -m "feat(database): add CSV/JSON import parsers for regulatory lists"
+git commit -m "feat(database): add CSV/JSON import parsers for regulations"
 ```
 
 ---
@@ -544,10 +546,10 @@ git commit -m "feat(database): add CSV/JSON import parsers for regulatory lists"
 // packages/database/src/services/import/validator.test.ts
 import { describe, it, expect } from 'vitest';
 import { validateImport, ValidationError } from './validator.js';
-import { RegulatoryListImport } from './parsers.js';
+import { RegulationImport } from './parsers.js';
 
 describe('Import Validator', () => {
-  const validImport: RegulatoryListImport = {
+  const validImport: RegulationImport = {
     code: 'COSING_ANNEX_II',
     name: 'CosIng Annex II',
     source: 'EU_COSING',
@@ -566,7 +568,7 @@ describe('Import Validator', () => {
     });
 
     it('should reject invalid CAS check digit', () => {
-      const data: RegulatoryListImport = {
+      const data: RegulationImport = {
         ...validImport,
         entries: [
           { casNumber: '50-00-1', operator: 'PRESENT', issueType: 'PROHIBITED_SUBSTANCE', severity: 'BLOCKER' },  // Invalid check digit
@@ -580,7 +582,7 @@ describe('Import Validator', () => {
     });
 
     it('should reject malformed CAS format', () => {
-      const data: RegulatoryListImport = {
+      const data: RegulationImport = {
         ...validImport,
         entries: [
           { casNumber: '5000-0', operator: 'PRESENT', issueType: 'PROHIBITED_SUBSTANCE', severity: 'BLOCKER' },  // Wrong format
@@ -595,7 +597,7 @@ describe('Import Validator', () => {
 
   describe('operator validation', () => {
     it('should reject invalid operator', () => {
-      const data: RegulatoryListImport = {
+      const data: RegulationImport = {
         ...validImport,
         entries: [
           { casNumber: '50-00-0', operator: 'INVALID' as any, issueType: 'TEST', severity: 'BLOCKER' },
@@ -608,7 +610,7 @@ describe('Import Validator', () => {
     });
 
     it('should require compareValue for GT/GTE/LT/LTE operators', () => {
-      const data: RegulatoryListImport = {
+      const data: RegulationImport = {
         ...validImport,
         entries: [
           { casNumber: '50-00-0', operator: 'GT', issueType: 'CHEMICAL_LIMIT_EXCEEDED', severity: 'WARNING' },  // Missing compareValue
@@ -621,7 +623,7 @@ describe('Import Validator', () => {
     });
 
     it('should reject invalid severity', () => {
-      const data: RegulatoryListImport = {
+      const data: RegulationImport = {
         ...validImport,
         entries: [
           { casNumber: '50-00-0', operator: 'PRESENT', issueType: 'PROHIBITED_SUBSTANCE', severity: 'INVALID' as any },
@@ -636,7 +638,7 @@ describe('Import Validator', () => {
 
   describe('compareValue validation', () => {
     it('should reject non-numeric compareValue', () => {
-      const data: RegulatoryListImport = {
+      const data: RegulationImport = {
         ...validImport,
         entries: [
           { casNumber: '50-00-0', operator: 'GT', compareValue: 'abc', issueType: 'CHEMICAL_LIMIT_EXCEEDED', severity: 'WARNING' },
@@ -649,7 +651,7 @@ describe('Import Validator', () => {
     });
 
     it('should reject negative compareValue', () => {
-      const data: RegulatoryListImport = {
+      const data: RegulationImport = {
         ...validImport,
         entries: [
           { casNumber: '50-00-0', operator: 'GT', compareValue: '-0.1', issueType: 'CHEMICAL_LIMIT_EXCEEDED', severity: 'WARNING' },
@@ -664,7 +666,7 @@ describe('Import Validator', () => {
 
   describe('duplicate detection', () => {
     it('should detect duplicate CAS numbers', () => {
-      const data: RegulatoryListImport = {
+      const data: RegulationImport = {
         ...validImport,
         entries: [
           { casNumber: '50-00-0', operator: 'PRESENT', issueType: 'PROHIBITED_SUBSTANCE', severity: 'BLOCKER' },
@@ -692,7 +694,7 @@ Expected: FAIL
 
 ```typescript
 // packages/database/src/services/import/validator.ts
-import { RegulatoryListImport } from './parsers.js';
+import { RegulationImport } from './parsers.js';
 import { isValidCasNumber } from '../../utils/cas-validator.js';
 
 export interface ValidationError {
@@ -707,10 +709,10 @@ const OPERATORS_REQUIRING_COMPARE_VALUE = ['GT', 'GTE', 'LT', 'LTE', 'EQ'];
 const VALID_SEVERITIES = ['BLOCKER', 'WARNING', 'INFO'];
 
 /**
- * Validate a regulatory list import for schema and data integrity.
+ * Validate a regulation import for schema and data integrity.
  * Returns array of validation errors (empty if valid).
  */
-export function validateImport(data: RegulatoryListImport): ValidationError[] {
+export function validateImport(data: RegulationImport): ValidationError[] {
   const errors: ValidationError[] = [];
   const seenCas = new Set<string>();
 
@@ -844,8 +846,8 @@ git commit -m "feat(database): add import validator with CAS checksum and schema
 // packages/database/src/services/RegulatoryImportService.test.ts
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import type { MikroORM } from '@mikro-orm/postgresql';
-import { RegulatoryList } from '../entities/RegulatoryList.js';
-import { RegulatoryListEntry } from '../entities/RegulatoryListEntry.js';
+import { Regulation } from '../entities/Regulation.js';
+import { Requirement } from '../entities/Requirement.js';
 import { RegulatoryImportLog } from '../entities/RegulatoryImportLog.js';
 import { Substance } from '../entities/Substance.js';
 import { RegulatoryImportService } from './RegulatoryImportService.js';
@@ -866,8 +868,8 @@ describe('RegulatoryImportService', () => {
   beforeEach(async () => {
     if (!orm) return;
     const em = orm.em.fork();
-    await em.nativeDelete(RegulatoryListEntry, {});
-    await em.nativeDelete(RegulatoryList, {});
+    await em.nativeDelete(Requirement, {});
+    await em.nativeDelete(Regulation, {});
     await em.nativeDelete(RegulatoryImportLog, {});
     await em.nativeDelete(Substance, {});
 
@@ -937,7 +939,7 @@ describe('RegulatoryImportService', () => {
       const service = new RegulatoryImportService(em);
 
       // Create existing list
-      const existingList = em.create(RegulatoryList, {
+      const existingList = em.create(Regulation, {
         code: 'TEST_LIST',
         name: 'Test',
         source: 'TEST',
@@ -948,7 +950,7 @@ describe('RegulatoryImportService', () => {
       await em.persistAndFlush(existingList);
 
       const substance = await em.findOneOrFail(Substance, { casNumber: '50-00-0' });
-      em.create(RegulatoryListEntry, {
+      em.create(Requirement, {
         list: existingList,
         substance,
         casNumberSnapshot: '50-00-0',
@@ -999,13 +1001,13 @@ describe('RegulatoryImportService', () => {
       expect(result.success).toBe(true);
 
       // Verify list was created
-      const list = await em.findOne(RegulatoryList, { code: 'COSING_ANNEX_II' });
+      const list = await em.findOne(Regulation, { code: 'COSING_ANNEX_II' });
       expect(list).toBeDefined();
       expect(list?.version).toBe('2024-06');
       expect(list?.isCurrentVersion).toBe(true);
 
       // Verify entry was created with snapshot
-      const entries = await em.find(RegulatoryListEntry, { list });
+      const entries = await em.find(Requirement, { list });
       expect(entries).toHaveLength(1);
       expect(entries[0].casNumberSnapshot).toBe('50-00-0');
       expect(entries[0].substanceNameSnapshot).toBe('Formaldehyde');
@@ -1044,12 +1046,12 @@ describe('RegulatoryImportService', () => {
       await service.applyImport(v2Preview.previewId, 'admin-123');
 
       // Verify v1 is superseded
-      const v1 = await em.findOne(RegulatoryList, { code: 'VERSIONED', version: '2023-01' });
+      const v1 = await em.findOne(Regulation, { code: 'VERSIONED', version: '2023-01' });
       expect(v1?.isCurrentVersion).toBe(false);
       expect(v1?.supersededDate).toBeDefined();
 
       // Verify v2 is current
-      const v2 = await em.findOne(RegulatoryList, { code: 'VERSIONED', version: '2024-01' });
+      const v2 = await em.findOne(Regulation, { code: 'VERSIONED', version: '2024-01' });
       expect(v2?.isCurrentVersion).toBe(true);
       expect(v2?.previousVersion?.id).toBe(v1?.id);
     });
@@ -1094,12 +1096,12 @@ Expected: FAIL
 ```typescript
 // packages/database/src/services/RegulatoryImportService.ts
 import { EntityManager } from '@mikro-orm/postgresql';
-import { RegulatoryList } from '../entities/RegulatoryList.js';
-import { RegulatoryListEntry } from '../entities/RegulatoryListEntry.js';
+import { Regulation } from '../entities/Regulation.js';
+import { Requirement } from '../entities/Requirement.js';
 import { RegulatoryImportLog } from '../entities/RegulatoryImportLog.js';
 import { Substance } from '../entities/Substance.js';
 import { ComparisonOperator, Severity } from '../entities/enums/index.js';
-import { RegulatoryListImport } from './import/parsers.js';
+import { RegulationImport } from './import/parsers.js';
 import { validateImport, ValidationError } from './import/validator.js';
 import { createId } from '@eurocomply/core';
 
@@ -1127,7 +1129,7 @@ export interface ImportResult {
 }
 
 interface StagedImport {
-  data: RegulatoryListImport;
+  data: RegulationImport;
   resolvedEntries: Array<{
     substanceId: string;
     casNumber: string;
@@ -1158,7 +1160,7 @@ export class RegulatoryImportService {
    * Validates data, resolves substances, computes diff.
    */
   async previewImport(
-    data: RegulatoryListImport,
+    data: RegulationImport,
     adminId: string
   ): Promise<ImportPreview> {
     // Step 1: Validate schema
@@ -1233,7 +1235,7 @@ export class RegulatoryImportService {
   }
 
   /**
-   * Apply a previewed import, creating new list version.
+   * Apply a previewed import, creating new regulation version.
    */
   async applyImport(previewId: string, adminId: string): Promise<ImportResult> {
     const staged = stagedImports.get(previewId);
@@ -1245,7 +1247,7 @@ export class RegulatoryImportService {
       const { data, resolvedEntries } = staged;
 
       // Step 1: Mark previous version as superseded
-      const previousList = await em.findOne(RegulatoryList, {
+      const previousList = await em.findOne(Regulation, {
         code: data.code,
         isCurrentVersion: true,
       });
@@ -1256,7 +1258,7 @@ export class RegulatoryImportService {
       }
 
       // Step 2: Create new list version
-      const newList = em.create(RegulatoryList, {
+      const newList = em.create(Regulation, {
         code: data.code,
         name: data.name,
         source: data.source,
@@ -1273,7 +1275,7 @@ export class RegulatoryImportService {
       for (const entry of resolvedEntries) {
         const substance = await em.findOneOrFail(Substance, { id: entry.substanceId });
 
-        em.create(RegulatoryListEntry, {
+        em.create(Requirement, {
           list: newList,
           substance,
           casNumberSnapshot: entry.casNumber,
@@ -1572,7 +1574,7 @@ git commit -m "feat(api): add admin regulatory import routes (preview, apply, lo
 1. Admin uploads CSV/JSON → `POST /admin/regulatory-import/preview`
 2. System validates, resolves substances, returns preview with warnings
 3. Admin reviews diff → `POST /admin/regulatory-import/apply/:previewId`
-4. System creates new immutable list version, supersedes old version
+4. System creates new immutable regulation version, supersedes old version
 5. Audit log captures who/when/what
 
 **Next Plans:**

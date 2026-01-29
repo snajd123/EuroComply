@@ -4,8 +4,6 @@ export { RegulationStatus } from './enums/RegulationStatus.js';
 export { Substance } from './Substance.js';
 export { SubstanceAlias } from './SubstanceAlias.js';
 export { SeedVersion } from './SeedVersion.js';
-export { RegulatoryList } from './RegulatoryList.js';
-export { RegulatoryListEntry } from './RegulatoryListEntry.js';
 export { Regulation } from './Regulation.js';
 export { Requirement, type RequirementHandlerConfig } from './Requirement.js';
 export { RequirementType } from './enums/RequirementType.js';
@@ -22,10 +20,8 @@ export {
 export { ApiKey } from './ApiKey.js';
 export { Category, CategoryType } from './Category.js';
 export { CategoryAdoption, LinkMode } from './CategoryAdoption.js';
-export { CategoryRegulatoryList } from './CategoryRegulatoryList.js';
 export { CategoryRegulation } from './CategoryRegulation.js';
 export { TenantCategory } from './TenantCategory.js';
-export { TenantCategoryRegulatoryList } from './TenantCategoryRegulatoryList.js';
 export { TenantRequirementExemption } from './TenantRequirementExemption.js';
 export { UnitDefinition } from './UnitDefinition.js';
 export {
@@ -52,10 +48,8 @@ import { OutboxEvent } from './OutboxEvent.js';
 import { WebhookEvent } from './WebhookEvent.js';
 import { Category } from './Category.js';
 import { CategoryAdoption } from './CategoryAdoption.js';
-import { CategoryRegulatoryList } from './CategoryRegulatoryList.js';
 import { CategoryRegulation } from './CategoryRegulation.js';
 import { TenantCategory } from './TenantCategory.js';
-import { TenantCategoryRegulatoryList } from './TenantCategoryRegulatoryList.js';
 import { TenantRequirementExemption } from './TenantRequirementExemption.js';
 import { UnitDefinition } from './UnitDefinition.js';
 import { AttributeTemplate } from './AttributeTemplate.js';
@@ -67,8 +61,6 @@ import { OrganizationUser } from './OrganizationUser.js';
 import { Substance } from './Substance.js';
 import { SubstanceAlias } from './SubstanceAlias.js';
 import { SeedVersion } from './SeedVersion.js';
-import { RegulatoryList } from './RegulatoryList.js';
-import { RegulatoryListEntry } from './RegulatoryListEntry.js';
 import { Regulation } from './Regulation.js';
 import { Requirement } from './Requirement.js';
 import { ComplianceEvidence } from './ComplianceEvidence.js';
@@ -86,9 +78,6 @@ export const publicOnlyEntities = [
   SubstanceAlias,
   SeedVersion,
   Category,
-  RegulatoryList,
-  RegulatoryListEntry,
-  CategoryRegulatoryList,
   CategoryRegulation,
   Regulation,
   Requirement,
@@ -101,7 +90,6 @@ export const publicOnlyEntities = [
 export const tenantOnlyEntities = [
   CategoryAdoption,
   TenantCategory,
-  TenantCategoryRegulatoryList,
   TenantRequirementExemption,
   AttributeTemplate,
   Product,

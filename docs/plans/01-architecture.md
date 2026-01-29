@@ -1,7 +1,7 @@
 # Architecture Design
 
 **Status:** Active
-**Last Updated:** 2026-01-26
+**Last Updated:** 2026-01-28
 
 ---
 
@@ -38,10 +38,10 @@ EuroComply is a unified Product Lifecycle & Compliance Platform combining PLM, E
 |  ═══════╪════════════════╪════════════════╪════════════════╪════════════ |
 |  ║      |                |                |                |            ║ |
 |  ║  +---+----------------+----------------+----------------+---+        ║ |
-|  ║  |              REGULATORY ADVISOR LAYER                   |        ║ |
+|  ║  |              COMPLIANCE EVALUATION LAYER                |        ║ |
 |  ║  |   ┌──────────────┐ ┌──────────────┐ ┌──────────────┐   |        ║ |
-|  ║  |   │Rule Templates│ │Readiness     │ │PreFlight     │   |        ║ |
-|  ║  |   │& Regulations │ │Profiles      │ │Soft Gates    │   |        ║ |
+|  ║  |   │Regulations & │ │Compliance    │ │PreFlight     │   |        ║ |
+|  ║  |   │Requirements  │ │Stack Resolver│ │Evaluation    │   |        ║ |
 |  ║  |   └──────────────┘ └──────────────┘ └──────────────┘   |        ║ |
 |  ║  +---+----------------+----------------+----------------+---+        ║ |
 |  ║      |                |                |                |            ║ |
@@ -75,27 +75,29 @@ EuroComply is a unified Product Lifecycle & Compliance Platform combining PLM, E
 | **Marketing** | Product content, images, variants, syndication | Marketing versions |
 | **Compliance** | DPP issuance, attestations, verifiable credentials | DPPs, attestations |
 
-### Regulatory Advisor (Cross-Cutting Layer)
+### Compliance Evaluation (Cross-Cutting Layer)
 
-The **Regulatory Advisor** is an **optional** cross-cutting layer that provides compliance guidance across all workspaces. Organizations can enable, disable, or run in silent mode based on their needs.
+The **Compliance Evaluation Layer** is an **optional** cross-cutting layer that provides compliance guidance across all workspaces. Organizations can enable, disable, or run in silent mode based on their needs.
 
 | Component | Purpose | Integration Points |
 |-----------|---------|-------------------|
-| **Rule Templates** | Define compliance requirements linked to regulations | Design attributes, Operations events |
-| **Readiness Profiles** | Bundle rules for market entry requirements | Product versions, Batch releases |
+| **Regulation** | Versioned regulatory lists (COSING, RoHS, REACH SVHC) | Category mapping, Requirements |
+| **Requirement** | Substance restrictions per regulation | PreFlight evaluation |
+| **CategoryRegulation** | LTREE-based category-to-regulation mapping | Product classification |
+| **ComplianceStackResolver** | Resolves applicable requirements for a product | PreFlight Service |
+| **RequirementHandler** | Plugin system for evaluating specific requirement types | SubstanceScreenHandler, etc. |
 | **PreFlight Service** | Real-time compliance evaluation | Design save, Batch release, DPP provisioning |
-| **Soft Gates** | Advisory blockers with acknowledgment workflow | Version release, DPP snapshot |
-| **Forensic Seal** | Tiered audit view of compliance decisions | Public DPP (Level 3) |
+| **ComplianceEvidence** | Audit trail of evaluation results | DPP snapshots |
 
 **Feature Toggles (per Organization):**
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `regulatoryAdvisorEnabled` | `true` | Master toggle - hides entire feature when false |
-| `enforcementMode` | `SILENT` | `ENFORCING` = soft gates; `SILENT` = advisory only |
+| `complianceEnabled` | `true` | Master toggle - hides entire feature when false |
+| `enforcementMode` | `SILENT` | `ENFORCING` = blockers enforced; `SILENT` = advisory only |
 | `captureComplianceInSilentMode` | `true` | Capture compliance data in DPPs even in silent mode |
 
-> **Full Design:** See [Regulatory Advisor](./13-regulatory-advisor.md) for complete specification.
+> **Full Design:** See [Compliance Evaluation System](../guides/compliance-evaluation-system.md) and [Compliance Architecture](../architecture/compliance-architecture.md) for complete specification.
 
 ### The Hub (Product as Shared Entity)
 
@@ -180,7 +182,7 @@ eurocomply database
 -- Tenant Registry
 public.organizations              -- Tenant registry, billing tier, schema name
 
--- Regulation Documents (see 13-regulatory-advisor.md)
+-- Regulation Documents (see compliance-architecture.md)
 public.regulation_documents       -- Official regulation PDFs
 public.regulation_anchors         -- Highlighted text coordinates
 public.marketplace_listings       -- Published templates (profiles, rules)
@@ -193,10 +195,10 @@ public.substance                  -- ECHA substance registry
 public.substance_alias            -- Substance alternative names
 public.raw_material               -- EU RMIS raw materials (CRM compliance)
 
--- Regulatory Lists (see Taxonomy Plans 10-12)
-public.regulatory_list            -- Versioned lists (COSING, RoHS, REACH SVHC)
-public.regulatory_list_entry      -- Substance restrictions per list
-public.category_regulatory_list   -- LTREE-based category-to-list mapping
+-- Regulations (see Taxonomy Plans 10-12)
+public.regulation                 -- Versioned regulations (COSING, RoHS, REACH SVHC)
+public.requirement                -- Substance restrictions per regulation
+public.category_regulation        -- LTREE-based category-to-regulation mapping
 public.regulatory_import_log      -- Admin import audit trail
 ```
 
@@ -214,6 +216,8 @@ tenant_{slug}.operations_events      -- Forensic ledger
 tenant_{slug}.outbox_events          -- Transactional outbox
 tenant_{slug}.audit_log              -- All mutations logged
 tenant_{slug}.status_lists           -- Revocation registry
+tenant_{slug}.tenant_requirement_exemption -- Per-tenant requirement exemptions
+tenant_{slug}.compliance_evidence    -- Evaluation results for audit trail
 ```
 
 ### Tenant Context via JWT (Zero DB Lookups)
@@ -686,13 +690,13 @@ Two worker types process events from each schema:
 
 ---
 
-## 8. Regulation Layer (Regulatory Advisor)
+## 8. Compliance Evaluation Layer
 
-The Regulation Layer provides compliance guidance across all workspaces, transforming EuroComply from a pure data management platform into an intelligent compliance advisor.
+The Compliance Evaluation Layer provides compliance guidance across all workspaces, transforming EuroComply from a pure data management platform into an intelligent compliance advisor.
 
-> **Governance:** The **Compliance Workspace** is the sole control center for rule governance. Compliance MANAGER adopts templates from marketplace, manages readiness profiles, assigns profiles to products, and configures per-rule override modes. Design and Operations workspaces have read-only compliance views.
+> **Governance:** The **Compliance Workspace** is the sole control center for compliance governance. Compliance MANAGER manages requirement exemptions, assigns regulations to product categories, and configures compliance evaluation settings. Design and Operations workspaces have read-only compliance views.
 
-> **Full Design:** See [Regulatory Advisor](./13-regulatory-advisor.md) for complete specification.
+> **Full Design:** See [Compliance Evaluation System](../guides/compliance-evaluation-system.md) and [Compliance Architecture](../architecture/compliance-architecture.md) for complete specification.
 
 ### Architecture
 
@@ -714,10 +718,10 @@ The Regulation Layer provides compliance guidance across all workspaces, transfo
 │                                                                              │
 │  Substance Compliance (Data-Driven):                                        │
 │  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐          │
-│  │ RegulatoryList   │  │ RegulatoryList   │  │ CategoryRegula-  │          │
-│  │ (versioned lists │──│ Entry            │  │ toryList         │          │
-│  │  COSING, RoHS,   │  │ (substance       │  │ (LTREE path      │          │
-│  │  REACH SVHC)     │  │  restrictions)   │  │  mapping)        │          │
+│  │ Regulation       │  │ Requirement      │  │ CategoryRegula-  │          │
+│  │ (versioned regs  │──│ (substance       │  │ tion             │          │
+│  │  COSING, RoHS,   │  │  restrictions)   │  │ (LTREE path      │          │
+│  │  REACH SVHC)     │  │                  │  │  mapping)        │          │
 │  └──────────────────┘  └──────────────────┘  └──────────────────┘          │
 │           │                     │                     │                     │
 │           └─────────────────────┴─────────────────────┘                     │
@@ -728,84 +732,55 @@ The Regulation Layer provides compliance guidance across all workspaces, transfo
 │                                 │                                           │
 │  TENANT SCHEMA (Organization-Specific)                                      │
 │  ═════════════════════════════════════                                       │
-│  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐          │
-│  │ Rule Templates   │  │ Readiness        │  │ Reason Codes     │          │
-│  │ (compliance      │──│ Profiles         │──│ (deviation       │          │
-│  │  rules)          │  │ (rule bundles)   │  │  explanations)   │          │
-│  └──────────────────┘  └──────────────────┘  └──────────────────┘          │
-│           │                     │                     │                     │
-│           ▼                     ▼                     ▼                     │
+│  ┌──────────────────┐  ┌──────────────────┐                                 │
+│  │ TenantRequire-   │  │ Compliance       │                                 │
+│  │ mentExemption    │  │ Evidence         │                                 │
+│  │ (per-tenant      │  │ (evaluation      │                                 │
+│  │  exemptions)     │  │  audit trail)    │                                 │
+│  └──────────────────┘  └──────────────────┘                                 │
+│           │                     │                                            │
+│           ▼                     ▼                                            │
 │  ┌──────────────────────────────────────────────────────────────────────┐  │
-│  │                      PREFLIGHT SERVICE                                │  │
-│  │  • Evaluates products/batches against readiness profiles             │  │
-│  │  • Returns findings with severity (BLOCKER/WARNING/INFO)             │  │
-│  │  • Links findings to regulation anchors (PDF highlights)             │  │
-│  │  • Cross-references substances against RegulatoryListEntry           │  │
-│  │  • Uses CategoryRegulatoryList LTREE queries for list inheritance    │  │
+│  │                  COMPLIANCE STACK RESOLVER                            │  │
+│  │  • Resolves applicable regulations for a product based on category   │  │
+│  │  • Walks CategoryRegulation LTREE to find inherited regulations      │  │
+│  │  • Applies TenantRequirementExemption overrides                      │  │
+│  │  • Returns full compliance stack: regulations → requirements         │  │
 │  └──────────────────────────────────────────────────────────────────────┘  │
 │           │                                                                  │
 │           ▼                                                                  │
 │  ┌──────────────────────────────────────────────────────────────────────┐  │
-│  │                        SOFT GATE WORKFLOW                             │  │
-│  │  • PASS → Continue normally                                          │  │
-│  │  • WARNINGS → Continue with warnings in audit trail                  │  │
-│  │  • BLOCKERS → Require acknowledgment before proceeding               │  │
-│  │              (reason code + narrative explanation)                   │  │
+│  │                      PREFLIGHT SERVICE                                │  │
+│  │  • Evaluates products/batches against applicable requirements        │  │
+│  │  • Returns findings with severity (BLOCKER/WARNING/INFO)             │  │
+│  │  • Links findings to regulation anchors (PDF highlights)             │  │
+│  │  • Cross-references substances against Requirement                   │  │
+│  │  • Uses ComplianceStackResolver to determine applicable requirements │  │
+│  │  • Uses RequirementHandler plugins for type-specific evaluation      │  │
+│  │  • Records ComplianceEvidence for audit trail                        │  │
 │  └──────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-> **Data-Driven Substance Compliance:** See [Taxonomy Plans 10-12](./2026-01-26-taxonomy-10-regulatory-list-registry.md) for RegulatoryList entities and [13-regulatory-advisor.md](./13-regulatory-advisor.md) Section 4.5.1 for `regulatory_list_check` validation type.
+> **Data-Driven Substance Compliance:** See [Taxonomy Plans 10-12](./2026-01-26-taxonomy-10-regulatory-list-registry.md) for Regulation/Requirement entities and [compliance-evaluation-system.md](../guides/compliance-evaluation-system.md) for the `RequirementHandler` plugin system (including `SubstanceScreenHandler` for substance validation).
 
 ### Integration Points
 
 | Workspace | Integration | Trigger |
 |-----------|-------------|---------|
-| **Design** | Attribute validation against rules | Design version save |
-| **Design** | Soft gate on version release | Release action |
+| **Design** | Attribute validation against requirements | Design version save |
+| **Design** | Compliance check on version release | Release action |
 | **Operations** | Batch compliance check | Batch creation |
 | **Compliance** | PreFlight before DPP provisioning | BATCH_RELEASED event |
-| **Compliance** | Forensic seal in Level 3 view | Auditor access |
-
-### Template Ownership Model
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                          TEMPLATE HIERARCHY                                  │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  TIER 1: SYSTEM RULES (EuroComply-managed)                                  │
-│  ─────────────────────────────────────────                                   │
-│  • Published by EuroComply compliance team                                  │
-│  • Stored in public schema                                                  │
-│  • Linked to official regulation documents                                  │
-│  • Auto-update when regulations change                                      │
-│                                                                              │
-│  TIER 2: MARKETPLACE TEMPLATES                                              │
-│  ────────────────────────────────                                            │
-│  • Published by verified compliance consultants                             │
-│  • Stored in publisher's tenant schema                                      │
-│  • Available for adoption by other organizations                            │
-│  • Revenue share: 70% publisher / 30% platform                              │
-│                                                                              │
-│  TIER 3: ORGANIZATION RULES (Private Brand)                                 │
-│  ──────────────────────────────────────────                                  │
-│  • Custom rules for organization-specific requirements                      │
-│  • Can extend or override marketplace templates                             │
-│  • Not visible to other organizations                                       │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+| **Compliance** | ComplianceEvidence in DPP audit trail | DPP issuance |
 
 ### Event Types
 
-**Regulatory Advisor Events:**
-- `RuleTemplateCreated`, `RuleTemplateUpdated`, `RuleTemplateDeprecated`
-- `ReadinessProfileCreated`, `ReadinessProfileUpdated`
-- `RuleOverrideModeChanged` (profileId, ruleId, previousMode, newMode, reason, changedBy)
-- `PreFlightEvaluated`, `DeviationAcknowledged`, `SoftGateCleared`
-- `TemplateAdopted`, `TemplatePublishedToMarketplace`
+**Compliance Evaluation Events:**
+- `PreFlightEvaluated` (productId, findings, evidence)
+- `ComplianceEvidenceCreated` (productId, regulationId, result)
+- `RequirementExemptionCreated`, `RequirementExemptionRevoked`
 
 ---
 
@@ -1130,7 +1105,7 @@ AWS KMS Master Key (per-cell)
 | [Data Model](./02-data-model.md) | MikroORM entities |
 | [Security](./03-security.md) | Auth, RBAC, encryption |
 | [Infrastructure](./11-infrastructure.md) | AWS, Cloudflare setup |
-| [Regulatory Advisor](./13-regulatory-advisor.md) | Rule templates, compliance layer |
+| [Compliance Architecture](../architecture/compliance-architecture.md) | Compliance system architecture |
 
 ---
 
@@ -1138,8 +1113,10 @@ AWS KMS Master Key (per-cell)
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.6 | 2026-01-28 | Removed deprecated concepts (ReadinessProfile, RuleTemplate, ReasonCode, RuleDeviation); consolidated to current architecture (Regulation, Requirement, CategoryRegulation, ComplianceStackResolver, RequirementHandler, TenantRequirementExemption, ComplianceEvidence) |
+| 2.5 | 2026-01-28 | Updated terminology: RegulatoryList to Regulation, RegulatoryListEntry to Requirement, CategoryRegulatoryList to CategoryRegulation; added ComplianceStackResolver to architecture; added TenantRequirementExemption and ComplianceEvidence to tenant schema |
 | 2.4 | 2026-01-24 | Documented dual-schema outbox pattern (public for system events, tenant for domain events); added separate worker architecture |
 | 2.3 | 2026-01-23 | Migrated authentication from Clerk to Clerk Cloud EU |
-| 2.2 | 2026-01-21 | Added feature toggles to Regulatory Advisor section; noted optional nature with enable/silent/enforcing modes |
-| 2.1 | 2026-01-21 | Added Regulation Layer (Section 8); Regulatory Advisor cross-cutting layer; template ownership model; soft gate workflow |
+| 2.2 | 2026-01-21 | Added feature toggles to compliance evaluation section; noted optional nature with enable/silent/enforcing modes |
+| 2.1 | 2026-01-21 | Added Compliance Evaluation Layer (Section 8); compliance cross-cutting layer |
 | 2.0 | 2026-01-21 | Rewritten for MikroORM, JWT-based tenant context, parallel migrations |

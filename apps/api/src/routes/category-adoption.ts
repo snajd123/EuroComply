@@ -311,14 +311,11 @@ export function createCategoryAdoptionRouter(options: CategoryAdoptionRouterOpti
           tenantCategory.linkMode = LinkMode.FROZEN;
           tenantCategory.frozenAtVersion = adoption.frozenAtVersion;
 
-          // Capture pinnedRegulatoryListIds from current compliance stack
-          // Use resolveLegacy() which returns the old format with regulatoryListIds
+          // Capture pinnedRegulationIds from current compliance stack
           const resolver = new ComplianceStackResolver(txEm);
-          const stackResult = await resolver.resolveLegacy(tenantCategory.id);
-          const regulatoryListIds = stackResult.effectiveRegulations
-            .filter(reg => reg.status === 'ACTIVE')
-            .map(reg => reg.regulatoryListId);
-          adoption.pinnedRegulatoryListIds = regulatoryListIds.length > 0 ? regulatoryListIds : undefined;
+          const stackResult = await resolver.resolve(tenantCategory.id);
+          const regulationIds = stackResult.regulations.map(reg => reg.regulationId);
+          adoption.pinnedRegulationIds = regulationIds.length > 0 ? regulationIds : undefined;
         }
       } else if (newMode === LinkMode.LIVE) {
         // Sync to latest - need CategoryRow interface
@@ -336,8 +333,8 @@ export function createCategoryAdoptionRouter(options: CategoryAdoptionRouterOpti
         adoption.frozenAtVersion = undefined;
         adoption.updateAvailable = false;
         adoption.adoptedVersion = systemCategory?.version ?? adoption.adoptedVersion;
-        // Clear pinnedRegulatoryListIds when going back to LIVE
-        adoption.pinnedRegulatoryListIds = undefined;
+        // Clear pinnedRegulationIds when going back to LIVE
+        adoption.pinnedRegulationIds = undefined;
       } else if (newMode === LinkMode.DETACHED) {
         // Clear systemCategoryId on TenantCategory (becomes custom category)
         if (tenantCategory) {
@@ -366,7 +363,7 @@ export function createCategoryAdoptionRouter(options: CategoryAdoptionRouterOpti
       mode: result.adoption.mode,
       frozenAtVersion: result.adoption.frozenAtVersion ?? null,
       updateAvailable: result.adoption.updateAvailable,
-      pinnedRegulatoryListIds: result.adoption.pinnedRegulatoryListIds ?? null,
+      pinnedRegulationIds: result.adoption.pinnedRegulationIds ?? null,
     });
   });
 

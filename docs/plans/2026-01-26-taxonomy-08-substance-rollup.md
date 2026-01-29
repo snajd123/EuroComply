@@ -1,5 +1,7 @@
 # Taxonomy Plan 8: Substance Rollup & Compliance
 
+> **STATUS:** IMPLEMENTED - Terminology updated 2026-01-28 (RegulatoryListEntry → Requirement)
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Aggregate substances through BOM hierarchy, calculate effective concentrations, and evaluate regulatory rules for PreFlight integration.
@@ -10,7 +12,7 @@
 
 **Prerequisites:** Plan 7 (Material Substances) completed. BomEntry entity assumed (created in separate BOM phase).
 
-**Reference:** See `docs/plans/2026-01-23-taxonomy-engine-design.md` Section 6.7 and `docs/plans/13-regulatory-advisor.md` Section 4.5
+**Reference:** See `docs/plans/2026-01-23-taxonomy-engine-design.md` Section 6.7 and `docs/guides/compliance-evaluation-system.md`
 
 ---
 
@@ -1360,7 +1362,7 @@ router.get('/:productId/versions/:versionId/substances/rollup', authorize('compl
  * Returns compliance status and rule violations for PreFlight integration.
  * Requires compliance:view authorization.
  *
- * NOTE: Fetches active RuleTemplates from database and evaluates each rule
+ * NOTE: Fetches active Requirements from database and evaluates each requirement
  * against the rolled-up substances.
  */
 router.get('/:productId/versions/:versionId/substances/evaluate', authorize('compliance', 'view'), async (c) => {
@@ -1380,29 +1382,27 @@ router.get('/:productId/versions/:versionId/substances/evaluate', authorize('com
     const rollupService = new SubstanceRollupService(txEm);
     const rollup = await rollupService.rollUp(versionId);
 
-    // 2. Fetch active substance rule templates from database
-    // System rules (organization = null) + tenant-specific rules
-    const ruleTemplates = await txEm.find('RuleTemplate', {
-      $or: [
-        { organization: null },  // System rules
-        { organization: { id: c.get('membership')?.organization?.id } },  // Tenant rules
-      ],
-      isActive: true,
-      validationLogic: { type: { $like: 'substance_%' } },  // Only substance rules
+    // 2. Fetch applicable requirements from database based on product category
+    const requirements = await txEm.find('Requirement', {
+      regulation: { status: 'ACTIVE' },
+      type: 'SUBSTANCE_SCREEN',
     });
 
-    // 3. Evaluate each rule against rolled-up substances
+    // 3. Evaluate each requirement against rolled-up substances
     const evaluator = new SubstanceRuleEvaluator();
     const allFindings: SubstanceRuleFinding[] = [];
 
-    for (const template of ruleTemplates) {
-      const ruleConfig = template.validationLogic as SubstanceRuleConfig;
+    for (const requirement of requirements) {
+      const ruleConfig = {
+        type: requirement.type,
+        config: requirement.handlerConfig,
+      } as SubstanceRuleConfig;
       const findings = evaluator.evaluate(rollup.substances, ruleConfig);
       allFindings.push(...findings.map(f => ({
         ...f,
-        ruleCode: template.code,
-        ruleName: template.name,
-        severity: template.severity,
+        requirementCode: requirement.code,
+        requirementName: requirement.name,
+        severity: requirement.severity,
       })));
     }
 
@@ -1451,180 +1451,7 @@ git commit -m "feat(api): add substance rollup and evaluate endpoints with tenan
 
 ---
 
-## Task 7: Create System Substance Rule Templates Seed
-
-**Files:**
-- Create: `packages/database/src/seeds/data/substance-rule-templates.json`
-- Modify: `packages/database/src/seeds/system-rule-templates.ts` (or create if not exists)
-
-**Step 1: Create the data bundle**
-
-```json
-// packages/database/src/seeds/data/substance-rule-templates.json
-{
-  "version": "2026-01-26",
-  "rules": [
-    {
-      "code": "REACH_SVHC_DECLARATION",
-      "name": "SVHC Declaration Requirement",
-      "description": "Products containing SVHC above 0.1% w/w require declaration per REACH Article 33",
-      "scope": "SYSTEM",
-      "type": "PROCESS",
-      "ruleCategory": "COMPLIANCE",
-      "severity": "WARNING",
-      "validationLogic": {
-        "type": "substance_threshold",
-        "config": {
-          "filter": { "isSvhc": true },
-          "thresholdPct": 0.1,
-          "message": "Product contains SVHC above 0.1% - declaration required per REACH Article 33"
-        }
-      },
-      "activeFrom": "2007-06-01"
-    },
-    {
-      "code": "REACH_AUTHORIZATION_REQUIRED",
-      "name": "Authorization Required Substance",
-      "description": "Products containing Annex XIV substances require REACH authorization",
-      "scope": "SYSTEM",
-      "type": "PROCESS",
-      "ruleCategory": "DESIGN",
-      "severity": "BLOCKER",
-      "validationLogic": {
-        "type": "substance_authorization",
-        "config": {
-          "message": "Product contains substance requiring REACH authorization (Annex XIV)"
-        }
-      },
-      "activeFrom": "2007-06-01"
-    },
-    {
-      "code": "ROHS_RESTRICTED_SUBSTANCES",
-      "name": "RoHS Restricted Substance Check",
-      "description": "Electronics must not exceed RoHS substance limits",
-      "scope": "SYSTEM",
-      "type": "PROCESS",
-      "ruleCategory": "DESIGN",
-      "severity": "BLOCKER",
-      "validationLogic": {
-        "type": "substance_presence",
-        "config": {
-          "forbiddenCasNumbers": [
-            "7439-92-1",
-            "7440-43-9",
-            "7439-97-6",
-            "18540-29-9",
-            "1336-36-3",
-            "32534-81-9"
-          ],
-          "thresholds": {
-            "default": 0.1,
-            "7440-43-9": 0.01
-          },
-          "message": "Product contains RoHS restricted substance"
-        }
-      },
-      "activeFrom": "2006-07-01"
-    },
-    {
-      "code": "REACH_RESTRICTED_SUBSTANCES",
-      "name": "REACH Annex XVII Restriction Check",
-      "description": "Products must comply with REACH Annex XVII restrictions",
-      "scope": "SYSTEM",
-      "type": "PROCESS",
-      "ruleCategory": "DESIGN",
-      "severity": "BLOCKER",
-      "validationLogic": {
-        "type": "substance_threshold",
-        "config": {
-          "filter": { "isRestricted": true },
-          "thresholdPct": 0,
-          "message": "Product contains REACH Annex XVII restricted substance"
-        }
-      },
-      "activeFrom": "2007-06-01"
-    }
-  ]
-}
-```
-
-**Step 2: Create the seeder function**
-
-```typescript
-// packages/database/src/seeds/substance-rule-templates.ts
-import { EntityManager } from '@mikro-orm/core';
-import substanceRuleData from './data/substance-rule-templates.json' assert { type: 'json' };
-import { generateId } from '../utils/id-generator.js';
-
-interface RuleTemplateInput {
-  code: string;
-  name: string;
-  description: string;
-  scope: string;
-  type: string;
-  ruleCategory: string;
-  severity: string;
-  validationLogic: object;
-  activeFrom: string;
-}
-
-/**
- * Seed system substance rule templates.
- * These rules are platform-managed and visible to all tenants.
- */
-export async function seedSubstanceRuleTemplates(em: EntityManager): Promise<number> {
-  const rules = substanceRuleData.rules as RuleTemplateInput[];
-  let created = 0;
-
-  for (const rule of rules) {
-    // Check if rule already exists
-    const existing = await em.findOne('RuleTemplate', {
-      code: rule.code,
-      organization: null, // System rules have no organization
-    });
-
-    if (existing) {
-      // Update existing rule
-      Object.assign(existing, {
-        name: rule.name,
-        description: rule.description,
-        validationLogic: rule.validationLogic,
-      });
-    } else {
-      // Create new rule
-      const entity = em.create('RuleTemplate', {
-        id: generateId('rule'),
-        code: rule.code,
-        name: rule.name,
-        description: rule.description,
-        scope: rule.scope,
-        type: rule.type,
-        ruleCategory: rule.ruleCategory,
-        severity: rule.severity,
-        validationLogic: rule.validationLogic,
-        activeFrom: new Date(rule.activeFrom),
-        organization: null,
-      });
-      em.persist(entity);
-      created++;
-    }
-  }
-
-  await em.flush();
-  return created;
-}
-```
-
-**Step 3: Commit**
-
-```bash
-git add packages/database/src/seeds/data/substance-rule-templates.json packages/database/src/seeds/substance-rule-templates.ts
-git commit -m "feat(database): add system substance rule templates seed"
-```
-
----
-
-## Task 8: Export Services and Update Index
+## Task 7: Export Services and Update Index
 
 **Files:**
 - Modify: `packages/database/src/services/index.ts`
@@ -1654,19 +1481,12 @@ git commit -m "feat(database): export substance rollup services"
 - `SubstanceRollupService` with BOM traversal and aggregation
 - `SubstanceRuleEvaluator` for PreFlight integration
 - Substance rollup API endpoint
-- System substance rule templates seed
 - Regulatory threshold constants
 
 **API Endpoints:**
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/v1/products/:id/versions/:versionId/substances/rollup` | Calculate rolled-up substances |
-
-**Regulatory Rules Seeded:**
-- `REACH_SVHC_DECLARATION` - SVHC > 0.1% warning
-- `REACH_AUTHORIZATION_REQUIRED` - Annex XIV blocker
-- `ROHS_RESTRICTED_SUBSTANCES` - RoHS substance limits
-- `REACH_RESTRICTED_SUBSTANCES` - Annex XVII restrictions
 
 **Future Enhancement - Stoichiometric Factors:**
 
@@ -1681,6 +1501,6 @@ const effectiveConcentration = entry.stoichiometricFactor
 
 Example: Cobalt Sulfate (CoSO₄) at 1% in product with factor 0.38 → effective Cobalt = 0.38%
 
-See: Plan 10 (`RegulatoryListEntry.stoichiometricFactor`) and Plan 12 (CSV import support)
+See: Plan 10 (`Requirement.stoichiometricFactor`) and Plan 12 (CSV import support)
 
 **Next Plan:** Plan 9 (DPP & Reporting) includes substance declarations in Digital Product Passport.

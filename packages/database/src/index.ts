@@ -26,7 +26,6 @@ export {
   type CopyRecord,
   SeedService,
   ComplianceStackResolver,
-  type EffectiveRegulation,
   type ComplianceStackResult,
   type ResolveOptions,
   ExemptionService,

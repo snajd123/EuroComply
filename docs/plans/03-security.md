@@ -167,10 +167,10 @@ LEVEL 2: WORKSPACE AUTHORITIES
 | Publish to Marketplace | Yes | Yes | No | No |
 
 > **Governance Note:** The **Compliance Workspace** is the sole control center for rule governance.
-> Rule override configuration (`ReadinessProfileRule.overrideMode`) is restricted to **Compliance MANAGER**
+> Requirement exemption configuration is restricted to **Compliance MANAGER**
 > to maintain Forensic Seal integrity. Design and Operations workspaces have read-only compliance views -
-> they can see status and acknowledge deviations but cannot change profiles or rule configurations.
-> See [Regulatory Advisor](./13-regulatory-advisor.md) Section 3 for full governance model.
+> they can see status and acknowledge deviations but cannot change requirement configurations.
+> See [Compliance Architecture](../architecture/compliance-architecture.md) for full governance model.
 
 *Org Admin permissions depend on their workspace authorities
 
@@ -681,7 +681,7 @@ export function securityHeaders() {
 | [Data Model](./02-data-model.md) | Entity definitions |
 | [Verifiable Credentials](./09-verifiable-credentials.md) | Key management details |
 | [Infrastructure](./11-infrastructure.md) | Network security |
-| [Regulatory Advisor](./13-regulatory-advisor.md) | Forensic seal access control |
+| [Compliance Architecture](../architecture/compliance-architecture.md) | Forensic seal access control |
 
 ---
 

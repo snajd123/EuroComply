@@ -1,15 +1,22 @@
 # Regulatory Vertical System - Design Document
 
-> **For Claude:** This is a DESIGN document. Use superpowers:writing-plans to create implementation plans 10-15.
+> **STATUS: IMPLEMENTED** (2026-01-28)
+>
+> This design has been fully implemented. The entities described here are live in the codebase.
+> See the actual implementation in `packages/database/src/entities/`:
+> - `Regulation.ts` - Regulation entity (replaces RegulatoryList)
+> - `Requirement.ts` - Requirement entity (replaces RegulatoryListEntry)
+> - `CategoryRegulation.ts` - Category-Regulation mapping (replaces CategoryRegulatoryList)
+> - `TenantRequirementExemption.ts` - Tenant exemptions (replaces TenantCategoryRegulatoryList)
 
 **Goal:** Replace hardcoded regulatory data with a data-driven vertical system that supports admin-managed imports, temporal versioning, and category-aware compliance evaluation.
 
-**Architecture:** Public schema holds versioned RegulatoryLists with substance entries. Categories link to applicable lists via LTREE inheritance. PreFlight evaluation dynamically resolves which lists apply based on product category, then cross-references rolled-up substances against list entries.
+**Architecture:** Public schema holds versioned Regulations with requirement entries. Categories link to applicable regulations via LTREE inheritance. PreFlight evaluation dynamically resolves which regulations apply based on product category, then cross-references rolled-up substances against requirement entries.
 
 **Key Decisions:**
-- **Agnostic evaluation model**: Operator + compareValue + issueType + severity stored in database, not code
+- **Handler-based evaluation model**: RequirementType + handlerConfig stored in database, not code
 - Admin-managed CSV/JSON import (not live API sync)
-- Immutable list versions for forensic compliance
+- Immutable regulation versions for forensic compliance
 - ARTICLE vs HOMOGENEOUS_MATERIAL evaluation scope
 - Denormalized snapshots prevent substance drift
 - All violations returned at once (no whack-a-mole)
@@ -18,161 +25,227 @@
 
 ## 1. Core Entities
 
-### 1.1 RegulatoryList (Public Schema)
+### 1.1 Regulation (Public Schema)
 
 ```typescript
-@Entity({ tableName: 'regulatory_list', schema: 'public' })
-@Unique({ properties: ['code', 'version'] })
-export class RegulatoryList extends BaseEntity {
+@Entity({ tableName: 'regulation', schema: 'public' })
+export class Regulation extends BaseEntity {
 
-  @Property()
-  code!: string;  // 'COSING_ANNEX_II' - stable identifier
+  @Property({ type: 'text' })
+  @Unique()
+  code!: string;  // 'REACH', 'ROHS', 'CLP' - stable identifier
 
-  @Property()
-  name!: string;  // 'CosIng Annex II - Prohibited Substances'
+  @Property({ type: 'text' })
+  name!: string;  // 'REACH Regulation'
 
-  @Property()
-  source!: string;  // 'EU_COSING', 'ECHA', 'EU_RMIS'
+  @Property({ type: 'text', nullable: true })
+  description?: string;
 
-  @Property()
-  version!: string;  // '2024-06', '2026-01'
+  @Enum({ items: () => RegulationStatus, default: RegulationStatus.DRAFT })
+  status: RegulationStatus = RegulationStatus.DRAFT;  // DRAFT, ACTIVE, ARCHIVED
 
-  @Property()
-  effectiveDate!: Date;  // When this version became law
+  @Property({ type: 'text', nullable: true })
+  version?: string;  // '2024-01', '2026-01'
 
-  @Property({ nullable: true })
-  supersededDate?: Date;  // When next version replaced it
+  @Property({ type: 'date', nullable: true, name: 'effective_date' })
+  effectiveDate?: Date;  // When this version became law
 
-  @Property({ type: 'boolean', default: true })
-  isCurrentVersion!: boolean;  // Fast lookup for latest
-
-  @Property({ nullable: true })
+  @Property({ type: 'text', nullable: true, name: 'source_url' })
   sourceUrl?: string;  // Deep link to official EU source
 
-  @ManyToOne(() => RegulatoryList, { nullable: true })
-  previousVersion?: RegulatoryList;  // Chain for history traversal
+  @ManyToOne(() => Regulation, { nullable: true, name: 'superseded_by_id' })
+  supersededBy?: Regulation;  // Reference to the regulation that supersedes this one
 
-  @OneToMany(() => RegulatoryListEntry, e => e.list)
-  entries = new Collection<RegulatoryListEntry>(this);
+  @Property({ type: 'timestamptz', nullable: true, name: 'archived_at' })
+  archivedAt?: Date;
+
+  @Property({ type: 'text', nullable: true, name: 'archive_reason' })
+  archiveReason?: string;
+
+  @Property({ type: 'jsonb', nullable: true })
+  metadata?: {
+    jurisdiction?: string;
+    type?: string;
+    officialJournalRef?: string;
+  };
+
+  @OneToMany('Requirement', 'regulation')
+  requirements = new Collection<Requirement>(this);
+}
+
+enum RegulationStatus {
+  DRAFT = 'DRAFT',
+  ACTIVE = 'ACTIVE',
+  ARCHIVED = 'ARCHIVED',
 }
 ```
 
-### 1.2 RegulatoryListEntry (Public Schema)
+### 1.2 Requirement (Public Schema)
 
-**AGNOSTIC EVALUATION MODEL:** The entry itself defines the comparison logic via `operator` + `compareValue`.
-No hardcoded rule types - new regulations can be imported without code changes.
+**HANDLER-BASED EVALUATION MODEL:** The requirement defines the type and configuration via `type` + `handlerConfig`.
+Four requirement types are supported with extensible handler configuration.
 
 ```typescript
-@Entity({ tableName: 'regulatory_list_entry', schema: 'public' })
-@Unique({ properties: ['list', 'substance'] })
-export class RegulatoryListEntry extends BaseEntity {
+@Entity({ tableName: 'requirement', schema: 'public' })
+@Unique({ properties: ['regulation', 'code'] })
+export class Requirement extends BaseEntity {
 
-  @ManyToOne(() => RegulatoryList)
-  list!: RegulatoryList;
+  @ManyToOne(() => Regulation, { name: 'regulation_id' })
+  @Index()
+  regulation!: Regulation;
 
-  // Live reference (for joins)
-  @ManyToOne(() => Substance)
-  substance!: Substance;
+  @Property({ type: 'text' })
+  code!: string;  // 'VOLTAGE_CHECK', 'LEAD_SCREEN' - unique within regulation
 
-  // Forensic snapshots (immutable at import time)
-  @Property({ name: 'cas_number_snapshot' })
-  casNumberSnapshot!: string;
+  @Property({ type: 'text' })
+  name!: string;  // 'Voltage Compliance Check'
 
-  @Property({ name: 'substance_name_snapshot' })
-  substanceNameSnapshot!: string;
-
-  // ─────────────────────────────────────────────────────────────
-  // AGNOSTIC EVALUATION FIELDS (replaces hardcoded RestrictionType)
-  // ─────────────────────────────────────────────────────────────
-
-  @Enum(() => ComparisonOperator)
-  operator!: ComparisonOperator;  // How to compare concentration
-
-  @Property({ type: 'decimal', precision: 7, scale: 4, nullable: true, name: 'compare_value' })
-  compareValue?: string;  // Threshold for comparison (null for PRESENT/ABSENT)
-
-  @Property({ type: 'text', name: 'issue_type' })
-  issueType!: string;  // e.g., 'PROHIBITED_SUBSTANCE', 'CHEMICAL_LIMIT_EXCEEDED'
-
-  @Enum(() => Severity)
-  severity!: Severity;  // BLOCKER, WARNING, INFO
-
-  @Property({ type: 'decimal', precision: 7, scale: 4, nullable: true, name: 'stoichiometric_factor' })
-  stoichiometricFactor?: string;  // For element-based regulations (e.g., Cobalt from Cobalt Sulfate)
+  @Property({ type: 'text', nullable: true })
+  description?: string;
 
   // ─────────────────────────────────────────────────────────────
+  // HANDLER-BASED EVALUATION FIELDS (replaces hardcoded RestrictionType)
+  // ─────────────────────────────────────────────────────────────
 
-  @Property({ type: 'jsonb', nullable: true })
-  conditions?: Record<string, string>;  // { application_area: 'spray products' }
+  @Enum({ items: () => RequirementType })
+  type!: RequirementType;  // ATTRIBUTE_CHECK, SUBSTANCE_SCREEN, CALCULATED_CHECK, DECLARATION
 
-  @Property({ nullable: true })
-  legalReference?: string;  // 'Entry 1577'
+  @Enum({ items: () => RequirementSeverity, default: RequirementSeverity.WARNING })
+  severity: RequirementSeverity = RequirementSeverity.WARNING;
 
-  @Property({ nullable: true })
-  notes?: string;
+  // Type-specific fields
+  @Property({ type: 'text', nullable: true, name: 'attribute_template_key' })
+  attributeTemplateKey?: string | null;  // For ATTRIBUTE_CHECK
+
+  @Property({ type: 'text', nullable: true, name: 'substance_list_id' })
+  substanceListId?: string | null;  // For SUBSTANCE_SCREEN
+
+  @Property({ type: 'text', nullable: true, name: 'calculation_formula' })
+  calculationFormula?: string | null;  // For CALCULATED_CHECK
+
+  @Property({ type: 'jsonb', nullable: true, name: 'handler_config' })
+  handlerConfig?: RequirementHandlerConfig | null;  // Handler configuration
+
+  // ─────────────────────────────────────────────────────────────
+
+  @Property({ type: 'text', nullable: true, name: 'legal_reference' })
+  legalReference?: string | null;  // 'Article 33, REACH Regulation'
+
+  @Property({ type: 'int', default: 0, name: 'sort_order' })
+  sortOrder: number = 0;
+
+  @Property({ type: 'boolean', default: true, name: 'allow_tenant_exemption' })
+  allowTenantExemption: boolean = true;
 }
 
-// Agnostic comparison operators
-enum ComparisonOperator {
-  GT = 'GT',           // concentration > compareValue
-  GTE = 'GTE',         // concentration >= compareValue
-  LT = 'LT',           // concentration < compareValue
-  LTE = 'LTE',         // concentration <= compareValue
-  EQ = 'EQ',           // concentration == compareValue
-  PRESENT = 'PRESENT', // concentration > 0 (any presence is violation)
-  ABSENT = 'ABSENT',   // concentration must be 0 (must be absent)
+enum RequirementType {
+  ATTRIBUTE_CHECK = 'ATTRIBUTE_CHECK',      // Validates a product attribute value
+  SUBSTANCE_SCREEN = 'SUBSTANCE_SCREEN',    // Screens against a substance list
+  CALCULATED_CHECK = 'CALCULATED_CHECK',    // Evaluates a calculated formula
+  DECLARATION = 'DECLARATION',              // Requires user attestation/declaration
 }
 
-enum Severity {
+enum RequirementSeverity {
   BLOCKER = 'BLOCKER',
   WARNING = 'WARNING',
   INFO = 'INFO',
 }
+
+// Handler configuration for requirement evaluation
+interface RequirementHandlerConfig {
+  operator?: ComparisonOperator;        // For threshold checks
+  threshold?: number;                    // Threshold value
+  unit?: string;                        // Unit of measurement
+  pattern?: string;                     // Regex for string matching
+  defaultThresholdPct?: number;         // Default threshold for substance screens
+  question?: string;                    // Question text for DECLARATION
+  acceptedAnswers?: string[];           // Accepted answers for DECLARATION
+  requiresDocument?: boolean;           // Whether document is required
+  acceptedDocumentTypes?: string[];     // Accepted document types
+}
+
+// Comparison operators (shared across requirement types)
+enum ComparisonOperator {
+  GT = 'GT',           // value > threshold
+  GTE = 'GTE',         // value >= threshold
+  LT = 'LT',           // value < threshold
+  LTE = 'LTE',         // value <= threshold
+  EQ = 'EQ',           // value == threshold
+  PRESENT = 'PRESENT', // value > 0 (any presence)
+  ABSENT = 'ABSENT',   // value must be 0 (must be absent)
+}
 ```
 
-### 1.3 CategoryRegulatoryList (Public Schema)
+### 1.3 CategoryRegulation (Public Schema)
 
 ```typescript
-@Entity({ tableName: 'category_regulatory_list', schema: 'public' })
-@Unique({ properties: ['category', 'regulatoryList'] })
-@Index({ properties: ['category', 'regulatoryList'] })
-export class CategoryRegulatoryList extends BaseEntity {
+@Entity({ tableName: 'category_regulation', schema: 'public' })
+@Unique({ properties: ['category', 'regulation'] })
+export class CategoryRegulation extends BaseEntity {
 
-  @ManyToOne(() => Category)
+  @ManyToOne(() => Category, { name: 'category_id' })
+  @Index()
   category!: Category;  // The LTREE node
 
-  @ManyToOne(() => RegulatoryList)
-  regulatoryList!: RegulatoryList;
+  @ManyToOne(() => Regulation, { name: 'regulation_id' })
+  @Index()
+  regulation!: Regulation;
 
-  @Enum(() => ListRequirement)
-  requirement!: ListRequirement;  // PROHIBITION | RESTRICTION | DECLARATION
+  @Property({ type: 'timestamptz', name: 'added_at' })
+  addedAt: Date = new Date();
 
-  // Override handling
-  @Property({ type: 'smallint', default: 0 })
-  priority!: number;  // Higher = takes precedence at same depth
-
-  @Property({ type: 'boolean', default: false })
-  isExclusion!: boolean;  // True = exempt this category from parent's list
-
-  @Property({ type: 'decimal', precision: 5, scale: 4, nullable: true, name: 'compare_value_override' })
-  compareValueOverride?: string;  // Category-specific stricter compareValue (e.g., toys)
-}
-
-enum ListRequirement {
-  PROHIBITION = 'PROHIBITION',    // Substances banned entirely
-  RESTRICTION = 'RESTRICTION',    // Allowed with conditions/thresholds
-  DECLARATION = 'DECLARATION',    // Must disclose if present
+  @Property({ type: 'text', nullable: true, name: 'added_by' })
+  addedBy?: string;
 }
 ```
 
-### 1.4 RegulatoryImportLog (Public Schema)
+### 1.4 TenantRequirementExemption (Tenant Schema)
+
+```typescript
+@Entity({ tableName: 'tenant_requirement_exemption' })
+@Unique({ properties: ['tenantCategory', 'requirementId'] })
+export class TenantRequirementExemption extends BaseEntity {
+
+  @ManyToOne(() => TenantCategory, { name: 'tenant_category_id' })
+  @Index()
+  tenantCategory!: TenantCategory;
+
+  @Property({ type: 'text', name: 'requirement_id' })
+  @Index()
+  requirementId!: string;  // Text FK to avoid cross-schema complexity
+
+  @Property({ type: 'text' })
+  reason!: string;
+
+  @Property({ type: 'text', nullable: true, name: 'legal_reference' })
+  legalReference?: string;
+
+  @Property({ type: 'text', name: 'exempted_by' })
+  exemptedBy!: string;
+
+  @Property({ type: 'timestamptz', name: 'exempted_at' })
+  exemptedAt: Date = new Date();
+
+  // Revocation fields
+  @Property({ type: 'timestamptz', nullable: true, name: 'revoked_at' })
+  revokedAt?: Date;
+
+  @Property({ type: 'text', nullable: true, name: 'revoked_by' })
+  revokedBy?: string;
+
+  @Property({ type: 'text', nullable: true, name: 'revocation_reason' })
+  revocationReason?: string;
+}
+```
+
+### 1.5 RegulatoryImportLog (Public Schema)
 
 ```typescript
 @Entity({ tableName: 'regulatory_import_log', schema: 'public' })
 export class RegulatoryImportLog extends BaseEntity {
 
   @Property()
-  listCode!: string;
+  regulationCode!: string;
 
   @Property()
   version!: string;
@@ -182,9 +255,9 @@ export class RegulatoryImportLog extends BaseEntity {
 
   @Property({ type: 'jsonb' })
   changes!: {
-    entriesAdded: number;
-    entriesRemoved: number;
-    entriesUpdated: number;
+    requirementsAdded: number;
+    requirementsRemoved: number;
+    requirementsUpdated: number;
     unmatchedCas: string[];
   };
 
@@ -200,117 +273,133 @@ export class RegulatoryImportLog extends BaseEntity {
 
 ## 2. Updated validationLogic Schema
 
-### 2.1 New Rule Types
+### 2.1 Requirement Types
 
 ```typescript
-// Existing types (unchanged)
-type: 'required' | 'pattern' | 'range' | 'custom'  // For ATTRIBUTE rules
-
-// New types (for SUBSTANCE rules)
-type: 'regulatory_list_check' | 'aggregate_metric_threshold'
+// Four requirement types with handler-based evaluation
+enum RequirementType {
+  ATTRIBUTE_CHECK = 'ATTRIBUTE_CHECK',      // Validates a product attribute value
+  SUBSTANCE_SCREEN = 'SUBSTANCE_SCREEN',    // Screens against a substance list
+  CALCULATED_CHECK = 'CALCULATED_CHECK',    // Evaluates a calculated formula
+  DECLARATION = 'DECLARATION',              // Requires user attestation/declaration
+}
 ```
 
-### 2.2 regulatory_list_check Config
+### 2.2 SUBSTANCE_SCREEN Handler Config
 
-**AGNOSTIC:** The config specifies WHICH lists to check and HOW to scope evaluation.
-The actual comparison logic (operator, compareValue, issueType, severity) comes from RegulatoryListEntry.
+**HANDLER-BASED:** The config specifies WHICH substance list to check and HOW to scope evaluation.
+The actual comparison logic comes from the handlerConfig.
 
 ```typescript
 {
-  type: 'regulatory_list_check',
-  config: {
-    // Explicit list codes OR null = inherit from CategoryRegulatoryList
-    listCodes: ['COSING_ANNEX_II', 'COSING_ANNEX_III'] | null,
-
-    // Evaluation scope (REACH vs RoHS difference)
-    scope: 'ARTICLE' | 'HOMOGENEOUS_MATERIAL',
-
-    // Override list entry compareValue (null = use RegulatoryListEntry.compareValue)
-    // Used for category-specific stricter thresholds (e.g., toys)
-    compareValueOverride: null,
-
-    // For conditional restrictions (checks entry.conditions JSONB)
-    conditionKey: 'application_area'
+  type: 'SUBSTANCE_SCREEN',
+  substanceListId: 'rohs-restricted-substances',
+  handlerConfig: {
+    operator: 'GTE',
+    defaultThresholdPct: 0.1,  // 0.1% default threshold
   }
 }
 ```
 
-Note: No `checkType` field - the evaluation is agnostic. Each RegulatoryListEntry defines its own
-operator/compareValue/issueType/severity. This allows new rule types without code changes.
-
-### 2.3 aggregate_metric_threshold Config
+### 2.3 CALCULATED_CHECK Handler Config
 
 ```typescript
 {
-  type: 'aggregate_metric_threshold',
-  config: {
-    metric: 'weightedSupplyRisk' | 'totalStrategicContentPct',
-    operator: 'GREATER_THAN' | 'LESS_THAN',
+  type: 'CALCULATED_CHECK',
+  calculationFormula: 'weightedSupplyRisk',
+  handlerConfig: {
+    operator: 'GT',
     threshold: 4.0,
-    message: 'Supply chain vulnerability exceeds platform limits.'
+  }
+}
+```
+
+### 2.4 ATTRIBUTE_CHECK Handler Config
+
+```typescript
+{
+  type: 'ATTRIBUTE_CHECK',
+  attributeTemplateKey: 'voltage_rating',
+  handlerConfig: {
+    operator: 'LTE',
+    threshold: 240,
+    unit: 'V',
+  }
+}
+```
+
+### 2.5 DECLARATION Handler Config
+
+```typescript
+{
+  type: 'DECLARATION',
+  handlerConfig: {
+    question: 'Does this product contain conflict minerals?',
+    acceptedAnswers: ['NO', 'NOT_APPLICABLE'],
+    requiresDocument: true,
+    acceptedDocumentTypes: ['CONFLICT_MINERALS_REPORT'],
   }
 }
 ```
 
 ---
 
-## 3. Category-List Scoping
+## 3. Category-Regulation Scoping
 
 ### 3.1 LTREE Inheritance Query
 
 ```sql
--- Get all regulatory lists for a moisturizer product
+-- Get all regulations for a moisturizer product
 SELECT
-  rl.*,
-  crl.requirement,
-  crl.compare_value_override,
+  r.*,
+  cr.added_at,
   c.path as matched_at,
   nlevel(c.path) as depth
-FROM public.regulatory_list rl
-JOIN public.category_regulatory_list crl ON rl.id = crl.regulatory_list_id
-JOIN public.category c ON c.id = crl.category_id
+FROM public.regulation r
+JOIN public.category_regulation cr ON r.id = cr.regulation_id
+JOIN public.category c ON c.id = cr.category_id
 WHERE c.path @> 'products.cosmetics.skincare.moisturizers'::ltree
-  AND rl.is_current_version = true
-ORDER BY nlevel(c.path) DESC, crl.priority DESC;
+  AND r.status = 'ACTIVE'
+ORDER BY nlevel(c.path) DESC;
 ```
 
-### 3.2 Exclusion Handling Query
+### 3.2 With Tenant Exemptions Query
 
 ```sql
-WITH candidate_lists AS (
+WITH applicable_requirements AS (
   SELECT
-    rl.*,
-    crl.requirement,
-    crl.is_exclusion,
-    crl.compare_value_override,
-    crl.priority,
+    req.*,
+    r.code as regulation_code,
+    r.name as regulation_name,
     c.path as matched_at,
     nlevel(c.path) as depth
-  FROM public.regulatory_list rl
-  JOIN public.category_regulatory_list crl ON rl.id = crl.regulatory_list_id
-  JOIN public.category c ON c.id = crl.category_id
-  WHERE c.path @> 'products.toys.electronic'::ltree
-    AND rl.is_current_version = true
+  FROM public.requirement req
+  JOIN public.regulation r ON req.regulation_id = r.id
+  JOIN public.category_regulation cr ON r.id = cr.regulation_id
+  JOIN public.category c ON c.id = cr.category_id
+  WHERE c.path @> 'products.electronics.consumer'::ltree
+    AND r.status = 'ACTIVE'
 )
-SELECT * FROM candidate_lists cl
+SELECT ar.* FROM applicable_requirements ar
 WHERE NOT EXISTS (
-  -- Exclude if a more specific node excludes this list
-  SELECT 1 FROM candidate_lists excl
-  WHERE excl.id = cl.id
-    AND excl.is_exclusion = true
-    AND excl.depth > cl.depth
+  -- Exclude if tenant has exemption for this requirement
+  SELECT 1 FROM tenant_requirement_exemption tre
+  JOIN tenant_category tc ON tre.tenant_category_id = tc.id
+  WHERE tre.requirement_id = ar.id::text
+    AND tre.revoked_at IS NULL
+    AND tc.category_id = ar.category_id
 )
-ORDER BY depth DESC, priority DESC;
+ORDER BY ar.depth DESC, ar.sort_order;
 ```
 
 ### 3.3 Concurrent Jurisdiction Example
 
 ```
-products                         → REACH_SVHC (all products)
-products.electronics             → ROHS_RESTRICTED (electronics only)
-products.cosmetics               → COSING_ANNEX_II, COSING_ANNEX_III
+products                         → REACH (all products)
+products.electronics             → ROHS, WEEE (electronics only)
+products.cosmetics               → CLP, Cosmetics Regulation
 products.cosmetics.skincare      → (inherits from parent)
-products.food_contact            → EFSA_MIGRATION_LIMITS
+products.food_contact            → Food Contact Regulation
 ```
 
 A smart electronic skincare device matches all three regulatory frameworks.
@@ -323,9 +412,8 @@ A smart electronic skincare device matches all three regulatory frameworks.
 
 ```typescript
 interface SubstanceFinding extends AuditFinding {
-  // Issue classification - from RegulatoryListEntry.issueType (agnostic string)
+  // Issue classification - from Requirement evaluation
   // Common values: 'PROHIBITED_SUBSTANCE', 'CHEMICAL_LIMIT_EXCEEDED', 'RESTRICTED_CONDITIONS'
-  // New issueTypes can be added via admin import without code changes
   issueType: string;
 
   // What substance (null for MISSING_DOCUMENTATION)
@@ -338,11 +426,16 @@ interface SubstanceFinding extends AuditFinding {
 
   evaluationContext: {
     // Legal authority
-    appliedList: {
+    appliedRegulation: {
       code: string;
       name: string;
       version: string;
       sourceUrl: string;
+    };
+    requirement: {
+      code: string;
+      name: string;
+      type: RequirementType;
     };
     legalReference: string;
 
@@ -379,6 +472,11 @@ interface MetricFinding extends AuditFinding {
   operator: string;
 
   evaluationContext: {
+    requirement: {
+      code: string;
+      name: string;
+      type: 'CALCULATED_CHECK';
+    };
     topDrivers: Array<{
       material: string;
       riskScore: string;
@@ -395,7 +493,6 @@ interface MetricFinding extends AuditFinding {
 ```typescript
 interface AuditResult {
   productVersionId: string;
-  profileUsed: ReadinessProfile;
   evaluatedAt: Date;
 
   findings: AuditFinding[];
@@ -407,11 +504,11 @@ interface AuditResult {
     blockers: number;
     warnings: number;
 
-    byIssueType: Record<IssueType, number>;
+    byIssueType: Record<string, number>;
 
-    byRegulatoryList: Record<string, {
-      listCode: string;
-      listName: string;
+    byRegulation: Record<string, {
+      regulationCode: string;
+      regulationName: string;
       violationCount: number;
     }>;
   };
@@ -434,49 +531,65 @@ Upload CSV/JSON → Validate Schema → Preview Diff → Apply Changes
 
 ### 5.2 Import File Format
 
-**AGNOSTIC:** Import files define the full evaluation logic per entry.
-No hardcoded rule types - admins can import new regulations without code changes.
+**HANDLER-BASED:** Import files define the full evaluation logic per requirement.
+No hardcoded rule types - admins can import new requirements without code changes.
 
 ```typescript
-interface RegulatoryListImport {
+interface RegulationImport {
   code: string;
   name: string;
-  source: string;
+  description?: string;
   version: string;
   effectiveDate: string;
   sourceUrl: string;
-  entries: RegulatoryListEntryImport[];
+  requirements: RequirementImport[];
 }
 
-interface RegulatoryListEntryImport {
-  casNumber: string;
-  ecNumber?: string;
+interface RequirementImport {
+  code: string;
+  name: string;
+  description?: string;
 
-  // AGNOSTIC EVALUATION FIELDS
-  operator: 'GT' | 'GTE' | 'LT' | 'LTE' | 'EQ' | 'PRESENT' | 'ABSENT';
-  compareValue?: string;  // Required for GT/GTE/LT/LTE/EQ, null for PRESENT/ABSENT
-  issueType: string;      // e.g., 'PROHIBITED_SUBSTANCE', 'CHEMICAL_LIMIT_EXCEEDED'
+  // HANDLER-BASED EVALUATION FIELDS
+  type: 'ATTRIBUTE_CHECK' | 'SUBSTANCE_SCREEN' | 'CALCULATED_CHECK' | 'DECLARATION';
   severity: 'BLOCKER' | 'WARNING' | 'INFO';
-  stoichiometricFactor?: string;  // For element-based regulations
 
-  conditions?: Record<string, string>;
+  // Type-specific fields
+  attributeTemplateKey?: string;
+  substanceListId?: string;
+  calculationFormula?: string;
+
+  // Handler configuration
+  handlerConfig?: {
+    operator?: 'GT' | 'GTE' | 'LT' | 'LTE' | 'EQ' | 'PRESENT' | 'ABSENT';
+    threshold?: number;
+    unit?: string;
+    pattern?: string;
+    defaultThresholdPct?: number;
+    question?: string;
+    acceptedAnswers?: string[];
+    requiresDocument?: boolean;
+    acceptedDocumentTypes?: string[];
+  };
+
   legalReference?: string;
-  notes?: string;
+  sortOrder?: number;
+  allowTenantExemption?: boolean;
 }
 ```
 
 ### 5.3 Versioning Strategy
 
-- **Immutable versions**: Never overwrite old list data
-- **Version chain**: `previousVersion` links for history traversal
-- **Point-in-time queries**: Products evaluated against list version effective at manufacture date
-- **Soft delete avoided**: Old entries remain in old version, simply not copied to new version
+- **Lifecycle states**: DRAFT → ACTIVE → ARCHIVED
+- **Succession chain**: `supersededBy` links for history traversal
+- **Point-in-time queries**: Products evaluated against regulation version effective at manufacture date
+- **Soft archive**: Old regulations remain accessible but marked as ARCHIVED
 
 ### 5.4 Unmatched CAS Handling
 
-**Warn & Skip**: Entry ignored, warning shown, admin can add substance manually.
+**Warn & Skip**: Requirement ignored, warning shown, admin can add substance manually.
 
-Dashboard shows "X entries pending substance mapping."
+Dashboard shows "X requirements pending substance mapping."
 
 ---
 
@@ -487,17 +600,19 @@ Dashboard shows "X entries pending substance mapping."
 ```
 Product Category (LTREE)
     ↓
-CategoryRegulatoryList (scope resolution)
+CategoryRegulation (scope resolution)
     ↓
-Applicable RegulatoryLists
+Applicable Regulations
     ↓
-RuleTemplates (from ReadinessProfile)
+Requirements (from each Regulation)
     ↓
-Filter rules referencing these lists OR listCodes = null
+Filter by tenant exemptions (TenantRequirementExemption)
+    ↓
+RequirementHandler evaluation (by type)
     ↓
 SubstanceRollupService + RawMaterialRollupService
     ↓
-Cross-reference substances against list entries
+Cross-reference substances against requirements
     ↓
 Build SubstanceFindings[] with traceability
     ↓
@@ -515,15 +630,15 @@ AuditResult (all violations at once)
 
 ## 7. Implementation Plans
 
-This design should be split into focused implementation plans:
+This design has been split into focused implementation plans:
 
-| Plan | Focus | Dependencies |
-|------|-------|--------------|
-| **10** | Regulatory List Registry | Plan 4 (Substance) |
-| **11** | Category-List Scoping | Plans 5, 10 |
-| **12** | Admin Import Pipeline | Plan 10 |
-| **14** | Vertical Rule Evaluation | Plans 8, 9, 10, 11 |
-| **15** | Regulatory Seeders | Plans 10, 11 |
+| Plan | Focus | Status |
+|------|-------|--------|
+| **10** | Regulatory List Registry | IMPLEMENTED |
+| **11** | Category-Regulation Scoping | IMPLEMENTED |
+| **12** | Admin Import Pipeline | IMPLEMENTED |
+| **14** | Vertical Rule Evaluation | IMPLEMENTED |
+| **15** | Regulatory Seeders | IMPLEMENTED |
 
 *(Plan 13 is existing Regulatory Advisor)*
 
@@ -536,18 +651,87 @@ This design should be split into focused implementation plans:
 CREATE INDEX idx_category_path_gist ON public.category USING GIST (path);
 
 -- Composite index for join performance
-CREATE INDEX idx_cat_reg_list_composite
-  ON public.category_regulatory_list (category_id, regulatory_list_id);
+CREATE INDEX idx_cat_reg_composite
+  ON public.category_regulation (category_id, regulation_id);
 
--- Fast current version lookup
-CREATE INDEX idx_reg_list_current
-  ON public.regulatory_list (code) WHERE is_current_version = true;
+-- Fast active regulation lookup
+CREATE INDEX idx_regulation_active
+  ON public.regulation (code) WHERE status = 'ACTIVE';
 
--- Entry lookups by list
-CREATE INDEX idx_reg_list_entry_list
-  ON public.regulatory_list_entry (list_id);
+-- Requirement lookups by regulation
+CREATE INDEX idx_requirement_regulation
+  ON public.requirement (regulation_id);
+
+-- Tenant exemption lookups
+CREATE INDEX idx_tenant_req_exemption_requirement
+  ON tenant_requirement_exemption (requirement_id);
+```
+
+---
+
+## 9. Entity Relationship Diagram
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                              PUBLIC SCHEMA                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                               │
+│  ┌─────────────────┐         ┌─────────────────────┐                         │
+│  │   Category      │         │    Regulation       │                         │
+│  │   (LTREE)       │         │                     │                         │
+│  ├─────────────────┤         ├─────────────────────┤                         │
+│  │ id              │         │ id                  │                         │
+│  │ path (ltree)    │         │ code (unique)       │                         │
+│  │ name            │         │ name                │                         │
+│  │ slug            │         │ status (enum)       │                         │
+│  └────────┬────────┘         │ version             │                         │
+│           │                  │ effectiveDate       │                         │
+│           │                  │ supersededBy (FK)   │                         │
+│           │                  └──────────┬──────────┘                         │
+│           │                             │                                     │
+│           │  ┌──────────────────────────┼──────────────────────────┐         │
+│           │  │                          │                          │         │
+│           ▼  ▼                          ▼                          │         │
+│  ┌─────────────────────┐       ┌─────────────────────┐             │         │
+│  │ CategoryRegulation  │       │    Requirement      │             │         │
+│  │ (M:N Junction)      │       │                     │             │         │
+│  ├─────────────────────┤       ├─────────────────────┤             │         │
+│  │ category_id (FK)    │       │ regulation_id (FK)  │─────────────┘         │
+│  │ regulation_id (FK)  │       │ code                │                       │
+│  │ addedAt             │       │ name                │                       │
+│  │ addedBy             │       │ type (enum)         │                       │
+│  └─────────────────────┘       │ severity (enum)     │                       │
+│                                │ handlerConfig       │                       │
+│                                │ legalReference      │                       │
+│                                │ allowTenantExemption│                       │
+│                                └──────────┬──────────┘                       │
+│                                           │                                   │
+└───────────────────────────────────────────│───────────────────────────────────┘
+                                            │
+                                            │ (text FK, cross-schema)
+                                            ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                              TENANT SCHEMA                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                               │
+│  ┌─────────────────────┐       ┌───────────────────────────┐                 │
+│  │   TenantCategory    │       │ TenantRequirementExemption│                 │
+│  │                     │       │                           │                 │
+│  ├─────────────────────┤       ├───────────────────────────┤                 │
+│  │ id                  │◄──────│ tenantCategory_id (FK)    │                 │
+│  │ category_id (FK)    │       │ requirementId (text)      │                 │
+│  │ tenant_id           │       │ reason                    │                 │
+│  │ adoptedAt           │       │ exemptedBy                │                 │
+│  │ adoptedBy           │       │ exemptedAt                │                 │
+│  └─────────────────────┘       │ revokedAt                 │                 │
+│                                │ revokedBy                 │                 │
+│                                │ revocationReason          │                 │
+│                                └───────────────────────────┘                 │
+│                                                                               │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
 *Design validated through collaborative brainstorming session, 2026-01-26*
+*Implementation completed: 2026-01-28*

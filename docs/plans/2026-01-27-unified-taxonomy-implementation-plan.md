@@ -1,5 +1,7 @@
 # Unified Taxonomy & Compliance Stack Implementation Plan
 
+> **STATUS: IMPLEMENTED** - This plan has been completed. The terminology was updated to use the simplified naming convention (Regulation, Requirement, CategoryRegulation, TenantRequirementExemption).
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Implement the Compliance Stack architecture from the design document, enabling system categories with regulatory baselines, tenant additions, and justified exemptions.
@@ -38,9 +40,9 @@ Before implementing, we must update the existing plans to align with the new des
 # Already read - we know the structure
 ```
 
-**Step 2: Add allowTenantExemption to RegulatoryList entity**
+**Step 2: Add allowTenantExemption to Regulation entity**
 
-In the RegulatoryList entity section, add:
+In the Regulation entity section, add:
 
 ```typescript
 /**
@@ -85,25 +87,25 @@ git commit -m "docs(plans): update Plan 10 - add allowTenantExemption flag per d
 **Step 1: Update the Goal section**
 
 Change from:
-> Implement CategoryRegulatoryList join table enabling LTREE-based inheritance
+> Implement CategoryRegulation join table enabling LTREE-based inheritance
 
 To:
-> Implement dual-layer regulatory scoping: CategoryRegulatoryList (public schema for system baseline) and TenantCategoryRegulatoryList (tenant schema for additions + exemptions). Includes ComplianceStackResolver for 3-layer resolution.
+> Implement dual-layer regulatory scoping: CategoryRegulation (public schema for system baseline) and TenantRequirementExemption (tenant schema for additions + exemptions). Includes ComplianceStackResolver for 3-layer resolution.
 
-**Step 2: Add TenantCategoryRegulatoryList entity section**
+**Step 2: Add TenantRequirementExemption entity section**
 
-Add new Task after CategoryRegulatoryList:
+Add new Task after CategoryRegulation:
 
 ```typescript
-// packages/database/src/entities/TenantCategoryRegulatoryList.ts
-@Entity({ tableName: 'tenant_category_regulatory_list' })
-@Unique({ properties: ['tenantCategory', 'regulatoryListId'] })
-export class TenantCategoryRegulatoryList extends BaseEntity {
+// packages/database/src/entities/TenantRequirementExemption.ts
+@Entity({ tableName: 'tenant_requirement_exemption' })
+@Unique({ properties: ['tenantCategory', 'regulationId'] })
+export class TenantRequirementExemption extends BaseEntity {
   @ManyToOne(() => TenantCategory, { name: 'tenant_category_id' })
   tenantCategory!: TenantCategory;
 
-  @Property({ type: 'text', name: 'regulatory_list_id' })
-  regulatoryListId!: string;  // Soft link to public.regulatory_list
+  @Property({ type: 'text', name: 'regulation_id' })
+  regulationId!: string;  // Soft link to public.regulation
 
   @Enum(() => ListRequirement)
   requirement!: ListRequirement;
@@ -147,8 +149,8 @@ export enum RegulationSource {
 ```typescript
 // packages/database/src/services/ComplianceStackResolver.ts
 export interface EffectiveRegulation {
-  regulatoryListId: string;
-  regulatoryListCode: string;
+  regulationId: string;
+  regulationCode: string;
   source: 'SYSTEM' | 'TENANT';
   requirement: ListRequirement;
   status: 'ACTIVE' | 'EXEMPTED';
@@ -167,7 +169,7 @@ export class ComplianceStackResolver {
 }
 ```
 
-**Step 5: Update CategoryRegulatoryList entity**
+**Step 5: Update CategoryRegulation entity**
 
 Add `allowTenantExemption` field:
 ```typescript
@@ -243,7 +245,7 @@ const effectiveRegs = await complianceStackResolver.resolve(tenantCategoryId);
 for (const reg of effectiveRegs) {
   if (reg.status === 'EXEMPTED') {
     findings.push({
-      regulatoryListCode: reg.regulatoryListCode,
+      regulationCode: reg.regulationCode,
       status: FindingStatus.JUSTIFIED_EXEMPTION,
       exemptionReason: reg.exemption.reason,
       exemptionLegalRef: reg.exemption.legalRef,
@@ -278,9 +280,9 @@ git commit -m "docs(plans): update Plan 14 - add JUSTIFIED_EXEMPTION status"
 ls docs/plans/*15*.md
 ```
 
-**Step 2: Add CategoryRegulatoryList seeding**
+**Step 2: Add CategoryRegulation seeding**
 
-Add section for seeding system category → regulatory list links:
+Add section for seeding system category → regulation links:
 ```typescript
 // Seed: Electronics → [REACH_SVHC, ROHS_RESTRICTED, WEEE]
 // Seed: Cosmetics → [COSING_ANNEX_II, COSING_ANNEX_III, REACH_SVHC]
@@ -297,12 +299,12 @@ Add section for seeding system category → regulatory list links:
 
 ```bash
 git add docs/plans/*15*.md
-git commit -m "docs(plans): update Plan 15 - add CategoryRegulatoryList seeding"
+git commit -m "docs(plans): update Plan 15 - add CategoryRegulation seeding"
 ```
 
 ---
 
-## Phase 2: Implement Plan 10 (RegulatoryList with allowTenantExemption)
+## Phase 2: Implement Plan 10 (Regulation with allowTenantExemption)
 
 Since Plans 10 and 11 are not yet implemented, we implement them with the design updates included.
 
@@ -356,11 +358,11 @@ git commit -m "feat(database): add ComparisonOperator and Severity enums"
 
 ---
 
-### Task 7: Create RegulatoryList Entity (with allowTenantExemption)
+### Task 7: Create Regulation Entity (with allowTenantExemption)
 
 **Files:**
-- Create: `packages/database/src/entities/RegulatoryList.ts`
-- Create: `packages/database/src/entities/RegulatoryList.test.ts`
+- Create: `packages/database/src/entities/Regulation.ts`
+- Create: `packages/database/src/entities/Regulation.test.ts`
 
 **Step 1: Write the failing test**
 
@@ -369,7 +371,7 @@ Test should include `allowTenantExemption` field.
 **Step 2: Run test to verify it fails**
 
 ```bash
-cd packages/database && pnpm test RegulatoryList.test.ts
+cd packages/database && pnpm test Regulation.test.ts
 ```
 
 **Step 3: Write implementation**
@@ -381,39 +383,39 @@ Include `allowTenantExemption: boolean = true` field.
 **Step 5: Export and commit**
 
 ```bash
-git add packages/database/src/entities/RegulatoryList*
-git commit -m "feat(database): add RegulatoryList entity with allowTenantExemption"
+git add packages/database/src/entities/Regulation*
+git commit -m "feat(database): add Regulation entity with allowTenantExemption"
 ```
 
 ---
 
-### Task 8: Create RegulatoryListEntry Entity
+### Task 8: Create Requirement Entity
 
 **Files:**
-- Create: `packages/database/src/entities/RegulatoryListEntry.ts`
-- Create: `packages/database/src/entities/RegulatoryListEntry.test.ts`
+- Create: `packages/database/src/entities/Requirement.ts`
+- Create: `packages/database/src/entities/Requirement.test.ts`
 
 Follow Plan 10 Task 3 exactly.
 
 **Commit:**
 ```bash
-git commit -m "feat(database): add RegulatoryListEntry entity with forensic snapshots"
+git commit -m "feat(database): add Requirement entity with forensic snapshots"
 ```
 
 ---
 
-### Task 9: Update Consolidated Migration for RegulatoryList Tables
+### Task 9: Update Consolidated Migration for Regulation Tables
 
 **Files:**
 - Modify: `packages/database/src/migrations/Migration20260122000000.ts`
 
-**Step 1: Add regulatory_list table to the consolidated migration**
+**Step 1: Add regulation table to the consolidated migration**
 
 Add after existing public schema tables:
 
 ```sql
--- Regulatory List Registry (public schema)
-CREATE TABLE IF NOT EXISTS public.regulatory_list (
+-- Regulation Registry (public schema)
+CREATE TABLE IF NOT EXISTS public.regulation (
   id TEXT PRIMARY KEY,
   code TEXT NOT NULL,
   name TEXT NOT NULL,
@@ -425,19 +427,19 @@ CREATE TABLE IF NOT EXISTS public.regulatory_list (
   allow_tenant_exemption BOOLEAN NOT NULL DEFAULT true,
   source_url TEXT,
   description TEXT,
-  previous_version_id TEXT REFERENCES public.regulatory_list(id),
+  previous_version_id TEXT REFERENCES public.regulation(id),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT uq_regulatory_list_code_version UNIQUE (code, version)
+  CONSTRAINT uq_regulation_code_version UNIQUE (code, version)
 );
 
-CREATE INDEX IF NOT EXISTS idx_regulatory_list_code ON public.regulatory_list (code);
-CREATE INDEX IF NOT EXISTS idx_regulatory_list_current ON public.regulatory_list (code) WHERE is_current_version = true;
+CREATE INDEX IF NOT EXISTS idx_regulation_code ON public.regulation (code);
+CREATE INDEX IF NOT EXISTS idx_regulation_current ON public.regulation (code) WHERE is_current_version = true;
 
--- Regulatory List Entries (public schema)
-CREATE TABLE IF NOT EXISTS public.regulatory_list_entry (
+-- Requirements (public schema)
+CREATE TABLE IF NOT EXISTS public.requirement (
   id TEXT PRIMARY KEY,
-  list_id TEXT NOT NULL REFERENCES public.regulatory_list(id) ON DELETE CASCADE,
+  list_id TEXT NOT NULL REFERENCES public.regulation(id) ON DELETE CASCADE,
   substance_id TEXT NOT NULL REFERENCES public.substance(id),
   cas_number_snapshot TEXT NOT NULL,
   substance_name_snapshot TEXT NOT NULL,
@@ -451,11 +453,11 @@ CREATE TABLE IF NOT EXISTS public.regulatory_list_entry (
   notes TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT uq_regulatory_list_entry_list_substance UNIQUE (list_id, substance_id)
+  CONSTRAINT uq_requirement_list_substance UNIQUE (list_id, substance_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_regulatory_list_entry_list ON public.regulatory_list_entry (list_id);
-CREATE INDEX IF NOT EXISTS idx_regulatory_list_entry_substance ON public.regulatory_list_entry (substance_id);
+CREATE INDEX IF NOT EXISTS idx_requirement_list ON public.requirement (list_id);
+CREATE INDEX IF NOT EXISTS idx_requirement_substance ON public.requirement (substance_id);
 ```
 
 **Step 2: Reset database**
@@ -468,22 +470,22 @@ pnpm db:reset
 
 ```bash
 git add packages/database/src/migrations/Migration20260122000000.ts
-git commit -m "feat(database): add regulatory_list tables to consolidated migration"
+git commit -m "feat(database): add regulation tables to consolidated migration"
 ```
 
 ---
 
-### Task 10: Create RegulatoryListService
+### Task 10: Create RegulationService
 
 **Files:**
-- Create: `packages/database/src/services/RegulatoryListService.ts`
-- Create: `packages/database/src/services/RegulatoryListService.test.ts`
+- Create: `packages/database/src/services/RegulationService.ts`
+- Create: `packages/database/src/services/RegulationService.test.ts`
 
 Follow Plan 10 Task 5.
 
 **Commit:**
 ```bash
-git commit -m "feat(database): add RegulatoryListService"
+git commit -m "feat(database): add RegulationService"
 ```
 
 ---
@@ -524,32 +526,32 @@ git commit -m "feat(database): add ListRequirement and RegulationSource enums"
 
 ---
 
-### Task 12: Create CategoryRegulatoryList Entity (Public Schema)
+### Task 12: Create CategoryRegulation Entity (Public Schema)
 
 **Files:**
-- Create: `packages/database/src/entities/CategoryRegulatoryList.ts`
-- Create: `packages/database/src/entities/CategoryRegulatoryList.test.ts`
+- Create: `packages/database/src/entities/CategoryRegulation.ts`
+- Create: `packages/database/src/entities/CategoryRegulation.test.ts`
 
 Include `allowTenantExemption` field.
 
 **Commit:**
 ```bash
-git commit -m "feat(database): add CategoryRegulatoryList entity (public schema)"
+git commit -m "feat(database): add CategoryRegulation entity (public schema)"
 ```
 
 ---
 
-### Task 13: Create TenantCategoryRegulatoryList Entity (Tenant Schema)
+### Task 13: Create TenantRequirementExemption Entity (Tenant Schema)
 
 **Files:**
-- Create: `packages/database/src/entities/TenantCategoryRegulatoryList.ts`
-- Create: `packages/database/src/entities/TenantCategoryRegulatoryList.test.ts`
+- Create: `packages/database/src/entities/TenantRequirementExemption.ts`
+- Create: `packages/database/src/entities/TenantRequirementExemption.test.ts`
 
 **Step 1: Write the failing test**
 
 ```typescript
-describe('TenantCategoryRegulatoryList Entity', () => {
-  it('creates tenant regulatory list link', async () => {
+describe('TenantRequirementExemption Entity', () => {
+  it('creates tenant regulation link', async () => {
     // Test basic creation
   });
 
@@ -557,7 +559,7 @@ describe('TenantCategoryRegulatoryList Entity', () => {
     // Test exemption fields
   });
 
-  it('enforces unique constraint on tenantCategory + regulatoryListId', async () => {
+  it('enforces unique constraint on tenantCategory + regulationId', async () => {
     // Test uniqueness
   });
 });
@@ -566,14 +568,14 @@ describe('TenantCategoryRegulatoryList Entity', () => {
 **Step 2: Write implementation**
 
 ```typescript
-@Entity({ tableName: 'tenant_category_regulatory_list' })
-@Unique({ properties: ['tenantCategory', 'regulatoryListId'] })
-export class TenantCategoryRegulatoryList extends BaseEntity {
+@Entity({ tableName: 'tenant_requirement_exemption' })
+@Unique({ properties: ['tenantCategory', 'regulationId'] })
+export class TenantRequirementExemption extends BaseEntity {
   @ManyToOne(() => TenantCategory, { name: 'tenant_category_id' })
   tenantCategory!: TenantCategory;
 
-  @Property({ type: 'text', name: 'regulatory_list_id' })
-  regulatoryListId!: string;
+  @Property({ type: 'text', name: 'regulation_id' })
+  regulationId!: string;
 
   @Enum(() => ListRequirement)
   requirement!: ListRequirement;
@@ -605,7 +607,7 @@ export class TenantCategoryRegulatoryList extends BaseEntity {
 
 **Commit:**
 ```bash
-git commit -m "feat(database): add TenantCategoryRegulatoryList entity"
+git commit -m "feat(database): add TenantRequirementExemption entity"
 ```
 
 ---
@@ -616,16 +618,16 @@ git commit -m "feat(database): add TenantCategoryRegulatoryList entity"
 - Modify: `packages/database/src/migrations/Migration20260122000000.ts` (public schema)
 - Modify: `packages/database/src/services/tenant-provisioner.ts` (tenant schema)
 
-**Step 1: Add category_regulatory_list to consolidated migration (public schema)**
+**Step 1: Add category_regulation to consolidated migration (public schema)**
 
-Add after regulatory_list_entry table:
+Add after requirement table:
 
 ```sql
--- Category Regulatory List (public schema - system baseline)
-CREATE TABLE IF NOT EXISTS public.category_regulatory_list (
+-- CategoryRegulation (public schema - system baseline)
+CREATE TABLE IF NOT EXISTS public.category_regulation (
   id TEXT PRIMARY KEY,
   category_id TEXT NOT NULL REFERENCES public.category(id) ON DELETE CASCADE,
-  regulatory_list_id TEXT NOT NULL REFERENCES public.regulatory_list(id) ON DELETE CASCADE,
+  regulation_id TEXT NOT NULL REFERENCES public.regulation(id) ON DELETE CASCADE,
   requirement TEXT NOT NULL CHECK (requirement IN ('MANDATORY', 'RECOMMENDED', 'INFORMATIONAL')),
   allow_tenant_exemption BOOLEAN NOT NULL DEFAULT true,
   priority SMALLINT NOT NULL DEFAULT 0,
@@ -633,29 +635,29 @@ CREATE TABLE IF NOT EXISTS public.category_regulatory_list (
   compare_value_override NUMERIC(5,4),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT uq_category_regulatory_list UNIQUE (category_id, regulatory_list_id)
+  CONSTRAINT uq_category_regulation UNIQUE (category_id, regulation_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_cat_reg_list_category ON public.category_regulatory_list (category_id);
-CREATE INDEX IF NOT EXISTS idx_cat_reg_list_list ON public.category_regulatory_list (regulatory_list_id);
+CREATE INDEX IF NOT EXISTS idx_cat_reg_list_category ON public.category_regulation (category_id);
+CREATE INDEX IF NOT EXISTS idx_cat_reg_list_list ON public.category_regulation (regulation_id);
 ```
 
-**Step 2: Update TenantProvisioner for tenant_category_regulatory_list**
+**Step 2: Update TenantProvisioner for tenant_requirement_exemption**
 
 In `tenant-provisioner.ts`:
 
 1. Add to `EXPECTED_TENANT_TABLES`:
 ```typescript
-'tenant_category_regulatory_list',
+'tenant_requirement_exemption',
 ```
 
 2. Add table creation in `createTenantTables()`:
 ```sql
--- Tenant Category Regulatory List (tenant additions + exemptions)
-CREATE TABLE IF NOT EXISTS "${schema}".tenant_category_regulatory_list (
+-- TenantRequirementExemption (tenant additions + exemptions)
+CREATE TABLE IF NOT EXISTS "${schema}".tenant_requirement_exemption (
   id TEXT PRIMARY KEY,
   tenant_category_id TEXT NOT NULL REFERENCES "${schema}".tenant_category(id) ON DELETE CASCADE,
-  regulatory_list_id TEXT NOT NULL,
+  regulation_id TEXT NOT NULL,
   requirement TEXT NOT NULL CHECK (requirement IN ('MANDATORY', 'RECOMMENDED', 'INFORMATIONAL')),
   source TEXT NOT NULL CHECK (source IN ('INHERITED', 'TENANT_ADDED')),
   is_exempted BOOLEAN NOT NULL DEFAULT false,
@@ -666,11 +668,11 @@ CREATE TABLE IF NOT EXISTS "${schema}".tenant_category_regulatory_list (
   override_threshold NUMERIC(10,6),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT uq_tenant_cat_reg_list UNIQUE (tenant_category_id, regulatory_list_id)
+  CONSTRAINT uq_tenant_cat_reg_list UNIQUE (tenant_category_id, regulation_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_tcrl_category ON "${schema}".tenant_category_regulatory_list (tenant_category_id);
-CREATE INDEX IF NOT EXISTS idx_tcrl_list ON "${schema}".tenant_category_regulatory_list (regulatory_list_id);
+CREATE INDEX IF NOT EXISTS idx_tcrl_category ON "${schema}".tenant_requirement_exemption (tenant_category_id);
+CREATE INDEX IF NOT EXISTS idx_tcrl_list ON "${schema}".tenant_requirement_exemption (regulation_id);
 ```
 
 **Step 3: Reset database**
@@ -683,7 +685,7 @@ pnpm db:reset
 
 ```bash
 git add packages/database/src/migrations/Migration20260122000000.ts packages/database/src/services/tenant-provisioner.ts
-git commit -m "feat(database): add category regulatory list tables (public + tenant)"
+git commit -m "feat(database): add category regulation tables (public + tenant)"
 ```
 
 ---
@@ -719,8 +721,8 @@ describe('ComplianceStackResolver', () => {
       // Expect: Throws or rejects
     });
 
-    it('handles FROZEN mode with pinned regulatory list IDs', async () => {
-      // Setup: CategoryAdoption in FROZEN mode with pinnedRegulatoryListIds
+    it('handles FROZEN mode with pinned regulation IDs', async () => {
+      // Setup: CategoryAdoption in FROZEN mode with pinnedRegulationIds
       // Expect: Only pinned versions returned
     });
   });
@@ -737,8 +739,8 @@ export class ComplianceStackResolver {
     // 1. Get TenantCategory with systemCategoryId
     // 2. Get CategoryAdoption for mode (LIVE/FROZEN/DETACHED)
     // 3. If DETACHED, only return tenant-added regulations
-    // 4. If LIVE/FROZEN, get system baseline from CategoryRegulatoryList
-    // 5. Get tenant additions/exemptions from TenantCategoryRegulatoryList
+    // 4. If LIVE/FROZEN, get system baseline from CategoryRegulation
+    // 5. Get tenant additions/exemptions from TenantRequirementExemption
     // 6. Merge layers: System Baseline → Tenant Additions → Apply Exemptions
     // 7. Return EffectiveRegulation[]
   }
@@ -772,7 +774,7 @@ git commit -m "feat(database): add ComplianceStackResolver service"
 
 **Commit:**
 ```bash
-git commit -m "feat(api): add admin routes for category regulatory list management"
+git commit -m "feat(api): add admin routes for category regulation management"
 ```
 
 ---
@@ -798,7 +800,7 @@ git commit -m "feat(api): add admin routes for category regulatory list manageme
 
 **Commit:**
 ```bash
-git commit -m "feat(api): add tenant category regulatory lists routes"
+git commit -m "feat(api): add tenant category regulations routes"
 ```
 
 ---
@@ -811,7 +813,7 @@ git commit -m "feat(api): add tenant category regulatory lists routes"
 **Test naming convention (per RULES.md):** `should_[expectedBehavior]_when_[condition]`
 
 ```typescript
-describe('TenantCategoryRegulatoryLists', () => {
+describe('TenantRequirementExemptions', () => {
   describe('GET /tenant-categories/:id/regulatory-lists', () => {
     it('should return system baseline regulations when category is adopted', async () => {});
     it('should include tenant-added regulations when present', async () => {});
@@ -865,9 +867,9 @@ git commit -m "docs(postman): add compliance stack endpoints to collections"
 
 ---
 
-## Phase 5: Update CategoryAdoption for pinnedRegulatoryListIds
+## Phase 5: Update CategoryAdoption for pinnedRegulationIds
 
-### Task 20: Add pinnedRegulatoryListIds to CategoryAdoption
+### Task 20: Add pinnedRegulationIds to CategoryAdoption
 
 **Files:**
 - Modify: `packages/database/src/entities/CategoryAdoption.ts`
@@ -875,13 +877,13 @@ git commit -m "docs(postman): add compliance stack endpoints to collections"
 
 **Add field:**
 ```typescript
-@Property({ type: 'array', nullable: true, name: 'pinned_regulatory_list_ids' })
-pinnedRegulatoryListIds?: string[];
+@Property({ type: 'array', nullable: true, name: 'pinned_regulation_ids' })
+pinnedRegulationIds?: string[];
 ```
 
 **Commit:**
 ```bash
-git commit -m "feat(database): add pinnedRegulatoryListIds to CategoryAdoption"
+git commit -m "feat(database): add pinnedRegulationIds to CategoryAdoption"
 ```
 
 ---
@@ -891,11 +893,11 @@ git commit -m "feat(database): add pinnedRegulatoryListIds to CategoryAdoption"
 **Files:**
 - Modify: `apps/api/src/routes/category-adoption.ts`
 
-When changing to FROZEN mode, capture current regulatory list IDs.
+When changing to FROZEN mode, capture current regulation IDs.
 
 **Commit:**
 ```bash
-git commit -m "feat(api): capture pinnedRegulatoryListIds on FROZEN mode"
+git commit -m "feat(api): capture pinnedRegulationIds on FROZEN mode"
 ```
 
 ---
@@ -931,10 +933,10 @@ git commit -m "docs: update regulatory vertical system guide for compliance stac
 ## Summary
 
 **Phase 1:** Update plan documents (Tasks 1-5)
-**Phase 2:** Implement Plan 10 - RegulatoryList registry (Tasks 6-10)
+**Phase 2:** Implement Plan 10 - Regulation registry (Tasks 6-10)
 **Phase 3:** Implement Plan 11 - Category-List scoping + Compliance Stack (Tasks 11-15)
 **Phase 4:** API routes + Postman (Tasks 16-19)
-**Phase 5:** CategoryAdoption pinnedRegulatoryListIds (Tasks 20-21)
+**Phase 5:** CategoryAdoption pinnedRegulationIds (Tasks 20-21)
 **Phase 6:** Testing and documentation (Tasks 22-23)
 
 **Total: 23 tasks**
@@ -950,14 +952,14 @@ git commit -m "docs: update regulatory vertical system guide for compliance stac
 - [x] Documentation updates (Task 23)
 
 **New Entities Created:**
-- `RegulatoryList` (public)
-- `RegulatoryListEntry` (public)
-- `CategoryRegulatoryList` (public)
-- `TenantCategoryRegulatoryList` (tenant)
+- `Regulation` (public)
+- `Requirement` (public)
+- `CategoryRegulation` (public)
+- `TenantRequirementExemption` (tenant)
 
 **New Services Created:**
-- `RegulatoryListService`
-- `CategoryRegulatoryListService`
+- `RegulationService`
+- `CategoryRegulationService`
 - `ComplianceStackResolver`
 
 **New Enums:**

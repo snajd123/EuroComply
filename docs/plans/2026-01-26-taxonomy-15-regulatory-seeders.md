@@ -1,696 +1,422 @@
-# Taxonomy Plan 15: Regulatory Seeders
+# Taxonomy Plan 15: Migration Manifest System
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+> **Status:** IMPLEMENTED
 
-**Goal:** Seed initial regulatory lists (REACH SVHC, RoHS, CosIng samples) and category-list mappings for development and testing.
+**Goal:** Load initial regulations (REACH, ESPR, CosIng) and category-regulation mappings for development and testing using a declarative JSON manifest approach.
 
-**Architecture:** Create seeders that populate RegulatoryList, RegulatoryListEntry, and CategoryRegulatoryList with representative data. These are development seeds - production data will come via admin import pipeline (Plan 12).
+**Architecture:** The ManifestLoader service loads regulatory content from JSON manifest files. This keeps the loading engine agnostic - the code knows HOW to load, the manifest JSON defines WHAT to load.
 
-**Tech Stack:** MikroORM, TypeScript
+**Tech Stack:** MikroORM, TypeScript, JSON Schema
 
-**Prerequisites:**
-- Plan 4 (Substance Registry with seeded substances)
-- Plan 5 (Category Service with seeded categories)
-- Plan 10 (Regulatory List Registry)
-- Plan 11 (Category-List Scoping)
-
-**Reference:** See `docs/plans/2026-01-26-regulatory-vertical-system-design.md`
+**Location:** `packages/database/src/seed/`
 
 ---
 
-## Critical Dependency: Plan 4 Substance Registry Sync
+## Overview
 
-The seeders use `em.findOne(Substance, { casNumber: entry.cas })` to link regulatory list entries to substances. This **only works if Plan 4 has already seeded the global CAS library**.
+The migration manifest system provides a declarative way to seed regulatory data:
 
-**Fail-Safe Behavior:** If a substance is missing, the seeder logs a warning and skips the entry (no crash). However, for complete regulatory coverage, ensure the following CAS numbers are included in Plan 4's seed data:
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                   Migration Manifest System                     │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  manifests/                                                     │
+│    └── eu-regulations-2026.json    ← Declarative content        │
+│                                                                 │
+│  ManifestLoader.ts                 ← Loading engine             │
+│                                                                 │
+│  types.ts                          ← TypeScript interfaces      │
+│                                                                 │
+│  migration-manifest.schema.json    ← JSON Schema validation     │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
 
-### Required CAS Numbers for Plan 15 Seeders
-
-| CAS Number | Substance Name | Used By |
-|------------|----------------|---------|
-| 7439-92-1 | Lead | REACH, RoHS, CosIng |
-| 7440-43-9 | Cadmium | REACH, RoHS |
-| 18540-29-9 | Hexavalent chromium | REACH, RoHS |
-| 117-81-7 | DEHP | REACH, RoHS |
-| 84-74-2 | DBP | REACH, RoHS |
-| 85-68-7 | BBP | REACH, RoHS |
-| 25637-99-4 | HBCDD | REACH |
-| 79-94-7 | TBBPA | REACH |
-| 80-05-7 | Bisphenol A | REACH |
-| 127-19-5 | DMAC | REACH |
-| 872-50-4 | NMP | REACH |
-| 7439-97-6 | Mercury | RoHS, CosIng |
-| 1336-36-3 | PBB | RoHS |
-| 32534-81-9 | PBDE | RoHS |
-| 84-69-5 | DIBP | RoHS |
-| 50-00-0 | Formaldehyde | CosIng |
-| 123-31-9 | Hydroquinone | CosIng |
-| 71-43-2 | Benzene | CosIng |
-| 75-56-9 | Propylene oxide | CosIng |
-| 106-89-8 | Epichlorohydrin | CosIng |
-| 100-97-0 | Methenamine | CosIng |
-| 94-13-3 | Propylparaben | CosIng |
-
-**Recommendation:** Add these 22 substances to Plan 4's seed data to ensure full regulatory list coverage during development.
+**Key Principles:**
+- **Declarative:** Regulatory content defined in JSON, not code
+- **Idempotent:** Safe to run multiple times (skips existing records)
+- **Agnostic:** Engine doesn't know about specific regulations
 
 ---
 
-## Task 1: Create REACH SVHC Sample Seeder
+## Manifest Structure
 
-**Files:**
-- Create: `packages/database/src/seeders/regulatory/reach-svhc.seeder.ts`
-
-**Step 1: Create the seeder**
+### Top-Level Schema
 
 ```typescript
-// packages/database/src/seeders/regulatory/reach-svhc.seeder.ts
-import { EntityManager } from '@mikro-orm/postgresql';
-import { RegulatoryList } from '../../entities/RegulatoryList.js';
-import { RegulatoryListEntry } from '../../entities/RegulatoryListEntry.js';
-import { Substance } from '../../entities/Substance.js';
-import { ComparisonOperator, Severity } from '../../entities/enums/index.js';
-
-/**
- * Sample REACH SVHC Candidate List entries.
- * Real list has 200+ substances - this is a representative sample.
- * Source: https://echa.europa.eu/candidate-list-table
- */
-const REACH_SVHC_ENTRIES = [
-  // Heavy metals and their compounds
-  { cas: '7439-92-1', name: 'Lead', threshold: '0.1', reference: 'Article 57(c)' },
-  { cas: '7440-43-9', name: 'Cadmium', threshold: '0.1', reference: 'Article 57(a)' },
-  { cas: '18540-29-9', name: 'Chromium (VI)', threshold: '0.1', reference: 'Article 57(a)' },
-
-  // Phthalates
-  { cas: '117-81-7', name: 'DEHP (Bis(2-ethylhexyl) phthalate)', threshold: '0.1', reference: 'Article 57(c)' },
-  { cas: '84-74-2', name: 'DBP (Dibutyl phthalate)', threshold: '0.1', reference: 'Article 57(c)' },
-  { cas: '85-68-7', name: 'BBP (Benzyl butyl phthalate)', threshold: '0.1', reference: 'Article 57(c)' },
-
-  // Flame retardants
-  { cas: '25637-99-4', name: 'HBCDD (Hexabromocyclododecane)', threshold: '0.1', reference: 'Article 57(d)' },
-  { cas: '79-94-7', name: 'TBBPA (Tetrabromobisphenol A)', threshold: '0.1', reference: 'Article 57(d)' },
-
-  // Bisphenols
-  { cas: '80-05-7', name: 'Bisphenol A (BPA)', threshold: '0.1', reference: 'Article 57(c)' },
-
-  // Solvents
-  { cas: '127-19-5', name: 'N,N-Dimethylacetamide (DMAC)', threshold: '0.1', reference: 'Article 57(c)' },
-  { cas: '872-50-4', name: 'N-Methyl-2-pyrrolidone (NMP)', threshold: '0.1', reference: 'Article 57(c)' },
-];
-
-export async function seedReachSvhc(em: EntityManager): Promise<void> {
-  console.log('Seeding REACH SVHC Candidate List...');
-
-  // Check if already seeded
-  const existing = await em.findOne(RegulatoryList, { code: 'REACH_SVHC' });
-  if (existing) {
-    console.log('  REACH_SVHC already exists, skipping');
-    return;
-  }
-
-  // Create the list
-  const list = em.create(RegulatoryList, {
-    code: 'REACH_SVHC',
-    name: 'REACH SVHC Candidate List',
-    source: 'ECHA',
-    version: '2024-01',
-    effectiveDate: new Date('2024-01-23'),
-    sourceUrl: 'https://echa.europa.eu/candidate-list-table',
-    description: 'Substances of Very High Concern for Authorization under REACH Article 33',
-  });
-
-  await em.persistAndFlush(list);
-
-  // Create entries
-  let added = 0;
-  let skipped = 0;
-
-  for (const entry of REACH_SVHC_ENTRIES) {
-    const substance = await em.findOne(Substance, { casNumber: entry.cas });
-
-    if (!substance) {
-      console.log(`  Skipping ${entry.cas} (${entry.name}) - substance not in registry`);
-      skipped++;
-      continue;
-    }
-
-    em.create(RegulatoryListEntry, {
-      list,
-      substance,
-      casNumberSnapshot: entry.cas,
-      substanceNameSnapshot: entry.name,
-      // Agnostic evaluation fields
-      operator: ComparisonOperator.GT,  // Fails if concentration > threshold
-      compareValue: entry.threshold,
-      issueType: 'CHEMICAL_LIMIT_EXCEEDED',
-      severity: Severity.WARNING,
-      legalReference: entry.reference,
-      notes: 'SVHC - declaration required above 0.1% w/w',
-    });
-
-    added++;
-  }
-
-  await em.flush();
-  console.log(`  Added ${added} entries, skipped ${skipped}`);
+interface MigrationManifest {
+  version: string;                          // Schema version
+  source?: string;                          // Content source URL
+  regulations: ManifestRegulation[];        // Regulation definitions
+  categoryMappings?: ManifestCategoryMapping[];  // Category links
 }
 ```
 
-**Step 2: Commit**
+### Regulation Definition
 
-```bash
-git add packages/database/src/seeders/regulatory/reach-svhc.seeder.ts
-git commit -m "feat(database): add REACH SVHC sample seeder"
+```typescript
+interface ManifestRegulation {
+  code: string;                // Unique identifier (e.g., "REACH")
+  name: string;                // Display name
+  description?: string;        // Long description
+  status: RegulationStatus;    // DRAFT | ACTIVE | ARCHIVED
+  version?: string;            // Regulation version
+  effectiveDate?: string;      // ISO date string
+  metadata?: {
+    jurisdiction?: string;     // e.g., "EU"
+    type?: string;             // e.g., "REGULATION", "DIRECTIVE"
+    officialJournalRef?: string;
+  };
+  requirements: ManifestRequirement[];  // Nested requirements
+}
+```
+
+### Requirement Definition
+
+```typescript
+interface ManifestRequirement {
+  code: string;                    // Unique within regulation
+  name: string;                    // Display name
+  description?: string;            // Long description
+  type: RequirementType;           // ATTRIBUTE_CHECK | SUBSTANCE_SCREEN | CALCULATED_CHECK | DECLARATION
+  severity: RequirementSeverity;   // BLOCKER | WARNING | INFO
+  attributeTemplateKey?: string;   // For ATTRIBUTE_CHECK
+  substanceListCode?: string;      // For SUBSTANCE_SCREEN (resolved to UUID)
+  calculationFormula?: string;     // For CALCULATED_CHECK
+  handlerConfig?: Record<string, unknown>;  // Handler-specific config
+  legalReference?: string;         // Article/Annex reference
+  allowTenantExemption?: boolean;  // Default: true
+}
+```
+
+### Category Mapping
+
+```typescript
+interface ManifestCategoryMapping {
+  categoryPath: string;     // e.g., "textiles.apparel"
+  regulationCode: string;   // Must match a regulation code
+}
 ```
 
 ---
 
-## Task 2: Create RoHS Restricted Substances Seeder
+## Sample Manifest
 
-**Files:**
-- Create: `packages/database/src/seeders/regulatory/rohs-restricted.seeder.ts`
-
-**Step 1: Create the seeder**
-
-```typescript
-// packages/database/src/seeders/regulatory/rohs-restricted.seeder.ts
-import { EntityManager } from '@mikro-orm/postgresql';
-import { RegulatoryList } from '../../entities/RegulatoryList.js';
-import { RegulatoryListEntry } from '../../entities/RegulatoryListEntry.js';
-import { Substance } from '../../entities/Substance.js';
-import { ComparisonOperator, Severity } from '../../entities/enums/index.js';
-
-/**
- * RoHS Directive 2011/65/EU Annex II - Restricted Substances
- * These apply at HOMOGENEOUS_MATERIAL level, not article level.
- * Source: https://eur-lex.europa.eu/eli/dir/2011/65
- */
-const ROHS_RESTRICTED = [
-  { cas: '7439-92-1', name: 'Lead', threshold: '0.1', reference: 'Annex II, Entry 1' },
-  { cas: '7439-97-6', name: 'Mercury', threshold: '0.1', reference: 'Annex II, Entry 2' },
-  { cas: '7440-43-9', name: 'Cadmium', threshold: '0.01', reference: 'Annex II, Entry 3' },  // Stricter!
-  { cas: '18540-29-9', name: 'Hexavalent chromium', threshold: '0.1', reference: 'Annex II, Entry 4' },
-  { cas: '1336-36-3', name: 'Polybrominated biphenyls (PBB)', threshold: '0.1', reference: 'Annex II, Entry 5' },
-  { cas: '32534-81-9', name: 'Polybrominated diphenyl ethers (PBDE)', threshold: '0.1', reference: 'Annex II, Entry 6' },
-  // RoHS 3 additions (2015/863)
-  { cas: '117-81-7', name: 'DEHP', threshold: '0.1', reference: 'Annex II, Entry 7' },
-  { cas: '84-74-2', name: 'DBP', threshold: '0.1', reference: 'Annex II, Entry 8' },
-  { cas: '85-68-7', name: 'BBP', threshold: '0.1', reference: 'Annex II, Entry 9' },
-  { cas: '84-69-5', name: 'DIBP', threshold: '0.1', reference: 'Annex II, Entry 10' },
-];
-
-export async function seedRohsRestricted(em: EntityManager): Promise<void> {
-  console.log('Seeding RoHS Restricted Substances List...');
-
-  // Check if already seeded
-  const existing = await em.findOne(RegulatoryList, { code: 'ROHS_RESTRICTED' });
-  if (existing) {
-    console.log('  ROHS_RESTRICTED already exists, skipping');
-    return;
-  }
-
-  // Create the list
-  const list = em.create(RegulatoryList, {
-    code: 'ROHS_RESTRICTED',
-    name: 'RoHS Directive Restricted Substances',
-    source: 'EU_ROHS',
-    version: '2024-01',
-    effectiveDate: new Date('2019-07-22'),  // RoHS 3 effective date
-    sourceUrl: 'https://eur-lex.europa.eu/eli/dir/2011/65',
-    description: 'Restriction of Hazardous Substances in EEE - Annex II',
-  });
-
-  await em.persistAndFlush(list);
-
-  // Create entries
-  let added = 0;
-  let skipped = 0;
-
-  for (const entry of ROHS_RESTRICTED) {
-    const substance = await em.findOne(Substance, { casNumber: entry.cas });
-
-    if (!substance) {
-      console.log(`  Skipping ${entry.cas} (${entry.name}) - substance not in registry`);
-      skipped++;
-      continue;
-    }
-
-    em.create(RegulatoryListEntry, {
-      list,
-      substance,
-      casNumberSnapshot: entry.cas,
-      substanceNameSnapshot: entry.name,
-      // Agnostic evaluation fields
-      operator: ComparisonOperator.GT,  // Fails if concentration > threshold
-      compareValue: entry.threshold,
-      issueType: 'CHEMICAL_LIMIT_EXCEEDED',
-      severity: Severity.BLOCKER,  // RoHS violations are blockers
-      legalReference: entry.reference,
-      notes: 'Evaluated at homogeneous material level',
-    });
-
-    added++;
-  }
-
-  await em.flush();
-  console.log(`  Added ${added} entries, skipped ${skipped}`);
-}
-```
-
-**Step 2: Commit**
-
-```bash
-git add packages/database/src/seeders/regulatory/rohs-restricted.seeder.ts
-git commit -m "feat(database): add RoHS restricted substances seeder"
-```
-
----
-
-## Task 3: Create CosIng Annex II Sample Seeder
-
-**Files:**
-- Create: `packages/database/src/seeders/regulatory/cosing-annex-ii.seeder.ts`
-
-**Step 1: Create the seeder**
-
-```typescript
-// packages/database/src/seeders/regulatory/cosing-annex-ii.seeder.ts
-import { EntityManager } from '@mikro-orm/postgresql';
-import { RegulatoryList } from '../../entities/RegulatoryList.js';
-import { RegulatoryListEntry } from '../../entities/RegulatoryListEntry.js';
-import { Substance } from '../../entities/Substance.js';
-import { ComparisonOperator, Severity } from '../../entities/enums/index.js';
-
-/**
- * Sample CosIng Annex II entries (Prohibited Substances in Cosmetics).
- * Real list has 1600+ entries - this is a representative sample.
- * Source: https://ec.europa.eu/growth/tools-databases/cosing/
- */
-const COSING_ANNEX_II_ENTRIES = [
-  // Preservatives (banned)
-  { cas: '50-00-0', name: 'Formaldehyde', reference: 'Entry 1577' },
-  { cas: '123-31-9', name: 'Hydroquinone', reference: 'Entry 383' },
-
-  // Heavy metals
-  { cas: '7439-92-1', name: 'Lead compounds', reference: 'Entry 289' },
-  { cas: '7439-97-6', name: 'Mercury compounds', reference: 'Entry 221' },
-
-  // Carcinogens
-  { cas: '71-43-2', name: 'Benzene', reference: 'Entry 68' },
-  { cas: '75-56-9', name: 'Propylene oxide', reference: 'Entry 544' },
-  { cas: '106-89-8', name: 'Epichlorohydrin', reference: 'Entry 190' },
-
-  // Other prohibited
-  { cas: '100-97-0', name: 'Methenamine', reference: 'Entry 413' },
-  { cas: '94-13-3', name: 'Propylparaben (certain uses)', reference: 'Entry 538' },
-];
-
-export async function seedCosingAnnexII(em: EntityManager): Promise<void> {
-  console.log('Seeding CosIng Annex II (Prohibited Substances)...');
-
-  // Check if already seeded
-  const existing = await em.findOne(RegulatoryList, { code: 'COSING_ANNEX_II' });
-  if (existing) {
-    console.log('  COSING_ANNEX_II already exists, skipping');
-    return;
-  }
-
-  // Create the list
-  const list = em.create(RegulatoryList, {
-    code: 'COSING_ANNEX_II',
-    name: 'CosIng Annex II - Prohibited Substances in Cosmetics',
-    source: 'EU_COSING',
-    version: '2024-06',
-    effectiveDate: new Date('2024-06-01'),
-    sourceUrl: 'https://ec.europa.eu/growth/tools-databases/cosing/reference/annexes/2',
-    description: 'Substances prohibited in cosmetic products under Regulation (EC) No 1223/2009',
-  });
-
-  await em.persistAndFlush(list);
-
-  // Create entries (all use PRESENT operator - any presence is violation)
-  let added = 0;
-  let skipped = 0;
-
-  for (const entry of COSING_ANNEX_II_ENTRIES) {
-    const substance = await em.findOne(Substance, { casNumber: entry.cas });
-
-    if (!substance) {
-      console.log(`  Skipping ${entry.cas} (${entry.name}) - substance not in registry`);
-      skipped++;
-      continue;
-    }
-
-    em.create(RegulatoryListEntry, {
-      list,
-      substance,
-      casNumberSnapshot: entry.cas,
-      substanceNameSnapshot: entry.name,
-      // Agnostic evaluation fields
-      operator: ComparisonOperator.PRESENT,  // Any presence > 0 is a violation
-      issueType: 'PROHIBITED_SUBSTANCE',
-      severity: Severity.BLOCKER,
-      legalReference: entry.reference,
-      notes: 'Prohibited in cosmetic products',
-    });
-
-    added++;
-  }
-
-  await em.flush();
-  console.log(`  Added ${added} entries, skipped ${skipped}`);
-}
-```
-
-**Step 2: Commit**
-
-```bash
-git add packages/database/src/seeders/regulatory/cosing-annex-ii.seeder.ts
-git commit -m "feat(database): add CosIng Annex II sample seeder"
-```
-
----
-
-## Task 4: Create Category-List Mappings Seeder
-
-**Files:**
-- Create: `packages/database/src/seeders/regulatory/category-list-mappings.seeder.ts`
-
-**Step 1: Create the seeder**
-
-```typescript
-// packages/database/src/seeders/regulatory/category-list-mappings.seeder.ts
-import { EntityManager } from '@mikro-orm/postgresql';
-import { Category } from '../../entities/Category.js';
-import { RegulatoryList } from '../../entities/RegulatoryList.js';
-import { CategoryRegulatoryList } from '../../entities/CategoryRegulatoryList.js';
-import { ListRequirement } from '../../entities/enums/index.js';
-
-/**
- * Default category-to-list mappings (CategoryRegulatoryList seeding).
- * These define which regulations apply to which product categories.
- *
- * allowTenantExemption:
- * - true: Tenant can exempt this regulation with documented justification
- * - false: No exemption allowed (e.g., prohibited substances)
- *
- * When a tenant adopts a system category, they automatically inherit
- * these regulatory list associations as baseline requirements.
- */
-const CATEGORY_LIST_MAPPINGS = [
-  // ═══════════════════════════════════════════════════════════════════
-  // REACH SVHC - applies broadly, exemptions allowed with justification
-  // ═══════════════════════════════════════════════════════════════════
-  {
-    categoryPath: 'products',
-    listCode: 'REACH_SVHC',
-    requirement: ListRequirement.RESTRICTION,
-    allowTenantExemption: true,  // Can be exempted with justification
-  },
-
-  // ═══════════════════════════════════════════════════════════════════
-  // ELECTRONICS → REACH_SVHC, ROHS_RESTRICTED, WEEE
-  // ═══════════════════════════════════════════════════════════════════
-  {
-    categoryPath: 'products.electronics',
-    listCode: 'ROHS_RESTRICTED',
-    requirement: ListRequirement.RESTRICTION,
-    allowTenantExemption: true,  // RoHS exemptions exist (medical devices, etc.)
-  },
-  {
-    categoryPath: 'products.electronics',
-    listCode: 'WEEE',
-    requirement: ListRequirement.DECLARATION,
-    allowTenantExemption: true,
-  },
-
-  // ═══════════════════════════════════════════════════════════════════
-  // COSMETICS → COSING_ANNEX_II, COSING_ANNEX_III, REACH_SVHC
-  // ═══════════════════════════════════════════════════════════════════
-  {
-    categoryPath: 'products.cosmetics',
-    listCode: 'COSING_ANNEX_II',
-    requirement: ListRequirement.PROHIBITION,
-    allowTenantExemption: false,  // Prohibited substances - NO exemption allowed
-  },
-  {
-    categoryPath: 'products.cosmetics',
-    listCode: 'COSING_ANNEX_III',
-    requirement: ListRequirement.RESTRICTION,
-    allowTenantExemption: true,  // Restricted with conditions
-  },
-
-  // ═══════════════════════════════════════════════════════════════════
-  // TEXTILES → REACH_SVHC, OEKO_TEX_100
-  // ═══════════════════════════════════════════════════════════════════
-  {
-    categoryPath: 'products.textiles',
-    listCode: 'OEKO_TEX_100',
-    requirement: ListRequirement.CERTIFICATION,
-    allowTenantExemption: true,  // Voluntary certification
-  },
-];
-
-export async function seedCategoryListMappings(em: EntityManager): Promise<void> {
-  console.log('Seeding Category-List Mappings...');
-
-  let added = 0;
-  let skipped = 0;
-
-  for (const mapping of CATEGORY_LIST_MAPPINGS) {
-    // Find category
-    const category = await em.findOne(Category, { path: mapping.categoryPath });
-    if (!category) {
-      console.log(`  Skipping ${mapping.categoryPath} -> ${mapping.listCode} - category not found`);
-      skipped++;
-      continue;
-    }
-
-    // Find list
-    const list = await em.findOne(RegulatoryList, { code: mapping.listCode, isCurrentVersion: true });
-    if (!list) {
-      console.log(`  Skipping ${mapping.categoryPath} -> ${mapping.listCode} - list not found`);
-      skipped++;
-      continue;
-    }
-
-    // Check if mapping exists
-    const existing = await em.findOne(CategoryRegulatoryList, {
-      category,
-      regulatoryList: list,
-    });
-
-    if (existing) {
-      console.log(`  Mapping ${mapping.categoryPath} -> ${mapping.listCode} already exists`);
-      skipped++;
-      continue;
-    }
-
-    // Create mapping with allowTenantExemption
-    em.create(CategoryRegulatoryList, {
-      category,
-      regulatoryList: list,
-      requirement: mapping.requirement,
-      allowTenantExemption: mapping.allowTenantExemption,
-    });
-
-    console.log(`  Added: ${mapping.categoryPath} -> ${mapping.listCode} (${mapping.requirement}, exemption=${mapping.allowTenantExemption})`);
-    added++;
-  }
-
-  await em.flush();
-  console.log(`  Added ${added} mappings, skipped ${skipped}`);
-}
-```
-
-**Step 2: Commit**
-
-```bash
-git add packages/database/src/seeders/regulatory/category-list-mappings.seeder.ts
-git commit -m "feat(database): add category-list mappings seeder"
-```
-
----
-
-## Task 5: Create Main Regulatory Seeder Entry Point
-
-**Files:**
-- Create: `packages/database/src/seeders/regulatory/index.ts`
-- Modify: `packages/database/src/seeders/index.ts`
-
-**Step 1: Create the index file**
-
-```typescript
-// packages/database/src/seeders/regulatory/index.ts
-import { EntityManager } from '@mikro-orm/postgresql';
-import { seedReachSvhc } from './reach-svhc.seeder.js';
-import { seedRohsRestricted } from './rohs-restricted.seeder.js';
-import { seedCosingAnnexII } from './cosing-annex-ii.seeder.js';
-import { seedCategoryListMappings } from './category-list-mappings.seeder.js';
-
-/**
- * Seed all regulatory lists and mappings.
- * Order matters: lists before mappings.
- */
-export async function seedRegulatoryData(em: EntityManager): Promise<void> {
-  console.log('\n=== Seeding Regulatory Data ===\n');
-
-  // Seed lists first
-  await seedReachSvhc(em);
-  await seedRohsRestricted(em);
-  await seedCosingAnnexII(em);
-
-  // Then seed mappings (requires both categories and lists)
-  await seedCategoryListMappings(em);
-
-  console.log('\n=== Regulatory Data Seeding Complete ===\n');
-}
-
-// Re-export individual seeders for selective use
-export { seedReachSvhc } from './reach-svhc.seeder.js';
-export { seedRohsRestricted } from './rohs-restricted.seeder.js';
-export { seedCosingAnnexII } from './cosing-annex-ii.seeder.js';
-export { seedCategoryListMappings } from './category-list-mappings.seeder.js';
-```
-
-**Step 2: Update main seeders index**
-
-```typescript
-// packages/database/src/seeders/index.ts
-// Add to existing exports:
-export * from './regulatory/index.js';
-```
-
-**Step 3: Commit**
-
-```bash
-git add packages/database/src/seeders/regulatory/index.ts packages/database/src/seeders/index.ts
-git commit -m "feat(database): add main regulatory seeder entry point"
-```
-
----
-
-## Task 6: Add Seeder CLI Command
-
-**Files:**
-- Modify: `packages/database/src/cli/seed.ts` (or create if doesn't exist)
-
-**Step 1: Update CLI to include regulatory seeder**
-
-```typescript
-// packages/database/src/cli/seed.ts
-import { MikroORM } from '@mikro-orm/postgresql';
-import config from '../mikro-orm.config.js';
-import { seedRegulatoryData } from '../seeders/regulatory/index.js';
-
-async function run() {
-  const orm = await MikroORM.init(config);
-  const em = orm.em.fork();
-
-  try {
-    const command = process.argv[2];
-
-    switch (command) {
-      case 'regulatory':
-        await seedRegulatoryData(em);
-        break;
-      case 'all':
-        // Add other seeders here
-        await seedRegulatoryData(em);
-        break;
-      default:
-        console.log('Usage: pnpm seed <regulatory|all>');
-        process.exit(1);
-    }
-
-    console.log('Seeding complete!');
-  } catch (error) {
-    console.error('Seeding failed:', error);
-    process.exit(1);
-  } finally {
-    await orm.close();
-  }
-}
-
-run();
-```
-
-**Step 2: Add npm script**
+Reference: `packages/database/src/seed/manifests/eu-regulations-2026.json`
 
 ```json
-// packages/database/package.json
 {
-  "scripts": {
-    "seed": "tsx src/cli/seed.ts",
-    "seed:regulatory": "tsx src/cli/seed.ts regulatory"
+  "$schema": "../migration-manifest.schema.json",
+  "version": "1.0",
+  "source": "https://eurocomply.io/regulatory-content/eu-2026",
+  "regulations": [
+    {
+      "code": "REACH",
+      "name": "Registration, Evaluation, Authorisation and Restriction of Chemicals",
+      "description": "EU regulation on chemical substances and their safe use",
+      "status": "ACTIVE",
+      "version": "2024.1",
+      "metadata": {
+        "jurisdiction": "EU",
+        "type": "REGULATION",
+        "officialJournalRef": "Regulation (EC) No 1907/2006"
+      },
+      "requirements": [
+        {
+          "code": "SVHC_SCREEN",
+          "name": "SVHC Substance Screen",
+          "description": "Screen for Substances of Very High Concern",
+          "type": "SUBSTANCE_SCREEN",
+          "severity": "BLOCKER",
+          "substanceListCode": "REACH_SVHC",
+          "handlerConfig": {
+            "defaultThresholdPct": 0.1
+          },
+          "legalReference": "Article 33",
+          "allowTenantExemption": false
+        }
+      ]
+    },
+    {
+      "code": "ESPR",
+      "name": "Ecodesign for Sustainable Products Regulation",
+      "status": "ACTIVE",
+      "requirements": [
+        {
+          "code": "RECYCLED_CONTENT_MIN",
+          "name": "Minimum Recycled Content",
+          "type": "ATTRIBUTE_CHECK",
+          "severity": "BLOCKER",
+          "attributeTemplateKey": "recycled_content_pct",
+          "handlerConfig": {
+            "operator": ">=",
+            "threshold": 25,
+            "unit": "%"
+          }
+        }
+      ]
+    }
+  ],
+  "categoryMappings": [
+    { "categoryPath": "textiles", "regulationCode": "REACH" },
+    { "categoryPath": "textiles.apparel", "regulationCode": "ESPR" },
+    { "categoryPath": "cosmetics", "regulationCode": "COSING" }
+  ]
+}
+```
+
+---
+
+## ManifestLoader Service
+
+### Location
+
+`packages/database/src/seed/ManifestLoader.ts`
+
+### Interface
+
+```typescript
+import { ManifestLoader, LoadResult } from '@eurocomply/database/seed';
+
+const loader = new ManifestLoader(em);
+const result: LoadResult = await loader.loadManifest(manifest);
+
+console.log(result);
+// {
+//   regulationsCreated: 3,
+//   regulationsSkipped: 0,
+//   requirementsCreated: 7,
+//   mappingsCreated: 5
+// }
+```
+
+### LoadResult
+
+```typescript
+interface LoadResult {
+  regulationsCreated: number;   // New regulations added
+  regulationsSkipped: number;   // Existing regulations (idempotent skip)
+  requirementsCreated: number;  // Requirements added
+  mappingsCreated: number;      // Category mappings added
+}
+```
+
+### Idempotent Behavior
+
+The loader is designed for safe repeated execution:
+
+1. **Regulations:** Skipped if `code` already exists
+2. **Requirements:** Created only with new regulations
+3. **Category Mappings:** Skipped if mapping already exists
+
+```typescript
+// First run
+const result1 = await loader.loadManifest(manifest);
+// { regulationsCreated: 3, regulationsSkipped: 0, ... }
+
+// Second run (safe)
+const result2 = await loader.loadManifest(manifest);
+// { regulationsCreated: 0, regulationsSkipped: 3, ... }
+```
+
+---
+
+## Usage
+
+### Programmatic Loading
+
+```typescript
+import { MikroORM } from '@mikro-orm/postgresql';
+import { ManifestLoader } from '@eurocomply/database/seed/ManifestLoader';
+import manifest from './manifests/eu-regulations-2026.json';
+
+const orm = await MikroORM.init(config);
+const em = orm.em.fork();
+
+const loader = new ManifestLoader(em);
+const result = await loader.loadManifest(manifest);
+
+console.log(`Created ${result.regulationsCreated} regulations`);
+console.log(`Created ${result.requirementsCreated} requirements`);
+console.log(`Created ${result.mappingsCreated} category mappings`);
+
+await orm.close();
+```
+
+### Loading from File
+
+```typescript
+import { readFileSync } from 'fs';
+import type { MigrationManifest } from '@eurocomply/database/seed/types';
+
+const json = readFileSync('./manifests/eu-regulations-2026.json', 'utf-8');
+const manifest: MigrationManifest = JSON.parse(json);
+
+const loader = new ManifestLoader(em);
+await loader.loadManifest(manifest);
+```
+
+---
+
+## JSON Schema Validation
+
+The manifest schema is defined in `migration-manifest.schema.json`:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Migration Manifest",
+  "description": "Defines regulatory content for database seeding",
+  "type": "object",
+  "required": ["version", "regulations"],
+  "properties": {
+    "version": { "type": "string" },
+    "source": { "type": "string" },
+    "regulations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/regulation" }
+    },
+    "categoryMappings": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/categoryMapping" }
+    }
   }
 }
 ```
 
-**Step 3: Test the seeder**
+Use the schema in manifest files for IDE validation:
 
-```bash
-cd packages/database && pnpm seed:regulatory
+```json
+{
+  "$schema": "../migration-manifest.schema.json",
+  "version": "1.0",
+  ...
+}
 ```
 
-Expected: Seeding output showing lists and entries created
+---
 
-**Step 4: Commit**
+## Requirement Types
 
-```bash
-git add packages/database/src/cli/seed.ts packages/database/package.json
-git commit -m "feat(database): add regulatory seeder CLI command"
+The manifest supports four requirement types:
+
+| Type | Purpose | Required Fields |
+|------|---------|-----------------|
+| `ATTRIBUTE_CHECK` | Validate product attributes | `attributeTemplateKey`, `handlerConfig` |
+| `SUBSTANCE_SCREEN` | Screen against substance lists | `substanceListCode`, `handlerConfig` |
+| `CALCULATED_CHECK` | Formula-based evaluation | `calculationFormula` |
+| `DECLARATION` | Yes/No declarations | `handlerConfig` (question, acceptedAnswers) |
+
+### Handler Config Examples
+
+**ATTRIBUTE_CHECK:**
+```json
+{
+  "operator": ">=",
+  "threshold": 25,
+  "unit": "%"
+}
+```
+
+**SUBSTANCE_SCREEN:**
+```json
+{
+  "defaultThresholdPct": 0.1
+}
+```
+
+**DECLARATION:**
+```json
+{
+  "question": "Has durability testing been performed?",
+  "acceptedAnswers": ["Yes", "Not Applicable"],
+  "requiresDocument": true,
+  "acceptedDocumentTypes": ["application/pdf"]
+}
+```
+
+---
+
+## File Structure
+
+```
+packages/database/src/seed/
+├── ManifestLoader.ts              # Loading engine
+├── types.ts                       # TypeScript interfaces
+├── migration-manifest.schema.json # JSON Schema
+├── manifests/
+│   └── eu-regulations-2026.json   # Sample EU regulations
+└── __tests__/
+    └── ManifestLoader.test.ts     # Unit tests
+```
+
+---
+
+## Creating New Manifests
+
+To add new regulatory content:
+
+1. **Create JSON file** in `manifests/` directory
+2. **Reference schema** for validation: `"$schema": "../migration-manifest.schema.json"`
+3. **Define regulations** with requirements
+4. **Add category mappings** to link categories
+5. **Load via ManifestLoader** in your seeding script
+
+### Example: Adding a New Regulation
+
+```json
+{
+  "$schema": "../migration-manifest.schema.json",
+  "version": "1.0",
+  "regulations": [
+    {
+      "code": "ROHS",
+      "name": "Restriction of Hazardous Substances",
+      "status": "ACTIVE",
+      "metadata": {
+        "jurisdiction": "EU",
+        "officialJournalRef": "Directive 2011/65/EU"
+      },
+      "requirements": [
+        {
+          "code": "ROHS_RESTRICTED",
+          "name": "RoHS Restricted Substances",
+          "type": "SUBSTANCE_SCREEN",
+          "severity": "BLOCKER",
+          "substanceListCode": "ROHS_RESTRICTED",
+          "handlerConfig": { "defaultThresholdPct": 0.1 },
+          "legalReference": "Annex II",
+          "allowTenantExemption": false
+        }
+      ]
+    }
+  ],
+  "categoryMappings": [
+    { "categoryPath": "electronics", "regulationCode": "ROHS" }
+  ]
+}
 ```
 
 ---
 
 ## Summary
 
-**Plan 15 delivers:**
-- REACH SVHC Candidate List seeder (11 sample substances)
-- RoHS Restricted Substances seeder (10 substances)
-- CosIng Annex II seeder (9 sample substances)
-- **CategoryRegulatoryList seeding** - Links system categories to regulatory lists:
-  - Electronics → REACH_SVHC, ROHS_RESTRICTED, WEEE
-  - Cosmetics → COSING_ANNEX_II, COSING_ANNEX_III
-  - Textiles → OEKO_TEX_100
-  - Includes `allowTenantExemption` flag per mapping (e.g., COSING_ANNEX_II = false)
-- Main entry point and CLI command
-- Idempotent seeders (safe to run multiple times)
+The Migration Manifest System provides:
 
-**Seeder Usage:**
-```bash
-# Seed regulatory data only
-pnpm seed:regulatory
+- **Declarative JSON manifests** for regulatory content
+- **ManifestLoader service** for idempotent database loading
+- **JSON Schema validation** for manifest files
+- **Support for all requirement types** (attribute, substance, calculated, declaration)
+- **Category-regulation mappings** for scoping
 
-# Seed all data
-pnpm seed all
-```
-
-**Note:** These are development/testing seeds with sample data. Production data should be imported via the admin import pipeline (Plan 12) using official EU source files.
-
----
-
-## Complete Plan Dependency Chain
-
-```
-Plan 1: Seed Infrastructure
-    ↓
-Plan 4: Substance Registry ─────────────────────┐
-    ↓                                           │
-Plan 5: Category Service ───────────────────────┤
-    ↓                                           │
-Plan 10: Regulatory List Registry ──────────────┤
-    ↓                                           │
-Plan 11: Category-List Scoping ─────────────────┤
-    ↓                                           │
-Plan 12: Admin Import Pipeline                  │
-    ↓                                           │
-Plan 14: Vertical Rule Evaluation               │
-    ↓                                           │
-Plan 15: Regulatory Seeders ◄───────────────────┘
-```
+**Key Files:**
+- `ManifestLoader.ts` - Loading engine
+- `types.ts` - TypeScript interfaces
+- `migration-manifest.schema.json` - JSON Schema
+- `manifests/eu-regulations-2026.json` - Sample EU regulations
 
 ---
 
 *Plan created: 2026-01-26*
+*Implemented: 2026-01-28*

@@ -10,11 +10,9 @@ import { createProductsRouter } from './routes/products.js';
 import { createApiKeysRouter } from './routes/api-keys.js';
 import { createCategoryAdoptionRouter } from './routes/category-adoption.js';
 import { createTenantCategoriesRouter } from './routes/tenant-categories.js';
-import { createTenantCategoryRegulatoryListsRouter } from './routes/tenant-category-regulatory-lists.js';
 import { createComplianceStackRouter } from './routes/compliance-stack.js';
 import { createExemptionRouter } from './routes/exemptions.js';
 import { createEvidenceRouter } from './routes/evidence.js';
-import { createCategoryRegulatoryListsRouter } from './routes/admin/category-regulatory-lists.js';
 import { createUnitsRouter, type UnitsRepository, createSubstancesRouter, type SubstancesRepository } from './routes/taxonomy/index.js';
 import { tenantMiddleware, createTenantMiddlewareWithApiKeys } from './middleware/tenant.js';
 import { adminAuthMiddleware } from './middleware/admin-auth.js';
@@ -101,11 +99,6 @@ export function createApp(deps?: AppDependencies): Hono<Env> {
     v1.route('/admin/organizations', deps.organizationsAdminRouter);
   }
 
-  // Category regulatory list management - admin only (requires ORM)
-  if (deps?.orm) {
-    v1.route('/admin/categories', createCategoryRegulatoryListsRouter({ orm: deps.orm }));
-  }
-
   // API key management routes (JWT-only authentication)
   // These routes allow tenants to create, list, and revoke their API keys
   if (deps?.orm) {
@@ -151,9 +144,6 @@ export function createApp(deps?: AppDependencies): Hono<Env> {
       v1.use('/tenant-categories/*', userMiddleware);
     }
     v1.route('/tenant-categories', createTenantCategoriesRouter({ orm: deps.orm }));
-
-    // Tenant Category Regulatory Lists: Uses same auth as tenant-categories
-    v1.route('/tenant-categories', createTenantCategoryRegulatoryListsRouter({ orm: deps.orm }));
 
     // Compliance Stack: Apply tenant + user middleware (requires compliance:view)
     v1.use('/compliance-stack/*', createTenantMiddlewareWithApiKeys(deps.orm.em as any));

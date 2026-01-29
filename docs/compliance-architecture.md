@@ -35,9 +35,65 @@ packaging
 ### Tenant Layer
 
 Tenants can:
-1. **Adopt** system categories via `TenantCategory.systemCategoryId`
+1. **Adopt** system categories via `CategoryAdoption`
 2. **Create exemptions** (if `allowTenantExemption: true`)
 3. **Add tenant-specific** regulations (beyond system baseline)
+
+### Category Adoption (LIVE/FROZEN/DETACHED)
+
+When a tenant adopts a system category, they choose a **link mode**:
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                      CATEGORY ADOPTION MODES                            │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  LIVE (default)                                                         │
+│  ─────────────────                                                      │
+│  • Tenant always sees current system baseline                           │
+│  • Automatic updates when system category changes                       │
+│  • Best for: Tenants who want latest compliance requirements            │
+│                                                                         │
+│  FROZEN                                                                 │
+│  ─────────────────                                                      │
+│  • Tenant locked to a specific version                                  │
+│  • pinnedRegulationIds captures point-in-time snapshot                  │
+│  • System updates don't affect tenant until they explicitly sync        │
+│  • Best for: Predictable compliance during certification periods        │
+│                                                                         │
+│  DETACHED                                                               │
+│  ─────────────────                                                      │
+│  • Tenant category becomes fully independent (custom)                   │
+│  • No longer linked to system category                                  │
+│  • Permanent: Cannot be re-linked to system                             │
+│  • Best for: Highly customized compliance requirements                  │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+**Entity: `CategoryAdoption`** (tenant schema)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `systemCategoryId` | text | Links to public.category |
+| `localCategory` | FK | Links to TenantCategory |
+| `mode` | enum | LIVE, FROZEN, DETACHED |
+| `adoptedAt` | timestamp | When adoption occurred |
+| `adoptedVersion` | int | Version at adoption time |
+| `frozenAtVersion` | int | Version when frozen (FROZEN mode) |
+| `updateAvailable` | boolean | True if system has newer version |
+| `pinnedRegulationIds` | text[] | Captured regulation IDs (FROZEN mode) |
+
+**API Endpoints:**
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v1/category-adoption` | GET | List adopted categories |
+| `/api/v1/category-adoption/available` | GET | List available for adoption |
+| `/api/v1/category-adoption/:categoryId` | POST | Adopt a system category |
+| `/api/v1/category-adoption/:categoryId` | PATCH | Change link mode |
+| `/api/v1/category-adoption/:categoryId` | DELETE | Remove adoption |
+| `/api/v1/category-adoption/:categoryId/sync` | POST | Manual sync (FROZEN mode) |
 
 ### Exemption Guardrail
 

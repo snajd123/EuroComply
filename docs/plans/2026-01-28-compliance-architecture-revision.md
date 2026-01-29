@@ -1,5 +1,7 @@
 # Compliance Architecture Revision Implementation Plan
 
+> **STATUS: IMPLEMENTED** - All 40 tasks completed on 2026-01-28. This plan has been fully executed and the compliance architecture is now in production.
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Migrate from Category → SubstanceList direct mapping to unified Category → Regulation → Requirement architecture with hybrid evaluation (auto-check + declaration).
@@ -4601,16 +4603,16 @@ export class ManifestLoader {
   }
 
   private async loadRequirement(manifest: ManifestRequirement, regulation: Regulation): Promise<void> {
-    // Resolve substanceListCode to UUID if provided
+    // Resolve substanceListCode to UUID if provided (substance lists are Regulations with type SUBSTANCE_SCREEN)
     let substanceListId: string | undefined;
     if (manifest.substanceListCode) {
       const substanceList = await this.em.findOne(
-        'RegulatoryList',
+        Regulation,
         { code: manifest.substanceListCode },
         { schema: 'public' }
       );
       if (substanceList) {
-        substanceListId = (substanceList as { id: string }).id;
+        substanceListId = substanceList.id;
       } else {
         console.warn(`Substance list not found for code: ${manifest.substanceListCode}`);
       }

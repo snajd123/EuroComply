@@ -24,16 +24,8 @@ export {
   type UpdateCategoryInput,
 } from './category.service.js';
 export {
-  RegulatoryListService,
-  type CreateListInput,
-  type AddEntryInput,
-  type GetEntriesOptions,
-} from './RegulatoryListService.js';
-export {
   ComplianceStackResolver,
-  type EffectiveRegulation,
   type ComplianceStackResult,
-  type ComplianceStackResultRevised,
   type ResolveOptions,
 } from './ComplianceStackResolver.js';
 export {

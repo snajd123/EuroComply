@@ -2257,7 +2257,7 @@ function parseMetadataValue(key: string, value: unknown): ParsedValue | null {
 | [05-design-workspace.md](./05-design-workspace.md) | Product/BOM usage of taxonomy, **substance declaration UI** |
 | [06-operations-workspace.md](./06-operations-workspace.md) | Facility/Batch usage of taxonomy |
 | [08-compliance-workspace.md](./08-compliance-workspace.md) | DPP attribute extraction, **substance declarations in DPP** |
-| [13-regulatory-advisor.md](./13-regulatory-advisor.md) | Rule validation against attributes, **substance compliance rules** |
+| [Compliance Evaluation System](../guides/compliance-evaluation-system.md) | Requirement validation against attributes, **substance compliance rules** |
 
 ### Documents Requiring Updates
 
@@ -2267,7 +2267,7 @@ The following documents need updates to reflect the new Classifications and Subs
 |----------|------------------|
 | `02-data-model.md` | Add `ProductClassification`, `Substance`, `SubstanceAlias`, `MaterialSubstance` entity DDL |
 | `05-design-workspace.md` | Add substance declaration UI flow in Material Detail View and BOM Builder |
-| `13-regulatory-advisor.md` | Add substance-specific rule types (SVHC threshold, RoHS, Authorization) |
+| `compliance-evaluation-system.md` | Substance-specific requirement types implemented via SubstanceScreenHandler |
 
 ---
 
