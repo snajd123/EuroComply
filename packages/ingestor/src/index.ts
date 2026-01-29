@@ -11,4 +11,4 @@ export * from './prompts/gemini-shadow-prompt.js';
 export { ClaudeExtractor } from './services/ClaudeExtractor.js';
 export { GeminiShadow } from './services/GeminiShadow.js';
 export { Comparator, type ComparisonResult, type ConflictDetails, type ComparatorOptions } from './services/Comparator.js';
-// export { IngestionPipeline } from './services/IngestionPipeline.js';
+export { IngestionPipeline, type IngestionPipelineOptions, type IngestionResult } from './services/IngestionPipeline.js';

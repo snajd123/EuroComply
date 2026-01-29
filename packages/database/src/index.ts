@@ -31,6 +31,10 @@ export {
   ExemptionService,
   ExemptionGuardrailError,
   type CreateExemptionInput,
+  StagingService,
+  type CreateStagingRequirementInput,
+  type CreateStagingRegulationInput,
+  type ListStagingRegulationsFilter,
 } from './services/index.js';
 
 // Re-export common MikroORM types for convenience
