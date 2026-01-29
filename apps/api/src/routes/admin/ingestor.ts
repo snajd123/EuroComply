@@ -139,11 +139,6 @@ export function createIngestorRouter(options: IngestorRouterOptions): Hono<Env> 
     async (c) => {
       const body = c.req.valid('json');
 
-      // Validate required fields
-      if (!body.sourceUrl) {
-        return error(c, 'BAD_REQUEST', 'sourceUrl is required', 400);
-      }
-
       // For now, return a placeholder - actual extraction implemented in Task 18
       return success(c, {
         message: 'Extraction queued',
@@ -166,6 +161,17 @@ export function createIngestorRouter(options: IngestorRouterOptions): Hono<Env> 
       const userId = c.get('userId') ?? 'admin';
       const em = orm.em.fork();
       const service = new StagingService(em);
+
+      // Verify staging regulation exists and requirement belongs to it
+      const regulation = await service.getStagingRegulation(id);
+      if (!regulation) {
+        return error(c, 'NOT_FOUND', 'Staging regulation not found', 404);
+      }
+
+      const reqBelongsToReg = regulation.requirements.getItems().some(r => r.id === reqId);
+      if (!reqBelongsToReg) {
+        return error(c, 'NOT_FOUND', 'Requirement not found in this staging regulation', 404);
+      }
 
       try {
         const updated = await service.updateRequirement(reqId, body as Parameters<StagingService['updateRequirement']>[1], userId);
@@ -227,6 +233,12 @@ export function createIngestorRouter(options: IngestorRouterOptions): Hono<Env> 
       const userId = c.get('userId') ?? 'admin';
       const em = orm.em.fork();
       const service = new StagingService(em);
+
+      // Verify staging regulation exists
+      const regulation = await service.getStagingRegulation(id);
+      if (!regulation) {
+        return error(c, 'NOT_FOUND', 'Staging regulation not found', 404);
+      }
 
       const count = await service.bulkApproveMatches(id, userId);
 
