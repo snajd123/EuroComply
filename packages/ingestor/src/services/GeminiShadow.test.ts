@@ -57,5 +57,11 @@ describe('GeminiShadow', () => {
 
       expect(result).toHaveLength(0);
     });
+
+    it('should_throw_error_for_invalid_json', () => {
+      const shadow = new GeminiShadow({ apiKey: 'test-key' });
+
+      expect(() => shadow.parseResponse('not valid json')).toThrow('Invalid JSON in Gemini response');
+    });
   });
 });
