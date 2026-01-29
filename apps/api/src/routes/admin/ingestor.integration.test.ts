@@ -3,6 +3,7 @@ import { Hono } from 'hono';
 import { createIngestorRouter } from './ingestor.js';
 import { setupTestDb, teardownTestDb, isDatabaseAvailable } from '@eurocomply/database/test-utils';
 import type { MikroORM } from '@eurocomply/database';
+import { StagingService, RequirementType, RequirementSeverity, ConsensusStatus } from '@eurocomply/database';
 import type { Env } from '../../app.js';
 
 describe('Ingestor Admin API Integration', () => {
@@ -63,6 +64,54 @@ describe('Ingestor Admin API Integration', () => {
       });
 
       expect(res.status).toBe(400);
+    });
+  });
+
+  describe('POST /ingestor/staging/:id/publish', () => {
+    it('should_publish_approved_staging_regulation', async (ctx) => {
+      if (!(await isDatabaseAvailable())) {
+        ctx.skip();
+        return;
+      }
+
+      // Create and approve a staging regulation
+      const em = orm.em.fork();
+      const stagingService = new StagingService(em);
+      const regulation = await stagingService.createStagingRegulation({
+        code: 'PUBLISH_API_TEST',
+        name: 'Publish API Test',
+        sourceUrl: 'https://example.com',
+        sourceType: 'EUR_LEX',
+        primaryPayload: {},
+        requirements: [
+          {
+            code: 'REQ_1',
+            name: 'Test Requirement',
+            type: RequirementType.DECLARATION,
+            severity: RequirementSeverity.WARNING,
+            confidenceScore: 0.99,
+            consensusStatus: ConsensusStatus.MATCH,
+          },
+        ],
+      });
+
+      // Get the created requirements
+      const requirements = regulation.requirements.getItems();
+
+      // Approve the requirement
+      await stagingService.approveRequirement(requirements[0].id, 'test_admin');
+
+      // Publish
+      const testApp = createTestApp();
+      const res = await testApp.request(`/ingestor/staging/${regulation.id}/publish`, {
+        method: 'POST',
+      });
+
+      expect(res.status).toBe(201);
+      const data = await res.json();
+      expect(data.success).toBe(true);
+      expect(data.data.regulationId).toBeDefined();
+      expect(data.data.requirementCount).toBe(1);
     });
   });
 });

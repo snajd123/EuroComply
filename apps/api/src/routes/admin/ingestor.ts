@@ -14,7 +14,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import type { MikroORM } from '@eurocomply/database';
-import { StagingService, StagingStatus } from '@eurocomply/database';
+import { StagingService, StagingStatus, PublishService } from '@eurocomply/database';
 import type { Env } from '../../app.js';
 import { success, error } from '../../utils/response.js';
 
@@ -245,6 +245,40 @@ export function createIngestorRouter(options: IngestorRouterOptions): Hono<Env> 
       return success(c, {
         approvedCount: count,
       });
+    }
+  );
+
+  /**
+   * POST /staging/:id/publish
+   * Publish approved requirements to production
+   */
+  router.post(
+    '/staging/:id/publish',
+    async (c) => {
+      const { id } = c.req.param();
+      const userId = c.get('userId') ?? 'admin';
+      const em = orm.em.fork();
+
+      try {
+        const publishService = new PublishService(em);
+        const result = await publishService.publish(id, userId);
+
+        return success(c, {
+          regulationId: result.regulationId,
+          requirementCount: result.requirementCount,
+          message: 'Regulation published to production',
+        }, { status: 201 });
+      } catch (err) {
+        if (err instanceof Error) {
+          if (err.message.includes('not found')) {
+            return error(c, 'NOT_FOUND', 'Staging regulation not found', 404);
+          }
+          if (err.message.includes('not approved')) {
+            return error(c, 'BAD_REQUEST', err.message, 400);
+          }
+        }
+        throw err;
+      }
     }
   );
 
