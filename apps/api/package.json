@@ -10,6 +10,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@clerk/backend": "^2.29.6",
     "@eurocomply/core": "workspace:*",
     "@eurocomply/database": "workspace:*",
     "@hono/node-server": "^1.13.0",
