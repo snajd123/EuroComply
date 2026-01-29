@@ -64,8 +64,9 @@ export function createApp(deps?: AppDependencies): Hono<Env> {
   );
 
   // Create user middleware if orm is available
+  // Note: Type assertion needed due to MikroORM's complex generic types
   const userMiddleware = deps?.orm
-    ? createUserMiddleware({ orm: deps.orm as any })
+    ? createUserMiddleware({ orm: deps.orm })
     : undefined;
 
   // Health check
@@ -106,7 +107,7 @@ export function createApp(deps?: AppDependencies): Hono<Env> {
     if (userMiddleware) {
       v1.use('/api-keys/*', userMiddleware);
     }
-    v1.route('/api-keys', createApiKeysRouter({ em: deps.orm.em as any }));
+    v1.route('/api-keys', createApiKeysRouter({ em: deps.orm.em }));
   }
 
   // Taxonomy routes (public, no auth required)
@@ -125,42 +126,42 @@ export function createApp(deps?: AppDependencies): Hono<Env> {
   // NOTE: Products routes require ORM - no fallback (authorization requires database)
   if (deps?.orm) {
     // Products: Apply tenant + user middleware
-    v1.use('/products/*', createTenantMiddlewareWithApiKeys(deps.orm.em as any));
+    v1.use('/products/*', createTenantMiddlewareWithApiKeys(deps.orm.em));
     if (userMiddleware) {
       v1.use('/products/*', userMiddleware);
     }
     v1.route('/products', createProductsRouter({ orm: deps.orm }));
 
     // Category Adoption: Apply tenant + user middleware (requires full auth stack)
-    v1.use('/category-adoption/*', createTenantMiddlewareWithApiKeys(deps.orm.em as any));
+    v1.use('/category-adoption/*', createTenantMiddlewareWithApiKeys(deps.orm.em));
     if (userMiddleware) {
       v1.use('/category-adoption/*', userMiddleware);
     }
     v1.route('/category-adoption', createCategoryAdoptionRouter({ orm: deps.orm }));
 
     // Tenant Categories: Apply tenant + user middleware (requires full auth stack)
-    v1.use('/tenant-categories/*', createTenantMiddlewareWithApiKeys(deps.orm.em as any));
+    v1.use('/tenant-categories/*', createTenantMiddlewareWithApiKeys(deps.orm.em));
     if (userMiddleware) {
       v1.use('/tenant-categories/*', userMiddleware);
     }
     v1.route('/tenant-categories', createTenantCategoriesRouter({ orm: deps.orm }));
 
     // Compliance Stack: Apply tenant + user middleware (requires compliance:view)
-    v1.use('/compliance-stack/*', createTenantMiddlewareWithApiKeys(deps.orm.em as any));
+    v1.use('/compliance-stack/*', createTenantMiddlewareWithApiKeys(deps.orm.em));
     if (userMiddleware) {
       v1.use('/compliance-stack/*', userMiddleware);
     }
     v1.route('/compliance-stack', createComplianceStackRouter({ orm: deps.orm }));
 
     // Exemptions: Apply tenant + user middleware (requires compliance:view/edit)
-    v1.use('/exemptions/*', createTenantMiddlewareWithApiKeys(deps.orm.em as any));
+    v1.use('/exemptions/*', createTenantMiddlewareWithApiKeys(deps.orm.em));
     if (userMiddleware) {
       v1.use('/exemptions/*', userMiddleware);
     }
     v1.route('/exemptions', createExemptionRouter({ orm: deps.orm }));
 
     // Evidence: Apply tenant + user middleware (requires compliance:view/edit)
-    v1.use('/evidence/*', createTenantMiddlewareWithApiKeys(deps.orm.em as any));
+    v1.use('/evidence/*', createTenantMiddlewareWithApiKeys(deps.orm.em));
     if (userMiddleware) {
       v1.use('/evidence/*', userMiddleware);
     }

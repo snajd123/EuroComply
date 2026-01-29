@@ -19,7 +19,6 @@ async function main() {
     orm,
     provisioner,
     webhookSecret: process.env['CLERK_WEBHOOK_SECRET'],
-    // clerk: createClerkClient({ secretKey: process.env['CLERK_SECRET_KEY'] }), // Add when needed
   });
 
   console.log('Creating admin router...');

@@ -144,12 +144,14 @@ export class ComplianceStackResolver {
 
   /**
    * Gets the LTREE path for a system category.
+   * Uses parameterized query for SQL injection safety.
    */
   private async getSystemCategoryPath(systemCategoryId: string): Promise<string | null> {
-    const escapedId = this.escapeId(systemCategoryId);
-    const rows = await this.em.getConnection().execute<Array<{ path: string }>>(`
-      SELECT path FROM public.category WHERE id = '${escapedId}'
-    `);
+    this.escapeId(systemCategoryId); // Validate ID format
+    const rows = await this.em.getConnection().execute<Array<{ path: string }>>(
+      'SELECT path FROM public.category WHERE id = $1',
+      [systemCategoryId]
+    );
     return rows[0]?.path ?? null;
   }
 
@@ -170,28 +172,47 @@ export class ComplianceStackResolver {
     regulationId: string;
     regulationCode: string;
   }>> {
-    // Escape the path for safe SQL interpolation
-    const escapedPath = categoryPath.replace(/'/g, "''");
+    // Validate path format (LTREE paths are dot-separated alphanumeric labels)
+    this.validateLtreePath(categoryPath);
 
-    // Build regulation filter
-    let regulationFilter = "r.status = 'ACTIVE'";
+    // Validate pinned IDs if provided
+    if (pinnedIds) {
+      pinnedIds.forEach(id => this.escapeId(id));
+    }
+
+    // Use parameterized query for LTREE path
+    // For pinned IDs, we use ANY() with array parameter for SQL injection safety
+    let query: string;
+    let params: unknown[];
+
     if (pinnedIds && pinnedIds.length > 0) {
-      const escapedPinnedIds = pinnedIds.map(id => `'${this.escapeId(id)}'`).join(', ');
-      regulationFilter = `r.id IN (${escapedPinnedIds})`;
+      query = `
+        SELECT DISTINCT cr.regulation_id, r.code
+        FROM public.category_regulation cr
+        JOIN public.category c ON c.id = cr.category_id
+        JOIN public.regulation r ON r.id = cr.regulation_id
+        WHERE $1::ltree <@ c.path
+          AND r.id = ANY($2::text[])
+        ORDER BY r.code
+      `;
+      params = [categoryPath, pinnedIds];
+    } else {
+      query = `
+        SELECT DISTINCT cr.regulation_id, r.code
+        FROM public.category_regulation cr
+        JOIN public.category c ON c.id = cr.category_id
+        JOIN public.regulation r ON r.id = cr.regulation_id
+        WHERE $1::ltree <@ c.path
+          AND r.status = 'ACTIVE'
+        ORDER BY r.code
+      `;
+      params = [categoryPath];
     }
 
     const rows = await this.em.getConnection().execute<Array<{
       regulation_id: string;
       code: string;
-    }>>(`
-      SELECT DISTINCT cr.regulation_id, r.code
-      FROM public.category_regulation cr
-      JOIN public.category c ON c.id = cr.category_id
-      JOIN public.regulation r ON r.id = cr.regulation_id
-      WHERE '${escapedPath}'::ltree <@ c.path
-        AND ${regulationFilter}
-      ORDER BY r.code
-    `);
+    }>>(query, params);
 
     return rows.map(row => ({
       regulationId: row.regulation_id,
@@ -200,7 +221,19 @@ export class ComplianceStackResolver {
   }
 
   /**
+   * Validates an LTREE path format.
+   * LTREE paths are dot-separated alphanumeric labels with underscores.
+   */
+  private validateLtreePath(path: string): void {
+    // LTREE labels: alphanumeric and underscores, separated by dots
+    if (!/^[a-zA-Z0-9_]+(\.[a-zA-Z0-9_]+)*$/.test(path)) {
+      throw new Error(`Invalid LTREE path format: ${path}`);
+    }
+  }
+
+  /**
    * Gets all requirements for a regulation.
+   * Uses parameterized query for SQL injection safety.
    */
   private async getRequirementsForRegulation(regulationId: string): Promise<Array<{
     requirementId: string;
@@ -208,18 +241,16 @@ export class ComplianceStackResolver {
     type: RequirementType;
     severity: RequirementSeverity;
   }>> {
-    const escapedId = this.escapeId(regulationId);
+    this.escapeId(regulationId); // Validate ID format
     const rows = await this.em.getConnection().execute<Array<{
       id: string;
       code: string;
       type: string;
       severity: string;
-    }>>(`
-      SELECT id, code, type, severity
-      FROM public.requirement
-      WHERE regulation_id = '${escapedId}'
-      ORDER BY code
-    `);
+    }>>(
+      'SELECT id, code, type, severity FROM public.requirement WHERE regulation_id = $1 ORDER BY code',
+      [regulationId]
+    );
 
     return rows.map(row => ({
       requirementId: row.id,

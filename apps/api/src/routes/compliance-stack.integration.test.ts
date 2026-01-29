@@ -19,14 +19,6 @@ import {
   SubscriptionStatus,
   EnforcementMode,
   WorkspaceAuthority,
-  // Used in skipped test - keep for when test DB setup is fixed:
-  // Category,
-  // Regulation,
-  // RegulationStatus,
-  // Requirement,
-  // RequirementType,
-  // RequirementSeverity,
-  // CategoryRegulation,
 } from '@eurocomply/database';
 import type { MikroORM } from '@eurocomply/database';
 import { setupTestDb, teardownTestDb, isDatabaseAvailable } from '@eurocomply/database/test-utils';
@@ -265,82 +257,9 @@ describe('Compliance Stack API Integration', () => {
   }
 
   describe('GET /compliance-stack/:tenantCategoryId', () => {
-    it.skip('should_return_effective_regulations_for_tenant_category', async (context) => {
-      // SKIP: Requires category_regulation table which is not created in test DB setup
-      // TODO: Fix test DB setup to include all public tables
-      if (!(await isDatabaseAvailable())) {
-        context.skip();
-        return;
-      }
-
-      // Setup: Create system category, regulation, requirement, and tenant category
-      const publicEm = orm.em.fork();
-
-      // Create system category
-      const systemCategory = new Category();
-      systemCategory.name = 'Test Electronics';
-      systemCategory.path = 'test_electronics';
-      systemCategory.depth = 0;
-      systemCategory.type = 'LEAF' as any;
-      await publicEm.persistAndFlush(systemCategory);
-
-      // Create regulation
-      const regulation = new Regulation();
-      regulation.code = 'TEST-REG-001';
-      regulation.name = 'Test Regulation';
-      regulation.description = 'A test regulation for integration testing';
-      regulation.status = RegulationStatus.ACTIVE;
-      regulation.effectiveDate = new Date('2025-01-01');
-      await publicEm.persistAndFlush(regulation);
-
-      // Create requirement
-      const requirement = new Requirement();
-      requirement.regulation = regulation;
-      requirement.code = 'TEST-REQ-001';
-      requirement.name = 'Test Requirement';
-      requirement.description = 'A test requirement';
-      requirement.type = RequirementType.ATTRIBUTE_CHECK;
-      requirement.severity = RequirementSeverity.MANDATORY;
-      requirement.handlerConfig = { attributeCode: 'test' };
-      await publicEm.persistAndFlush(requirement);
-
-      // Create category-regulation junction using raw SQL
-      // (entity constructor issues in test environment)
-      await publicEm.execute(`
-        INSERT INTO public.category_regulation (id, category_id, regulation_id, added_at, added_by, created_at, updated_at)
-        VALUES ($1, $2, $3, NOW(), 'test', NOW(), NOW())
-      `, [createId(), systemCategory.id, regulation.id]);
-
-      // Create tenant category linked to system category
-      const tenantEm = orm.em.fork({ schema: testSchemaName });
-      await tenantEm.execute(`SET search_path TO "${testSchemaName}", public`);
-
-      const tenantCategory = new TenantCategory();
-      tenantCategory.name = 'My Electronics';
-      tenantCategory.path = 'my_electronics';
-      tenantCategory.type = 'ROOT';
-      tenantCategory.targetType = 'PRODUCT';
-      tenantCategory.depth = 0;
-      tenantCategory.isActive = true;
-      tenantCategory.systemCategoryId = systemCategory.id;
-      tenantCategory.linkMode = 'LIVE';
-      await tenantEm.persistAndFlush(tenantCategory);
-
-      // Make request
-      const testApp = createTestApp(complianceViewerId);
-      const res = await testApp.request(`/compliance-stack/${tenantCategory.id}`);
-
-      expect(res.status).toBe(200);
-      const data = (await res.json()) as ComplianceStackResponse;
-      expect(data.success).toBe(true);
-      expect(data.data.tenantCategoryId).toBe(tenantCategory.id);
-      expect(data.data.regulations).toBeDefined();
-      expect(data.data.regulations.length).toBe(1);
-      expect(data.data.regulations[0].regulationCode).toBe('TEST-REG-001');
-      expect(data.data.regulations[0].requirements.length).toBe(1);
-      expect(data.data.regulations[0].requirements[0].requirementCode).toBe('TEST-REQ-001');
-      expect(data.data.regulations[0].requirements[0].status).toBe('ACTIVE');
-    });
+    // TODO: Add test for effective regulations when test DB setup includes public schema tables
+    // The test requires: Category, Regulation, Requirement, CategoryRegulation entities
+    // These need proper seeding via ManifestLoader or raw SQL in test setup
 
     it('should_return_empty_regulations_when_no_system_category_linked', async (context) => {
       if (!(await isDatabaseAvailable())) {

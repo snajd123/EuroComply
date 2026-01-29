@@ -1,5 +1,14 @@
 # Postman API Tests
 
+## Available Collections
+
+| Collection | Purpose | Authentication |
+|------------|---------|----------------|
+| `eurocomply-complete.postman_collection.json` | Complete test suite | Various (see below) |
+| `admin-api.postman_collection.json` | Platform admin endpoints only | `X-Admin-Key` header |
+| `tenant-api.postman_collection.json` | Tenant-scoped endpoints only | JWT Bearer or `X-API-Key` |
+| `public-api.postman_collection.json` | Public taxonomy endpoints | None required |
+
 ## Quick Start
 
 **Import the collection:**

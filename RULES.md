@@ -813,8 +813,8 @@ When replacing a system:
 4. **Never leave two systems doing the same thing**
 
 ```
-❌ BAD: "I'll add the new Regulation system and deprecate RegulatoryList later"
-✅ GOOD: "Plan: Replace RegulatoryList → Regulation, migrate data, delete old code"
+❌ BAD: "I'll add the new payment system and deprecate the old one later"
+✅ GOOD: "Plan: Replace OldPaymentService → NewPaymentService, migrate data, delete old code"
 ```
 
 ### Dead Code Removal Checklist
