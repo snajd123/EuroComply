@@ -155,10 +155,10 @@ Each requirement has a `type` that determines which handler evaluates it:
 │   "Does a product attribute meet a threshold?"                              │
 │                                                                             │
 │   Example: "Recycled content must be at least 25%"                          │
+│   Entity field: attributeTemplateKey = "recycled_content_pct"               │
 │   handlerConfig: {                                                          │
 │     operator: ">=",                                                         │
-│     threshold: 25,                                                          │
-│     attributeCode: "recycled_content_pct"                                   │
+│     threshold: 25                                                           │
 │   }                                                                         │
 │                                                                             │
 │   ─────────────────────────────────────────────────────────────────────     │
@@ -168,8 +168,8 @@ Each requirement has a `type` that determines which handler evaluates it:
 │   "Does the product contain restricted substances above threshold?"         │
 │                                                                             │
 │   Example: "No SVHC substances above 0.1%"                                  │
+│   Entity field: substanceListId = "reach-svhc-list-uuid"                    │
 │   handlerConfig: {                                                          │
-│     substanceListId: "reach-svhc-list-uuid",                                │
 │     defaultThresholdPct: 0.1                                                │
 │   }                                                                         │
 │                                                                             │
@@ -286,17 +286,18 @@ class AttributeCheckHandler implements RequirementHandler {
   type = RequirementType.ATTRIBUTE_CHECK;
 
   async evaluate(context: EvaluationContext): Promise<EvaluationResult> {
-    const config = context.requirement.handlerConfig;
-    const { operator, threshold, attributeCode } = config;
+    // attributeTemplateKey is an entity field on Requirement, not in handlerConfig
+    const attributeTemplateKey = context.requirement.attributeTemplateKey;
+    const { operator, threshold } = context.requirement.handlerConfig;
 
-    // Get the attribute value from the product
-    const actualValue = context.product.attributes[attributeCode];
+    // Get the attribute value from the product using the template key
+    const actualValue = context.product.attributes[attributeTemplateKey];
 
     // If attribute is missing, evaluation is incomplete
     if (actualValue === undefined) {
       return {
         status: 'INCOMPLETE',
-        details: { reason: `Missing attribute: ${attributeCode}` }
+        details: { reason: `Missing attribute: ${attributeTemplateKey}` }
       };
     }
 
@@ -309,7 +310,7 @@ class AttributeCheckHandler implements RequirementHandler {
         actualValue,
         threshold,
         operator,
-        attributeCode
+        attributeTemplateKey
       }
     };
   }
@@ -886,7 +887,8 @@ Let's trace through a complete compliance evaluation:
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
 │   │ ESPR.RECYCLED_MIN (AttributeCheckHandler)                           │   │
 │   ├─────────────────────────────────────────────────────────────────────┤   │
-│   │ Config: { operator: ">=", threshold: 25, attributeCode: "..."  }    │   │
+│   │ Entity: attributeTemplateKey = "recycled_content_pct"               │   │
+│   │ Config: { operator: ">=", threshold: 25 }                           │   │
 │   │                                                                     │   │
 │   │ Handler checks:                                                     │   │
 │   │ - recycled_content_pct = 35                                         │   │

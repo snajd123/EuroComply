@@ -55,16 +55,19 @@ EuroComply's compliance system has a layered architecture:
 │      └── Requirement[]              "What must be proven"                   │
 │          │                                                                  │
 │          ├── ATTRIBUTE_CHECK        "recycled_content_pct >= 25%"           │
-│          │   └── handlerConfig: { operator, threshold, attributeCode }      │
+│          │   ├── attributeTemplateKey: "recycled_content_pct" (entity field)│
+│          │   └── handlerConfig: { operator: ">=", threshold: 25 }           │
 │          │                                                                  │
 │          ├── SUBSTANCE_SCREEN       "No SVHC above 0.1%"                    │
-│          │   └── handlerConfig: { substanceListId, defaultThresholdPct }    │
+│          │   ├── substanceListId: "svhc-candidate-list" (entity field)      │
+│          │   └── handlerConfig: { defaultThresholdPct: 0.1 }                │
 │          │                                                                  │
 │          ├── CALCULATED_CHECK       "Total recycled content from BOM"       │
-│          │   └── handlerConfig: { formula, operator, threshold }            │
+│          │   ├── calculationFormula: "..." (entity field)                   │
+│          │   └── handlerConfig: { formula, variables, threshold }           │
 │          │                                                                  │
 │          └── DECLARATION            "Confirm durability testing done"       │
-│              └── handlerConfig: { question, acceptedAnswers }               │
+│              └── handlerConfig: { question, acceptedAnswers[], requiresDoc }│
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
                                      │

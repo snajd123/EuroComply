@@ -16,7 +16,9 @@ The compliance system uses a **regulation-agnostic engine** that separates:
 Regulation (e.g., PPWR, REACH)
   └── Requirement (e.g., minimum recycled content check)
         ├── type: ATTRIBUTE_CHECK | SUBSTANCE_SCREEN | CALCULATED_CHECK | DECLARATION
-        ├── severity: BLOCKER | WARNING | INFORMATIONAL
+        ├── severity: BLOCKER | WARNING | INFO
+        ├── attributeTemplateKey: string (for ATTRIBUTE_CHECK)
+        ├── substanceListId: string (for SUBSTANCE_SCREEN)
         ├── handlerConfig: { operator, threshold, ... }
         └── allowTenantExemption: boolean (guardrail)
 ```
@@ -108,12 +110,12 @@ Attempting to exempt a non-exemptable requirement returns HTTP 403.
 
 Each `RequirementType` has a dedicated handler:
 
-| Type | Handler | Config |
-|------|---------|--------|
-| `ATTRIBUTE_CHECK` | `AttributeCheckHandler` | `{ operator, threshold, attributeCode }` |
-| `SUBSTANCE_SCREEN` | `SubstanceScreenHandler` | `{ substanceListCode, maxConcentration }` |
-| `CALCULATED_CHECK` | `CalculatedCheckHandler` | `{ formula, variables, threshold }` |
-| `DECLARATION` | `DeclarationHandler` | `{ question, expectedAnswer }` |
+| Type | Handler | Entity Fields | Handler Config |
+|------|---------|---------------|----------------|
+| `ATTRIBUTE_CHECK` | `AttributeCheckHandler` | `attributeTemplateKey` | `{ operator, threshold }` |
+| `SUBSTANCE_SCREEN` | `SubstanceScreenHandler` | `substanceListId` | `{ defaultThresholdPct }` |
+| `CALCULATED_CHECK` | *(not yet implemented)* | `calculationFormula` | `{ formula, variables, threshold }` |
+| `DECLARATION` | `DeclarationHandler` | — | `{ question, acceptedAnswers[], requiresDocument }` |
 
 ### Adding New Handlers
 
@@ -135,6 +137,8 @@ This ensures audit integrity even when requirements change.
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/v1/compliance-stack/:tenantCategoryId` | GET | Get effective regulations |
+| `/api/v1/exemptions` | GET | List exemptions for tenant |
+| `/api/v1/exemptions/:id` | GET | Get exemption details |
 | `/api/v1/exemptions` | POST | Create exemption |
 | `/api/v1/exemptions/:id` | DELETE | Revoke exemption |
 | `/api/v1/evidence` | POST | Record evidence |

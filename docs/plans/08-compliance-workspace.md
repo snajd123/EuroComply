@@ -437,7 +437,7 @@ interface RequirementEvaluationSnapshot {
   requirementCode: string;
   requirementName: string;
   requirementType: 'ATTRIBUTE_CHECK' | 'SUBSTANCE_SCREEN' | 'DECLARATION' | 'CALCULATED_CHECK';
-  severity: 'BLOCKER' | 'WARNING' | 'INFORMATIONAL';
+  severity: 'BLOCKER' | 'WARNING' | 'INFO';
   status: 'PASS' | 'FAIL' | 'INCOMPLETE' | 'EXEMPTED';
   actualValue?: string;
   expectedValue?: string;
@@ -483,7 +483,7 @@ interface RequirementSnapshotData {
   code: string;
   name: string;
   type: 'ATTRIBUTE_CHECK' | 'SUBSTANCE_SCREEN' | 'DECLARATION' | 'CALCULATED_CHECK';
-  severity: 'BLOCKER' | 'WARNING' | 'INFORMATIONAL';
+  severity: 'BLOCKER' | 'WARNING' | 'INFO';
   handlerConfig: Record<string, unknown>;
   regulationCode: string;
   regulationName: string;
@@ -2505,7 +2505,7 @@ async function evaluateSoftGate(
     requiresAcknowledgment: blockers.length > 0,
     blockers,
     warnings,
-    infos: evaluations.filter(e => e.severity === 'INFORMATIONAL'),
+    infos: evaluations.filter(e => e.severity === 'INFO'),
     exempted,
     pendingAcknowledgments: blockers.map(b => ({
       findingId: b.id,
