@@ -8,7 +8,8 @@
   "variable": [
     { "key": "testOrgId", "value": "", "type": "string", "description": "Captured from list organizations" },
     { "key": "testCategoryId", "value": "", "type": "string", "description": "System category ID (from public.category table)" },
-    { "key": "testRegulationId", "value": "", "type": "string", "description": "Regulation ID for testing" }
+    { "key": "testRegulationId", "value": "", "type": "string", "description": "Regulation ID for testing" },
+    { "key": "testStagingId", "value": "", "type": "string", "description": "Staging regulation ID (from ingestor staging)" }
   ],
   "item": [
     {
@@ -259,6 +260,229 @@
               "path": ["api", "v1", "admin", "organizations"],
               "query": [{ "key": "provisioningStatus", "value": "READY" }]
             }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Ingestor",
+      "item": [
+        {
+          "name": "List Staging Regulations",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const adminKey = pm.variables.get('adminApiKey');",
+                  "if (!adminKey) {",
+                  "    throw new Error('Set adminApiKey in environment (import eurocomply-local.postman_environment.json)');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Returns staging regulations array', function () {",
+                  "    const r = pm.response.json();",
+                  "    pm.expect(r.data).to.be.an('array');",
+                  "    pm.expect(r.meta.total).to.be.a('number');",
+                  "    console.log('Total staging regulations:', r.meta.total);",
+                  "",
+                  "    // Capture first staging ID for subsequent tests",
+                  "    if (r.data.length > 0) {",
+                  "        pm.collectionVariables.set('testStagingId', r.data[0].id);",
+                  "        console.log('Captured stagingId:', r.data[0].id);",
+                  "    }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-Admin-Key", "value": "{{adminApiKey}}" }
+            ],
+            "url": "{{baseUrl}}/api/v1/admin/ingestor/staging"
+          }
+        },
+        {
+          "name": "Get Staging Regulation",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const stagingId = pm.collectionVariables.get('testStagingId');",
+                  "if (!stagingId) {",
+                  "    throw new Error('Run \"List Staging Regulations\" first to capture a staging ID');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Returns staging regulation details', function () {",
+                  "    const r = pm.response.json();",
+                  "    pm.expect(r.data.id).to.equal(pm.collectionVariables.get('testStagingId'));",
+                  "    pm.expect(r.data.celexNumber).to.be.a('string');",
+                  "    pm.expect(r.data.status).to.be.a('string');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-Admin-Key", "value": "{{adminApiKey}}" }
+            ],
+            "url": "{{baseUrl}}/api/v1/admin/ingestor/staging/{{testStagingId}}"
+          }
+        },
+        {
+          "name": "Bulk Approve Matches",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const stagingId = pm.collectionVariables.get('testStagingId');",
+                  "if (!stagingId) {",
+                  "    throw new Error('Run \"List Staging Regulations\" first to capture a staging ID');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Returns approval result', function () {",
+                  "    const r = pm.response.json();",
+                  "    pm.expect(r.data.approvedCount).to.be.a('number');",
+                  "    console.log('Approved matches:', r.data.approvedCount);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "X-Admin-Key", "value": "{{adminApiKey}}" }
+            ],
+            "url": "{{baseUrl}}/api/v1/admin/ingestor/staging/{{testStagingId}}/bulk-approve"
+          }
+        },
+        {
+          "name": "Publish to Production",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const stagingId = pm.collectionVariables.get('testStagingId');",
+                  "if (!stagingId) {",
+                  "    throw new Error('Run \"List Staging Regulations\" first to capture a staging ID');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Returns publish result', function () {",
+                  "    const r = pm.response.json();",
+                  "    pm.expect(r.data.regulationId).to.be.a('string');",
+                  "    pm.expect(r.data.status).to.equal('published');",
+                  "    console.log('Published regulation ID:', r.data.regulationId);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "X-Admin-Key", "value": "{{adminApiKey}}" }
+            ],
+            "url": "{{baseUrl}}/api/v1/admin/ingestor/staging/{{testStagingId}}/publish"
+          }
+        },
+        {
+          "name": "Delete Staging Regulation",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const stagingId = pm.collectionVariables.get('testStagingId');",
+                  "if (!stagingId) {",
+                  "    throw new Error('Run \"List Staging Regulations\" first to capture a staging ID');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200 or 204', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 204]);",
+                  "});",
+                  "",
+                  "pm.test('Staging regulation deleted', function () {",
+                  "    if (pm.response.code === 200) {",
+                  "        const r = pm.response.json();",
+                  "        pm.expect(r.data.deleted).to.be.true;",
+                  "    }",
+                  "    // Clear the variable after deletion",
+                  "    pm.collectionVariables.unset('testStagingId');",
+                  "    console.log('Staging regulation deleted and variable cleared');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "X-Admin-Key", "value": "{{adminApiKey}}" }
+            ],
+            "url": "{{baseUrl}}/api/v1/admin/ingestor/staging/{{testStagingId}}"
           }
         }
       ]
