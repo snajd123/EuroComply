@@ -271,6 +271,92 @@ export class Migration20260122000000 extends Migration {
     this.addSql('CREATE INDEX "seed_version_name_idx" ON "public"."seed_version" ("name");');
 
     // =====================================================
+    // Staging tables for AI Regulation Ingestor
+    // =====================================================
+
+    // Staging Regulation - pending review
+    this.addSql(`
+      CREATE TABLE "public"."staging_regulation" (
+        "id" text PRIMARY KEY,
+        "created_at" timestamptz NOT NULL DEFAULT NOW(),
+        "updated_at" timestamptz NOT NULL DEFAULT NOW(),
+        "code" text NOT NULL,
+        "name" text NOT NULL,
+        "source_url" text NOT NULL,
+        "source_type" text NOT NULL,
+        "primary_payload" jsonb NOT NULL,
+        "shadow_payload" jsonb,
+        "regulation_metadata" jsonb,
+        "status" text NOT NULL DEFAULT 'PENDING',
+        "reviewed_by" text,
+        "approved_at" timestamptz,
+        "rejection_reason" text,
+        "published_regulation_id" text REFERENCES "public"."regulation"("id")
+      );
+    `);
+    this.addSql('CREATE INDEX "idx_staging_regulation_status" ON "public"."staging_regulation" ("status");');
+    this.addSql('CREATE INDEX "idx_staging_regulation_code" ON "public"."staging_regulation" ("code");');
+
+    // Consensus status type
+    this.addSql(`CREATE TYPE consensus_status AS ENUM ('MATCH', 'CONFLICT', 'LOW_CONFIDENCE', 'SHADOW_MISSING');`);
+
+    // Staging Requirement - per-requirement review
+    this.addSql(`
+      CREATE TABLE "public"."staging_requirement" (
+        "id" text PRIMARY KEY,
+        "created_at" timestamptz NOT NULL DEFAULT NOW(),
+        "updated_at" timestamptz NOT NULL DEFAULT NOW(),
+        "staging_regulation_id" text NOT NULL REFERENCES "public"."staging_regulation"("id") ON DELETE CASCADE,
+        "code" text NOT NULL,
+        "name" text NOT NULL,
+        "description" text,
+        "substance_name" text,
+        "cas_number" text,
+        "ec_number" text,
+        "operator" text,
+        "threshold_value" decimal,
+        "unit" text,
+        "scope" jsonb,
+        "legal_reference" text,
+        "pdf_coordinates" jsonb,
+        "type" requirement_type NOT NULL,
+        "severity" requirement_severity NOT NULL DEFAULT 'WARNING',
+        "confidence_score" decimal,
+        "reasoning" text,
+        "allows_exemption" boolean NOT NULL DEFAULT true,
+        "exemption_conditions" text,
+        "consensus_status" consensus_status NOT NULL,
+        "conflict_details" jsonb,
+        "suggested_categories" jsonb,
+        "is_approved" boolean NOT NULL DEFAULT false,
+        "approved_by" text,
+        "approved_at" timestamptz
+      );
+    `);
+    this.addSql('CREATE INDEX "idx_staging_requirement_regulation" ON "public"."staging_requirement" ("staging_regulation_id");');
+    this.addSql('CREATE INDEX "idx_staging_requirement_consensus" ON "public"."staging_requirement" ("consensus_status");');
+
+    // Ingestion action type
+    this.addSql(`CREATE TYPE ingestion_action AS ENUM ('EXTRACTED', 'VALIDATED', 'CONFLICT_DETECTED', 'APPROVED', 'REJECTED', 'EDITED', 'PUBLISHED');`);
+
+    // Ingestion Audit Log
+    this.addSql(`
+      CREATE TABLE "public"."ingestion_audit_log" (
+        "id" text PRIMARY KEY,
+        "created_at" timestamptz NOT NULL DEFAULT NOW(),
+        "updated_at" timestamptz NOT NULL DEFAULT NOW(),
+        "staging_regulation_id" text NOT NULL REFERENCES "public"."staging_regulation"("id") ON DELETE CASCADE,
+        "staging_requirement_id" text REFERENCES "public"."staging_requirement"("id") ON DELETE CASCADE,
+        "action" ingestion_action NOT NULL,
+        "actor_id" text,
+        "details" jsonb,
+        "timestamp" timestamptz NOT NULL DEFAULT NOW()
+      );
+    `);
+    this.addSql('CREATE INDEX "idx_ingestion_audit_regulation" ON "public"."ingestion_audit_log" ("staging_regulation_id");');
+    this.addSql('CREATE INDEX "idx_ingestion_audit_action" ON "public"."ingestion_audit_log" ("action");');
+
+    // =====================================================
     // Outbox Event table - transactional outbox pattern
     // (exists in both public and tenant schemas)
     // =====================================================
@@ -296,6 +382,13 @@ export class Migration20260122000000 extends Migration {
   }
 
   override async down(): Promise<void> {
+    // Drop staging tables
+    this.addSql('DROP TABLE IF EXISTS "public"."ingestion_audit_log" CASCADE;');
+    this.addSql('DROP TABLE IF EXISTS "public"."staging_requirement" CASCADE;');
+    this.addSql('DROP TABLE IF EXISTS "public"."staging_regulation" CASCADE;');
+    this.addSql('DROP TYPE IF EXISTS ingestion_action;');
+    this.addSql('DROP TYPE IF EXISTS consensus_status;');
+
     // Drop in reverse dependency order
     this.addSql('DROP TABLE IF EXISTS "public"."outbox_event" CASCADE;');
     this.addSql('DROP TABLE IF EXISTS "public"."seed_version" CASCADE;');
