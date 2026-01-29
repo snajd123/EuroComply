@@ -1,8 +1,36 @@
 {
-  "version": "SystemCategories-v1",
-  "generatedAt": "2026-01-26T00:00:00.000Z",
-  "totalCategories": 50,
+  "version": "SystemCategories-v2",
+  "generatedAt": "2026-01-29T00:00:00.000Z",
+  "totalCategories": 54,
   "categories": [
+    {
+      "path": "cosmetics",
+      "name": "Cosmetics",
+      "description": "Cosmetic and personal care products",
+      "type": "ROOT",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "cosmetics.skincare",
+      "name": "Skincare",
+      "description": "Skin care products",
+      "type": "BRANCH",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "cosmetics.haircare",
+      "name": "Haircare",
+      "description": "Hair care products",
+      "type": "BRANCH",
+      "targetType": "PRODUCT"
+    },
+    {
+      "path": "cosmetics.makeup",
+      "name": "Makeup",
+      "description": "Decorative cosmetics",
+      "type": "BRANCH",
+      "targetType": "PRODUCT"
+    },
     {
       "path": "apparel",
       "name": "Apparel",

@@ -131,11 +131,11 @@
   ],
   "categoryMappings": [
     {
-      "categoryPath": "textiles",
+      "categoryPath": "apparel",
       "regulationCode": "REACH"
     },
     {
-      "categoryPath": "textiles.apparel",
+      "categoryPath": "apparel",
       "regulationCode": "ESPR"
     },
     {
@@ -148,6 +148,10 @@
     },
     {
       "categoryPath": "electronics",
+      "regulationCode": "REACH"
+    },
+    {
+      "categoryPath": "toys",
       "regulationCode": "REACH"
     }
   ]
