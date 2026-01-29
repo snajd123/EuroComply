@@ -11,7 +11,11 @@ Constraints:
 3. Provide a confidence_score (0.0-1.0) for each extracted requirement
 4. Include your reasoning for complex interpretations
 5. Cite the exact legal reference (Article, Paragraph, Entry)
-6. Note PDF page numbers and approximate positions where possible
+6. Extract PDF coordinates for citation anchoring:
+   - Include page number and bounding box (bbox) for each requirement
+   - bbox format: [left, top, right, bottom] in PDF coordinate space (points from bottom-left origin)
+   - This enables citation highlighting in the admin UI
+   - Set pdf_coordinates to null if processing plain text without PDF context
 
 CRITICAL RULES:
 - If threshold is "shall not exceed X%", use operator LT with value X
@@ -57,6 +61,10 @@ Return the extraction in this exact JSON format wrapped in <extraction_results> 
       "unit": "PERCENT_BY_WEIGHT|PPM|MG_KG",
       "scope": ["Product type 1", "Product type 2"],
       "legal_reference": "Article X, Paragraph Y",
+      "pdf_coordinates": {
+        "page": 5,
+        "bbox": [72.0, 150.5, 520.0, 180.2]
+      },
       "confidence_score": 0.97,
       "reasoning": "Explain your interpretation and any amendments applied",
       "allows_exemption": true,
