@@ -35,6 +35,9 @@ export {
   type CreateStagingRequirementInput,
   type CreateStagingRegulationInput,
   type ListStagingRegulationsFilter,
+  PublishService,
+  type PublishResult,
+  type PublishOptions,
 } from './services/index.js';
 
 // Re-export common MikroORM types for convenience

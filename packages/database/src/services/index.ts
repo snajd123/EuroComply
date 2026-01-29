@@ -39,4 +39,9 @@ export {
   type CreateStagingRegulationInput,
   type ListStagingRegulationsFilter,
 } from './StagingService.js';
+export {
+  PublishService,
+  type PublishResult,
+  type PublishOptions,
+} from './PublishService.js';
 export * from './evaluation/index.js';
