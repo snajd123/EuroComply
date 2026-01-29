@@ -83,7 +83,7 @@ export class StagingRequirement extends BaseEntity {
   /**
    * Threshold value for comparison
    */
-  @Property({ type: 'decimal', nullable: true, name: 'threshold_value' })
+  @Property({ type: 'decimal', precision: 20, scale: 10, nullable: true, name: 'threshold_value' })
   thresholdValue?: number;
 
   /**
@@ -125,7 +125,7 @@ export class StagingRequirement extends BaseEntity {
   /**
    * Claude's confidence score (0.0 - 1.0)
    */
-  @Property({ type: 'decimal', nullable: true, name: 'confidence_score' })
+  @Property({ type: 'decimal', precision: 5, scale: 4, nullable: true, name: 'confidence_score' })
   confidenceScore?: number;
 
   /**

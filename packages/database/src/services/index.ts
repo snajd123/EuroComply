@@ -33,4 +33,10 @@ export {
   ExemptionGuardrailError,
   type CreateExemptionInput,
 } from './ExemptionService.js';
+export {
+  StagingService,
+  type CreateStagingRequirementInput,
+  type CreateStagingRegulationInput,
+  type ListStagingRegulationsFilter,
+} from './StagingService.js';
 export * from './evaluation/index.js';
