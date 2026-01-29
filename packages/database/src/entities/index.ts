@@ -40,6 +40,12 @@ export { User } from './User.js';
 export { OrganizationUser } from './OrganizationUser.js';
 export { ComplianceEvidence } from './ComplianceEvidence.js';
 export type { RequirementSnapshot } from './ComplianceEvidence.js';
+export { StagingStatus } from './enums/StagingStatus.js';
+export { ConsensusStatus } from './enums/ConsensusStatus.js';
+export { IngestionAction } from './enums/IngestionAction.js';
+export { StagingRegulation, type SourceType } from './StagingRegulation.js';
+export { StagingRequirement, type ConflictDetails } from './StagingRequirement.js';
+export { IngestionAuditLog } from './IngestionAuditLog.js';
 
 // Import classes for entity arrays
 import { Organization } from './Organization.js';
@@ -64,6 +70,9 @@ import { SeedVersion } from './SeedVersion.js';
 import { Regulation } from './Regulation.js';
 import { Requirement } from './Requirement.js';
 import { ComplianceEvidence } from './ComplianceEvidence.js';
+import { StagingRegulation } from './StagingRegulation.js';
+import { StagingRequirement } from './StagingRequirement.js';
+import { IngestionAuditLog } from './IngestionAuditLog.js';
 
 /**
  * Entities that belong ONLY in the PUBLIC schema.
@@ -81,6 +90,9 @@ export const publicOnlyEntities = [
   CategoryRegulation,
   Regulation,
   Requirement,
+  StagingRegulation,
+  StagingRequirement,
+  IngestionAuditLog,
 ];
 
 /**
