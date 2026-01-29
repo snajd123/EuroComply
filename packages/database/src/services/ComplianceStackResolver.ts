@@ -144,13 +144,12 @@ export class ComplianceStackResolver {
 
   /**
    * Gets the LTREE path for a system category.
-   * Uses parameterized query for SQL injection safety.
+   * Validates ID format for SQL injection safety.
    */
   private async getSystemCategoryPath(systemCategoryId: string): Promise<string | null> {
-    this.escapeId(systemCategoryId); // Validate ID format
+    const safeId = this.escapeId(systemCategoryId); // Validate and return safe ID
     const rows = await this.em.getConnection().execute<Array<{ path: string }>>(
-      'SELECT path FROM public.category WHERE id = $1',
-      [systemCategoryId]
+      `SELECT path FROM public.category WHERE id = '${safeId}'`
     );
     return rows[0]?.path ?? null;
   }
@@ -175,44 +174,29 @@ export class ComplianceStackResolver {
     // Validate path format (LTREE paths are dot-separated alphanumeric labels)
     this.validateLtreePath(categoryPath);
 
-    // Validate pinned IDs if provided
-    if (pinnedIds) {
-      pinnedIds.forEach(id => this.escapeId(id));
-    }
-
-    // Use parameterized query for LTREE path
-    // For pinned IDs, we use ANY() with array parameter for SQL injection safety
-    let query: string;
-    let params: unknown[];
-
+    // Validate pinned IDs if provided and build safe ID list
+    let regulationFilter: string;
     if (pinnedIds && pinnedIds.length > 0) {
-      query = `
-        SELECT DISTINCT cr.regulation_id, r.code
-        FROM public.category_regulation cr
-        JOIN public.category c ON c.id = cr.category_id
-        JOIN public.regulation r ON r.id = cr.regulation_id
-        WHERE $1::ltree <@ c.path
-          AND r.id = ANY($2::text[])
-        ORDER BY r.code
-      `;
-      params = [categoryPath, pinnedIds];
+      const safeIds = pinnedIds.map(id => `'${this.escapeId(id)}'`).join(', ');
+      regulationFilter = `r.id IN (${safeIds})`;
     } else {
-      query = `
-        SELECT DISTINCT cr.regulation_id, r.code
-        FROM public.category_regulation cr
-        JOIN public.category c ON c.id = cr.category_id
-        JOIN public.regulation r ON r.id = cr.regulation_id
-        WHERE $1::ltree <@ c.path
-          AND r.status = 'ACTIVE'
-        ORDER BY r.code
-      `;
-      params = [categoryPath];
+      regulationFilter = "r.status = 'ACTIVE'";
     }
+
+    const query = `
+      SELECT DISTINCT cr.regulation_id, r.code
+      FROM public.category_regulation cr
+      JOIN public.category c ON c.id = cr.category_id
+      JOIN public.regulation r ON r.id = cr.regulation_id
+      WHERE '${categoryPath}'::ltree <@ c.path
+        AND ${regulationFilter}
+      ORDER BY r.code
+    `;
 
     const rows = await this.em.getConnection().execute<Array<{
       regulation_id: string;
       code: string;
-    }>>(query, params);
+    }>>(query);
 
     return rows.map(row => ({
       regulationId: row.regulation_id,
@@ -233,7 +217,7 @@ export class ComplianceStackResolver {
 
   /**
    * Gets all requirements for a regulation.
-   * Uses parameterized query for SQL injection safety.
+   * Validates ID format for SQL injection safety.
    */
   private async getRequirementsForRegulation(regulationId: string): Promise<Array<{
     requirementId: string;
@@ -241,15 +225,14 @@ export class ComplianceStackResolver {
     type: RequirementType;
     severity: RequirementSeverity;
   }>> {
-    this.escapeId(regulationId); // Validate ID format
+    const safeId = this.escapeId(regulationId); // Validate and return safe ID
     const rows = await this.em.getConnection().execute<Array<{
       id: string;
       code: string;
       type: string;
       severity: string;
     }>>(
-      'SELECT id, code, type, severity FROM public.requirement WHERE regulation_id = $1 ORDER BY code',
-      [regulationId]
+      `SELECT id, code, type, severity FROM public.requirement WHERE regulation_id = '${safeId}' ORDER BY code`
     );
 
     return rows.map(row => ({
