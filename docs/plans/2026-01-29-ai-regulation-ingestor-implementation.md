@@ -10,6 +10,78 @@
 
 ---
 
+## Critical Refinements
+
+These refinements address edge cases and improve production-readiness:
+
+### 1. CAS Mapping (Task 19 - PublishService)
+During `PublishService.publish()`, map `cas_number` to existing `Substance` records in `public.substance`. This prevents duplicate substances and maintains the chemical library as the single source of truth.
+
+```typescript
+// In PublishService.publish():
+const existingSubstance = await em.findOne(Substance, { casNumber: stagingReq.casNumber });
+if (existingSubstance) {
+  requirement.substanceListId = existingSubstance.id;
+} else {
+  // Create new substance or flag for review
+}
+```
+
+### 2. Unit Normalization (Task 15 - Comparator)
+Add unit conversion in `Comparator` before comparing thresholds. AI models may extract identical values in different units (e.g., 0.1% = 1000 ppm = 1000 mg/kg).
+
+```typescript
+// Unit conversion table
+const UNIT_TO_PPM: Record<string, number> = {
+  'PERCENT_BY_WEIGHT': 10000,  // 1% = 10,000 ppm
+  'PPM': 1,
+  'MG_KG': 1,                  // mg/kg = ppm
+  'MG_L': 1,
+};
+
+// Normalize before comparison
+function toPpm(value: number, unit: string): number {
+  return value * (UNIT_TO_PPM[unit] ?? 1);
+}
+```
+
+### 3. Partial Publishing (Task 19 - PublishService)
+`PublishService` must support partial approval. A 200-rule regulation might have 199 approved and 1 conflict. Publish the approved requirements, leave conflicts in staging for later resolution.
+
+```typescript
+// In PublishService:
+async publishApproved(stagingRegulationId: string, publishedBy: string): Promise<PublishResult> {
+  const approvedReqs = requirements.filter(r => r.isApproved);
+  const pendingReqs = requirements.filter(r => !r.isApproved);
+
+  // Publish approved only
+  // Update staging status to PARTIALLY_APPROVED if pending remain
+}
+```
+
+### 4. Audit Detail (Task 8 - StagingService.updateRequirement)
+`IngestionAuditLog` must store complete before/after diffs for manual edits. Essential for legal defensibility when an admin changes an AI-extracted threshold.
+
+```typescript
+// In StagingService.updateRequirement():
+const auditLog = em.create(IngestionAuditLog, {
+  action: IngestionAction.EDITED,
+  actorId: editedBy,
+  details: {
+    before: {
+      thresholdValue: requirement.thresholdValue,
+      unit: requirement.unit,
+      operator: requirement.operator,
+      scope: requirement.scope,
+    },
+    after: updates,
+    editReason: updates.editReason, // Optional: why the edit was made
+  },
+});
+```
+
+---
+
 ## Prerequisites
 
 Before starting, ensure:
@@ -2595,6 +2667,51 @@ describe('Comparator', () => {
       expect(results).toHaveLength(1);
       expect(results[0].status).toBe('SHADOW_MISSING');
     });
+
+    // UNIT NORMALIZATION TESTS
+    it('should_return_MATCH_when_values_equal_after_unit_normalization', () => {
+      const primary: ExtractedRequirement[] = [
+        {
+          casNumber: '7439-92-1',
+          thresholdValue: 0.1,           // 0.1% = 1000 ppm
+          unit: 'PERCENT_BY_WEIGHT',
+          legalReference: 'Entry 63',
+          confidenceScore: 0.97,
+          reasoning: 'Lead restriction',
+        },
+      ];
+
+      const shadow: ShadowExtraction = [
+        { cas: '7439-92-1', threshold: 1000, unit: 'PPM' },  // 1000 ppm = 0.1%
+      ];
+
+      const results = comparator.compare(primary, shadow);
+
+      expect(results).toHaveLength(1);
+      expect(results[0].status).toBe('MATCH');
+    });
+
+    it('should_return_MATCH_for_mg_kg_vs_ppm_equivalence', () => {
+      const primary: ExtractedRequirement[] = [
+        {
+          casNumber: '7440-43-9',
+          thresholdValue: 100,
+          unit: 'MG_KG',                // 100 mg/kg = 100 ppm
+          legalReference: 'Entry 23',
+          confidenceScore: 0.95,
+          reasoning: 'Cadmium restriction',
+        },
+      ];
+
+      const shadow: ShadowExtraction = [
+        { cas: '7440-43-9', threshold: 100, unit: 'PPM' },  // 100 ppm
+      ];
+
+      const results = comparator.compare(primary, shadow);
+
+      expect(results).toHaveLength(1);
+      expect(results[0].status).toBe('MATCH');
+    });
   });
 });
 ```
@@ -2632,9 +2749,23 @@ export interface ComparatorOptions {
 }
 
 /**
+ * Unit conversion factors to PPM (parts per million).
+ * Used to normalize thresholds before comparison.
+ */
+const UNIT_TO_PPM: Record<string, number> = {
+  'PERCENT_BY_WEIGHT': 10000,  // 1% = 10,000 ppm
+  'PERCENT': 10000,
+  'PPM': 1,
+  'MG_KG': 1,                  // mg/kg = ppm (in mass terms)
+  'MG_L': 1,                   // Approximately, for aqueous solutions
+  'UG_KG': 0.001,              // 1 μg/kg = 0.001 ppm
+};
+
+/**
  * Compares Claude's primary extraction against Gemini's shadow extraction.
  *
  * Detects conflicts, low confidence, and missing shadow matches.
+ * Normalizes units before comparison to prevent false conflicts.
  */
 export class Comparator {
   private confidenceThreshold: number;
@@ -2642,7 +2773,15 @@ export class Comparator {
 
   constructor(options?: ComparatorOptions) {
     this.confidenceThreshold = options?.confidenceThreshold ?? 0.95;
-    this.thresholdTolerance = options?.thresholdTolerance ?? 0.001; // 0.1% tolerance
+    this.thresholdTolerance = options?.thresholdTolerance ?? 1; // 1 ppm tolerance after normalization
+  }
+
+  /**
+   * Normalizes a threshold value to PPM for consistent comparison.
+   */
+  private toPpm(value: number, unit: string): number {
+    const factor = UNIT_TO_PPM[unit] ?? 1;
+    return value * factor;
   }
 
   /**
@@ -2682,12 +2821,18 @@ export class Comparator {
       };
     }
 
-    // Check for threshold conflicts
+    // Check for threshold conflicts (with unit normalization)
     const claudeThreshold = requirement.thresholdValue;
     const geminiThreshold = shadowMatch.threshold;
+    const claudeUnit = requirement.unit ?? 'PPM';
+    const geminiUnit = shadowMatch.unit ?? 'PPM';
 
     if (claudeThreshold !== undefined && geminiThreshold !== undefined) {
-      const difference = Math.abs(claudeThreshold - geminiThreshold);
+      // Normalize both values to PPM before comparing
+      const claudePpm = this.toPpm(claudeThreshold, claudeUnit);
+      const geminiPpm = this.toPpm(geminiThreshold, geminiUnit);
+      const difference = Math.abs(claudePpm - geminiPpm);
+
       if (difference > this.thresholdTolerance) {
         return {
           requirementIndex: index,
@@ -2695,11 +2840,11 @@ export class Comparator {
           conflictDetails: {
             claude: {
               threshold: claudeThreshold,
-              unit: requirement.unit ?? 'UNKNOWN',
+              unit: claudeUnit,
             },
             gemini: {
               threshold: geminiThreshold,
-              unit: shadowMatch.unit ?? 'UNKNOWN',
+              unit: geminiUnit,
             },
           },
         };
@@ -3657,6 +3802,7 @@ import { StagingRequirement } from '../entities/StagingRequirement.js';
 import { IngestionAuditLog } from '../entities/IngestionAuditLog.js';
 import { Regulation } from '../entities/Regulation.js';
 import { Requirement } from '../entities/Requirement.js';
+import { Substance } from '../entities/Substance.js';
 import { StagingStatus } from '../entities/enums/StagingStatus.js';
 import { IngestionAction } from '../entities/enums/IngestionAction.js';
 import { RegulationStatus } from '../entities/enums/RegulationStatus.js';
@@ -3666,31 +3812,60 @@ import { RequirementSeverity } from '../entities/enums/RequirementSeverity.js';
 export interface PublishResult {
   regulationId: string;
   requirementCount: number;
+  skippedCount: number;  // Requirements not approved (for partial publish)
 }
 
 /**
  * Service for publishing staging regulations to production tables.
+ *
+ * Features:
+ * - CAS mapping: Links to existing Substance records in public.substance
+ * - Partial publishing: Publishes approved requirements, leaves conflicts in staging
  */
 export class PublishService {
   constructor(private readonly em: EntityManager) {}
 
   /**
-   * Publishes a staging regulation to production.
-   * All requirements must be approved before publishing.
+   * Maps a CAS number to an existing Substance record.
+   * Returns the substance ID if found, undefined otherwise.
    */
-  async publish(stagingRegulationId: string, publishedBy: string): Promise<PublishResult> {
+  private async mapCasToSubstance(casNumber: string | undefined): Promise<string | undefined> {
+    if (!casNumber) return undefined;
+
+    const substance = await this.em.findOne(Substance, { casNumber });
+    return substance?.id;
+  }
+
+  /**
+   * Publishes a staging regulation to production.
+   * Supports partial publishing - only approved requirements are published.
+   *
+   * @param requireAll - If true, throws if any requirements are unapproved.
+   *                     If false (default), publishes approved only.
+   */
+  async publish(
+    stagingRegulationId: string,
+    publishedBy: string,
+    options?: { requireAll?: boolean }
+  ): Promise<PublishResult> {
     const staging = await this.em.findOneOrFail(
       StagingRegulation,
       { id: stagingRegulationId },
       { populate: ['requirements'] }
     );
 
-    // Verify all requirements are approved
-    const requirements = staging.requirements.getItems();
-    const unapproved = requirements.filter(r => !r.isApproved);
+    const allRequirements = staging.requirements.getItems();
+    const approved = allRequirements.filter(r => r.isApproved);
+    const unapproved = allRequirements.filter(r => !r.isApproved);
 
-    if (unapproved.length > 0) {
+    // If requireAll is true and there are unapproved, reject
+    if (options?.requireAll && unapproved.length > 0) {
       throw new Error(`Cannot publish: ${unapproved.length} requirements not approved`);
+    }
+
+    // Must have at least one approved requirement to publish
+    if (approved.length === 0) {
+      throw new Error('Cannot publish: No approved requirements');
     }
 
     // Create production regulation
@@ -3713,9 +3888,12 @@ export class PublishService {
 
     await this.em.persistAndFlush(regulation);
 
-    // Create production requirements
+    // Create production requirements (approved only)
     let sortOrder = 0;
-    for (const stagingReq of requirements) {
+    for (const stagingReq of approved) {
+      // Map CAS to existing Substance record
+      const substanceId = await this.mapCasToSubstance(stagingReq.casNumber);
+
       const requirement = this.em.create(Requirement, {
         regulation,
         code: stagingReq.code,
@@ -3723,7 +3901,7 @@ export class PublishService {
         description: stagingReq.description ?? stagingReq.reasoning,
         type: stagingReq.type,
         severity: stagingReq.severity,
-        substanceListId: stagingReq.casNumber, // Store CAS in substanceListId for now
+        substanceListId: substanceId ?? stagingReq.casNumber, // Use mapped ID or fallback to CAS
         handlerConfig: {
           operator: stagingReq.operator,
           threshold: stagingReq.thresholdValue,
@@ -3738,8 +3916,10 @@ export class PublishService {
 
     await this.em.flush();
 
-    // Update staging status
-    staging.status = StagingStatus.PUBLISHED;
+    // Update staging status based on whether all were published
+    staging.status = unapproved.length > 0
+      ? StagingStatus.PARTIALLY_APPROVED
+      : StagingStatus.PUBLISHED;
     staging.publishedRegulationId = regulation.id;
     await this.em.flush();
 
@@ -3750,14 +3930,17 @@ export class PublishService {
       actorId: publishedBy,
       details: {
         productionRegulationId: regulation.id,
-        requirementCount: requirements.length,
+        publishedCount: approved.length,
+        skippedCount: unapproved.length,
+        skippedRequirementIds: unapproved.map(r => r.id),
       },
     });
     await this.em.persistAndFlush(auditLog);
 
     return {
       regulationId: regulation.id,
-      requirementCount: requirements.length,
+      requirementCount: approved.length,
+      skippedCount: unapproved.length,
     };
   }
 }
