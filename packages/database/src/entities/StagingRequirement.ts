@@ -3,18 +3,29 @@ import {
   Property,
   Enum,
   ManyToOne,
-  Collection,
+  Index,
 } from '@mikro-orm/core';
 import { BaseEntity } from './BaseEntity.js';
+import { StagingRegulation } from './StagingRegulation.js';
 import { ConsensusStatus } from './enums/ConsensusStatus.js';
-import type { StagingRegulation } from './StagingRegulation.js';
+import { RequirementType } from './enums/RequirementType.js';
+import { RequirementSeverity } from './enums/RequirementSeverity.js';
+import { ComparisonOperator } from './enums/ComparisonOperator.js';
+
+/**
+ * Conflict details when Claude and Gemini disagree.
+ */
+export interface ConflictDetails {
+  claude: { threshold: number; unit: string };
+  gemini: { threshold: number; unit: string };
+}
 
 /**
  * Staging table for requirements pending review.
  *
- * Requirements are extracted by AI from legal documents along with
- * their parent regulations. Each requirement has a consensus status
- * based on agreement between primary (Claude) and shadow (Gemini) extractions.
+ * Each requirement is extracted from a regulation document,
+ * validated against a shadow model, and tracked with per-requirement
+ * consensus status for granular review.
  *
  * Lives in the public schema.
  */
@@ -23,114 +34,152 @@ export class StagingRequirement extends BaseEntity {
   /**
    * Parent staging regulation
    */
-  @ManyToOne('StagingRegulation', { name: 'staging_regulation_id' })
+  @ManyToOne(() => StagingRegulation, { name: 'staging_regulation_id' })
+  @Index()
   stagingRegulation!: StagingRegulation;
 
   /**
-   * Proposed requirement code
+   * Requirement code (e.g., 'SVHC_SCREEN', 'LEAD_LIMIT')
    */
   @Property({ type: 'text' })
   code!: string;
 
   /**
-   * Proposed requirement name
+   * Human-readable name
    */
   @Property({ type: 'text' })
   name!: string;
 
   /**
-   * Substance name this requirement applies to
+   * Description of the requirement
+   */
+  @Property({ type: 'text', nullable: true })
+  description?: string;
+
+  /**
+   * Substance name (for SUBSTANCE_SCREEN type)
    */
   @Property({ type: 'text', nullable: true, name: 'substance_name' })
   substanceName?: string;
 
   /**
-   * CAS number for the substance
+   * CAS number of the substance
    */
   @Property({ type: 'text', nullable: true, name: 'cas_number' })
   casNumber?: string;
 
   /**
-   * Comparison operator (e.g., '<', '<=', '=')
+   * EC number of the substance
    */
-  @Property({ type: 'text', nullable: true })
-  operator?: string;
+  @Property({ type: 'text', nullable: true, name: 'ec_number' })
+  ecNumber?: string;
 
   /**
-   * Threshold value
+   * Comparison operator (LT, LTE, GT, GTE, EQ, PRESENT, ABSENT)
+   */
+  @Enum({ items: () => ComparisonOperator, nullable: true })
+  operator?: ComparisonOperator;
+
+  /**
+   * Threshold value for comparison
    */
   @Property({ type: 'decimal', nullable: true, name: 'threshold_value' })
   thresholdValue?: number;
 
   /**
-   * Unit of measurement
+   * Unit of measurement (e.g., 'PERCENT_BY_WEIGHT', 'PPM')
    */
   @Property({ type: 'text', nullable: true })
   unit?: string;
 
   /**
-   * Scope of the requirement
+   * Scope/applicability (e.g., ['Jewellery', 'Hair accessories'])
    */
-  @Property({ type: 'text', nullable: true })
-  scope?: string;
+  @Property({ type: 'jsonb', nullable: true })
+  scope?: string[];
 
   /**
-   * Legal reference in the source document
+   * Legal reference (e.g., 'Entry 63, Paragraph 1')
    */
   @Property({ type: 'text', nullable: true, name: 'legal_reference' })
   legalReference?: string;
 
   /**
-   * PDF coordinates for highlighting the source text
+   * PDF coordinates for citation anchoring
    */
   @Property({ type: 'jsonb', nullable: true, name: 'pdf_coordinates' })
-  pdfCoordinates?: {
-    page: number;
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  };
+  pdfCoordinates?: { page: number; bbox: number[] };
 
   /**
-   * Type of requirement
+   * Requirement type
    */
-  @Property({ type: 'text', nullable: true })
-  type?: string;
+  @Enum({ items: () => RequirementType })
+  type!: RequirementType;
 
   /**
    * Severity level
    */
-  @Property({ type: 'text', nullable: true })
-  severity?: string;
+  @Enum({ items: () => RequirementSeverity, default: RequirementSeverity.WARNING })
+  severity: RequirementSeverity = RequirementSeverity.WARNING;
 
   /**
-   * AI confidence score (0-1)
+   * Claude's confidence score (0.0 - 1.0)
    */
   @Property({ type: 'decimal', nullable: true, name: 'confidence_score' })
   confidenceScore?: number;
 
   /**
-   * AI reasoning for this extraction
+   * Claude's Chain-of-Thought reasoning
    */
   @Property({ type: 'text', nullable: true })
   reasoning?: string;
 
   /**
-   * Consensus status between primary and shadow extractions
+   * Whether tenants can exempt this requirement
    */
-  @Enum({ items: () => ConsensusStatus, default: ConsensusStatus.SHADOW_MISSING })
-  consensusStatus: ConsensusStatus = ConsensusStatus.SHADOW_MISSING;
+  @Property({ type: 'boolean', default: true, name: 'allows_exemption' })
+  allowsExemption: boolean = true;
 
   /**
-   * Details about conflicts between extractions
+   * Conditions under which exemption is allowed
+   */
+  @Property({ type: 'text', nullable: true, name: 'exemption_conditions' })
+  exemptionConditions?: string;
+
+  /**
+   * Consensus status between Claude and Gemini
+   */
+  @Enum({ items: () => ConsensusStatus })
+  @Index()
+  consensusStatus!: ConsensusStatus;
+
+  /**
+   * Details when models disagree
    */
   @Property({ type: 'jsonb', nullable: true, name: 'conflict_details' })
-  conflictDetails?: object;
+  conflictDetails?: ConflictDetails;
 
   /**
-   * Whether this requirement has been approved by a reviewer
+   * Suggested category mappings from AI
+   */
+  @Property({ type: 'jsonb', nullable: true, name: 'suggested_categories' })
+  suggestedCategories?: { path: string; confidence: number }[];
+
+  /**
+   * Whether this specific requirement is approved
    */
   @Property({ type: 'boolean', default: false, name: 'is_approved' })
   isApproved: boolean = false;
+
+  /**
+   * User who approved this requirement
+   */
+  @Property({ type: 'text', nullable: true, name: 'approved_by' })
+  approvedBy?: string;
+
+  /**
+   * Timestamp when approved
+   */
+  @Property({ type: 'timestamptz', nullable: true, name: 'approved_at' })
+  approvedAt?: Date;
 }
