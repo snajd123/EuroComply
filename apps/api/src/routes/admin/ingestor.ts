@@ -114,6 +114,7 @@ export function createIngestorRouter(options: IngestorRouterOptions): Hono<Env> 
           unit: req.unit,
           scope: req.scope,
           legalReference: req.legalReference,
+          pdfCoordinates: req.pdfCoordinates,
           type: req.type,
           severity: req.severity,
           confidenceScore: req.confidenceScore,
