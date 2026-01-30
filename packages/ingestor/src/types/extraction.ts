@@ -6,12 +6,12 @@ import { z } from 'zod';
 export const RegulationMetadataSchema = z.object({
   code: z.string(),
   name: z.string(),
-  sourceUrl: z.string().url(),
-  version: z.string().optional(),
-  effectiveDate: z.string().optional(),
-  jurisdiction: z.string().optional(),
-  type: z.string().optional(),
-  officialJournalRef: z.string().optional(),
+  sourceUrl: z.string().url().nullish(),
+  version: z.string().nullish(),
+  effectiveDate: z.string().nullish(),
+  jurisdiction: z.string().nullish(),
+  type: z.string().nullish(),
+  officialJournalRef: z.string().nullish(),
 });
 
 export type RegulationMetadata = z.infer<typeof RegulationMetadataSchema>;
@@ -37,19 +37,19 @@ export type PdfCoordinates = z.infer<typeof PdfCoordinatesSchema>;
  * Schema for a single extracted requirement.
  */
 export const ExtractedRequirementSchema = z.object({
-  substanceName: z.string().optional(),
-  casNumber: z.string().optional(),
-  ecNumber: z.string().optional(),
-  operator: OperatorSchema.optional(),
-  thresholdValue: z.number().optional(),
-  unit: z.string().optional(),
-  scope: z.array(z.string()).optional(),
+  substanceName: z.string().nullish(),
+  casNumber: z.string().nullish(),
+  ecNumber: z.string().nullish(),
+  operator: OperatorSchema.nullish(),
+  thresholdValue: z.number().nullish(),
+  unit: z.string().nullish(),
+  scope: z.array(z.string()).nullish(),
   legalReference: z.string(),
-  pdfCoordinates: PdfCoordinatesSchema.optional(),
+  pdfCoordinates: PdfCoordinatesSchema.nullish(),
   confidenceScore: z.number().min(0).max(1),
   reasoning: z.string(),
-  allowsExemption: z.boolean().optional().default(true),
-  exemptionConditions: z.string().optional(),
+  allowsExemption: z.boolean().nullish().default(true),
+  exemptionConditions: z.string().nullish(),
 });
 
 export type ExtractedRequirement = z.infer<typeof ExtractedRequirementSchema>;
@@ -73,12 +73,12 @@ export type CategoryMapping = z.infer<typeof CategoryMappingSchema>;
 export const ExtractionResultSchema = z.object({
   regulationMetadata: RegulationMetadataSchema,
   requirements: z.array(ExtractedRequirementSchema),
-  categoryMappings: z.array(CategoryMappingSchema).optional(),
+  categoryMappings: z.array(CategoryMappingSchema).nullish(),
   extractionMetadata: z.object({
-    model: z.string(),
-    extractedAt: z.string(),
-    totalRequirements: z.number(),
-    avgConfidence: z.number(),
+    model: z.string().nullish(),
+    extractedAt: z.string().nullish(),
+    totalRequirements: z.number().nullish(),
+    avgConfidence: z.number().nullish(),
   }),
 });
 

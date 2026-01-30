@@ -88,7 +88,7 @@ export class Comparator {
     const claudeUnit = requirement.unit ?? 'PPM';
     const geminiUnit = shadowMatch.unit ?? 'PPM';
 
-    if (claudeThreshold !== undefined && geminiThreshold !== undefined) {
+    if (claudeThreshold != null && geminiThreshold != null) {
       // Normalize both values to PPM before comparing
       const claudePpm = this.toPpm(claudeThreshold, claudeUnit);
       const geminiPpm = this.toPpm(geminiThreshold, geminiUnit);
