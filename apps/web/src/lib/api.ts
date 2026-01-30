@@ -10,6 +10,19 @@ export interface StagingRegulation {
   requirementCount: number;
 }
 
+export interface ExtractionResult {
+  stagingRegulationId: string;
+  regulationCode: string;
+  regulationName: string;
+  requirementCount: number;
+  consensusSummary: {
+    match: number;
+    conflict: number;
+    lowConfidence: number;
+    shadowMissing: number;
+  };
+}
+
 export interface StagingRegulationDetail {
   id: string;
   code: string;
@@ -67,6 +80,12 @@ async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export const ingestorApi = {
+  extract: (params: { sourceUrl: string; sourceType: 'EUR_LEX' | 'ECHA' | 'MANUAL'; documentText: string }) =>
+    fetchApi<ExtractionResult>('/api/v1/admin/ingestor/extract', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    }),
+
   listStaging: () => fetchApi<StagingRegulation[]>('/api/v1/admin/ingestor/staging'),
 
   getStaging: (id: string) => fetchApi<StagingRegulationDetail>(`/api/v1/admin/ingestor/staging/${id}`),
