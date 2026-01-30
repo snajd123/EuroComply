@@ -33,9 +33,9 @@ export interface IngestorRouterOptions {
 }
 
 const extractSchema = z.object({
-  sourceUrl: z.string().url(),
+  sourceUrl: z.string().min(1), // URL or identifier for manual entries
   sourceType: z.enum(['EUR_LEX', 'ECHA', 'MANUAL']),
-  documentText: z.string().optional(), // For manual paste
+  documentText: z.string().min(1), // Required - the actual text to extract from
 });
 
 const approveSchema = z.object({
