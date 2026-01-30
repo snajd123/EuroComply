@@ -48,7 +48,7 @@ export const ExtractedRequirementSchema = z.object({
   pdfCoordinates: PdfCoordinatesSchema.optional(),
   confidenceScore: z.number().min(0).max(1),
   reasoning: z.string(),
-  allowsExemption: z.boolean().default(true),
+  allowsExemption: z.boolean().optional().default(true),
   exemptionConditions: z.string().optional(),
 });
 

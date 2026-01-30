@@ -47,13 +47,16 @@ export class IngestionPipeline {
 
   /**
    * Runs the full ingestion pipeline.
+   *
+   * Claude and Gemini extractions run in parallel for performance,
+   * nearly halving total extraction time.
    */
   async ingest(documentText: string, sourceUrl: string): Promise<IngestionResult> {
-    // Step 1: Claude extraction
-    const extraction = await this.claudeExtractor.extract(documentText, sourceUrl);
-
-    // Step 2: Gemini shadow extraction
-    const shadow = await this.geminiShadow.extract(documentText);
+    // Step 1 & 2: Run Claude and Gemini extractions in parallel
+    const [extraction, shadow] = await Promise.all([
+      this.claudeExtractor.extract(documentText, sourceUrl),
+      this.geminiShadow.extract(documentText),
+    ]);
 
     // Step 3: Compare results
     const comparisons = this.comparator.compare(extraction.requirements, shadow);

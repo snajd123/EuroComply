@@ -1,22 +1,22 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { ClaudeExtractor } from './ClaudeExtractor.js';
 
-// Mock the Anthropic SDK
-vi.mock('@anthropic-ai/sdk', () => {
-  return {
-    default: vi.fn().mockImplementation(() => ({
-      messages: {
-        create: vi.fn(),
-      },
-    })),
-  };
-});
-
+/**
+ * Tests for ClaudeExtractor pure functions.
+ *
+ * NOTE: The `extract` method makes external API calls to Claude and cannot be
+ * tested without API keys and incurring costs. The pure parsing functions
+ * (parseExtractionResponse, normalizeKeys) are tested here per RULES.md
+ * exception for "Pure function unit tests".
+ *
+ * For end-to-end testing of the extraction flow, see IngestionPipeline.integration.test.ts
+ * which uses stub objects for external API clients.
+ */
 describe('ClaudeExtractor', () => {
   let extractor: ClaudeExtractor;
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    // Constructor doesn't call API - safe to instantiate for testing pure methods
     extractor = new ClaudeExtractor({ apiKey: 'test-api-key' });
   });
 

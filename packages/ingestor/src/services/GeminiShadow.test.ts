@@ -14,8 +14,8 @@ describe('GeminiShadow', () => {
       const result = shadow.parseResponse(response);
 
       expect(result).toHaveLength(2);
-      expect(result[0].cas).toBe('7439-92-1');
-      expect(result[0].threshold).toBe(0.05);
+      expect(result[0]?.cas).toBe('7439-92-1');
+      expect(result[0]?.threshold).toBe(0.05);
     });
 
     it('should_handle_response_with_markdown_code_block', () => {
@@ -30,7 +30,7 @@ describe('GeminiShadow', () => {
       const result = shadow.parseResponse(response);
 
       expect(result).toHaveLength(1);
-      expect(result[0].cas).toBe('7439-92-1');
+      expect(result[0]?.cas).toBe('7439-92-1');
     });
 
     it('should_handle_missing_fields', () => {
@@ -44,10 +44,10 @@ describe('GeminiShadow', () => {
       const result = shadow.parseResponse(response);
 
       expect(result).toHaveLength(2);
-      expect(result[0].cas).toBe('7439-92-1');
-      expect(result[0].threshold).toBeUndefined();
-      expect(result[1].cas).toBeUndefined();
-      expect(result[1].threshold).toBe(0.05);
+      expect(result[0]?.cas).toBe('7439-92-1');
+      expect(result[0]?.threshold).toBeUndefined();
+      expect(result[1]?.cas).toBeUndefined();
+      expect(result[1]?.threshold).toBe(0.05);
     });
 
     it('should_return_empty_array_for_empty_response', () => {

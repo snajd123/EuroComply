@@ -1,6 +1,15 @@
 import { ShadowExtractionSchema, type ShadowExtraction } from '../types/extraction.js';
 import { createShadowPrompt } from '../prompts/gemini-shadow-prompt.js';
 
+/** Maximum tokens for shadow extraction response */
+const MAX_OUTPUT_TOKENS = 4096;
+
+/** Default Gemini model for shadow extraction */
+const DEFAULT_MODEL = 'gemini-2.0-flash';
+
+/** Gemini API base URL */
+const API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
+
 export interface GeminiShadowOptions {
   apiKey: string;
   model?: string;
@@ -15,11 +24,10 @@ export interface GeminiShadowOptions {
 export class GeminiShadow {
   private apiKey: string;
   private model: string;
-  private baseUrl = 'https://generativelanguage.googleapis.com/v1beta/models';
 
   constructor(options: GeminiShadowOptions) {
     this.apiKey = options.apiKey;
-    this.model = options.model ?? 'gemini-2.0-flash';
+    this.model = options.model ?? DEFAULT_MODEL;
   }
 
   /**
@@ -29,7 +37,7 @@ export class GeminiShadow {
     const prompt = createShadowPrompt(documentText);
 
     const response = await fetch(
-      `${this.baseUrl}/${this.model}:generateContent?key=${this.apiKey}`,
+      `${API_BASE_URL}/${this.model}:generateContent?key=${this.apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -37,15 +45,15 @@ export class GeminiShadow {
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: {
             temperature: 0.1,
-            maxOutputTokens: 4096,
+            maxOutputTokens: MAX_OUTPUT_TOKENS,
           },
         }),
       }
     );
 
     if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Gemini API error: ${error}`);
+      // Don't expose raw API response which might contain request details
+      throw new Error(`Gemini API error (status ${response.status}): Shadow extraction failed`);
     }
 
     const data = await response.json() as {

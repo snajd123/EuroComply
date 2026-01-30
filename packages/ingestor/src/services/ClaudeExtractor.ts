@@ -2,6 +2,12 @@ import Anthropic from '@anthropic-ai/sdk';
 import { ExtractionResultSchema, type ExtractionResult } from '../types/extraction.js';
 import { SUBSTANCE_RESTRICTION_SYSTEM_PROMPT, createExtractionPrompt } from '../prompts/substance-restriction-prompt.js';
 
+/** Maximum tokens for extraction response */
+const MAX_EXTRACTION_TOKENS = 8192;
+
+/** Default Claude model for extraction */
+const DEFAULT_MODEL = 'claude-sonnet-4-20250514';
+
 export interface ClaudeExtractorOptions {
   apiKey: string;
   model?: string;
@@ -13,7 +19,7 @@ export class ClaudeExtractor {
 
   constructor(options: ClaudeExtractorOptions) {
     this.client = new Anthropic({ apiKey: options.apiKey });
-    this.model = options.model ?? 'claude-sonnet-4-20250514';
+    this.model = options.model ?? DEFAULT_MODEL;
   }
 
   /**
@@ -24,7 +30,7 @@ export class ClaudeExtractor {
 
     const response = await this.client.messages.create({
       model: this.model,
-      max_tokens: 8192,
+      max_tokens: MAX_EXTRACTION_TOKENS,
       system: SUBSTANCE_RESTRICTION_SYSTEM_PROMPT,
       messages: [
         {

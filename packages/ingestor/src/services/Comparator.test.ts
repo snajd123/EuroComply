@@ -15,6 +15,7 @@ describe('Comparator', () => {
           legalReference: 'Entry 63',
           confidenceScore: 0.97,
           reasoning: 'Lead restriction',
+          allowsExemption: true,
         },
       ];
 
@@ -25,8 +26,8 @@ describe('Comparator', () => {
       const results = comparator.compare(primary, shadow);
 
       expect(results).toHaveLength(1);
-      expect(results[0].status).toBe('MATCH');
-      expect(results[0].conflictDetails).toBeUndefined();
+      expect(results[0]?.status).toBe('MATCH');
+      expect(results[0]?.conflictDetails).toBeUndefined();
     });
 
     it('should_return_CONFLICT_when_thresholds_disagree', () => {
@@ -38,6 +39,7 @@ describe('Comparator', () => {
           legalReference: 'Entry 63',
           confidenceScore: 0.97,
           reasoning: 'Lead restriction',
+          allowsExemption: true,
         },
       ];
 
@@ -48,10 +50,10 @@ describe('Comparator', () => {
       const results = comparator.compare(primary, shadow);
 
       expect(results).toHaveLength(1);
-      expect(results[0].status).toBe('CONFLICT');
-      expect(results[0].conflictDetails).toBeDefined();
-      expect(results[0].conflictDetails?.claude.threshold).toBe(0.05);
-      expect(results[0].conflictDetails?.gemini.threshold).toBe(0.5);
+      expect(results[0]?.status).toBe('CONFLICT');
+      expect(results[0]?.conflictDetails).toBeDefined();
+      expect(results[0]?.conflictDetails?.claude.threshold).toBe(0.05);
+      expect(results[0]?.conflictDetails?.gemini.threshold).toBe(0.5);
     });
 
     it('should_return_LOW_CONFIDENCE_when_confidence_below_threshold', () => {
@@ -63,6 +65,7 @@ describe('Comparator', () => {
           legalReference: 'Entry 63',
           confidenceScore: 0.80, // Below 0.95 threshold
           reasoning: 'Lead restriction',
+          allowsExemption: true,
         },
       ];
 
@@ -73,7 +76,7 @@ describe('Comparator', () => {
       const results = comparator.compare(primary, shadow);
 
       expect(results).toHaveLength(1);
-      expect(results[0].status).toBe('LOW_CONFIDENCE');
+      expect(results[0]?.status).toBe('LOW_CONFIDENCE');
     });
 
     it('should_return_SHADOW_MISSING_when_no_shadow_match', () => {
@@ -85,6 +88,7 @@ describe('Comparator', () => {
           legalReference: 'Entry 63',
           confidenceScore: 0.97,
           reasoning: 'Lead restriction',
+          allowsExemption: true,
         },
       ];
 
@@ -95,7 +99,7 @@ describe('Comparator', () => {
       const results = comparator.compare(primary, shadow);
 
       expect(results).toHaveLength(1);
-      expect(results[0].status).toBe('SHADOW_MISSING');
+      expect(results[0]?.status).toBe('SHADOW_MISSING');
     });
 
     it('should_handle_requirements_without_CAS_numbers', () => {
@@ -107,6 +111,7 @@ describe('Comparator', () => {
           legalReference: 'Article 5',
           confidenceScore: 0.95,
           reasoning: 'No CAS provided',
+          allowsExemption: true,
         },
       ];
 
@@ -115,7 +120,7 @@ describe('Comparator', () => {
       const results = comparator.compare(primary, shadow);
 
       expect(results).toHaveLength(1);
-      expect(results[0].status).toBe('SHADOW_MISSING');
+      expect(results[0]?.status).toBe('SHADOW_MISSING');
     });
 
     // UNIT NORMALIZATION TESTS
@@ -128,6 +133,7 @@ describe('Comparator', () => {
           legalReference: 'Entry 63',
           confidenceScore: 0.97,
           reasoning: 'Lead restriction',
+          allowsExemption: true,
         },
       ];
 
@@ -138,7 +144,7 @@ describe('Comparator', () => {
       const results = comparator.compare(primary, shadow);
 
       expect(results).toHaveLength(1);
-      expect(results[0].status).toBe('MATCH');
+      expect(results[0]?.status).toBe('MATCH');
     });
 
     it('should_return_MATCH_for_mg_kg_vs_ppm_equivalence', () => {
@@ -150,6 +156,7 @@ describe('Comparator', () => {
           legalReference: 'Entry 23',
           confidenceScore: 0.95,
           reasoning: 'Cadmium restriction',
+          allowsExemption: true,
         },
       ];
 
@@ -160,7 +167,7 @@ describe('Comparator', () => {
       const results = comparator.compare(primary, shadow);
 
       expect(results).toHaveLength(1);
-      expect(results[0].status).toBe('MATCH');
+      expect(results[0]?.status).toBe('MATCH');
     });
   });
 
@@ -193,6 +200,7 @@ describe('Comparator', () => {
         legalReference: 'Entry 63',
         confidenceScore: 0.97, // Above default 0.95, below custom 0.99
         reasoning: 'Lead restriction',
+          allowsExemption: true,
       }];
 
       const shadow: ShadowExtraction = [
@@ -200,7 +208,7 @@ describe('Comparator', () => {
       ];
 
       const results = strictComparator.compare(primary, shadow);
-      expect(results[0].status).toBe('LOW_CONFIDENCE');
+      expect(results[0]?.status).toBe('LOW_CONFIDENCE');
     });
 
     it('should_use_custom_threshold_tolerance', () => {
@@ -213,6 +221,7 @@ describe('Comparator', () => {
         legalReference: 'Entry 63',
         confidenceScore: 0.97,
         reasoning: 'Lead restriction',
+          allowsExemption: true,
       }];
 
       const shadow: ShadowExtraction = [
@@ -220,7 +229,7 @@ describe('Comparator', () => {
       ];
 
       const results = strictComparator.compare(primary, shadow);
-      expect(results[0].status).toBe('CONFLICT'); // 0.5 ppm > 0.1 tolerance
+      expect(results[0]?.status).toBe('CONFLICT'); // 0.5 ppm > 0.1 tolerance
     });
   });
 });
