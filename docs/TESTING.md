@@ -196,6 +196,39 @@ pnpm dev:local --with-tunnel
 
 This starts ngrok and displays the public URL for webhook configuration.
 
+### 3. Start Frontend (Admin UI)
+
+```bash
+# Terminal 2: Frontend
+cd apps/web && pnpm dev
+```
+
+Frontend runs on `http://localhost:3001` (or next available port).
+
+**Environment:** Create `apps/web/.env.local`:
+```env
+NEXT_PUBLIC_API_URL=http://localhost:3000
+NEXT_PUBLIC_ADMIN_KEY=<your-admin-api-key>
+```
+
+The `NEXT_PUBLIC_ADMIN_KEY` must match `ADMIN_API_KEY` in `apps/api/.env`.
+
+### 4. Full Stack Testing
+
+```bash
+# Terminal 1: Database + API
+pnpm db:start && pnpm db:setup
+pnpm dev:local
+
+# Terminal 2: Frontend
+cd apps/web && pnpm dev
+```
+
+Then open:
+- **API**: http://localhost:3000
+- **Frontend**: http://localhost:3001
+- **Admin Ingestor**: http://localhost:3001/admin/ingestor
+
 ### 3. Configure Clerk Webhook
 
 - Go to Clerk Dashboard → Webhooks

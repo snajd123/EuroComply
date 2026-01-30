@@ -2,6 +2,8 @@
 
 **These rules are MANDATORY for all development work. No exceptions.**
 
+> **Testing Setup:** See [docs/TESTING.md](./docs/TESTING.md) for database setup, server startup commands, and full-stack testing instructions.
+
 ---
 
 ## 1. Test-Driven Development (TDD)
