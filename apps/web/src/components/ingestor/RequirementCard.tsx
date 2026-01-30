@@ -30,6 +30,7 @@ export interface RequirementCardProps {
   isSelected?: boolean;
   onClick?: () => void;
   onApprove?: () => void;
+  onEdit?: (requirement: Requirement) => void;
   onViewReasoning?: () => void;
 }
 
@@ -38,6 +39,7 @@ export function RequirementCard({
   isSelected = false,
   onClick,
   onApprove,
+  onEdit,
   onViewReasoning,
 }: RequirementCardProps) {
   const {
@@ -53,6 +55,7 @@ export function RequirementCard({
     confidenceScore,
     consensusStatus,
     conflictDetails,
+    pdfCoordinates,
     isApproved,
   } = requirement;
 
@@ -83,14 +86,21 @@ export function RequirementCard({
           </div>
           <h4 className="font-medium text-gray-900 mt-1">{name}</h4>
         </div>
-        {confidenceScore !== undefined && (
-          <div className="text-right">
-            <div className="text-xs text-gray-500">Confidence</div>
-            <div className={`font-medium ${confidenceScore >= 0.95 ? 'text-green-600' : confidenceScore >= 0.85 ? 'text-yellow-600' : 'text-red-600'}`}>
-              {Math.round(confidenceScore * 100)}%
+        <div className="flex items-start gap-4">
+          {pdfCoordinates?.page !== undefined && (
+            <div className="text-right">
+              <div className="text-xs text-gray-400">Page {pdfCoordinates.page}</div>
             </div>
-          </div>
-        )}
+          )}
+          {confidenceScore !== undefined && (
+            <div className="text-right">
+              <div className="text-xs text-gray-500">Confidence</div>
+              <div className={`font-medium ${confidenceScore >= 0.95 ? 'text-green-600' : confidenceScore >= 0.85 ? 'text-yellow-600' : 'text-red-600'}`}>
+                {Math.round(confidenceScore * 100)}%
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Substance Info */}
@@ -153,6 +163,14 @@ export function RequirementCard({
             className="text-xs px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700"
           >
             Approve
+          </button>
+        )}
+        {onEdit && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onEdit(requirement); }}
+            className="text-xs px-3 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
+          >
+            Edit
           </button>
         )}
         {onViewReasoning && (
