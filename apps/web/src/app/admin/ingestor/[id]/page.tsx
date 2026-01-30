@@ -8,7 +8,8 @@ import { RequirementCard, type Requirement, type ConsensusStatus } from '@/compo
 import { ReasoningDrawer } from '@/components/ingestor/ReasoningDrawer';
 import { BulkApproveButton } from '@/components/ingestor/BulkApproveButton';
 import { PublishModal } from '@/components/ingestor/PublishModal';
-import { PdfViewer, type PdfCoordinates } from '@/components/pdf';
+import { PdfViewer } from '@/components/ingestor/PdfViewer';
+import type { PdfCoordinates } from '@/components/pdf';
 
 export default function StagingDetailPage() {
   const params = useParams();
@@ -124,11 +125,10 @@ export default function StagingDetailPage() {
       <div className="flex-1 flex overflow-hidden">
         {/* Left Pane - PDF Viewer */}
         <div className="w-1/2 border-r">
-          {regulation.sourceUrl ? (
+          {regulation.pdfFileId ? (
             <PdfViewer
-              url={regulation.sourceUrl}
-              highlight={highlight}
-              className="h-full"
+              fileId={regulation.pdfFileId}
+              highlightCoordinates={highlight}
             />
           ) : (
             <div className="h-full flex items-center justify-center bg-gray-100 text-gray-500">

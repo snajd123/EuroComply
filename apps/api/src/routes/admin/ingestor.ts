@@ -143,6 +143,7 @@ export function createIngestorRouter(options: IngestorRouterOptions): Hono<Env> 
         sourceType: regulation.sourceType,
         status: regulation.status,
         createdAt: regulation.createdAt.toISOString(),
+        pdfFileId: regulation.pdfFileId,
         primaryPayload: regulation.primaryPayload,
         shadowPayload: regulation.shadowPayload,
         requirements: regulation.requirements.getItems().map(req => ({

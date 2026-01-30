@@ -1,5 +1,9 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
+function getAdminKey(): string {
+  return process.env.NEXT_PUBLIC_ADMIN_KEY || '';
+}
+
 export interface StagingRegulation {
   id: string;
   code: string;
@@ -31,6 +35,7 @@ export interface StagingRegulationDetail {
   sourceType: string;
   status: string;
   createdAt: string;
+  pdfFileId?: string;
   primaryPayload: unknown;
   shadowPayload: unknown;
   requirements: Array<{
@@ -80,7 +85,33 @@ async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export const ingestorApi = {
-  extract: (params: { sourceUrl: string; sourceType: 'EUR_LEX' | 'ECHA' | 'MANUAL'; documentText: string }) =>
+  uploadPdf: async (file: File): Promise<{ fileId: string; filename: string; size: number }> => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const res = await fetch(`${API_BASE}/api/v1/admin/ingestor/upload/pdf`, {
+      method: 'POST',
+      headers: {
+        'X-Admin-Key': getAdminKey(),
+      },
+      body: formData,
+    });
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({ error: { message: 'Upload failed' } }));
+      throw new Error(data.error?.message || 'Upload failed');
+    }
+
+    const data = await res.json();
+    return data.data;
+  },
+
+  extract: (params: {
+    sourceUrl?: string;
+    sourceType: 'EUR_LEX' | 'ECHA' | 'MANUAL';
+    documentText?: string;
+    fileId?: string;
+  }) =>
     fetchApi<ExtractionResult>('/api/v1/admin/ingestor/extract', {
       method: 'POST',
       body: JSON.stringify(params),
