@@ -4,6 +4,15 @@ export default defineConfig({
   test: {
     globals: false,
     environment: 'node',
+    // Database connection for integration tests
+    env: {
+      DATABASE_HOST: 'localhost',
+      DATABASE_PORT: '5432',
+      DATABASE_USER: 'postgres',
+      DATABASE_PASSWORD: 'postgres',
+      DATABASE_NAME: 'eurocomply_test',
+      TEST_DATABASE_NAME: 'eurocomply_test',
+    },
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],
@@ -14,11 +23,13 @@ export default defineConfig({
         'src/**/*.test.ts',
         'src/**/*.spec.ts',
       ],
-      // Coverage thresholds disabled - documented exceptions below:
-      // 1. External API clients (ClaudeExtractor.extract, GeminiShadow.extract)
-      //    cannot be tested without real API keys and incurring costs.
-      // 2. The ingestAndStage method requires a database connection.
-      // See IngestionPipeline.integration.test.ts for documented exceptions.
+      thresholds: {
+        // RULES.md requires 80% for new code
+        lines: 80,
+        functions: 80,
+        branches: 80,
+        statements: 80,
+      },
     },
   },
 });

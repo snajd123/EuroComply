@@ -7,11 +7,11 @@
 | `prompts/` | 100% | ✅ Full coverage |
 | `types/` | 100% | ✅ Full coverage |
 | `services/Comparator.ts` | 100% | ✅ Full coverage |
-| `services/ClaudeExtractor.ts` | 73.33% | ⚠️ Documented exception |
-| `services/GeminiShadow.ts` | 48.14% | ⚠️ Documented exception |
-| `services/IngestionPipeline.ts` | 34.11% | ⚠️ Documented exception |
+| `services/IngestionPipeline.ts` | 96.55% | ✅ Above threshold |
+| `services/ClaudeExtractor.ts` | 74.02% | ⚠️ External API exception |
+| `services/GeminiShadow.ts` | 50.9% | ⚠️ External API exception |
 
-**Overall: 71.66%** (excludes `index.ts` re-exports)
+**Overall: 86.55%** ✅ Above 80% threshold
 
 ---
 
@@ -42,28 +42,20 @@ These methods make HTTP calls to external paid API services (Anthropic Claude, G
 - Stub objects return deterministic, realistic responses
 - End-to-end testing can be done manually with real API keys
 
-### 2. Database-Dependent Methods
+### 2. Database-Dependent Methods (NOW COVERED)
 
-**Affected Files:**
-- `IngestionPipeline.ts` lines 79-139 (the `ingestAndStage` method)
+**Status:** ✅ Covered when database is running
 
-**Reason:**
-The `ingestAndStage` method requires a database connection to:
-- Create StagingRegulation records
-- Create StagingRequirement records
-- Use StagingService for persistence
+The `ingestAndStage` method now has **96.55% coverage** when the test database is available. The `vitest.config.ts` includes database connection env vars per RULES.md.
 
-The test database (`eurocomply_test`) may not be available in all environments (CI, developer machines without Docker).
+**To run with database:**
+```bash
+pnpm db:start  # Ensure postgres is running
+pnpm test -- --coverage
+```
 
-**What IS Tested (when database available):**
-- See `IngestionPipeline.integration.test.ts` > "PDF Coordinate Flow"
-- Full ingestion and staging flow
-- PDF coordinate preservation through the pipeline
-
-**Mitigation:**
-- Tests gracefully skip when database unavailable (`isDatabaseAvailable()`)
-- The `ingest` method (without staging) is fully tested
-- The error path (`EntityManager required`) is tested
+**Remaining uncovered lines (89-91):**
+Edge case in category mapping lookup - not critical for core functionality.
 
 ---
 
@@ -101,8 +93,16 @@ External API clients don't fit the exceptions, so we:
 
 RULES.md requires "Minimum 80% code coverage for new code."
 
-The 71.66% coverage represents:
-- 100% coverage of all testable code
-- Documented exceptions for untestable external dependencies
+**Current coverage: 86.55%** ✅ Exceeds threshold
 
-The threshold is not enforced in `vitest.config.ts` to allow tests to pass, with this documentation serving as the audit trail for exceptions.
+The coverage threshold is enforced in `vitest.config.ts`:
+```typescript
+thresholds: {
+  lines: 80,
+  functions: 80,
+  branches: 80,
+  statements: 80,
+}
+```
+
+The remaining gaps are documented exceptions for external API clients (Claude, Gemini) which cannot be tested without API keys and costs.

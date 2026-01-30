@@ -244,6 +244,37 @@ DATABASE_NAME=eurocomply
 
 If tests fail with "connection refused" or you see databases on multiple ports, the setup is broken. Fix by removing all postgres containers and running `pnpm db:start` fresh.
 
+### Test Database Configuration
+
+**Every package with integration tests MUST include database env vars in `vitest.config.ts`:**
+
+```typescript
+// vitest.config.ts
+export default defineConfig({
+  test: {
+    env: {
+      DATABASE_HOST: 'localhost',
+      DATABASE_PORT: '5432',
+      DATABASE_USER: 'postgres',
+      DATABASE_PASSWORD: 'postgres',
+      DATABASE_NAME: 'eurocomply_test',
+      TEST_DATABASE_NAME: 'eurocomply_test',
+    },
+    // ... other config
+  },
+});
+```
+
+**Before running tests with database dependencies:**
+1. Ensure postgres is running: `pnpm db:start`
+2. The test database `eurocomply_test` is auto-created by `init-db.sql`
+3. Tests use `setupTestDb()` from `@eurocomply/database/test-utils`
+
+**Test utilities:**
+- `setupTestDb()` - Creates ORM connection, ensures schema exists
+- `teardownTestDb()` - Closes ORM connection
+- `isDatabaseAvailable()` - Checks if database is reachable (for graceful skipping)
+
 ### Migrations & Schema Management
 
 **During Local Development:**
