@@ -437,6 +437,7 @@ describe('Ingestor Admin API E2E', () => {
       expect(stagingData.data.code).toBe('E2E-PDF-TEST-2024');
       expect(stagingData.data.name).toBe('E2E PDF Test Regulation');
       expect(stagingData.data.sourceType).toBe('EUR_LEX');
+      expect(stagingData.data.pdfFileId).toBe(fileId); // Verify pdfFileId is stored from extract
       expect(stagingData.data.requirements).toHaveLength(2);
 
       // Verify requirements have pdfCoordinates for highlighting

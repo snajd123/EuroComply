@@ -304,6 +304,7 @@ export function createIngestorRouter(options: IngestorRouterOptions): Hono<Env> 
             name: result.extraction.regulationMetadata.name,
             sourceUrl: result.extraction.regulationMetadata.sourceUrl ?? sourceIdentifier,
             sourceType: body.sourceType,
+            pdfFileId: body.fileId,
             primaryPayload: result.extraction,
             shadowPayload: result.shadow,
             regulationMetadata: {
