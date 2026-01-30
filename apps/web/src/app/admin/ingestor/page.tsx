@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ingestorApi, type StagingRegulation } from '@/lib/api';
+import { ExtractModal } from '@/components/ingestor';
 
 const statusColors: Record<string, string> = {
   PENDING: 'bg-yellow-100 text-yellow-800',
@@ -16,6 +17,7 @@ export default function IngestorPage() {
   const [regulations, setRegulations] = useState<StagingRegulation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [extractModalOpen, setExtractModalOpen] = useState(false);
 
   useEffect(() => {
     loadRegulations();
@@ -49,12 +51,20 @@ export default function IngestorPage() {
           <h1 className="text-2xl font-bold">AI Regulation Ingestor</h1>
           <p className="text-gray-600">Review and approve AI-extracted regulations</p>
         </div>
-        <button
-          onClick={loadRegulations}
-          className="px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200"
-        >
-          Refresh
-        </button>
+        <div className="flex gap-3">
+          <button
+            onClick={() => setExtractModalOpen(true)}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          >
+            New Extraction
+          </button>
+          <button
+            onClick={loadRegulations}
+            className="px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200"
+          >
+            Refresh
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -128,6 +138,15 @@ export default function IngestorPage() {
           </table>
         </div>
       )}
+
+      <ExtractModal
+        isOpen={extractModalOpen}
+        onClose={() => setExtractModalOpen(false)}
+        onSuccess={() => {
+          setExtractModalOpen(false);
+          loadRegulations();
+        }}
+      />
     </main>
   );
 }
