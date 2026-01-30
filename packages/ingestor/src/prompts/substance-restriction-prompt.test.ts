@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   SUBSTANCE_RESTRICTION_SYSTEM_PROMPT,
   createExtractionPrompt,
+  createPdfExtractionPrompt,
 } from './substance-restriction-prompt.js';
 
 /**
@@ -73,6 +74,46 @@ describe('substance-restriction-prompt', () => {
       expect(result).toContain('"pdf_coordinates"');
       expect(result).toContain('"page"');
       expect(result).toContain('"bbox"');
+    });
+  });
+
+  describe('createPdfExtractionPrompt', () => {
+    it('should_include_source_identifier', () => {
+      const sourceIdentifier = 'REACH-2006-1907';
+      const result = createPdfExtractionPrompt(sourceIdentifier);
+
+      expect(result).toContain(`Source identifier: ${sourceIdentifier}`);
+    });
+
+    it('should_emphasize_accurate_pdf_coordinates', () => {
+      const result = createPdfExtractionPrompt('test-source');
+
+      expect(result).toContain('accurate PDF coordinates');
+      expect(result).toContain('1-indexed page number');
+      expect(result).toContain('bounding box');
+      expect(result).toContain('[x1, y1, x2, y2]');
+      expect(result).toContain('PDF points');
+    });
+
+    it('should_explain_coordinate_system', () => {
+      const result = createPdfExtractionPrompt('test-source');
+
+      expect(result).toContain('bottom-left corner');
+      expect(result).toContain('top-right corner');
+      expect(result).toContain('Origin is bottom-left');
+    });
+
+    it('should_mention_highlighting_purpose', () => {
+      const result = createPdfExtractionPrompt('test-source');
+
+      expect(result).toContain('highlight');
+      expect(result).toContain('PDF viewer');
+    });
+
+    it('should_reference_xml_wrapped_json_format', () => {
+      const result = createPdfExtractionPrompt('test-source');
+
+      expect(result).toContain('XML-wrapped JSON');
     });
   });
 });

@@ -28,6 +28,26 @@ CRITICAL RULES:
 Output Format: Return ONLY valid JSON wrapped in <extraction_results> tags. No preamble.`;
 
 /**
+ * PDF-specific extraction prompt that emphasizes accurate coordinate extraction.
+ */
+export function createPdfExtractionPrompt(sourceIdentifier: string): string {
+  return `Extract all substance restrictions from this PDF document.
+
+Source identifier: ${sourceIdentifier}
+
+IMPORTANT: For each requirement, provide accurate PDF coordinates:
+- "page": The 1-indexed page number where this requirement appears
+- "bbox": The bounding box [x1, y1, x2, y2] in PDF points (72 points = 1 inch)
+  - x1, y1: bottom-left corner coordinates
+  - x2, y2: top-right corner coordinates
+  - Origin is bottom-left of page
+
+These coordinates will be used to highlight the source text in a PDF viewer, so accuracy is critical.
+
+Return the extraction in XML-wrapped JSON format as specified in the system prompt.`;
+}
+
+/**
  * User prompt template for extraction.
  */
 export function createExtractionPrompt(documentText: string, sourceUrl: string): string {

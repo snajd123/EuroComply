@@ -1,6 +1,10 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { ExtractionResultSchema, type ExtractionResult } from '../types/extraction.js';
-import { SUBSTANCE_RESTRICTION_SYSTEM_PROMPT, createExtractionPrompt } from '../prompts/substance-restriction-prompt.js';
+import {
+  SUBSTANCE_RESTRICTION_SYSTEM_PROMPT,
+  createExtractionPrompt,
+  createPdfExtractionPrompt,
+} from '../prompts/substance-restriction-prompt.js';
 
 /** Maximum tokens for extraction response */
 const MAX_EXTRACTION_TOKENS = 8192;
@@ -36,6 +40,50 @@ export class ClaudeExtractor {
         {
           role: 'user',
           content: userPrompt,
+        },
+      ],
+    });
+
+    // Extract text content from the response
+    const textContent = response.content.find((block) => block.type === 'text');
+    if (!textContent || textContent.type !== 'text') {
+      throw new Error('No text content in Claude response');
+    }
+
+    return this.parseExtractionResponse(textContent.text);
+  }
+
+  /**
+   * Extracts structured requirements from a PDF document using Claude's native PDF support.
+   * Sends the PDF as a base64-encoded document block for accurate page/bbox coordinate extraction.
+   */
+  async extractFromPdf(pdfBuffer: Buffer, sourceIdentifier: string): Promise<ExtractionResult> {
+    const pdfBase64 = pdfBuffer.toString('base64');
+
+    // Note: The document type is not yet in the TypeScript SDK types, but is supported by the API
+    // See: https://docs.anthropic.com/en/docs/build-with-claude/pdf-support
+    const response = await this.client.messages.create({
+      model: this.model,
+      max_tokens: MAX_EXTRACTION_TOKENS,
+      system: SUBSTANCE_RESTRICTION_SYSTEM_PROMPT,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'document',
+              source: {
+                type: 'base64',
+                media_type: 'application/pdf',
+                data: pdfBase64,
+              },
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            } as any,
+            {
+              type: 'text',
+              text: createPdfExtractionPrompt(sourceIdentifier),
+            },
+          ],
         },
       ],
     });

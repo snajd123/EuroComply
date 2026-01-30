@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ClaudeExtractor } from './ClaudeExtractor.js';
+import { createPdfExtractionPrompt } from '../prompts/substance-restriction-prompt.js';
 
 /**
  * Tests for ClaudeExtractor pure functions.
@@ -120,13 +121,12 @@ No XML tags here.
     });
 
     it('throws on Zod validation failure', () => {
+      // Missing required field: regulation_metadata.name
       const invalidSchemaResponse = `
 <extraction_results>
 {
   "regulation_metadata": {
-    "code": "REACH-2006",
-    "name": "REACH Regulation",
-    "source_url": "not-a-valid-url"
+    "code": "REACH-2006"
   },
   "requirements": [],
   "extraction_metadata": {
@@ -256,6 +256,118 @@ No XML tags here.
         alreadyCamel: 'value',
         mixedCaseAndSnake: 'mixed',
       });
+    });
+  });
+
+  describe('extractFromPdf', () => {
+    it('sends PDF as base64 document block to Claude API', async () => {
+      // Create a mock PDF buffer (just test data - not a real PDF)
+      const pdfBuffer = Buffer.from('fake-pdf-content');
+      const expectedBase64 = pdfBuffer.toString('base64');
+      const sourceIdentifier = 'REACH-2006-1907';
+
+      // Mock the Anthropic client's messages.create method
+      const mockCreate = vi.fn().mockResolvedValue({
+        content: [
+          {
+            type: 'text',
+            text: `<extraction_results>
+{
+  "regulation_metadata": {
+    "code": "REACH-2006",
+    "name": "REACH Regulation",
+    "source_url": "https://eur-lex.europa.eu/reach",
+    "version": "2024.1",
+    "effective_date": "2024-01-01",
+    "jurisdiction": "EU"
+  },
+  "requirements": [
+    {
+      "substance_name": "Lead",
+      "cas_number": "7439-92-1",
+      "operator": "LT",
+      "threshold_value": 0.05,
+      "unit": "PERCENT_BY_WEIGHT",
+      "scope": ["Jewelry"],
+      "legal_reference": "Article 5, Entry 63",
+      "pdf_coordinates": {
+        "page": 5,
+        "bbox": [72.0, 150.5, 520.0, 180.2]
+      },
+      "confidence_score": 0.95,
+      "reasoning": "Clear threshold",
+      "allows_exemption": false,
+      "exemption_conditions": null
+    }
+  ],
+  "category_mappings": [],
+  "extraction_metadata": {
+    "model": "claude-sonnet-4-20250514",
+    "extracted_at": "2024-01-15T10:30:00Z",
+    "total_requirements": 1,
+    "avg_confidence": 0.95
+  }
+}
+</extraction_results>`,
+          },
+        ],
+      });
+
+      // Access the private client and mock it
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (extractor as any).client = {
+        messages: {
+          create: mockCreate,
+        },
+      };
+
+      const result = await extractor.extractFromPdf(pdfBuffer, sourceIdentifier);
+
+      // Verify the API was called with correct structure
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+      const callArgs = mockCreate.mock.calls[0][0];
+
+      // Verify message structure includes document block
+      expect(callArgs.messages).toHaveLength(1);
+      expect(callArgs.messages[0].role).toBe('user');
+      expect(callArgs.messages[0].content).toHaveLength(2);
+
+      // Verify document block structure
+      const documentBlock = callArgs.messages[0].content[0];
+      expect(documentBlock.type).toBe('document');
+      expect(documentBlock.source.type).toBe('base64');
+      expect(documentBlock.source.media_type).toBe('application/pdf');
+      expect(documentBlock.source.data).toBe(expectedBase64);
+
+      // Verify text block with prompt
+      const textBlock = callArgs.messages[0].content[1];
+      expect(textBlock.type).toBe('text');
+      expect(textBlock.text).toBe(createPdfExtractionPrompt(sourceIdentifier));
+
+      // Verify result parsing worked
+      expect(result.regulationMetadata.code).toBe('REACH-2006');
+      expect(result.requirements).toHaveLength(1);
+      expect(result.requirements[0]?.pdfCoordinates?.page).toBe(5);
+      expect(result.requirements[0]?.pdfCoordinates?.bbox).toEqual([72.0, 150.5, 520.0, 180.2]);
+    });
+
+    it('throws error when Claude response has no text content', async () => {
+      const pdfBuffer = Buffer.from('fake-pdf-content');
+
+      const mockCreate = vi.fn().mockResolvedValue({
+        content: [{ type: 'tool_use', id: 'test', name: 'test', input: {} }],
+      });
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (extractor as any).client = {
+        messages: {
+          create: mockCreate,
+        },
+      };
+
+      await expect(extractor.extractFromPdf(pdfBuffer, 'test-source')).rejects.toThrow(
+        'No text content in Claude response'
+      );
     });
   });
 });
