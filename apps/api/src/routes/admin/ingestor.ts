@@ -13,8 +13,17 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import type { MikroORM } from '@eurocomply/database';
-import { StagingService, StagingStatus, PublishService } from '@eurocomply/database';
+import {
+  StagingService,
+  StagingStatus,
+  PublishService,
+  RequirementType,
+  RequirementSeverity,
+  ComparisonOperator,
+} from '@eurocomply/database';
 import {
   IngestionPipeline,
   ClaudeExtractor,
@@ -30,13 +39,22 @@ export interface IngestorRouterOptions {
   claudeExtractor?: ClaudeExtractor;
   geminiShadow?: GeminiShadow;
   comparator?: Comparator;
+  /** Directory where uploaded PDFs are stored */
+  uploadsDir?: string;
 }
 
+/** Valid fileId pattern (CUID2 format - alphanumeric, 21-24 chars) */
+const FILE_ID_PATTERN = /^[a-z0-9]{21,24}$/;
+
 const extractSchema = z.object({
-  sourceUrl: z.string().min(1), // URL or identifier for manual entries
+  sourceUrl: z.string().min(1).optional(), // URL or identifier for manual entries
   sourceType: z.enum(['EUR_LEX', 'ECHA', 'MANUAL']),
-  documentText: z.string().min(1), // Required - the actual text to extract from
-});
+  documentText: z.string().min(1).optional(), // Text to extract from (for text-based extraction)
+  fileId: z.string().min(1).optional(), // File ID of uploaded PDF (for PDF extraction)
+}).refine(
+  data => data.documentText || data.fileId,
+  { message: 'Either documentText or fileId is required' }
+);
 
 const approveSchema = z.object({
   requirementIds: z.array(z.string()).min(1),
@@ -69,7 +87,7 @@ function sanitizeErrorMessage(message: string): string {
 }
 
 export function createIngestorRouter(options: IngestorRouterOptions): Hono<Env> {
-  const { orm, claudeExtractor: injectedClaude, geminiShadow: injectedGemini, comparator: injectedComparator } = options;
+  const { orm, claudeExtractor: injectedClaude, geminiShadow: injectedGemini, comparator: injectedComparator, uploadsDir } = options;
   const router = new Hono<Env>();
 
   /**
@@ -202,18 +220,115 @@ export function createIngestorRouter(options: IngestorRouterOptions): Hono<Env> 
       });
 
       try {
-        // Get document text - either from body or would need to fetch from URL
-        const documentText = body.documentText;
-        if (!documentText) {
-          return error(c, 'BAD_REQUEST', 'documentText is required for extraction', 400);
-        }
+        // Determine source identifier (URL or fileId-based)
+        const sourceIdentifier = body.sourceUrl ?? body.fileId ?? 'unknown';
 
-        const { result, stagingRegulationId } = await pipeline.ingestAndStage(
-          documentText,
-          body.sourceUrl,
-          body.sourceType,
-          userId
-        );
+        let result: Awaited<ReturnType<typeof pipeline.ingest>>;
+        let stagingRegulationId: string;
+
+        if (body.fileId) {
+          // PDF extraction path
+          // Validate fileId format to prevent path traversal
+          if (!FILE_ID_PATTERN.test(body.fileId)) {
+            return error(c, 'BAD_REQUEST', 'Invalid fileId format', 400);
+          }
+
+          const pdfDir = uploadsDir ?? path.join(process.cwd(), 'uploads/pdfs');
+          const filePath = path.join(pdfDir, `${body.fileId}.pdf`);
+
+          // Verify the resolved path is within uploads directory (defense in depth)
+          const resolvedPath = path.resolve(filePath);
+          const resolvedUploadsDir = path.resolve(pdfDir);
+          if (!resolvedPath.startsWith(resolvedUploadsDir)) {
+            return error(c, 'NOT_FOUND', 'PDF file not found', 404);
+          }
+
+          if (!fs.existsSync(filePath)) {
+            return error(c, 'NOT_FOUND', 'PDF file not found', 404);
+          }
+
+          const pdfBuffer = fs.readFileSync(filePath);
+
+          // Run PDF extraction with Claude
+          const extraction = await claudeExtractor.extractFromPdf(pdfBuffer, sourceIdentifier);
+
+          // Run Gemini shadow extraction (text-based, using empty string since we don't have text)
+          // Note: For PDF extraction, shadow validation is limited
+          const shadow = await geminiShadow.extract('');
+
+          // Compare results
+          const comparisons = comparator.compare(extraction.requirements, shadow);
+
+          result = { extraction, shadow, comparisons };
+
+          // Save to staging using StagingService directly
+          const stagingService = new StagingService(em);
+          const requirements = result.extraction.requirements.map((req, index) => {
+            const comparison = result.comparisons.find(c => c.requirementIndex === index) ?? {
+              requirementIndex: index,
+              status: 'SHADOW_MISSING' as const,
+            };
+            const consensusStatus = Comparator.toConsensusStatus(comparison.status);
+            const conflictDetails = 'conflictDetails' in comparison ? comparison.conflictDetails : undefined;
+
+            return {
+              code: `REQ_${index + 1}`,
+              name: req.substanceName ?? `Requirement ${index + 1}`,
+              description: req.reasoning,
+              substanceName: req.substanceName ?? undefined,
+              casNumber: req.casNumber ?? undefined,
+              ecNumber: req.ecNumber ?? undefined,
+              operator: (req.operator ?? undefined) as ComparisonOperator | undefined,
+              thresholdValue: req.thresholdValue ?? undefined,
+              unit: req.unit ?? undefined,
+              scope: req.scope ?? undefined,
+              legalReference: req.legalReference,
+              pdfCoordinates: req.pdfCoordinates ?? undefined,
+              type: RequirementType.SUBSTANCE_SCREEN,
+              severity: RequirementSeverity.BLOCKER,
+              confidenceScore: req.confidenceScore,
+              reasoning: req.reasoning,
+              allowsExemption: req.allowsExemption ?? undefined,
+              exemptionConditions: req.exemptionConditions ?? undefined,
+              consensusStatus,
+              conflictDetails,
+              suggestedCategories: result.extraction.categoryMappings?.find(
+                m => m.requirementIndex === index
+              )?.suggestedCategories,
+            };
+          });
+
+          const regulation = await stagingService.createStagingRegulation({
+            code: result.extraction.regulationMetadata.code,
+            name: result.extraction.regulationMetadata.name,
+            sourceUrl: result.extraction.regulationMetadata.sourceUrl ?? sourceIdentifier,
+            sourceType: body.sourceType,
+            primaryPayload: result.extraction,
+            shadowPayload: result.shadow,
+            regulationMetadata: {
+              jurisdiction: result.extraction.regulationMetadata.jurisdiction ?? undefined,
+              version: result.extraction.regulationMetadata.version ?? undefined,
+              effectiveDate: result.extraction.regulationMetadata.effectiveDate ?? undefined,
+            },
+            actorId: userId,
+            requirements,
+          });
+
+          stagingRegulationId = regulation.id;
+        } else if (body.documentText) {
+          // Text extraction path (existing behavior)
+          const staged = await pipeline.ingestAndStage(
+            body.documentText,
+            sourceIdentifier,
+            body.sourceType,
+            userId
+          );
+          result = staged.result;
+          stagingRegulationId = staged.stagingRegulationId;
+        } else {
+          // This shouldn't happen due to schema validation, but TypeScript needs it
+          return error(c, 'BAD_REQUEST', 'Either documentText or fileId is required', 400);
+        }
 
         // Build consensus summary
         const consensusSummary = {

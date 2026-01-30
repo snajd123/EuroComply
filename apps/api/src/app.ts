@@ -104,13 +104,15 @@ export function createApp(deps?: AppDependencies): Hono<Env> {
     v1.route('/admin/organizations', deps.organizationsAdminRouter);
   }
 
+  // Uploads directory for PDFs (shared between ingestor and upload routes)
+  const uploadsDir = deps?.uploadsDir ?? './uploads/pdfs';
+
   // Ingestor admin routes (AI regulation ingestion)
   if (deps?.orm) {
-    v1.route('/admin/ingestor', createIngestorRouter({ orm: deps.orm }));
+    v1.route('/admin/ingestor', createIngestorRouter({ orm: deps.orm, uploadsDir }));
   }
 
   // Ingestor upload routes (PDF file uploads - no ORM required)
-  const uploadsDir = deps?.uploadsDir ?? './uploads/pdfs';
   v1.route('/admin/ingestor/upload', createIngestorUploadRouter({ uploadsDir }));
 
   // API key management routes (JWT-only authentication)
