@@ -76,28 +76,40 @@ describe('Ingestor Admin API Integration', () => {
         return;
       }
 
-      // Create router without extractors and without env vars
-      const testApp = new Hono<Env>();
-      testApp.route('/ingestor', createIngestorRouter({ orm }));
+      // Save and clear env vars for this test
+      const savedAnthropicKey = process.env['ANTHROPIC_API_KEY'];
+      const savedGeminiKey = process.env['GEMINI_API_KEY'];
+      delete process.env['ANTHROPIC_API_KEY'];
+      delete process.env['GEMINI_API_KEY'];
 
-      const res = await testApp.request('/ingestor/extract', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sourceUrl: 'https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32006R1907',
-          sourceType: 'EUR_LEX',
-          documentText: 'Test document content',
-        }),
-      });
+      try {
+        // Create router without extractors and without env vars
+        const testApp = new Hono<Env>();
+        testApp.route('/ingestor', createIngestorRouter({ orm }));
 
-      expect(res.status).toBe(500);
-      const data = await res.json();
-      expect(data.success).toBe(false);
-      expect(data.error.code).toBe('CONFIG_ERROR');
-      expect(data.error.message).toContain('API keys not configured');
-      // Ensure error message doesn't expose actual API key values
-      expect(data.error.message).not.toMatch(/sk-[a-zA-Z0-9]/);
-      expect(data.error.message).not.toMatch(/AIza[a-zA-Z0-9]/);
+        const res = await testApp.request('/ingestor/extract', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sourceUrl: 'https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32006R1907',
+            sourceType: 'EUR_LEX',
+            documentText: 'Test document content',
+          }),
+        });
+
+        expect(res.status).toBe(500);
+        const data = await res.json();
+        expect(data.success).toBe(false);
+        expect(data.error.code).toBe('CONFIG_ERROR');
+        expect(data.error.message).toContain('API keys not configured');
+        // Ensure error message doesn't expose actual API key values
+        expect(data.error.message).not.toMatch(/sk-[a-zA-Z0-9]/);
+        expect(data.error.message).not.toMatch(/AIza[a-zA-Z0-9]/);
+      } finally {
+        // Restore env vars
+        if (savedAnthropicKey) process.env['ANTHROPIC_API_KEY'] = savedAnthropicKey;
+        if (savedGeminiKey) process.env['GEMINI_API_KEY'] = savedGeminiKey;
+      }
     });
 
     it('should_call_pipeline_and_return_staging_regulation_when_extractors_injected', async (ctx) => {

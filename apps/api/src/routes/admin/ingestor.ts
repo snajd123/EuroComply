@@ -211,6 +211,7 @@ export function createIngestorRouter(options: IngestorRouterOptions): Hono<Env> 
         const { result, stagingRegulationId } = await pipeline.ingestAndStage(
           documentText,
           body.sourceUrl,
+          body.sourceType,
           userId
         );
 

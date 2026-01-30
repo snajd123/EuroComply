@@ -71,7 +71,12 @@ export class IngestionPipeline {
   /**
    * Runs ingestion and saves to staging tables.
    */
-  async ingestAndStage(documentText: string, sourceUrl: string, actorId: string): Promise<{
+  async ingestAndStage(
+    documentText: string,
+    sourceUrl: string,
+    sourceType: 'EUR_LEX' | 'ECHA' | 'MANUAL',
+    actorId: string
+  ): Promise<{
     result: IngestionResult;
     stagingRegulationId: string;
   }> {
@@ -124,7 +129,7 @@ export class IngestionPipeline {
       code: result.extraction.regulationMetadata.code,
       name: result.extraction.regulationMetadata.name,
       sourceUrl: result.extraction.regulationMetadata.sourceUrl,
-      sourceType: 'EUR_LEX',
+      sourceType,
       primaryPayload: result.extraction,
       shadowPayload: result.shadow,
       regulationMetadata: {
