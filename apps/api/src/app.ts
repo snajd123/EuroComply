@@ -15,6 +15,7 @@ import { createExemptionRouter } from './routes/exemptions.js';
 import { createEvidenceRouter } from './routes/evidence.js';
 import { createUnitsRouter, type UnitsRepository, createSubstancesRouter, type SubstancesRepository } from './routes/taxonomy/index.js';
 import { createIngestorRouter } from './routes/admin/ingestor.js';
+import { createIngestorUploadRouter } from './routes/admin/ingestor-upload.js';
 import { tenantMiddleware, createTenantMiddlewareWithApiKeys } from './middleware/tenant.js';
 import { adminAuthMiddleware } from './middleware/admin-auth.js';
 import { createUserMiddleware } from './middleware/user.js';
@@ -47,6 +48,8 @@ export interface AppDependencies {
   organizationsAdminRouter?: Hono;
   unitsRepository?: UnitsRepository;
   substancesRepository?: SubstancesRepository;
+  /** Directory for uploaded PDF files (default: ./uploads/pdfs) */
+  uploadsDir?: string;
 }
 
 export function createApp(deps?: AppDependencies): Hono<Env> {
@@ -105,6 +108,10 @@ export function createApp(deps?: AppDependencies): Hono<Env> {
   if (deps?.orm) {
     v1.route('/admin/ingestor', createIngestorRouter({ orm: deps.orm }));
   }
+
+  // Ingestor upload routes (PDF file uploads - no ORM required)
+  const uploadsDir = deps?.uploadsDir ?? './uploads/pdfs';
+  v1.route('/admin/ingestor/upload', createIngestorUploadRouter({ uploadsDir }));
 
   // API key management routes (JWT-only authentication)
   // These routes allow tenants to create, list, and revoke their API keys

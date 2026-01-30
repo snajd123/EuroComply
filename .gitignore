@@ -57,3 +57,6 @@ secrets.tfvars
 # Git worktrees
 .worktrees/
 *.sql
+
+# Uploaded files
+uploads/
