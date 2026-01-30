@@ -29,6 +29,9 @@ importers:
       '@eurocomply/database':
         specifier: workspace:*
         version: link:../../packages/database
+      '@eurocomply/ingestor':
+        specifier: workspace:*
+        version: link:../../packages/ingestor
       '@hono/node-server':
         specifier: ^1.13.0
         version: 1.19.9(hono@4.11.4)

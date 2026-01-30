@@ -15,11 +15,21 @@ import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import type { MikroORM } from '@eurocomply/database';
 import { StagingService, StagingStatus, PublishService } from '@eurocomply/database';
+import {
+  IngestionPipeline,
+  ClaudeExtractor,
+  GeminiShadow,
+  Comparator,
+} from '@eurocomply/ingestor';
 import type { Env } from '../../app.js';
 import { success, error } from '../../utils/response.js';
 
 export interface IngestorRouterOptions {
   orm: MikroORM;
+  /** Injected extractors for testing - if not provided, uses real extractors with env API keys */
+  claudeExtractor?: ClaudeExtractor;
+  geminiShadow?: GeminiShadow;
+  comparator?: Comparator;
 }
 
 const extractSchema = z.object({
@@ -44,8 +54,22 @@ const listQuerySchema = z.object({
   sourceType: z.enum(['EUR_LEX', 'ECHA', 'MANUAL']).optional(),
 });
 
+/**
+ * Sanitizes error messages to remove any potential API key exposure.
+ * Strips patterns that look like API keys from error messages.
+ */
+function sanitizeErrorMessage(message: string): string {
+  // Remove Anthropic API key patterns (sk-ant-...)
+  let sanitized = message.replace(/sk-[a-zA-Z0-9-_]+/g, '[REDACTED]');
+  // Remove Google API key patterns (AIza...)
+  sanitized = sanitized.replace(/AIza[a-zA-Z0-9-_]+/g, '[REDACTED]');
+  // Remove generic API key patterns that might slip through
+  sanitized = sanitized.replace(/[a-zA-Z0-9]{32,}/g, '[REDACTED]');
+  return sanitized;
+}
+
 export function createIngestorRouter(options: IngestorRouterOptions): Hono<Env> {
-  const { orm } = options;
+  const { orm, claudeExtractor: injectedClaude, geminiShadow: injectedGemini, comparator: injectedComparator } = options;
   const router = new Hono<Env>();
 
   /**
@@ -131,21 +155,105 @@ export function createIngestorRouter(options: IngestorRouterOptions): Hono<Env> 
 
   /**
    * POST /extract
-   * Trigger extraction from a source URL
-   * NOTE: Actual extraction requires API keys configured
+   * Trigger extraction from a source URL using Claude and Gemini
+   *
+   * Requires ANTHROPIC_API_KEY and GEMINI_API_KEY environment variables,
+   * or injected extractors for testing.
    */
   router.post(
     '/extract',
     zValidator('json', extractSchema),
     async (c) => {
       const body = c.req.valid('json');
+      const userId = c.get('userId') ?? 'admin';
 
-      // For now, return a placeholder - actual extraction implemented in Task 18
-      return success(c, {
-        message: 'Extraction queued',
-        sourceUrl: body.sourceUrl,
-        sourceType: body.sourceType,
-      }, { status: 202 });
+      // Get extractors - either injected (for testing) or create from env
+      let claudeExtractor: ClaudeExtractor;
+      let geminiShadow: GeminiShadow;
+      let comparator: Comparator;
+
+      if (injectedClaude && injectedGemini && injectedComparator) {
+        // Use injected extractors (test mode)
+        claudeExtractor = injectedClaude;
+        geminiShadow = injectedGemini;
+        comparator = injectedComparator;
+      } else {
+        // Read API keys from environment
+        const anthropicKey = process.env['ANTHROPIC_API_KEY'];
+        const geminiKey = process.env['GEMINI_API_KEY'];
+
+        if (!anthropicKey || !geminiKey) {
+          return error(c, 'CONFIG_ERROR', 'API keys not configured for extraction', 500);
+        }
+
+        // Create real extractors
+        claudeExtractor = new ClaudeExtractor({ apiKey: anthropicKey });
+        geminiShadow = new GeminiShadow({ apiKey: geminiKey });
+        comparator = new Comparator();
+      }
+
+      // Create pipeline and run extraction
+      const em = orm.em.fork();
+      const pipeline = new IngestionPipeline({
+        claudeExtractor,
+        geminiShadow,
+        comparator,
+        em,
+      });
+
+      try {
+        // Get document text - either from body or would need to fetch from URL
+        const documentText = body.documentText;
+        if (!documentText) {
+          return error(c, 'BAD_REQUEST', 'documentText is required for extraction', 400);
+        }
+
+        const { result, stagingRegulationId } = await pipeline.ingestAndStage(
+          documentText,
+          body.sourceUrl,
+          userId
+        );
+
+        // Build consensus summary
+        const consensusSummary = {
+          match: 0,
+          conflict: 0,
+          lowConfidence: 0,
+          shadowMissing: 0,
+        };
+
+        for (const comp of result.comparisons) {
+          switch (comp.status) {
+            case 'MATCH':
+              consensusSummary.match++;
+              break;
+            case 'CONFLICT':
+              consensusSummary.conflict++;
+              break;
+            case 'LOW_CONFIDENCE':
+              consensusSummary.lowConfidence++;
+              break;
+            case 'SHADOW_MISSING':
+              consensusSummary.shadowMissing++;
+              break;
+          }
+        }
+
+        return success(c, {
+          stagingRegulationId,
+          regulationCode: result.extraction.regulationMetadata.code,
+          regulationName: result.extraction.regulationMetadata.name,
+          requirementCount: result.extraction.requirements.length,
+          consensusSummary,
+        }, { status: 201 });
+      } catch (err) {
+        // Sanitize error message to prevent API key exposure
+        const message = err instanceof Error
+          ? sanitizeErrorMessage(err.message)
+          : 'Extraction failed';
+
+        return error(c, 'INTERNAL_ERROR', `Extraction failed: ${message}`, 500);
+      }
     }
   );
 
