@@ -45,8 +45,6 @@ export function ExtractModal({ isOpen, onClose, onSuccess }: ExtractModalProps) 
   const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  if (!isOpen) return null;
-
   const extractTextFromPdf = async (file: File): Promise<string> => {
     const arrayBuffer = await file.arrayBuffer();
     const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
@@ -99,7 +97,10 @@ export function ExtractModal({ isOpen, onClose, onSuccess }: ExtractModalProps) 
     setIsDragOver(false);
   }, []);
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
+  // Early return AFTER all hooks
+  if (!isOpen) return null;
+
+  const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragOver(false);
@@ -108,7 +109,7 @@ export function ExtractModal({ isOpen, onClose, onSuccess }: ExtractModalProps) 
     if (files.length > 0) {
       handlePdfFile(files[0]);
     }
-  }, []);
+  };
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
