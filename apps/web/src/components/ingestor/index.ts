@@ -3,3 +3,4 @@ export { RequirementCard, type Requirement, type RequirementCardProps } from './
 export { ReasoningDrawer } from './ReasoningDrawer';
 export { BulkApproveButton } from './BulkApproveButton';
 export { PublishModal } from './PublishModal';
+export { ExtractModal } from './ExtractModal';
