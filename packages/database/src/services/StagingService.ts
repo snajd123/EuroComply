@@ -53,6 +53,7 @@ export interface CreateStagingRegulationInput {
     effectiveDate?: string;
     version?: string;
   };
+  pdfFileId?: string;
   actorId: string;
   requirements: CreateStagingRequirementInput[];
 }
@@ -87,6 +88,7 @@ export class StagingService {
       primaryPayload,
       shadowPayload,
       regulationMetadata,
+      pdfFileId,
       actorId,
       requirements,
     } = input;
@@ -100,6 +102,7 @@ export class StagingService {
     regulation.primaryPayload = primaryPayload;
     regulation.shadowPayload = shadowPayload;
     regulation.regulationMetadata = regulationMetadata;
+    regulation.pdfFileId = pdfFileId;
     regulation.status = StagingStatus.PENDING;
 
     this.em.persist(regulation);
@@ -168,6 +171,7 @@ export class StagingService {
     }
 
     return this.em.find(StagingRegulation, where, {
+      populate: ['requirements'],
       orderBy: { createdAt: 'DESC' },
     });
   }

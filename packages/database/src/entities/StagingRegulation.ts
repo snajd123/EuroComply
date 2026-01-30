@@ -104,6 +104,12 @@ export class StagingRegulation extends BaseEntity {
   publishedRegulationId?: string;
 
   /**
+   * File ID of the uploaded PDF (for citation viewing)
+   */
+  @Property({ type: 'text', nullable: true, name: 'pdf_file_id' })
+  pdfFileId?: string;
+
+  /**
    * Requirements extracted for this regulation
    */
   @OneToMany('StagingRequirement', 'stagingRegulation')

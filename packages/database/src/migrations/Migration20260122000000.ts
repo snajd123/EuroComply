@@ -291,7 +291,8 @@ export class Migration20260122000000 extends Migration {
         "reviewed_by" text,
         "approved_at" timestamptz,
         "rejection_reason" text,
-        "published_regulation_id" text REFERENCES "public"."regulation"("id")
+        "published_regulation_id" text REFERENCES "public"."regulation"("id"),
+        "pdf_file_id" text
       );
     `);
     this.addSql('CREATE INDEX "idx_staging_regulation_status" ON "public"."staging_regulation" ("status");');

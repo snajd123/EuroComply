@@ -226,9 +226,6 @@ export class IngestionPipeline {
       }
     );
 
-    // Note: pdfFileId will be stored once StagingRegulation entity is updated (Task #69)
-    void pdfFileId; // Acknowledge parameter for future use
-
     const regulation = await stagingService.createStagingRegulation({
       code: result.extraction.regulationMetadata.code,
       name: result.extraction.regulationMetadata.name,
@@ -241,6 +238,7 @@ export class IngestionPipeline {
         version: result.extraction.regulationMetadata.version ?? undefined,
         effectiveDate: result.extraction.regulationMetadata.effectiveDate ?? undefined,
       },
+      pdfFileId,
       actorId,
       requirements,
     });
