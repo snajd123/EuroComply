@@ -1,10 +1,15 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { ingestorApi, ExtractionResult } from '@/lib/api';
+import * as pdfjs from 'pdfjs-dist';
+import type { TextItem } from 'pdfjs-dist/types/src/display/api';
+
+// Set PDF.js worker
+pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
 
 type SourceType = 'EUR_LEX' | 'ECHA' | 'MANUAL';
-type TabType = 'url' | 'text';
+type TabType = 'url' | 'text' | 'pdf';
 
 interface ExtractModalProps {
   isOpen: boolean;
@@ -32,7 +37,85 @@ export function ExtractModal({ isOpen, onClose, onSuccess }: ExtractModalProps) 
   const [textSourceUrl, setTextSourceUrl] = useState('');
   const [textDocumentText, setTextDocumentText] = useState('');
 
+  // PDF tab state
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [pdfExtractedText, setPdfExtractedText] = useState('');
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   if (!isOpen) return null;
+
+  const extractTextFromPdf = async (file: File): Promise<string> => {
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
+
+    let fullText = '';
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items
+        .filter((item): item is TextItem => 'str' in item)
+        .map((item) => item.str)
+        .join(' ');
+      fullText += pageText + '\n\n';
+    }
+
+    return fullText.trim();
+  };
+
+  const handlePdfFile = async (file: File) => {
+    if (!file.type.includes('pdf')) {
+      setPdfError('Please select a PDF file');
+      return;
+    }
+
+    setPdfFile(file);
+    setPdfLoading(true);
+    setPdfError(null);
+    setPdfExtractedText('');
+
+    try {
+      const extractedText = await extractTextFromPdf(file);
+      setPdfExtractedText(extractedText);
+    } catch (err) {
+      setPdfError(err instanceof Error ? err.message : 'Failed to extract text from PDF');
+      setPdfFile(null);
+    } finally {
+      setPdfLoading(false);
+    }
+  };
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+      handlePdfFile(files[0]);
+    }
+  }, []);
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      handlePdfFile(files[0]);
+    }
+  };
 
   const handleUrlChange = (url: string) => {
     setUrlSourceUrl(url);
@@ -46,9 +129,13 @@ export function ExtractModal({ isOpen, onClose, onSuccess }: ExtractModalProps) 
       if (!urlDocumentText.trim()) {
         return 'Document text is required';
       }
-    } else {
+    } else if (activeTab === 'text') {
       if (!textDocumentText.trim()) {
         return 'Document text is required';
+      }
+    } else if (activeTab === 'pdf') {
+      if (!pdfExtractedText.trim()) {
+        return 'Please upload a PDF and extract text first';
       }
     }
     return null;
@@ -73,11 +160,18 @@ export function ExtractModal({ isOpen, onClose, onSuccess }: ExtractModalProps) 
           sourceType: detectSourceType(urlSourceUrl),
           documentText: urlDocumentText.trim(),
         };
-      } else {
+      } else if (activeTab === 'text') {
         params = {
           sourceUrl: textSourceUrl.trim() || 'manual-entry',
           sourceType: textSourceType,
           documentText: textDocumentText.trim(),
+        };
+      } else {
+        // PDF tab
+        params = {
+          sourceUrl: pdfFile?.name || 'uploaded-pdf',
+          sourceType: 'MANUAL',
+          documentText: pdfExtractedText.trim(),
         };
       }
 
@@ -98,6 +192,10 @@ export function ExtractModal({ isOpen, onClose, onSuccess }: ExtractModalProps) 
     setTextSourceType('MANUAL');
     setTextSourceUrl('');
     setTextDocumentText('');
+    setPdfFile(null);
+    setPdfExtractedText('');
+    setPdfLoading(false);
+    setPdfError(null);
     setError(null);
     setActiveTab('url');
     onClose();
@@ -138,6 +236,13 @@ export function ExtractModal({ isOpen, onClose, onSuccess }: ExtractModalProps) 
               className={tabClass('text')}
             >
               Paste Text
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('pdf')}
+              className={tabClass('pdf')}
+            >
+              Upload PDF
             </button>
           </div>
 
@@ -228,6 +333,83 @@ export function ExtractModal({ isOpen, onClose, onSuccess }: ExtractModalProps) 
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-y"
                 />
               </div>
+            </div>
+          )}
+
+          {/* PDF Tab Content */}
+          {activeTab === 'pdf' && (
+            <div className="space-y-4">
+              {/* Drop Zone */}
+              <div
+                onClick={() => fileInputRef.current?.click()}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                className={`
+                  border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors
+                  ${isDragOver
+                    ? 'border-blue-500 bg-blue-50'
+                    : 'border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+                  }
+                  ${pdfLoading ? 'pointer-events-none opacity-50' : ''}
+                `}
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf,application/pdf"
+                  onChange={handleFileInputChange}
+                  className="hidden"
+                />
+                {pdfLoading ? (
+                  <div className="flex flex-col items-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-2"></div>
+                    <p className="text-gray-600">Extracting text from PDF...</p>
+                  </div>
+                ) : pdfFile ? (
+                  <div className="flex flex-col items-center">
+                    <svg className="w-10 h-10 text-green-500 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <p className="text-gray-800 font-medium">{pdfFile.name}</p>
+                    <p className="text-sm text-gray-500 mt-1">Click or drop to replace</p>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center">
+                    <svg className="w-10 h-10 text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                    </svg>
+                    <p className="text-gray-600">Drop PDF here or click to browse</p>
+                    <p className="text-sm text-gray-400 mt-1">Only .pdf files are accepted</p>
+                  </div>
+                )}
+              </div>
+
+              {/* PDF Error */}
+              {pdfError && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800">
+                  Error: {pdfError}
+                </div>
+              )}
+
+              {/* Extracted Text Preview */}
+              {pdfExtractedText && (
+                <div>
+                  <label htmlFor="pdf-extracted-text" className="block text-sm font-medium text-gray-700 mb-1">
+                    Extracted Text <span className="text-gray-400">(editable)</span>
+                  </label>
+                  <textarea
+                    id="pdf-extracted-text"
+                    value={pdfExtractedText}
+                    onChange={(e) => setPdfExtractedText(e.target.value)}
+                    rows={12}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-y"
+                  />
+                  <p className="mt-1 text-sm text-gray-500">
+                    Review and edit the extracted text if needed before extracting.
+                  </p>
+                </div>
+              )}
             </div>
           )}
 
