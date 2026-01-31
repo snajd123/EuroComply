@@ -334,20 +334,36 @@ export class PubChemEnricher {
       skippedCount = allSubstanceCount - totalSubstances;
     }
 
-    // When onlyMissing=true, enriched records drop out of the query (smiles becomes non-null),
-    // so we always fetch with offset=0. When onlyMissing=false, we need to increment offset.
+    // Track processed substance IDs to avoid re-processing "not found" substances
+    const processedIds = new Set<string>();
     let offset = 0;
+
     while (totalProcessed < totalSubstances) {
+      // For onlyMissing, we use offset to skip already-processed substances
+      // that weren't found in PubChem (their SMILES stays null)
       const substances = await this.em.find(Substance, queryFilter, {
         limit: batchSize,
-        offset: onlyMissing ? 0 : offset,
+        offset: offset,
+        orderBy: { id: 'ASC' }, // Consistent ordering for pagination
       });
 
       if (substances.length === 0) {
         break;
       }
 
-      const batchResult = await this.enrichBatch(substances, {
+      // Filter out already-processed substances (in case we're re-running)
+      const toProcess = substances.filter((s) => !processedIds.has(s.id));
+      if (toProcess.length === 0) {
+        offset += batchSize;
+        continue;
+      }
+
+      // Mark as processed before enrichment
+      for (const s of toProcess) {
+        processedIds.add(s.id);
+      }
+
+      const batchResult = await this.enrichBatch(toProcess, {
         onProgress: onProgress
           ? (processed, _total) => {
               onProgress(totalProcessed + processed, totalSubstances);
@@ -359,15 +375,13 @@ export class PubChemEnricher {
       totalAliases += batchResult.aliasCount;
       totalFailed += batchResult.failedCount;
       totalNotFound += batchResult.notFoundCount;
-      totalProcessed += substances.length;
+      totalProcessed += toProcess.length;
 
       // Clear entity manager to prevent memory buildup
       this.em.clear();
 
-      // Only increment offset when not filtering by onlyMissing
-      if (!onlyMissing) {
-        offset += batchSize;
-      }
+      // Always increment offset to move through the dataset
+      offset += batchSize;
     }
 
     // Update or create registry source record

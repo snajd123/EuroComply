@@ -10,12 +10,14 @@ import type {
 export interface PubChemClientOptions {
   /** Base URL for PubChem PUG REST API */
   baseUrl?: string;
-  /** Maximum requests per second (default: 5) */
+  /** Maximum requests per second (default: 2 - conservative to avoid rate limits) */
   requestsPerSecond?: number;
-  /** Maximum retry attempts (default: 3) */
+  /** Maximum retry attempts (default: 5) */
   maxRetries?: number;
-  /** Base delay for exponential backoff in ms (default: 1000) */
+  /** Base delay for exponential backoff in ms (default: 2000) */
   baseRetryDelay?: number;
+  /** Enable verbose logging for debugging */
+  verbose?: boolean;
 }
 
 interface CompoundProperties {
@@ -38,16 +40,20 @@ export class PubChemClient {
   private readonly maxRetries: number;
   private readonly baseRetryDelay: number;
   private readonly minRequestInterval: number;
+  private readonly verbose: boolean;
   private lastRequestTime: number = 0;
   private requestQueue: Array<() => Promise<void>> = [];
   private isProcessingQueue: boolean = false;
+  private rateLimitHits: number = 0;
 
   constructor(options: PubChemClientOptions = {}) {
     this.baseUrl = options.baseUrl ?? 'https://pubchem.ncbi.nlm.nih.gov/rest/pug';
-    this.requestsPerSecond = options.requestsPerSecond ?? 5;
-    this.maxRetries = options.maxRetries ?? 3;
-    this.baseRetryDelay = options.baseRetryDelay ?? 1000;
+    // Conservative rate: 2 requests/sec (each enrichment = 3 calls, so ~0.67 substances/sec)
+    this.requestsPerSecond = options.requestsPerSecond ?? 2;
+    this.maxRetries = options.maxRetries ?? 5;
+    this.baseRetryDelay = options.baseRetryDelay ?? 2000;
     this.minRequestInterval = 1000 / this.requestsPerSecond;
+    this.verbose = options.verbose ?? false;
   }
 
   /**
@@ -238,6 +244,8 @@ export class PubChemClient {
    */
   private async executeWithRetry<T>(url: string): Promise<T | null> {
     let lastError: Error | null = null;
+    const maxRateLimitRetries = 10; // Extra retries specifically for rate limits
+    let rateLimitRetries = 0;
 
     for (let attempt = 0; attempt < this.maxRetries; attempt++) {
       try {
@@ -262,14 +270,29 @@ export class PubChemClient {
           throw new Error(`PubChem API error: ${response.status} ${text}`);
         }
 
-        // Handle rate limiting (429)
-        if (response.status === 429) {
+        // Handle rate limiting (429) and server overload (503)
+        if (response.status === 429 || response.status === 503) {
+          this.rateLimitHits++;
+          rateLimitRetries++;
+
+          if (rateLimitRetries > maxRateLimitRetries) {
+            throw new Error(`PubChem rate limit exceeded after ${maxRateLimitRetries} retries`);
+          }
+
           const retryAfter = response.headers.get('Retry-After');
+          // Use longer backoff for rate limits: 5s, 10s, 20s, 40s...
           const waitTime = retryAfter
             ? parseInt(retryAfter, 10) * 1000
-            : this.baseRetryDelay * Math.pow(2, attempt);
+            : Math.min(5000 * Math.pow(2, rateLimitRetries - 1), 60000);
+
+          if (this.verbose || rateLimitRetries > 2) {
+            console.warn(
+              `[PubChem] Rate limited (${response.status}), waiting ${waitTime}ms (retry ${rateLimitRetries}/${maxRateLimitRetries})`,
+            );
+          }
 
           await this.sleep(waitTime);
+          attempt--; // Don't count rate limit retries against main retry count
           continue;
         }
 
@@ -278,13 +301,24 @@ export class PubChemClient {
           throw new Error(`PubChem API error: ${response.status} ${response.statusText}`);
         }
 
-        const data = await response.json() as T;
+        const data = (await response.json()) as T;
 
         // Check for PubChem fault response (some endpoints return 200 with fault)
         const faultCheck = data as { Fault?: { Code: string; Message: string } };
         if (faultCheck.Fault) {
           if (faultCheck.Fault.Code === 'PUGREST.NotFound') {
             return null;
+          }
+          // ServerBusy is retryable
+          if (faultCheck.Fault.Code === 'PUGREST.ServerBusy') {
+            rateLimitRetries++;
+            const waitTime = Math.min(5000 * Math.pow(2, rateLimitRetries - 1), 60000);
+            if (this.verbose || rateLimitRetries > 2) {
+              console.warn(`[PubChem] Server busy, waiting ${waitTime}ms`);
+            }
+            await this.sleep(waitTime);
+            attempt--;
+            continue;
           }
           throw new Error(`PubChem fault: ${faultCheck.Fault.Code} - ${faultCheck.Fault.Message}`);
         }
@@ -301,7 +335,7 @@ export class PubChemClient {
           throw lastError;
         }
 
-        // Exponential backoff
+        // Exponential backoff for other errors
         if (attempt < this.maxRetries - 1) {
           const waitTime = this.baseRetryDelay * Math.pow(2, attempt);
           await this.sleep(waitTime);
