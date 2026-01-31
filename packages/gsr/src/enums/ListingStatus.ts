@@ -1,0 +1,6 @@
+export enum ListingStatus {
+  LISTED = 'LISTED',
+  RESTRICTED = 'RESTRICTED',
+  BANNED = 'BANNED',
+  AUTHORIZED = 'AUTHORIZED',
+}

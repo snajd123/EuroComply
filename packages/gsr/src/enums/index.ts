@@ -4,3 +4,6 @@ export { UnresolvedStatus } from './UnresolvedStatus.js';
 export { ResolutionType } from './ResolutionType.js';
 export { DisclosureStatus } from './DisclosureStatus.js';
 export { AttestationType } from './AttestationType.js';
+export { AliasSource } from './AliasSource.js';
+export { ThresholdOperator } from './ThresholdOperator.js';
+export { ListingStatus } from './ListingStatus.js';
