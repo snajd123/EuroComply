@@ -15,14 +15,13 @@ export interface SubstanceData {
   description?: string;
   molecularWeight?: string;
   molecularFormula?: string;
-  isSvhc: boolean;
-  requiresAuthorization: boolean;
-  isRestricted: boolean;
-  restrictionConditions?: string;
-  sunsetDate?: Date;
-  latestApplicationDate?: Date;
+  smiles?: string;
+  inchiKey?: string;
+  iupacName?: string;
   echaUrl?: string;
   isActive: boolean;
+  /** Regulatory list memberships (SVHC, restricted, etc.) */
+  regulatoryLists?: string[];
 }
 
 export interface SubstanceAliasData {
@@ -35,14 +34,14 @@ export interface SubstanceAliasData {
 
 export interface SubstancesRepository {
   findAll(filter?: {
-    svhc?: boolean;
-    restricted?: boolean;
-    authorization?: boolean;
     search?: string;
     active?: boolean;
+    /** Filter by regulatory list identifier (e.g., 'ECHA_SVHC_CANDIDATE') */
+    listIdentifier?: string;
   }): Promise<SubstanceData[]>;
   findByCasNumber(cas: string): Promise<SubstanceData | null>;
   findAliases(substanceId: string): Promise<SubstanceAliasData[]>;
+  /** Find substances that appear on any regulatory list */
   findRegulated(): Promise<SubstanceData[]>;
 }
 
@@ -51,11 +50,10 @@ export interface SubstancesRepository {
 // ============================================================================
 
 const querySchema = z.object({
-  svhc: z.enum(['true', 'false']).transform(v => v === 'true').optional(),
-  restricted: z.enum(['true', 'false']).transform(v => v === 'true').optional(),
-  authorization: z.enum(['true', 'false']).transform(v => v === 'true').optional(),
   search: z.string().optional(),
   active: z.enum(['true', 'false']).transform(v => v === 'true').optional(),
+  /** Filter by regulatory list identifier (e.g., 'ECHA_SVHC_CANDIDATE') */
+  list: z.string().optional(),
 });
 
 // ============================================================================
@@ -70,29 +68,31 @@ export function createSubstancesRouter(repo: SubstancesRepository) {
     const query = c.req.valid('query');
 
     const filter: Parameters<typeof repo.findAll>[0] = {};
-    if (query.svhc !== undefined) filter.svhc = query.svhc;
-    if (query.restricted !== undefined) filter.restricted = query.restricted;
-    if (query.authorization !== undefined) filter.authorization = query.authorization;
     if (query.search) filter.search = query.search;
     if (query.active !== undefined) filter.active = query.active;
+    if (query.list) filter.listIdentifier = query.list;
 
     const substances = await repo.findAll(filter);
 
     return success(c, substances, { total: substances.length });
   });
 
-  // GET /substances/regulated - Get all regulated substances (SVHC + Auth + Restricted)
+  // GET /substances/regulated - Get all substances on any regulatory list
   // Note: Must be before /:casNumber to avoid matching "regulated" as a CAS number
   router.get('/regulated', async (c) => {
     const substances = await repo.findRegulated();
 
+    // Group by regulatory list
+    const listCounts: Record<string, number> = {};
+    for (const s of substances) {
+      for (const list of s.regulatoryLists ?? []) {
+        listCounts[list] = (listCounts[list] ?? 0) + 1;
+      }
+    }
+
     return success(c, {
       substances,
-      counts: {
-        svhc: substances.filter(s => s.isSvhc).length,
-        authorization: substances.filter(s => s.requiresAuthorization).length,
-        restricted: substances.filter(s => s.isRestricted).length,
-      },
+      listCounts,
     }, { total: substances.length });
   });
 

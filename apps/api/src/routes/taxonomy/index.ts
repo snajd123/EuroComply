@@ -64,26 +64,47 @@ export function createUnitsRepository(orm: MikroORM): UnitsRepository {
 
 /**
  * Create a MikroORM-based substances repository for production use.
+ * Uses raw SQL for regulatory list queries since GSR entities are in a separate package.
  */
 export function createSubstancesRepository(orm: MikroORM): SubstancesRepository {
   return {
     findAll: async (filter): Promise<SubstanceData[]> => {
       const em = orm.em.fork();
+
+      // If filtering by list, use a JOIN query
+      if (filter?.listIdentifier) {
+        const sql = `
+          SELECT DISTINCT s.*
+          FROM public.substance s
+          JOIN public.substance_list_entry sle ON sle.substance_id = s.id
+          JOIN public.regulatory_list rl ON rl.id = sle.list_id
+          WHERE rl.identifier = $1
+          ${filter.search ? "AND s.primary_name ILIKE $2" : ''}
+          ${filter.active !== undefined ? `AND s.is_active = ${filter.active}` : ''}
+          ORDER BY s.primary_name
+        `;
+        const params = filter.search
+          ? [filter.listIdentifier, `%${filter.search}%`]
+          : [filter.listIdentifier];
+        const rows = await em.execute(sql, params) as SubstanceRow[];
+        return Promise.all(rows.map((row) => serializeSubstanceRow(em, row)));
+      }
+
+      // Standard query without list filter
       const qb = em.createQueryBuilder(Substance);
-      if (filter?.svhc !== undefined) qb.andWhere({ isSvhc: filter.svhc });
-      if (filter?.restricted !== undefined) qb.andWhere({ isRestricted: filter.restricted });
-      if (filter?.authorization !== undefined) qb.andWhere({ requiresAuthorization: filter.authorization });
       if (filter?.search) qb.andWhere({ primaryName: { $ilike: `%${filter.search}%` } });
       if (filter?.active !== undefined) qb.andWhere({ isActive: filter.active });
       const substances = await qb.getResultList();
-      return substances.map(serializeSubstance);
+      return Promise.all(substances.map((s) => serializeSubstanceWithLists(em, s)));
     },
+
     findByCasNumber: async (cas): Promise<SubstanceData | null> => {
       const em = orm.em.fork();
       const substance = await em.findOne(Substance, { casNumber: cas });
       if (!substance) return null;
-      return serializeSubstance(substance);
+      return serializeSubstanceWithLists(em, substance);
     },
+
     findAliases: async (substanceId): Promise<SubstanceAliasData[]> => {
       const em = orm.em.fork();
       const aliases = await em.find(SubstanceAlias, { substance: { id: substanceId } });
@@ -95,33 +116,108 @@ export function createSubstancesRepository(orm: MikroORM): SubstancesRepository 
         language: a.language,
       }));
     },
+
     findRegulated: async (): Promise<SubstanceData[]> => {
       const em = orm.em.fork();
-      const substances = await em.find(Substance, {
-        $or: [{ isSvhc: true }, { isRestricted: true }, { requiresAuthorization: true }],
-      });
-      return substances.map(serializeSubstance);
+      // Find all substances that appear on any regulatory list
+      const sql = `
+        SELECT DISTINCT s.*, array_agg(DISTINCT rl.identifier) as list_identifiers
+        FROM public.substance s
+        JOIN public.substance_list_entry sle ON sle.substance_id = s.id
+        JOIN public.regulatory_list rl ON rl.id = sle.list_id
+        GROUP BY s.id
+        ORDER BY s.primary_name
+      `;
+      const rows = await em.execute(sql) as SubstanceRowWithLists[];
+      return rows.map((row) => ({
+        id: row.id,
+        casNumber: row.cas_number,
+        ecNumber: row.ec_number ?? undefined,
+        primaryName: row.primary_name,
+        description: row.description ?? undefined,
+        molecularWeight: row.molecular_weight ?? undefined,
+        molecularFormula: row.molecular_formula ?? undefined,
+        smiles: row.smiles ?? undefined,
+        inchiKey: row.inchi_key ?? undefined,
+        iupacName: row.iupac_name ?? undefined,
+        echaUrl: row.echa_url ?? undefined,
+        isActive: row.is_active,
+        regulatoryLists: row.list_identifiers ?? [],
+      }));
     },
   };
 }
 
-function serializeSubstance(s: Substance): SubstanceData {
+/** Raw substance row from SQL query */
+interface SubstanceRow {
+  id: string;
+  cas_number: string;
+  ec_number: string | null;
+  primary_name: string;
+  description: string | null;
+  molecular_weight: string | null;
+  molecular_formula: string | null;
+  smiles: string | null;
+  inchi_key: string | null;
+  iupac_name: string | null;
+  echa_url: string | null;
+  is_active: boolean;
+}
+
+/** Raw substance row with aggregated list identifiers */
+interface SubstanceRowWithLists extends SubstanceRow {
+  list_identifiers: string[] | null;
+}
+
+/** Fetch regulatory list memberships for a substance */
+async function getRegulatoryLists(em: { execute: (sql: string, params?: unknown[]) => Promise<unknown[]> }, substanceId: string): Promise<string[]> {
+  const sql = `
+    SELECT rl.identifier
+    FROM public.substance_list_entry sle
+    JOIN public.regulatory_list rl ON rl.id = sle.list_id
+    WHERE sle.substance_id = $1
+  `;
+  const rows = await em.execute(sql, [substanceId]) as { identifier: string }[];
+  return rows.map((r) => r.identifier);
+}
+
+/** Serialize a Substance entity with regulatory list lookups */
+async function serializeSubstanceWithLists(em: { execute: (sql: string, params?: unknown[]) => Promise<unknown[]> }, s: Substance): Promise<SubstanceData> {
+  const regulatoryLists = await getRegulatoryLists(em, s.id);
   return {
     id: s.id,
     casNumber: s.casNumber,
-    ecNumber: s.ecNumber,
+    ecNumber: s.ecNumber ?? undefined,
     primaryName: s.primaryName,
-    description: s.description,
-    molecularWeight: s.molecularWeight,
-    molecularFormula: s.molecularFormula,
-    isSvhc: s.isSvhc,
-    requiresAuthorization: s.requiresAuthorization,
-    isRestricted: s.isRestricted,
-    restrictionConditions: s.restrictionConditions,
-    sunsetDate: s.sunsetDate,
-    latestApplicationDate: s.latestApplicationDate,
-    echaUrl: s.echaUrl,
+    description: s.description ?? undefined,
+    molecularWeight: s.molecularWeight ?? undefined,
+    molecularFormula: s.molecularFormula ?? undefined,
+    smiles: s.smiles ?? undefined,
+    inchiKey: s.inchiKey ?? undefined,
+    iupacName: s.iupacName ?? undefined,
+    echaUrl: s.echaUrl ?? undefined,
     isActive: s.isActive,
+    regulatoryLists: regulatoryLists.length > 0 ? regulatoryLists : undefined,
+  };
+}
+
+/** Serialize a raw substance row with regulatory list lookups */
+async function serializeSubstanceRow(em: { execute: (sql: string, params?: unknown[]) => Promise<unknown[]> }, row: SubstanceRow): Promise<SubstanceData> {
+  const regulatoryLists = await getRegulatoryLists(em, row.id);
+  return {
+    id: row.id,
+    casNumber: row.cas_number,
+    ecNumber: row.ec_number ?? undefined,
+    primaryName: row.primary_name,
+    description: row.description ?? undefined,
+    molecularWeight: row.molecular_weight ?? undefined,
+    molecularFormula: row.molecular_formula ?? undefined,
+    smiles: row.smiles ?? undefined,
+    inchiKey: row.inchi_key ?? undefined,
+    iupacName: row.iupac_name ?? undefined,
+    echaUrl: row.echa_url ?? undefined,
+    isActive: row.is_active,
+    regulatoryLists: regulatoryLists.length > 0 ? regulatoryLists : undefined,
   };
 }
 
