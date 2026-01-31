@@ -193,6 +193,141 @@ describe('PubChemEnricher', () => {
     );
   });
 
+  describe('generateEchaUrl', () => {
+    it.skipIf(!dbAvailable)(
+      'should_return_correct_echa_url_when_ec_number_provided',
+      async () => {
+        // Arrange
+        const enricher = new PubChemEnricher(em);
+
+        // Act
+        const url = enricher.generateEchaUrl('200-001-8');
+
+        // Assert
+        expect(url).toBe('https://echa.europa.eu/substance-information/-/substanceinfo/200-001-8');
+      },
+    );
+
+    it.skipIf(!dbAvailable)(
+      'should_return_null_when_ec_number_is_empty',
+      async () => {
+        // Arrange
+        const enricher = new PubChemEnricher(em);
+
+        // Act & Assert
+        expect(enricher.generateEchaUrl('')).toBeNull();
+        expect(enricher.generateEchaUrl(undefined)).toBeNull();
+      },
+    );
+
+    it.skipIf(!dbAvailable)(
+      'should_preserve_hyphens_in_ec_number',
+      async () => {
+        // Arrange
+        const enricher = new PubChemEnricher(em);
+
+        // Act
+        const url = enricher.generateEchaUrl('204-826-4');
+
+        // Assert
+        expect(url).toBe('https://echa.europa.eu/substance-information/-/substanceinfo/204-826-4');
+      },
+    );
+  });
+
+  describe('enrichSubstance with ECHA URL', () => {
+    it.skipIf(!dbAvailable)(
+      'should_set_echa_url_when_substance_has_ec_number',
+      async () => {
+        // Arrange - Create substance with EC number
+        const substance = em.create(Substance, {
+          id: createId(),
+          casNumber: '50-00-0',
+          primaryName: 'Formaldehyde',
+          ecNumber: '200-001-8',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+        await em.persistAndFlush(substance);
+        em.clear();
+
+        const freshEm = orm.em.fork();
+        const substanceToEnrich = await freshEm.findOneOrFail(Substance, { casNumber: '50-00-0' });
+        const enricher = new PubChemEnricher(freshEm);
+
+        // Act
+        await enricher.enrichSubstance(substanceToEnrich);
+        await freshEm.flush();
+
+        // Assert
+        const updatedSubstance = await freshEm.findOneOrFail(Substance, { casNumber: '50-00-0' });
+        expect(updatedSubstance.echaUrl).toBe('https://echa.europa.eu/substance-information/-/substanceinfo/200-001-8');
+      },
+      20000,
+    );
+
+    it.skipIf(!dbAvailable)(
+      'should_not_set_echa_url_when_substance_has_no_ec_number',
+      async () => {
+        // Arrange - Create substance without EC number
+        const substance = em.create(Substance, {
+          id: createId(),
+          casNumber: '64-17-5',
+          primaryName: 'Ethanol',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+        await em.persistAndFlush(substance);
+        em.clear();
+
+        const freshEm = orm.em.fork();
+        const substanceToEnrich = await freshEm.findOneOrFail(Substance, { casNumber: '64-17-5' });
+        const enricher = new PubChemEnricher(freshEm);
+
+        // Act
+        await enricher.enrichSubstance(substanceToEnrich);
+        await freshEm.flush();
+
+        // Assert - database returns null for unset values
+        const updatedSubstance = await freshEm.findOneOrFail(Substance, { casNumber: '64-17-5' });
+        expect(updatedSubstance.echaUrl).toBeNull();
+      },
+      20000,
+    );
+
+    it.skipIf(!dbAvailable)(
+      'should_set_echa_url_even_when_pubchem_enrichment_fails',
+      async () => {
+        // Arrange - Create substance with EC number but invalid CAS (won't be found in PubChem)
+        const substance = em.create(Substance, {
+          id: createId(),
+          casNumber: '9999-99-9', // Valid checksum but not in PubChem
+          primaryName: 'Unknown Substance',
+          ecNumber: '999-999-9',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+        await em.persistAndFlush(substance);
+        em.clear();
+
+        const freshEm = orm.em.fork();
+        const substanceToEnrich = await freshEm.findOneOrFail(Substance, { casNumber: '9999-99-9' });
+        const enricher = new PubChemEnricher(freshEm);
+
+        // Act
+        const enriched = await enricher.enrichSubstance(substanceToEnrich);
+        await freshEm.flush();
+
+        // Assert - PubChem enrichment failed but ECHA URL should still be set
+        expect(enriched).toBe(false); // PubChem enrichment failed
+        const updatedSubstance = await freshEm.findOneOrFail(Substance, { casNumber: '9999-99-9' });
+        expect(updatedSubstance.echaUrl).toBe('https://echa.europa.eu/substance-information/-/substanceinfo/999-999-9');
+        expect(updatedSubstance.smiles).toBeNull(); // PubChem data not set
+      },
+      15000,
+    );
+  });
+
   describe('run', () => {
     it.skipIf(!dbAvailable)(
       'should_enrich_all_unenriched_substances',

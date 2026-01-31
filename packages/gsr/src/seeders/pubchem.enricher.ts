@@ -44,12 +44,31 @@ export class PubChemEnricher {
   }
 
   /**
+   * Generates the ECHA substance information URL for a given EC number.
+   *
+   * @param ecNumber - The EC number (e.g., "200-001-8")
+   * @returns The ECHA URL or null if ecNumber is undefined/empty
+   */
+  generateEchaUrl(ecNumber: string | undefined): string | null {
+    if (!ecNumber || ecNumber.trim() === '') {
+      return null;
+    }
+    return `https://echa.europa.eu/substance-information/-/substanceinfo/${ecNumber}`;
+  }
+
+  /**
    * Enriches a single substance with PubChem data.
    *
    * @param substance - The substance to enrich
-   * @returns true if enriched, false if skipped or not found
+   * @returns true if enriched with PubChem data, false if skipped or not found
    */
   async enrichSubstance(substance: Substance): Promise<boolean> {
+    // Always set ECHA URL if substance has an EC number, regardless of other enrichment
+    const echaUrl = this.generateEchaUrl(substance.ecNumber);
+    if (echaUrl) {
+      substance.echaUrl = echaUrl;
+    }
+
     // Skip if already enriched
     if (substance.smiles) {
       return false;
