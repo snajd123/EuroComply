@@ -10,12 +10,16 @@ export interface EchaInventoryRecord {
   description?: string;
 }
 
+/**
+ * Raw row format from ECHA EC Inventory CSV export.
+ * Note: ECHA exports use tab-separated values with these exact column names.
+ */
 export interface EchaRawRow {
-  'EC Number': string;
-  'EC Name': string;
-  'CAS Number'?: string;
-  'Molecular formula'?: string;
-  'Description'?: string;
+  'CAS no.': string;
+  'Description': string;
+  'Molecular Formula': string;
+  'EC no.': string;
+  'Name': string;
 }
 
 /**
@@ -52,15 +56,15 @@ export class EchaInventoryParser {
    * @returns Parsed record or null if row is invalid (missing required fields or invalid CAS)
    */
   parseRow(row: EchaRawRow): EchaInventoryRecord | null {
-    // Validate required fields
-    const ecNumber = row['EC Number']?.trim();
-    const ecName = row['EC Name']?.trim();
+    // Validate required fields - use actual ECHA column names
+    const ecNumber = row['EC no.']?.trim();
+    const ecName = row['Name']?.trim();
 
     if (!ecNumber || !ecName) {
       return null;
     }
 
-    const rawCas = row['CAS Number'];
+    const rawCas = row['CAS no.'];
 
     // Check if CAS is a "no value" placeholder
     if (isNoCasValue(rawCas)) {
@@ -69,7 +73,7 @@ export class EchaInventoryParser {
         ecNumber,
         primaryName: ecName.toLowerCase(),
         casNumber: undefined,
-        molecularFormula: row['Molecular formula']?.trim() || undefined,
+        molecularFormula: row['Molecular Formula']?.trim() || undefined,
         description: row['Description']?.trim() || undefined,
       };
     }
@@ -86,7 +90,7 @@ export class EchaInventoryParser {
       ecNumber,
       primaryName: ecName.toLowerCase(),
       casNumber: sanitizedCas,
-      molecularFormula: row['Molecular formula']?.trim() || undefined,
+      molecularFormula: row['Molecular Formula']?.trim() || undefined,
       description: row['Description']?.trim() || undefined,
     };
   }
@@ -94,16 +98,55 @@ export class EchaInventoryParser {
   /**
    * Parses CSV content from an ECHA EC Inventory file.
    *
-   * @param csvContent - Raw CSV string with headers
+   * Note: ECHA exports have metadata header lines before the actual data.
+   * The format uses tab as delimiter and has headers like "CAS no.", "EC no.", "Name".
+   *
+   * @param csvContent - Raw CSV/TSV string from ECHA export
    * @returns Array of valid parsed records (invalid rows are skipped)
    */
   async parse(csvContent: string): Promise<EchaInventoryRecord[]> {
-    const rows = parse(csvContent, {
+    // ECHA exports have metadata lines before actual data
+    // Find the actual header line (contains "CAS no." and "EC no.")
+    const lines = csvContent.split('\n');
+    let headerLineIndex = -1;
+
+    for (let i = 0; i < Math.min(lines.length, 20); i++) {
+      const line = lines[i];
+      if (line && line.includes('CAS no.') && line.includes('EC no.')) {
+        headerLineIndex = i;
+        break;
+      }
+    }
+
+    if (headerLineIndex === -1) {
+      // Fallback: try parsing as-is (may be a cleaned file)
+      const rows = parse(csvContent, {
+        columns: true,
+        skip_empty_lines: true,
+        trim: true,
+        delimiter: '\t',
+      }) as EchaRawRow[];
+
+      return this.parseRows(rows);
+    }
+
+    // Extract content from header line onwards
+    const dataContent = lines.slice(headerLineIndex).join('\n');
+
+    const rows = parse(dataContent, {
       columns: true,
       skip_empty_lines: true,
       trim: true,
+      delimiter: '\t',
     }) as EchaRawRow[];
 
+    return this.parseRows(rows);
+  }
+
+  /**
+   * Parses an array of raw rows into records.
+   */
+  private parseRows(rows: EchaRawRow[]): EchaInventoryRecord[] {
     const results: EchaInventoryRecord[] = [];
 
     for (const row of rows) {

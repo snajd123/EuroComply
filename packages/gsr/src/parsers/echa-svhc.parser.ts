@@ -10,10 +10,14 @@ export interface EchaSvhcRecord {
   reasonForInclusion: string;
 }
 
+/**
+ * Raw row format from ECHA SVHC Candidate List CSV export.
+ * Note: ECHA exports use tab-separated values with these exact column names.
+ */
 export interface EchaSvhcRawRow {
-  'Substance Name': string;
-  'EC Number': string;
-  'CAS Number'?: string;
+  'Substance name': string;
+  'EC No.': string;
+  'CAS No.'?: string;
   'Date of inclusion': string;
   'Reason for inclusion': string;
 }
@@ -33,17 +37,39 @@ function isNoCasValue(cas: string | undefined): boolean {
 }
 
 /**
- * Parses a date string in YYYY-MM-DD format.
+ * Parses a date string in various formats.
+ * ECHA uses formats like "05-Nov-2025" (DD-Mon-YYYY).
  */
 function parseDate(dateStr: string): Date | null {
   const trimmed = dateStr?.trim();
   if (!trimmed) return null;
 
-  const parsed = new Date(trimmed);
-  if (isNaN(parsed.getTime())) {
-    return null;
+  // Try standard Date parsing first (handles ISO and many formats)
+  let parsed = new Date(trimmed);
+  if (!isNaN(parsed.getTime())) {
+    return parsed;
   }
-  return parsed;
+
+  // Try DD-Mon-YYYY format (e.g., "05-Nov-2025")
+  const ddMonYyyy = trimmed.match(/^(\d{1,2})-([A-Za-z]{3})-(\d{4})$/);
+  if (ddMonYyyy && ddMonYyyy[1] && ddMonYyyy[2] && ddMonYyyy[3]) {
+    const day = ddMonYyyy[1];
+    const monthStr = ddMonYyyy[2];
+    const year = ddMonYyyy[3];
+    const months: Record<string, number> = {
+      Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
+      Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11,
+    };
+    const monthIndex = months[monthStr];
+    if (monthIndex !== undefined) {
+      parsed = new Date(parseInt(year), monthIndex, parseInt(day));
+      if (!isNaN(parsed.getTime())) {
+        return parsed;
+      }
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -60,9 +86,9 @@ export class EchaSvhcParser {
    * @returns Parsed record or null if row is invalid
    */
   parseRow(row: EchaSvhcRawRow): EchaSvhcRecord | null {
-    // Validate required fields
-    const substanceName = row['Substance Name']?.trim();
-    const ecNumber = row['EC Number']?.trim();
+    // Validate required fields - use actual ECHA column names
+    const substanceName = row['Substance name']?.trim();
+    const ecNumber = row['EC No.']?.trim();
     const dateOfInclusionStr = row['Date of inclusion']?.trim();
     const reasonForInclusion = row['Reason for inclusion']?.trim();
 
@@ -76,7 +102,7 @@ export class EchaSvhcParser {
       return null;
     }
 
-    const rawCas = row['CAS Number'];
+    const rawCas = row['CAS No.'];
 
     // Check if CAS is a "no value" placeholder
     if (isNoCasValue(rawCas)) {
@@ -116,16 +142,55 @@ export class EchaSvhcParser {
   /**
    * Parses CSV content from an ECHA SVHC Candidate List file.
    *
-   * @param csvContent - Raw CSV string with headers
+   * Note: ECHA exports have metadata header lines before the actual data.
+   * The format uses tab as delimiter and has headers like "Substance name", "EC No.", "CAS No.".
+   *
+   * @param csvContent - Raw CSV/TSV string from ECHA export
    * @returns Array of valid parsed records (invalid rows are skipped)
    */
   async parse(csvContent: string): Promise<EchaSvhcRecord[]> {
-    const rows = parse(csvContent, {
+    // ECHA exports have metadata lines before actual data
+    // Find the actual header line (contains "Substance name" and "EC No.")
+    const lines = csvContent.split('\n');
+    let headerLineIndex = -1;
+
+    for (let i = 0; i < Math.min(lines.length, 20); i++) {
+      const line = lines[i];
+      if (line && line.includes('Substance name') && line.includes('EC No.')) {
+        headerLineIndex = i;
+        break;
+      }
+    }
+
+    if (headerLineIndex === -1) {
+      // Fallback: try parsing as-is (may be a cleaned file)
+      const rows = parse(csvContent, {
+        columns: true,
+        skip_empty_lines: true,
+        trim: true,
+        delimiter: '\t',
+      }) as EchaSvhcRawRow[];
+
+      return this.parseRows(rows);
+    }
+
+    // Extract content from header line onwards
+    const dataContent = lines.slice(headerLineIndex).join('\n');
+
+    const rows = parse(dataContent, {
       columns: true,
       skip_empty_lines: true,
       trim: true,
+      delimiter: '\t',
     }) as EchaSvhcRawRow[];
 
+    return this.parseRows(rows);
+  }
+
+  /**
+   * Parses an array of raw rows into records.
+   */
+  private parseRows(rows: EchaSvhcRawRow[]): EchaSvhcRecord[] {
     const results: EchaSvhcRecord[] = [];
 
     for (const row of rows) {
