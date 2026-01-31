@@ -480,6 +480,107 @@ function sanitizeName(raw: string): string {
 }
 ```
 
+### 5.1.1 CAS Registry Number Checksum Validation
+
+CAS Registry Numbers have a built-in checksum (the last digit) that detects typos. This is critical for catching errors in raw government spreadsheets before they pollute the registry.
+
+**CAS Format:** `XXXXXXX-XX-X` where:
+- First segment: 2-7 digits
+- Second segment: 2 digits
+- Third segment: 1 digit (checksum)
+
+**Algorithm:**
+1. Remove hyphens, read digits right-to-left (excluding checksum)
+2. Multiply each digit by its position (1, 2, 3, ...)
+3. Sum all products
+4. Checksum = sum mod 10
+
+**Example:** `1309-60-0` (Lead dioxide)
+```
+Digits (R→L, excluding check): 0, 6, 9, 0, 3, 1
+Positions:                      1, 2, 3, 4, 5, 6
+Products:                       0, 12, 27, 0, 15, 6
+Sum: 0 + 12 + 27 + 0 + 15 + 6 = 60
+Checksum: 60 mod 10 = 0 ✓
+```
+
+**Implementation:**
+
+```typescript
+/**
+ * Validates CAS Registry Number format and checksum.
+ * Catches typos in source data before import.
+ */
+function isValidCasNumber(cas: string | null): boolean {
+  if (!cas) return false;
+
+  // Must match format: 2-7 digits, hyphen, 2 digits, hyphen, 1 digit
+  const pattern = /^(\d{2,7})-(\d{2})-(\d)$/;
+  const match = cas.match(pattern);
+  if (!match) return false;
+
+  const [, first, second, checkDigit] = match;
+  const digits = (first + second).split('').reverse();
+
+  // Calculate checksum: sum of (digit × position), mod 10
+  const sum = digits.reduce((acc, digit, index) => {
+    return acc + parseInt(digit, 10) * (index + 1);
+  }, 0);
+
+  return (sum % 10) === parseInt(checkDigit, 10);
+}
+
+/**
+ * Formats a raw CAS string into canonical format.
+ * Handles missing hyphens, extra spaces, etc.
+ */
+function formatCasNumber(raw: string): string | null {
+  // Extract only digits
+  const digits = raw.replace(/\D/g, '');
+
+  // CAS numbers have 5-10 digits total
+  if (digits.length < 5 || digits.length > 10) return null;
+
+  // Split: last digit is check, previous 2 are middle, rest is first
+  const check = digits.slice(-1);
+  const middle = digits.slice(-3, -1);
+  const first = digits.slice(0, -3);
+
+  return `${first}-${middle}-${check}`;
+}
+```
+
+**Seeder Usage:**
+
+```typescript
+// In ECHA inventory seeder - reject invalid CAS numbers
+for (const row of echaData) {
+  const cas = sanitizeCas(row.casNumber);
+
+  if (row.casNumber && !cas) {
+    logger.warn(`Invalid CAS checksum: ${row.casNumber} for ${row.name}`);
+    invalidCasCount++;
+    continue; // Skip this record
+  }
+
+  await em.upsert(Substance, { casNumber: cas, ... });
+}
+
+logger.info(`Skipped ${invalidCasCount} records with invalid CAS checksums`);
+```
+
+**Test Cases:**
+
+| Input | Expected | Reason |
+|-------|----------|--------|
+| `1309-60-0` | ✓ Valid | Checksum correct |
+| `1309-60-1` | ✗ Invalid | Wrong checksum |
+| `50-00-0` | ✓ Valid | Formaldehyde |
+| `7440-43-9` | ✓ Valid | Cadmium |
+| `12345-67-8` | ✗ Invalid | Checksum fails |
+| `123456789012` | ✗ Invalid | Too many digits |
+| `12-3-4` | ✗ Invalid | Segments too short |
+
 ### 5.2 Resolution Flow
 
 ```
@@ -596,22 +697,192 @@ interface Conflict {
 | **Date conflict** | Same substance + overlapping scope + conflicting effective dates | WARNING | Sunset 2025 vs Effective 2026 |
 | **Superseded** | Same substance + same list + same scope + newer sourceReference | INFO | Entry 63 (2026) supersedes Entry 63 (2024) |
 
-### 6.3 Scope Overlap Detection
+### 6.3 Scope Overlap Detection (Recursive Inheritance)
+
+When a rule applies to `CONSUMER_GOODS`, it must automatically apply to all children: `TOYS`, `JEWELRY`, `COSMETICS`, etc. This requires recursive traversal of the scope hierarchy.
+
+**Scope Hierarchy Table:**
+
+```sql
+-- Store parent-child relationships for scopes
+CREATE TABLE product_scope_hierarchy (
+  parent_scope VARCHAR(50) NOT NULL,
+  child_scope VARCHAR(50) NOT NULL,
+  PRIMARY KEY (parent_scope, child_scope)
+);
+
+-- Seed the hierarchy
+INSERT INTO product_scope_hierarchy (parent_scope, child_scope) VALUES
+  ('ALL_PRODUCTS', 'CONSUMER_GOODS'),
+  ('ALL_PRODUCTS', 'INDUSTRIAL'),
+  ('CONSUMER_GOODS', 'TOYS'),
+  ('CONSUMER_GOODS', 'CHILDCARE_ARTICLES'),
+  ('CONSUMER_GOODS', 'JEWELRY'),
+  ('CONSUMER_GOODS', 'COSMETICS'),
+  ('CONSUMER_GOODS', 'FOOD_CONTACT'),
+  ('CONSUMER_GOODS', 'TEXTILES'),
+  ('CONSUMER_GOODS', 'FURNITURE'),
+  ('TOYS', 'CHILDCARE_ARTICLES'),  -- childcare is subset of toys
+  ('EEE', 'BATTERIES'),
+  ('EEE', 'CABLES'),
+  ('VEHICLES', 'VEHICLE_COMPONENTS');
+```
+
+**Recursive Ancestor Function:**
+
+```sql
+-- Returns true if 'ancestor' is an ancestor of 'descendant' (or equal)
+CREATE OR REPLACE FUNCTION is_scope_ancestor(
+  ancestor VARCHAR(50),
+  descendant VARCHAR(50)
+) RETURNS BOOLEAN AS $$
+BEGIN
+  -- Same scope = trivially true
+  IF ancestor = descendant THEN
+    RETURN TRUE;
+  END IF;
+
+  -- Recursive CTE to find all ancestors of the descendant
+  RETURN EXISTS (
+    WITH RECURSIVE ancestors AS (
+      -- Base: direct parents of descendant
+      SELECT parent_scope
+      FROM product_scope_hierarchy
+      WHERE child_scope = descendant
+
+      UNION
+
+      -- Recursive: parents of parents
+      SELECT h.parent_scope
+      FROM product_scope_hierarchy h
+      INNER JOIN ancestors a ON h.child_scope = a.parent_scope
+    )
+    SELECT 1 FROM ancestors WHERE parent_scope = ancestor
+  );
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
+```
+
+**Get All Descendants Function:**
+
+```sql
+-- Returns all scopes that inherit from a parent (for expanding rules)
+CREATE OR REPLACE FUNCTION get_scope_descendants(
+  parent VARCHAR(50)
+) RETURNS VARCHAR(50)[] AS $$
+DECLARE
+  result VARCHAR(50)[];
+BEGIN
+  WITH RECURSIVE descendants AS (
+    -- Base: the parent itself
+    SELECT parent::VARCHAR(50) AS scope
+
+    UNION
+
+    -- Recursive: all children
+    SELECT h.child_scope
+    FROM product_scope_hierarchy h
+    INNER JOIN descendants d ON h.parent_scope = d.scope
+  )
+  SELECT array_agg(scope) INTO result FROM descendants;
+
+  RETURN result;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
+```
+
+**Example:**
+
+```sql
+SELECT get_scope_descendants('CONSUMER_GOODS');
+-- Returns: {CONSUMER_GOODS, TOYS, CHILDCARE_ARTICLES, JEWELRY, COSMETICS, FOOD_CONTACT, TEXTILES, FURNITURE}
+
+SELECT is_scope_ancestor('CONSUMER_GOODS', 'JEWELRY');
+-- Returns: TRUE
+
+SELECT is_scope_ancestor('TOYS', 'JEWELRY');
+-- Returns: FALSE (siblings, not ancestor)
+```
+
+**Conflict Detection Query (Updated):**
 
 ```sql
 -- Find entries where scopes overlap via hierarchy
-SELECT * FROM substance_list_entry sle
+-- A rule on CONSUMER_GOODS conflicts with a rule on TOYS (child)
+SELECT sle.* FROM substance_list_entry sle
 WHERE sle.substance_id = $1
   AND sle.regulatory_list_id = $2
   AND (
-    -- Direct match
+    -- Direct scope match
     sle.scopes && $3::product_scope[]
-    -- Or parent/child relationship
+
+    -- OR: existing entry's scope is ancestor of new scope
+    -- (rule on CONSUMER_GOODS applies to new TOYS rule)
     OR EXISTS (
-      SELECT 1 FROM unnest(sle.scopes) AS s
-      WHERE is_scope_ancestor(s, ANY($3))
+      SELECT 1 FROM unnest(sle.scopes) AS existing_scope
+      CROSS JOIN unnest($3::product_scope[]) AS new_scope
+      WHERE is_scope_ancestor(existing_scope, new_scope)
+    )
+
+    -- OR: new scope is ancestor of existing entry's scope
+    -- (new rule on CONSUMER_GOODS conflicts with existing TOYS rule)
+    OR EXISTS (
+      SELECT 1 FROM unnest($3::product_scope[]) AS new_scope
+      CROSS JOIN unnest(sle.scopes) AS existing_scope
+      WHERE is_scope_ancestor(new_scope, existing_scope)
     )
   );
+```
+
+**TypeScript Helper:**
+
+```typescript
+// For application-level checks (mirrors SQL logic)
+const SCOPE_HIERARCHY: Record<ProductScope, ProductScope[]> = {
+  ALL_PRODUCTS: [ProductScope.CONSUMER_GOODS, ProductScope.INDUSTRIAL],
+  CONSUMER_GOODS: [
+    ProductScope.TOYS,
+    ProductScope.CHILDCARE_ARTICLES,
+    ProductScope.JEWELRY,
+    ProductScope.COSMETICS,
+    ProductScope.FOOD_CONTACT,
+    ProductScope.TEXTILES,
+    ProductScope.FURNITURE,
+  ],
+  TOYS: [ProductScope.CHILDCARE_ARTICLES],
+  EEE: [ProductScope.BATTERIES, ProductScope.CABLES],
+  VEHICLES: [ProductScope.VEHICLE_COMPONENTS],
+  // Leaf nodes have no children
+  INDUSTRIAL: [],
+  CHILDCARE_ARTICLES: [],
+  JEWELRY: [],
+  COSMETICS: [],
+  FOOD_CONTACT: [],
+  TEXTILES: [],
+  FURNITURE: [],
+  BATTERIES: [],
+  CABLES: [],
+  VEHICLE_COMPONENTS: [],
+  CONSTRUCTION_PRODUCTS: [],
+  PAINTS_COATINGS: [],
+  PACKAGING: [],
+};
+
+function getAllDescendants(scope: ProductScope): ProductScope[] {
+  const result: ProductScope[] = [scope];
+  const children = SCOPE_HIERARCHY[scope] || [];
+
+  for (const child of children) {
+    result.push(...getAllDescendants(child));
+  }
+
+  return result;
+}
+
+function isScopeAncestor(ancestor: ProductScope, descendant: ProductScope): boolean {
+  if (ancestor === descendant) return true;
+  return getAllDescendants(ancestor).includes(descendant);
+}
 ```
 
 ### 6.4 Superseding Logic
