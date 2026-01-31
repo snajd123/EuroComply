@@ -380,17 +380,268 @@ export class Migration20260122000000 extends Migration {
     this.addSql('CREATE INDEX "outbox_event_aggregate_id_idx" ON "public"."outbox_event" ("aggregate_id");');
     this.addSql('CREATE INDEX "outbox_event_event_type_idx" ON "public"."outbox_event" ("event_type");');
     this.addSql('CREATE INDEX "outbox_event_status_idx" ON "public"."outbox_event" ("status");');
+
+    // =====================================================
+    // GSR (Global Substance Registry) Enhancement
+    // =====================================================
+
+    // Enhanced Substance fields for chemical identification
+    this.addSql(`
+      ALTER TABLE "public"."substance"
+      ADD COLUMN IF NOT EXISTS "smiles" text,
+      ADD COLUMN IF NOT EXISTS "inchi_key" varchar(27),
+      ADD COLUMN IF NOT EXISTS "iupac_name" text;
+    `);
+    this.addSql('CREATE INDEX IF NOT EXISTS "substance_inchi_key_idx" ON "public"."substance" ("inchi_key") WHERE "inchi_key" IS NOT NULL;');
+
+    // Enhanced SubstanceAlias fields for name normalization and source tracking
+    this.addSql(`
+      ALTER TABLE "public"."substance_alias"
+      ADD COLUMN IF NOT EXISTS "name_normalized" text,
+      ADD COLUMN IF NOT EXISTS "source" varchar(20) NOT NULL DEFAULT 'MANUAL';
+    `);
+    this.addSql('CREATE INDEX IF NOT EXISTS "substance_alias_name_normalized_idx" ON "public"."substance_alias" ("name_normalized");');
+
+    // pg_trgm extension for fuzzy matching on substance names
+    this.addSql('CREATE EXTENSION IF NOT EXISTS pg_trgm;');
+    this.addSql(`
+      CREATE INDEX IF NOT EXISTS "substance_alias_name_trgm_idx"
+        ON "public"."substance_alias"
+        USING gin ("name" gin_trgm_ops);
+    `);
+
+    // =====================================================
+    // Registry Source table - tracks external data sources
+    // =====================================================
+    this.addSql(`
+      CREATE TABLE IF NOT EXISTS "public"."registry_source" (
+        "id" text PRIMARY KEY,
+        "created_at" timestamptz NOT NULL DEFAULT NOW(),
+        "updated_at" timestamptz NOT NULL DEFAULT NOW(),
+        "name" varchar(50) NOT NULL UNIQUE,
+        "version" varchar(50),
+        "last_synced_at" timestamptz NOT NULL DEFAULT NOW(),
+        "record_count" int,
+        "source_url" text
+      );
+    `);
+    this.addSql('CREATE INDEX IF NOT EXISTS "registry_source_name_idx" ON "public"."registry_source" ("name");');
+
+    // =====================================================
+    // Regulatory List table - SVHC, REACH Annex, RoHS, etc.
+    // =====================================================
+    this.addSql(`
+      CREATE TABLE IF NOT EXISTS "public"."regulatory_list" (
+        "id" text PRIMARY KEY,
+        "created_at" timestamptz NOT NULL DEFAULT NOW(),
+        "updated_at" timestamptz NOT NULL DEFAULT NOW(),
+        "code" varchar(100) NOT NULL UNIQUE,
+        "name" text NOT NULL,
+        "jurisdiction" varchar(20) NOT NULL,
+        "publisher" varchar(50) NOT NULL,
+        "description" text,
+        "source_url" text,
+        "version" varchar(50),
+        "last_updated_at" timestamptz
+      );
+    `);
+    this.addSql('CREATE INDEX IF NOT EXISTS "regulatory_list_code_idx" ON "public"."regulatory_list" ("code");');
+    this.addSql('CREATE INDEX IF NOT EXISTS "regulatory_list_jurisdiction_idx" ON "public"."regulatory_list" ("jurisdiction");');
+
+    // =====================================================
+    // Substance Group table - chemical families/groups
+    // =====================================================
+    this.addSql(`
+      CREATE TABLE IF NOT EXISTS "public"."substance_group" (
+        "id" text PRIMARY KEY,
+        "created_at" timestamptz NOT NULL DEFAULT NOW(),
+        "updated_at" timestamptz NOT NULL DEFAULT NOW(),
+        "code" varchar(100) NOT NULL UNIQUE,
+        "name" text NOT NULL,
+        "description" text,
+        "parent_group_id" text REFERENCES "public"."substance_group"("id")
+      );
+    `);
+    this.addSql('CREATE INDEX IF NOT EXISTS "substance_group_code_idx" ON "public"."substance_group" ("code");');
+
+    // =====================================================
+    // Substance Group Member table - substances in groups
+    // =====================================================
+    this.addSql(`
+      CREATE TABLE IF NOT EXISTS "public"."substance_group_member" (
+        "id" text PRIMARY KEY,
+        "created_at" timestamptz NOT NULL DEFAULT NOW(),
+        "updated_at" timestamptz NOT NULL DEFAULT NOW(),
+        "group_id" text NOT NULL REFERENCES "public"."substance_group"("id") ON DELETE CASCADE,
+        "substance_id" text NOT NULL REFERENCES "public"."substance"("id") ON DELETE CASCADE,
+        "inheritance_type" varchar(20) NOT NULL,
+        "notes" text,
+        UNIQUE ("group_id", "substance_id")
+      );
+    `);
+    this.addSql('CREATE INDEX IF NOT EXISTS "substance_group_member_group_idx" ON "public"."substance_group_member" ("group_id");');
+    this.addSql('CREATE INDEX IF NOT EXISTS "substance_group_member_substance_idx" ON "public"."substance_group_member" ("substance_id");');
+
+    // =====================================================
+    // Substance List Entry table - substances on regulatory lists
+    // =====================================================
+    this.addSql(`
+      CREATE TABLE IF NOT EXISTS "public"."substance_list_entry" (
+        "id" text PRIMARY KEY,
+        "created_at" timestamptz NOT NULL DEFAULT NOW(),
+        "updated_at" timestamptz NOT NULL DEFAULT NOW(),
+        "substance_id" text REFERENCES "public"."substance"("id") ON DELETE CASCADE,
+        "substance_group_id" text REFERENCES "public"."substance_group"("id") ON DELETE CASCADE,
+        "regulatory_list_id" text NOT NULL REFERENCES "public"."regulatory_list"("id") ON DELETE CASCADE,
+        "status" varchar(20) NOT NULL,
+        "listing_date" date,
+        "effective_date" date,
+        "sunset_date" date,
+        "threshold" decimal(10, 6),
+        "threshold_unit" varchar(30),
+        "threshold_operator" varchar(10),
+        "scopes" text[] NOT NULL,
+        "scope_raw" text,
+        "conditions" jsonb,
+        "source_reference" text,
+        CHECK ("substance_id" IS NOT NULL OR "substance_group_id" IS NOT NULL)
+      );
+    `);
+    this.addSql('CREATE INDEX IF NOT EXISTS "substance_list_entry_substance_idx" ON "public"."substance_list_entry" ("substance_id");');
+    this.addSql('CREATE INDEX IF NOT EXISTS "substance_list_entry_group_idx" ON "public"."substance_list_entry" ("substance_group_id");');
+    this.addSql('CREATE INDEX IF NOT EXISTS "substance_list_entry_list_idx" ON "public"."substance_list_entry" ("regulatory_list_id");');
+
+    // =====================================================
+    // Unresolved Substance table - unknown substances queue
+    // =====================================================
+    this.addSql(`
+      CREATE TABLE IF NOT EXISTS "public"."unresolved_substance" (
+        "id" text PRIMARY KEY,
+        "created_at" timestamptz NOT NULL DEFAULT NOW(),
+        "updated_at" timestamptz NOT NULL DEFAULT NOW(),
+        "raw_name" text NOT NULL,
+        "raw_cas_number" varchar(50),
+        "source" varchar(30) NOT NULL,
+        "occurrence_count" int NOT NULL DEFAULT 1,
+        "status" varchar(30) NOT NULL,
+        "resolution_type" varchar(30),
+        "resolved_substance_id" text REFERENCES "public"."substance"("id"),
+        "resolved_at" timestamptz,
+        "resolved_by" varchar(255)
+      );
+    `);
+    this.addSql('CREATE INDEX IF NOT EXISTS "unresolved_substance_raw_name_idx" ON "public"."unresolved_substance" ("raw_name");');
+    this.addSql('CREATE INDEX IF NOT EXISTS "unresolved_substance_status_idx" ON "public"."unresolved_substance" ("status");');
+
+    // =====================================================
+    // Blind Disclosure Request table - supplier disclosure workflow
+    // =====================================================
+    this.addSql(`
+      CREATE TABLE IF NOT EXISTS "public"."blind_disclosure_request" (
+        "id" text PRIMARY KEY,
+        "created_at" timestamptz NOT NULL DEFAULT NOW(),
+        "updated_at" timestamptz NOT NULL DEFAULT NOW(),
+        "unresolved_substance_id" text NOT NULL REFERENCES "public"."unresolved_substance"("id") ON DELETE CASCADE,
+        "supplier_id" varchar(100) NOT NULL,
+        "product_id" varchar(100),
+        "requested_at" timestamptz NOT NULL DEFAULT NOW(),
+        "requested_by" varchar(255) NOT NULL,
+        "status" varchar(30) NOT NULL,
+        "secure_token" varchar(255) NOT NULL,
+        "token_expires_at" timestamptz NOT NULL,
+        "disclosed_cas_number" text,
+        "disclosed_at" timestamptz,
+        "attestation_type" varchar(30),
+        "attestation_document" text
+      );
+    `);
+    this.addSql('CREATE INDEX IF NOT EXISTS "blind_disclosure_unresolved_idx" ON "public"."blind_disclosure_request" ("unresolved_substance_id");');
+    this.addSql('CREATE INDEX IF NOT EXISTS "blind_disclosure_supplier_idx" ON "public"."blind_disclosure_request" ("supplier_id");');
+    this.addSql('CREATE INDEX IF NOT EXISTS "blind_disclosure_token_idx" ON "public"."blind_disclosure_request" ("secure_token");');
+
+    // =====================================================
+    // Product Scope Hierarchy table - recursive scope queries
+    // =====================================================
+    this.addSql(`
+      CREATE TABLE IF NOT EXISTS "public"."product_scope_hierarchy" (
+        "parent_scope" varchar(50) NOT NULL,
+        "child_scope" varchar(50) NOT NULL,
+        PRIMARY KEY ("parent_scope", "child_scope")
+      );
+    `);
+
+    // Seed the scope hierarchy for product types
+    this.addSql(`
+      INSERT INTO "public"."product_scope_hierarchy" ("parent_scope", "child_scope") VALUES
+        ('ALL_PRODUCTS', 'CONSUMER_GOODS'),
+        ('ALL_PRODUCTS', 'INDUSTRIAL'),
+        ('ALL_PRODUCTS', 'EEE'),
+        ('ALL_PRODUCTS', 'VEHICLES'),
+        ('ALL_PRODUCTS', 'CONSTRUCTION_PRODUCTS'),
+        ('ALL_PRODUCTS', 'PACKAGING'),
+        ('CONSUMER_GOODS', 'TOYS'),
+        ('CONSUMER_GOODS', 'CHILDCARE_ARTICLES'),
+        ('CONSUMER_GOODS', 'JEWELRY'),
+        ('CONSUMER_GOODS', 'COSMETICS'),
+        ('CONSUMER_GOODS', 'FOOD_CONTACT'),
+        ('CONSUMER_GOODS', 'TEXTILES'),
+        ('CONSUMER_GOODS', 'FURNITURE'),
+        ('TOYS', 'CHILDCARE_ARTICLES'),
+        ('EEE', 'BATTERIES'),
+        ('EEE', 'CABLES'),
+        ('VEHICLES', 'VEHICLE_COMPONENTS')
+      ON CONFLICT DO NOTHING;
+    `);
   }
 
   override async down(): Promise<void> {
+    // =====================================================
+    // Drop GSR tables (reverse order of creation)
+    // =====================================================
+    this.addSql('DROP TABLE IF EXISTS "public"."product_scope_hierarchy" CASCADE;');
+    this.addSql('DROP TABLE IF EXISTS "public"."blind_disclosure_request" CASCADE;');
+    this.addSql('DROP TABLE IF EXISTS "public"."unresolved_substance" CASCADE;');
+    this.addSql('DROP TABLE IF EXISTS "public"."substance_list_entry" CASCADE;');
+    this.addSql('DROP TABLE IF EXISTS "public"."substance_group_member" CASCADE;');
+    this.addSql('DROP TABLE IF EXISTS "public"."substance_group" CASCADE;');
+    this.addSql('DROP TABLE IF EXISTS "public"."regulatory_list" CASCADE;');
+    this.addSql('DROP TABLE IF EXISTS "public"."registry_source" CASCADE;');
+
+    // Drop GSR indexes on existing tables
+    this.addSql('DROP INDEX IF EXISTS "public"."substance_alias_name_trgm_idx";');
+    this.addSql('DROP INDEX IF EXISTS "public"."substance_alias_name_normalized_idx";');
+    this.addSql('DROP INDEX IF EXISTS "public"."substance_inchi_key_idx";');
+
+    // Drop pg_trgm extension (only if no other indexes use it)
+    this.addSql('DROP EXTENSION IF EXISTS pg_trgm;');
+
+    // Drop enhanced columns from substance_alias
+    this.addSql(`
+      ALTER TABLE "public"."substance_alias"
+      DROP COLUMN IF EXISTS "name_normalized",
+      DROP COLUMN IF EXISTS "source";
+    `);
+
+    // Drop enhanced columns from substance
+    this.addSql(`
+      ALTER TABLE "public"."substance"
+      DROP COLUMN IF EXISTS "smiles",
+      DROP COLUMN IF EXISTS "inchi_key",
+      DROP COLUMN IF EXISTS "iupac_name";
+    `);
+
+    // =====================================================
     // Drop staging tables
+    // =====================================================
     this.addSql('DROP TABLE IF EXISTS "public"."ingestion_audit_log" CASCADE;');
     this.addSql('DROP TABLE IF EXISTS "public"."staging_requirement" CASCADE;');
     this.addSql('DROP TABLE IF EXISTS "public"."staging_regulation" CASCADE;');
     this.addSql('DROP TYPE IF EXISTS ingestion_action;');
     this.addSql('DROP TYPE IF EXISTS consensus_status;');
 
+    // =====================================================
     // Drop in reverse dependency order
+    // =====================================================
     this.addSql('DROP TABLE IF EXISTS "public"."outbox_event" CASCADE;');
     this.addSql('DROP TABLE IF EXISTS "public"."seed_version" CASCADE;');
     this.addSql('DROP TABLE IF EXISTS "public"."category_regulation" CASCADE;');
