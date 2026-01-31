@@ -310,6 +310,97 @@ tenant_org_xxx (per tenant):
 
 ---
 
+## Global Substance Registry (GSR)
+
+The GSR package manages substance reference data from regulatory sources.
+
+### Seeding Substances
+
+```bash
+# Seed from ECHA EC Inventory (9,800+ substances)
+pnpm gsr seed echa-inventory <path-to-csv>
+
+# Seed SVHC Candidate List entries
+pnpm gsr seed echa-svhc <path-to-csv>
+
+# Dry run (preview without database changes)
+pnpm gsr seed echa-inventory <path-to-csv> --dry-run
+```
+
+### Enriching with PubChem
+
+After seeding, enrich substances with chemical structure data from PubChem:
+
+```bash
+# Enrich all unenriched substances (recommended)
+pnpm gsr enrich pubchem
+
+# Enrich with smaller batch size (default: 100)
+pnpm gsr enrich pubchem --batch-size 50
+
+# Dry run (see what would be enriched)
+pnpm gsr enrich pubchem --dry-run
+
+# Re-enrich ALL substances (including already enriched)
+pnpm gsr enrich pubchem --all
+```
+
+**What enrichment adds:**
+- SMILES (molecular structure)
+- InChIKey (unique identifier)
+- IUPAC name
+- Molecular formula
+- Molecular weight
+- **Synonyms** → Creates `SubstanceAlias` records (up to 50 per substance)
+- ECHA URL (for substances with EC numbers)
+
+**Rate limiting:** PubChem allows 5 requests/second. The enricher handles this automatically with ~200ms delays between requests.
+
+**Expected results:**
+- ~35% of ECHA substances are found in PubChem
+- Common chemicals get 20-50 synonyms/aliases each
+- Obscure compounds may not be found
+
+### Set ECHA URLs Only
+
+```bash
+# Set ECHA URLs for substances with EC numbers (no PubChem API calls)
+pnpm gsr enrich echa-urls
+
+# Dry run
+pnpm gsr enrich echa-urls --dry-run
+```
+
+### Full Pipeline Example
+
+```bash
+# 1. Start database
+pnpm db:start
+pnpm db:setup
+
+# 2. Seed substances from ECHA inventory
+pnpm gsr seed echa-inventory packages/gsr/data/ec_inventory.csv
+
+# 3. Enrich with PubChem (takes ~30 min for 10k substances)
+pnpm gsr enrich pubchem
+
+# 4. Verify results
+docker exec eurocomply-postgres psql -U postgres -d eurocomply -c "
+  SELECT
+    COUNT(*) as total_substances,
+    COUNT(smiles) as enriched,
+    COUNT(*) - COUNT(smiles) as unenriched
+  FROM public.substance;
+"
+
+# Check aliases created
+docker exec eurocomply-postgres psql -U postgres -d eurocomply -c "
+  SELECT source, COUNT(*) FROM public.substance_alias GROUP BY source;
+"
+```
+
+---
+
 ## Worker Details
 
 ### What the worker processes
