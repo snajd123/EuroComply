@@ -53,10 +53,11 @@ describe('PubChemEnricher', () => {
         const freshEm = orm.em.fork();
         const substanceToEnrich = await freshEm.findOneOrFail(Substance, { casNumber: '50-00-0' });
         const enricherWithFreshEm = new PubChemEnricher(freshEm);
-        const enriched = await enricherWithFreshEm.enrichSubstance(substanceToEnrich);
+        const result = await enricherWithFreshEm.enrichSubstance(substanceToEnrich);
 
         // Assert
-        expect(enriched).toBe(true);
+        expect(result.enriched).toBe(true);
+        expect(result.aliasCount).toBeGreaterThan(0); // Should have created aliases
 
         // Verify the substance was updated in the database
         const updatedSubstance = await freshEm.findOneOrFail(Substance, { casNumber: '50-00-0' });
@@ -88,10 +89,10 @@ describe('PubChemEnricher', () => {
         const enricher = new PubChemEnricher(freshEm);
 
         // Act
-        const enriched = await enricher.enrichSubstance(substanceToEnrich);
+        const result = await enricher.enrichSubstance(substanceToEnrich);
 
         // Assert
-        expect(enriched).toBe(false);
+        expect(result.enriched).toBe(false);
 
         // Verify substance was not modified (database returns null for unset values)
         const unchangedSubstance = await freshEm.findOneOrFail(Substance, { casNumber: '9999-99-9' });
@@ -122,10 +123,10 @@ describe('PubChemEnricher', () => {
         const enricher = new PubChemEnricher(freshEm);
 
         // Act
-        const enriched = await enricher.enrichSubstance(substanceToEnrich);
+        const result = await enricher.enrichSubstance(substanceToEnrich);
 
         // Assert - should skip without making API call
-        expect(enriched).toBe(false);
+        expect(result.enriched).toBe(false);
       },
       5000,
     );
@@ -315,11 +316,11 @@ describe('PubChemEnricher', () => {
         const enricher = new PubChemEnricher(freshEm);
 
         // Act
-        const enriched = await enricher.enrichSubstance(substanceToEnrich);
+        const result = await enricher.enrichSubstance(substanceToEnrich);
         await freshEm.flush();
 
         // Assert - PubChem enrichment failed but ECHA URL should still be set
-        expect(enriched).toBe(false); // PubChem enrichment failed
+        expect(result.enriched).toBe(false); // PubChem enrichment failed
         const updatedSubstance = await freshEm.findOneOrFail(Substance, { casNumber: '9999-99-9' });
         expect(updatedSubstance.echaUrl).toBe('https://echa.europa.eu/substance-information/-/substanceinfo/999-999-9');
         expect(updatedSubstance.smiles).toBeNull(); // PubChem data not set
