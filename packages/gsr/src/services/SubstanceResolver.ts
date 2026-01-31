@@ -4,6 +4,12 @@ import { Substance, SubstanceAlias } from '@eurocomply/database';
 import { sanitizeCas } from '../utils/cas-sanitizer.js';
 import { normalizeName } from '../utils/name-normalizer.js';
 
+/** Minimum similarity score to consider a fuzzy match (0.0 - 1.0) */
+const FUZZY_MIN_THRESHOLD = 0.6;
+
+/** Auto-accept threshold for single high-confidence matches (0.0 - 1.0) */
+const FUZZY_AUTO_ACCEPT_THRESHOLD = 0.85;
+
 /**
  * Resolution status indicating the outcome of a substance lookup.
  */
@@ -70,14 +76,25 @@ export interface ResolveResult {
 }
 
 /**
+ * Row returned from fuzzy match SQL query.
+ */
+interface FuzzyMatchRow {
+  id: string;
+  substance_id: string;
+  name: string;
+  cas_number: string;
+  primary_name: string;
+  similarity: number;
+}
+
+/**
  * Service for resolving substance references to master records.
  *
  * Resolution priority:
  * 1. CAS number (exact match with checksum validation)
  * 2. EC number (exact match)
  * 3. Alias exact match (case-insensitive)
- *
- * Future enhancements will add fuzzy matching for CANDIDATES status.
+ * 4. Alias fuzzy match (using pg_trgm similarity)
  */
 export class SubstanceResolver {
   constructor(private readonly em: EntityManager) {}
@@ -157,6 +174,12 @@ export class SubstanceResolver {
           };
         }
       }
+
+      // Priority 4: Alias fuzzy match (using pg_trgm)
+      const fuzzyResult = await this.fuzzyMatch(sanitizedName, sanitizedInput);
+      if (fuzzyResult) {
+        return fuzzyResult;
+      }
     }
 
     // No match found
@@ -188,5 +211,66 @@ export class SubstanceResolver {
     }
 
     return candidate;
+  }
+
+  /**
+   * Performs fuzzy matching using PostgreSQL pg_trgm extension.
+   *
+   * @param name - The normalized name to search for
+   * @param sanitizedInput - The sanitized input values for the result
+   * @returns ResolveResult with MATCHED (if single high-confidence match) or CANDIDATES,
+   *          or null if no matches above threshold
+   */
+  private async fuzzyMatch(
+    name: string,
+    sanitizedInput: ResolveResult['sanitizedInput']
+  ): Promise<ResolveResult | null> {
+    // Use parameterized query with pg_trgm's similarity() function
+    // MikroORM uses Knex under the hood, so we use ? placeholders (not $1, $2)
+    const rows = await this.em.getConnection().execute<FuzzyMatchRow[]>(`
+      SELECT
+        sa.id,
+        sa.substance_id,
+        sa.name,
+        s.cas_number,
+        s.primary_name,
+        similarity(LOWER(sa.name), LOWER(?)) as similarity
+      FROM substance_alias sa
+      JOIN substance s ON s.id = sa.substance_id
+      WHERE similarity(LOWER(sa.name), LOWER(?)) > ?
+      ORDER BY similarity DESC
+      LIMIT 10
+    `, [name, name, FUZZY_MIN_THRESHOLD]);
+
+    if (rows.length === 0) {
+      return null;
+    }
+
+    // Convert rows to candidates
+    const candidates: SubstanceCandidate[] = rows.map((row) => ({
+      substanceId: row.substance_id,
+      casNumber: row.cas_number,
+      primaryName: row.primary_name,
+      matchedVia: 'ALIAS_FUZZY' as MatchedVia,
+      confidence: Number(row.similarity),
+      matchedAlias: row.name,
+    }));
+
+    // Auto-accept if single result with confidence >= threshold
+    const firstCandidate = candidates[0];
+    if (candidates.length === 1 && firstCandidate && firstCandidate.confidence >= FUZZY_AUTO_ACCEPT_THRESHOLD) {
+      return {
+        status: ResolveStatus.MATCHED,
+        match: firstCandidate,
+        sanitizedInput,
+      };
+    }
+
+    // Return candidates for human review
+    return {
+      status: ResolveStatus.CANDIDATES,
+      candidates,
+      sanitizedInput,
+    };
   }
 }

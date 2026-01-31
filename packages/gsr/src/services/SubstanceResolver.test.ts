@@ -174,5 +174,10 @@ describe('SubstanceResolver', () => {
       expect(result.match!.casNumber).toBe('1309-60-0');
       expect(result.match!.matchedVia).toBe('EC');  // EC wins over alias
     });
+
+    it.skipIf(!dbAvailable)('should handle names with SQL-special characters safely', async () => {
+      const result = await resolver.resolve({ name: "'; DROP TABLE substance_alias; --" });
+      expect(result.status).toBe(ResolveStatus.UNRESOLVED);
+    });
   });
 });
