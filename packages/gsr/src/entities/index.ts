@@ -3,3 +3,4 @@ export { RegulatoryList } from './RegulatoryList.js';
 export { SubstanceGroup, SubstanceGroupMember, InheritanceType } from './SubstanceGroup.js';
 export { SubstanceListEntry } from './SubstanceListEntry.js';
 export { UnresolvedSubstance, UnresolvedSource } from './UnresolvedSubstance.js';
+export { BlindDisclosureRequest } from './BlindDisclosureRequest.js';
