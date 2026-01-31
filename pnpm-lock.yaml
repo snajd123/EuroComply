@@ -29,6 +29,9 @@ importers:
       '@eurocomply/database':
         specifier: workspace:*
         version: link:../../packages/database
+      '@eurocomply/gsr':
+        specifier: workspace:*
+        version: link:../../packages/gsr
       '@eurocomply/ingestor':
         specifier: workspace:*
         version: link:../../packages/ingestor
@@ -161,7 +164,7 @@ importers:
         version: 6.6.4
       '@mikro-orm/migrations':
         specifier: ^6.4.0
-        version: 6.6.4(@mikro-orm/core@6.6.4)(@types/node@22.19.7)
+        version: 6.6.4(@mikro-orm/core@6.6.4)(@types/node@22.19.7)(pg@8.16.3)
       '@mikro-orm/postgresql':
         specifier: ^6.4.0
         version: 6.6.4(@mikro-orm/core@6.6.4)
@@ -174,7 +177,7 @@ importers:
     devDependencies:
       '@mikro-orm/cli':
         specifier: ^6.4.0
-        version: 6.6.4
+        version: 6.6.4(pg@8.16.3)
       '@swc/core':
         specifier: ^1.4.0
         version: 1.15.10
@@ -2917,7 +2920,7 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
 
-  '@mikro-orm/cli@6.6.4':
+  '@mikro-orm/cli@6.6.4(pg@8.16.3)':
     dependencies:
       '@jercle/yargonaut': 1.1.5
       '@mikro-orm/core': 6.6.4
@@ -2962,7 +2965,7 @@ snapshots:
       - supports-color
       - tedious
 
-  '@mikro-orm/migrations@6.6.4(@mikro-orm/core@6.6.4)(@types/node@22.19.7)':
+  '@mikro-orm/migrations@6.6.4(@mikro-orm/core@6.6.4)(@types/node@22.19.7)(pg@8.16.3)':
     dependencies:
       '@mikro-orm/core': 6.6.4
       '@mikro-orm/knex': 6.6.4(@mikro-orm/core@6.6.4)(pg@8.16.3)

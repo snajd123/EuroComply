@@ -1,6 +1,7 @@
 import { serve } from '@hono/node-server';
 import { createApp } from './app.js';
 import { initOrm, TenantProvisioner } from '@eurocomply/database';
+import { gsrEntities } from '@eurocomply/gsr';
 import { createWebhooksRouter } from './routes/webhooks.js';
 import { createOrganizationsAdminRouter } from './routes/organizations.js';
 import { createUnitsRepository, createSubstancesRepository } from './routes/taxonomy/index.js';
@@ -9,7 +10,7 @@ async function main() {
   const port = parseInt(process.env['PORT'] ?? '3001', 10);
 
   console.log('Initializing database connection...');
-  const orm = await initOrm();
+  const orm = await initOrm({ additionalEntities: gsrEntities });
 
   console.log('Creating tenant provisioner...');
   const provisioner = new TenantProvisioner(orm);

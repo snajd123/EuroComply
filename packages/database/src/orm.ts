@@ -3,11 +3,25 @@ import config from './mikro-orm.config.js';
 
 let orm: MikroORM | null = null;
 
-export async function initOrm(): Promise<MikroORM> {
+export interface InitOrmOptions {
+  /** Additional entities to register with the ORM (e.g., GSR entities) */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  additionalEntities?: any[];
+}
+
+export async function initOrm(options?: InitOrmOptions): Promise<MikroORM> {
   if (orm) {
     return orm;
   }
-  orm = await MikroORM.init(config);
+
+  const mergedConfig = options?.additionalEntities
+    ? {
+        ...config,
+        entities: [...(config.entities ?? []), ...options.additionalEntities],
+      }
+    : config;
+
+  orm = await MikroORM.init(mergedConfig);
   return orm;
 }
 
