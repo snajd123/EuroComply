@@ -16,3 +16,4 @@ export {
   type Conflict,
   type NewEntryInput,
 } from './ConflictDetector.js';
+export { migrateRegulatoryFlags, type MigrateResult } from './migrateRegulatoryFlags.js';
