@@ -1,5 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Substance } from './Substance.js';
+import { setupTestDb, teardownTestDb, clearTestDb, isDatabaseAvailable } from '../test-utils.js';
+import type { MikroORM } from '@mikro-orm/postgresql';
+
+// Check database availability at module level (before test registration)
+const dbAvailable = await isDatabaseAvailable();
 
 describe('Substance', () => {
   it('should create a substance with CAS number', () => {
@@ -66,5 +71,63 @@ describe('Substance', () => {
     substance.primaryName = 'Water';
 
     expect(() => substance.validateCasNumber()).not.toThrow();
+  });
+});
+
+describe('Substance enhanced fields', () => {
+  let orm: MikroORM;
+
+  beforeAll(async () => {
+    if (dbAvailable) {
+      orm = await setupTestDb();
+    }
+  });
+
+  afterAll(async () => {
+    if (dbAvailable) {
+      await teardownTestDb();
+    }
+  });
+
+  beforeEach(async () => {
+    if (dbAvailable) {
+      await clearTestDb(orm.em);
+    }
+  });
+
+  it.skipIf(!dbAvailable)('should store SMILES and InChIKey', async () => {
+    const em = orm.em.fork();
+
+    const substance = em.create(Substance, {
+      casNumber: '50-00-0',
+      primaryName: 'Formaldehyde',
+      smiles: 'C=O',
+      inchiKey: 'WSFSSNUMVMOOMR-UHFFFAOYSA-N',
+    });
+
+    await em.persistAndFlush(substance);
+    em.clear();
+
+    const found = await em.findOne(Substance, { casNumber: '50-00-0' });
+    expect(found).not.toBeNull();
+    expect(found!.smiles).toBe('C=O');
+    expect(found!.inchiKey).toBe('WSFSSNUMVMOOMR-UHFFFAOYSA-N');
+  });
+
+  it.skipIf(!dbAvailable)('should store IUPAC name', async () => {
+    const em = orm.em.fork();
+
+    const substance = em.create(Substance, {
+      casNumber: '50-00-0',
+      primaryName: 'Formaldehyde',
+      iupacName: 'methanal',
+    });
+
+    await em.persistAndFlush(substance);
+    em.clear();
+
+    const found = await em.findOne(Substance, { casNumber: '50-00-0' });
+    expect(found).not.toBeNull();
+    expect(found!.iupacName).toBe('methanal');
   });
 });

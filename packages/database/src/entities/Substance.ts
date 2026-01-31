@@ -27,6 +27,19 @@ export class Substance extends BaseEntity {
   @Property({ length: 500, nullable: true, name: 'molecular_formula' })
   molecularFormula?: string;  // "C4H9NO"
 
+  /** SMILES chemical structure string */
+  @Property({ type: 'text', nullable: true })
+  smiles?: string;
+
+  /** InChIKey structure hash for matching */
+  @Property({ length: 27, name: 'inchi_key', nullable: true })
+  @Index()
+  inchiKey?: string;
+
+  /** IUPAC systematic name */
+  @Property({ type: 'text', name: 'iupac_name', nullable: true })
+  iupacName?: string;
+
   // Regulatory status from ECHA
   @Property({ type: 'boolean', default: false, name: 'is_svhc' })
   isSvhc: boolean = false;  // SVHC Candidate List
