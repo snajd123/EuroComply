@@ -18,11 +18,12 @@
     "db:schema": "./scripts/test-schema.sh",
     "db:cleanup": "./scripts/test-cleanup.sh",
     "db:setup": "node --env-file=.env packages/database/dist/cli/setup.js",
-    "db:seed:substances": "node --env-file=.env packages/database/dist/cli/seed-substances.js",
     "db:seed:categories": "node --env-file=.env packages/database/dist/cli/seed-categories.js",
     "db:seed:regulations": "node --env-file=.env packages/database/dist/cli/seed-regulations.js",
     "db:seed:all": "pnpm db:seed:categories && pnpm db:seed:regulations",
-    "db:seed:check": "node --env-file=.env packages/database/dist/cli/seed-check.js"
+    "db:seed:check": "node --env-file=.env packages/database/dist/cli/seed-check.js",
+    "gsr:seed:inventory": "node --env-file=.env packages/gsr/dist/cli/index.js seed echa-inventory",
+    "gsr:seed:svhc": "node --env-file=.env packages/gsr/dist/cli/index.js seed echa-svhc"
   },
   "devDependencies": {
     "tsx": "^4.19.0",
