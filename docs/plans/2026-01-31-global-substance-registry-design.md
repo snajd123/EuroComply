@@ -1171,7 +1171,72 @@ packages/gsr/
 
 ---
 
-## 10. Migration Strategy
+## 10. Data Enrichment
+
+### 10.1 PubChem Integration
+
+Substances seeded from ECHA EC Inventory contain basic identification data (CAS, EC number, name, molecular formula). Chemical structure data is enriched from PubChem API:
+
+| Field | Source | Coverage |
+|-------|--------|----------|
+| smiles | PubChem | ~80% of substances |
+| inchiKey | PubChem | ~80% of substances |
+| iupacName | PubChem | ~80% of substances |
+| molecularWeight | PubChem | ~80% of substances |
+| echaUrl | Generated | 100% (from EC number) |
+
+**Why ~80%?** Some substances in the EC Inventory are polymers, mixtures, or proprietary formulations that don't have single chemical identities in PubChem.
+
+### 10.2 Enrichment Commands
+
+```bash
+# Full enrichment pipeline
+pnpm gsr:seed:inventory          # Seed base substances (~106k)
+pnpm gsr:seed:svhc               # Add SVHC regulatory entries
+pnpm gsr:enrich:pubchem          # Add chemical structure data from PubChem
+pnpm gsr:enrich:echa-urls        # Generate ECHA links
+
+# Enrichment options
+pnpm gsr:enrich:pubchem --batch-size 50     # Smaller batches (default: 100)
+pnpm gsr:enrich:pubchem --dry-run           # Preview without saving
+pnpm gsr:enrich:pubchem --all               # Re-enrich all substances
+```
+
+### 10.3 Rate Limiting & Performance
+
+PubChem API enforces strict rate limits:
+- **5 requests/second** - Hard limit per IP
+- **400 requests/minute** - Soft limit with throttling
+
+The `PubChemClient` handles this via:
+- Request throttling (200ms minimum interval)
+- Exponential backoff on 429 errors
+- Configurable batch sizes for memory management
+- Progress reporting for long-running operations
+
+**Estimated enrichment time:**
+| Substances | Time (approx) |
+|------------|---------------|
+| 1,000 | ~5 minutes |
+| 10,000 | ~30 minutes |
+| 100,000 | ~6 hours |
+
+### 10.4 ECHA URL Generation
+
+Every substance with an EC number gets an ECHA URL pointing to the official substance information page:
+
+```
+https://echa.europa.eu/substance-information/-/substanceinfo/{ec_number}
+```
+
+Example: EC 200-001-8 (Formaldehyde) →
+`https://echa.europa.eu/substance-information/-/substanceinfo/200-001-8`
+
+This is generated locally (no API call required) and has 100% coverage for substances with EC numbers.
+
+---
+
+## 11. Migration Strategy
 
 ### Phase 1: Schema Additions (Non-breaking)
 
@@ -1210,7 +1275,7 @@ packages/gsr/
 
 ---
 
-## 11. Success Metrics
+## 12. Success Metrics
 
 | Metric | Target |
 |--------|--------|
@@ -1222,7 +1287,7 @@ packages/gsr/
 
 ---
 
-## 12. Open Questions
+## 13. Open Questions
 
 1. **RoHS integration** - Should RoHS Annex II be a separate RegulatoryList or merged with REACH?
 2. **Tenant-specific lists** - Will tenants be able to create custom substance lists?
