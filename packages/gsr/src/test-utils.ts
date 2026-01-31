@@ -3,6 +3,7 @@ import { publicEntities } from '@eurocomply/database';
 
 // GSR entities
 import { RegistrySource } from './entities/RegistrySource.js';
+import { RegulatoryList } from './entities/RegulatoryList.js';
 
 let testOrm: MikroORM | null = null;
 let dbAvailable: boolean | null = null;
@@ -10,7 +11,7 @@ let dbAvailable: boolean | null = null;
 /**
  * GSR entities that will be added to the public schema.
  */
-export const gsrEntities = [RegistrySource];
+export const gsrEntities = [RegistrySource, RegulatoryList];
 
 /**
  * All entities for GSR tests (database + GSR entities).
@@ -64,7 +65,7 @@ export async function teardownGsrTestDb(): Promise<void> {
  */
 export async function clearGsrTestDb(em: EntityManager): Promise<void> {
   const connection = em.getConnection();
-  const gsrTables = ['registry_source'];
+  const gsrTables = ['registry_source', 'regulatory_list'];
 
   for (const table of gsrTables) {
     try {
