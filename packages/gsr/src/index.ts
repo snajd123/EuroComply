@@ -18,3 +18,6 @@ export * from './parsers/index.js';
 
 // Seeders
 export * from './seeders/index.js';
+
+// Clients
+export * from './clients/index.js';
