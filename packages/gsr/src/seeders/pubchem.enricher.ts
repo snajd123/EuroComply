@@ -1,12 +1,13 @@
 // packages/gsr/src/seeders/pubchem.enricher.ts
 import type { EntityManager } from '@mikro-orm/postgresql';
-import { Substance } from '@eurocomply/database';
+import { Substance, SubstanceAlias, AliasType, AliasSource } from '@eurocomply/database';
 import { PubChemClient } from '../clients/pubchem.client.js';
 import { RegistrySource, RegistrySourceName } from '../entities/RegistrySource.js';
 
 export interface EnricherResult {
   enriched: boolean;
   enrichedCount: number;
+  aliasCount: number;
   failedCount: number;
   skippedCount: number;
   notFoundCount: number;
@@ -24,6 +25,7 @@ export interface EnricherOptions {
 
 export interface BatchResult {
   enrichedCount: number;
+  aliasCount: number;
   failedCount: number;
   notFoundCount: number;
 }
@@ -60,9 +62,9 @@ export class PubChemEnricher {
    * Enriches a single substance with PubChem data.
    *
    * @param substance - The substance to enrich
-   * @returns true if enriched with PubChem data, false if skipped or not found
+   * @returns Object with enriched status and alias count
    */
-  async enrichSubstance(substance: Substance): Promise<boolean> {
+  async enrichSubstance(substance: Substance): Promise<{ enriched: boolean; aliasCount: number }> {
     // Always set ECHA URL if substance has an EC number, regardless of other enrichment
     const echaUrl = this.generateEchaUrl(substance.ecNumber);
     if (echaUrl) {
@@ -71,19 +73,19 @@ export class PubChemEnricher {
 
     // Skip if already enriched
     if (substance.smiles) {
-      return false;
+      return { enriched: false, aliasCount: 0 };
     }
 
     // Skip if no CAS number
     if (!substance.casNumber) {
-      return false;
+      return { enriched: false, aliasCount: 0 };
     }
 
     // Fetch enrichment data from PubChem
     const data = await this.client.getEnrichmentData(substance.casNumber);
 
     if (!data) {
-      return false;
+      return { enriched: false, aliasCount: 0 };
     }
 
     // Update substance with enrichment data
@@ -103,7 +105,99 @@ export class PubChemEnricher {
       substance.molecularFormula = data.molecularFormula;
     }
 
-    return true;
+    // Create aliases from PubChem synonyms
+    let aliasCount = 0;
+    if (data.synonyms && data.synonyms.length > 0) {
+      aliasCount = await this.createAliases(substance, data.synonyms);
+    }
+
+    return { enriched: true, aliasCount };
+  }
+
+  /**
+   * Creates SubstanceAlias records from PubChem synonyms.
+   * Skips duplicates and limits to reasonable number of aliases per substance.
+   */
+  private async createAliases(substance: Substance, synonyms: string[]): Promise<number> {
+    // Limit synonyms to prevent overwhelming the database
+    // PubChem can return hundreds of synonyms for common compounds
+    const MAX_ALIASES_PER_SUBSTANCE = 50;
+    const limitedSynonyms = synonyms.slice(0, MAX_ALIASES_PER_SUBSTANCE);
+
+    // Get existing aliases to avoid duplicates
+    const existingAliases = await this.em.find(SubstanceAlias, {
+      substance: substance,
+      source: AliasSource.PUBCHEM,
+    });
+    const existingNames = new Set(existingAliases.map((a) => a.name.toLowerCase()));
+
+    let created = 0;
+    for (const synonym of limitedSynonyms) {
+      // Skip empty or very short synonyms
+      if (!synonym || synonym.trim().length < 2) {
+        continue;
+      }
+
+      // Skip if already exists
+      if (existingNames.has(synonym.toLowerCase())) {
+        continue;
+      }
+
+      // Skip if it's the same as the primary name
+      if (synonym.toLowerCase() === substance.primaryName?.toLowerCase()) {
+        continue;
+      }
+
+      // Skip if it's the CAS number (PubChem includes CAS in synonyms)
+      if (synonym === substance.casNumber) {
+        continue;
+      }
+
+      // Determine alias type based on content
+      const aliasType = this.classifySynonym(synonym);
+
+      // Use class constructor to avoid MikroORM RequiredEntityData type issues
+      const alias = new SubstanceAlias();
+      alias.substance = substance;
+      alias.name = synonym;
+      alias.type = aliasType;
+      alias.source = AliasSource.PUBCHEM;
+      alias.language = 'en';
+      this.em.persist(alias);
+      existingNames.add(synonym.toLowerCase());
+      created++;
+    }
+
+    return created;
+  }
+
+  /**
+   * Attempts to classify a synonym into an alias type.
+   */
+  private classifySynonym(synonym: string): AliasType {
+    // CAS-like patterns
+    if (/^\d{1,7}-\d{2}-\d$/.test(synonym)) {
+      return AliasType.SYNONYM;
+    }
+
+    // IUPAC-like names (systematic, often complex)
+    if (
+      synonym.includes('yl') ||
+      synonym.includes('ane') ||
+      synonym.includes('ene') ||
+      synonym.includes('oic acid') ||
+      synonym.includes('ol ')
+    ) {
+      return AliasType.IUPAC;
+    }
+
+    // Trade names often have ® or ™ or are ALL CAPS
+    if (synonym.includes('®') || synonym.includes('™') || synonym === synonym.toUpperCase()) {
+      return AliasType.TRADE;
+    }
+
+    // Default to synonym
+    return AliasType.SYNONYM;
   }
 
   /**
@@ -117,6 +211,7 @@ export class PubChemEnricher {
     const { onProgress } = options ?? {};
 
     let enrichedCount = 0;
+    let aliasCount = 0;
     let failedCount = 0;
     let notFoundCount = 0;
 
@@ -142,10 +237,11 @@ export class PubChemEnricher {
           continue;
         }
 
-        const enriched = await this.enrichSubstance(substance);
+        const result = await this.enrichSubstance(substance);
 
-        if (enriched) {
+        if (result.enriched) {
           enrichedCount++;
+          aliasCount += result.aliasCount;
         } else {
           // Not found in PubChem
           notFoundCount++;
@@ -165,6 +261,7 @@ export class PubChemEnricher {
 
     return {
       enrichedCount,
+      aliasCount,
       failedCount,
       notFoundCount,
     };
@@ -197,6 +294,7 @@ export class PubChemEnricher {
       return {
         enriched: false,
         enrichedCount: 0,
+        aliasCount: 0,
         failedCount: 0,
         skippedCount: 0,
         notFoundCount: 0,
@@ -211,6 +309,7 @@ export class PubChemEnricher {
       return {
         enriched: false,
         enrichedCount: 0,
+        aliasCount: 0,
         failedCount: 0,
         skippedCount: 0,
         notFoundCount: 0,
@@ -222,6 +321,7 @@ export class PubChemEnricher {
 
     // Process in batches
     let totalEnriched = 0;
+    let totalAliases = 0;
     let totalFailed = 0;
     let totalNotFound = 0;
     let totalProcessed = 0;
@@ -256,6 +356,7 @@ export class PubChemEnricher {
       });
 
       totalEnriched += batchResult.enrichedCount;
+      totalAliases += batchResult.aliasCount;
       totalFailed += batchResult.failedCount;
       totalNotFound += batchResult.notFoundCount;
       totalProcessed += substances.length;
@@ -275,12 +376,13 @@ export class PubChemEnricher {
     return {
       enriched: totalEnriched > 0,
       enrichedCount: totalEnriched,
+      aliasCount: totalAliases,
       failedCount: totalFailed,
       skippedCount,
       notFoundCount: totalNotFound,
       totalProcessed,
       version,
-      message: `Enriched ${totalEnriched} substances from PubChem (${totalNotFound} not found, ${totalFailed} failed, ${skippedCount} skipped).`,
+      message: `Enriched ${totalEnriched} substances from PubChem with ${totalAliases} aliases (${totalNotFound} not found, ${totalFailed} failed, ${skippedCount} skipped).`,
     };
   }
 

@@ -20,8 +20,13 @@ export interface PubChemCidResponse {
 export interface PubChemCompoundProperty {
   CID: number;
   MolecularFormula?: string;
-  MolecularWeight?: number;
+  /** Note: PubChem returns this as a string, not number */
+  MolecularWeight?: string | number;
+  /** When requesting CanonicalSMILES, PubChem returns it as SMILES */
+  SMILES?: string;
   CanonicalSMILES?: string;
+  /** When requesting CanonicalSMILES, sometimes returned as ConnectivitySMILES */
+  ConnectivitySMILES?: string;
   IsomericSMILES?: string;
   InChI?: string;
   InChIKey?: string;
@@ -47,6 +52,21 @@ export interface SubstanceEnrichmentData {
   iupacName: string | null;
   molecularWeight: number | null;
   molecularFormula: string | null;
+  synonyms: string[];
+}
+
+/** Response from synonyms lookup */
+export interface PubChemSynonymsResponse {
+  InformationList?: {
+    Information: Array<{
+      CID: number;
+      Synonym: string[];
+    }>;
+  };
+  Fault?: {
+    Code: string;
+    Message: string;
+  };
 }
 
 /** Rate limit info from PubChem headers */

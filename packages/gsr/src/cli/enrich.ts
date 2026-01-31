@@ -90,6 +90,7 @@ export async function enrichPubchem(options: EnrichCommandOptions): Promise<void
 
     console.log(`\n[SUCCESS] ${result.message}`);
     console.log(`  Enriched: ${result.enrichedCount}`);
+    console.log(`  Aliases created: ${result.aliasCount}`);
     console.log(`  Not found in PubChem: ${result.notFoundCount}`);
     console.log(`  Failed: ${result.failedCount}`);
     console.log(`  Skipped (already enriched): ${result.skippedCount}`);
