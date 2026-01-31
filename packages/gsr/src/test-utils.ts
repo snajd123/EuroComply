@@ -4,6 +4,7 @@ import { publicEntities } from '@eurocomply/database';
 // GSR entities
 import { RegistrySource } from './entities/RegistrySource.js';
 import { RegulatoryList } from './entities/RegulatoryList.js';
+import { SubstanceGroup, SubstanceGroupMember } from './entities/SubstanceGroup.js';
 
 let testOrm: MikroORM | null = null;
 let dbAvailable: boolean | null = null;
@@ -11,7 +12,7 @@ let dbAvailable: boolean | null = null;
 /**
  * GSR entities that will be added to the public schema.
  */
-export const gsrEntities = [RegistrySource, RegulatoryList];
+export const gsrEntities = [RegistrySource, RegulatoryList, SubstanceGroup, SubstanceGroupMember];
 
 /**
  * All entities for GSR tests (database + GSR entities).
@@ -62,10 +63,20 @@ export async function teardownGsrTestDb(): Promise<void> {
 
 /**
  * Clear GSR-specific tables in the test database.
+ * Order matters: clear junction tables before parent tables.
+ * Also clears substance table since GSR tests may create substances.
  */
 export async function clearGsrTestDb(em: EntityManager): Promise<void> {
   const connection = em.getConnection();
-  const gsrTables = ['registry_source', 'regulatory_list'];
+  // Order: junction tables first, then parent tables
+  // Include substance table since SubstanceGroupMember tests create substances
+  const gsrTables = [
+    'substance_group_member',
+    'substance_group',
+    'regulatory_list',
+    'registry_source',
+    'substance',
+  ];
 
   for (const table of gsrTables) {
     try {
