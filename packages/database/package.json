@@ -24,7 +24,6 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "setup": "node dist/cli/setup.js",
-    "seed:substances": "node dist/cli/seed-substances.js",
     "seed:check": "node dist/cli/seed-check.js",
     "seed:categories": "node dist/cli/seed-categories.js",
     "seed:regulations": "node dist/cli/seed-regulations.js",

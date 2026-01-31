@@ -15,7 +15,6 @@ async function main() {
 
   // Dynamic imports after chdir so relative paths resolve correctly
   const { initOrm, closeOrm } = await import('../orm.js');
-  const { SubstancesSeeder } = await import('../seeders/substances.seeder.js');
 
   console.log('🚀 EuroComply Database Setup');
   console.log('============================\n');
@@ -37,23 +36,13 @@ async function main() {
       console.log('   ✓ No pending migrations');
     }
 
-    // Seed reference data
-    console.log('3. Seeding reference data...');
-
-    const em = orm.em.fork();
-
-    // Seed substances
-    const substancesSeeder = new SubstancesSeeder(em);
-    const substancesResult = await substancesSeeder.seed();
-    if (substancesResult.skipped) {
-      console.log(`   ✓ Substances: already seeded (${substancesResult.substanceCount} found)`);
-    } else {
-      console.log(`   ✓ Substances: ${substancesResult.substanceCount} substances, ${substancesResult.aliasCount} aliases`);
-    }
-
-    // TODO: Add other seeders here as they're created
-    // - UnitsSeeder
-    // - ClassificationsSeeder
+    // Note: Substance seeding is now handled by the GSR package.
+    // Use the GSR CLI (pnpm --filter gsr seed) to seed substances
+    // from ECHA EC Inventory and SVHC Candidate List.
+    console.log('3. Reference data seeding');
+    console.log('   Note: Use GSR package for substance seeding:');
+    console.log('   pnpm --filter gsr seed:echa-inventory');
+    console.log('   pnpm --filter gsr seed:echa-svhc');
 
     console.log('\n✅ Database setup complete!\n');
     process.exit(0);
