@@ -17,8 +17,7 @@
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
-    "test:watch": "vitest",
-    "lint": "eslint src --ext .ts"
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@eurocomply/database": "workspace:*",

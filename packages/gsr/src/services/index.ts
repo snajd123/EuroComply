@@ -9,3 +9,10 @@ export {
   type ResolveInput,
   type ResolveResult,
 } from './SubstanceResolver.js';
+export {
+  ConflictDetector,
+  ConflictType,
+  ConflictSeverity,
+  type Conflict,
+  type NewEntryInput,
+} from './ConflictDetector.js';
