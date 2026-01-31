@@ -145,9 +145,89 @@ Manual/on-demand. Regulatory lists don't change frequently:
 - Added `nameNormalized` to aliases for consistent lookups
 - Added `source` to aliases for provenance tracking
 - Added `RegistrySource` to track data lineage
+- Added `parentSubstanceId` for group-to-individual inheritance
 - **Removed** regulatory boolean flags (`isSvhc`, `requiresAuthorization`, `isRestricted`) - moved to SubstanceListEntry
 
-### 4.2 Regulatory Linking
+### 4.2 Substance Groups (Chemical Families)
+
+Many regulations restrict entire groups (e.g., "Lead and its compounds" in REACH Annex XVII Entry 63). We need group-to-individual inheritance.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      SubstanceGroup                              │
+├─────────────────────────────────────────────────────────────────┤
+│ id (PK)                                                          │
+│ code (unique)          ──────── "LEAD_COMPOUNDS", "PFAS"         │
+│ name                   ──────── "Lead and its compounds"         │
+│ description                                                      │
+│ parentGroupId (FK, nullable) ── For nested groups (rare)         │
+└─────────────────────────────────────────────────────────────────┘
+          │
+          │ many:many
+          ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                   SubstanceGroupMember                           │
+├─────────────────────────────────────────────────────────────────┤
+│ id (PK)                                                          │
+│ groupId (FK, indexed)                                            │
+│ substanceId (FK, indexed)                                        │
+│ inheritanceType        ──────── "EXPLICIT" | "DERIVED"           │
+│ notes                  ──────── e.g., "Inorganic lead compound"  │
+│ unique(groupId, substanceId)                                     │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Inheritance Logic:**
+
+When a `SubstanceListEntry` references a group (via new `substanceGroupId` field), the restriction applies to ALL member substances:
+
+```typescript
+// Check if substance is restricted (direct OR via group)
+async function isSubstanceRestricted(
+  substanceId: string,
+  regulatoryListId: string
+): Promise<SubstanceListEntry | null> {
+  // 1. Check direct entry
+  const direct = await em.findOne(SubstanceListEntry, {
+    substanceId,
+    regulatoryListId,
+  });
+  if (direct) return direct;
+
+  // 2. Check group membership
+  const groupMemberships = await em.find(SubstanceGroupMember, { substanceId });
+  const groupIds = groupMemberships.map(m => m.groupId);
+
+  const groupEntry = await em.findOne(SubstanceListEntry, {
+    substanceGroupId: { $in: groupIds },
+    regulatoryListId,
+  });
+  return groupEntry;
+}
+```
+
+**SubstanceListEntry Update:**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                   SubstanceListEntry                             │
+├─────────────────────────────────────────────────────────────────┤
+│ ...existing fields...                                            │
+│ substanceId (FK, nullable)      ──── Individual substance        │
+│ substanceGroupId (FK, nullable) ──── OR group reference          │
+│ CHECK (substanceId IS NOT NULL OR substanceGroupId IS NOT NULL)  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Seeding Groups:**
+
+ECHA provides group definitions. The seeder will:
+1. Create SubstanceGroup for "Lead and its compounds"
+2. Query EC Inventory for substances with "lead" in name or matching formula patterns
+3. Create SubstanceGroupMember links with `inheritanceType: 'DERIVED'`
+4. Allow manual additions with `inheritanceType: 'EXPLICIT'`
+
+### 4.3 Regulatory Linking
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -237,7 +317,7 @@ const SCOPE_HIERARCHY: Record<ProductScope, ProductScope[]> = {
 };
 ```
 
-### 4.4 Unresolved Substances Queue
+### 4.6 Unresolved Substances Queue
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -248,11 +328,130 @@ const SCOPE_HIERARCHY: Record<ProductScope, ProductScope[]> = {
 │ rawCasNumber                                                     │
 │ source               ──────── "EXTRACTION", "CUSTOMER_UPLOAD"    │
 │ occurrenceCount      ──────── How often this comes up            │
-│ status               ──────── "PENDING", "RESOLVED", "IGNORED"   │
+│ status               ──────── See status enum below              │
+│ resolutionType       ──────── See resolution type enum below     │
 │ resolvedSubstanceId  ──────── FK if manually matched             │
+│ supplierId           ──────── FK if disclosure requested         │
+│ disclosureRequestId  ──────── FK to BlindDisclosureRequest       │
 │ createdAt                                                        │
+│ resolvedAt                                                       │
+│ resolvedBy                                                       │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+**Status Enum:**
+
+```typescript
+enum UnresolvedStatus {
+  PENDING = 'PENDING',                    // Awaiting review
+  DISCLOSURE_REQUESTED = 'DISCLOSURE_REQUESTED',  // Supplier contacted
+  RESOLVED = 'RESOLVED',                  // Matched to substance
+  IGNORED = 'IGNORED',                    // Intentionally skipped
+  NOT_APPLICABLE = 'NOT_APPLICABLE',      // Not a regulated substance type
+}
+```
+
+**Resolution Type Enum:**
+
+```typescript
+enum ResolutionType {
+  MANUAL_MATCH = 'MANUAL_MATCH',          // Admin matched to existing substance
+  SUPPLIER_DISCLOSURE = 'SUPPLIER_DISCLOSURE',  // Supplier provided real CAS
+  NEW_SUBSTANCE = 'NEW_SUBSTANCE',        // Added to registry as new
+  PROPRIETARY_ACCEPTED = 'PROPRIETARY_ACCEPTED',  // Accepted as-is with supplier attestation
+}
+```
+
+### 4.7 Proprietary Substance Handling (Blind Disclosure)
+
+Suppliers often hide ingredients as "Proprietary" or "Trade Secret". We need a secure workflow to request the real CAS without exposing it to competitors.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                   BlindDisclosureRequest                         │
+├─────────────────────────────────────────────────────────────────┤
+│ id (PK)                                                          │
+│ unresolvedSubstanceId (FK)                                       │
+│ supplierId (FK)              ──────── Who to contact             │
+│ productId (FK)               ──────── Which product uses it      │
+│ requestedAt                                                      │
+│ requestedBy                  ──────── User who initiated         │
+│ status                       ──────── See status enum below      │
+│ secureToken                  ──────── One-time access token      │
+│ tokenExpiresAt                                                   │
+│ disclosedCasNumber           ──────── Revealed only to system    │
+│ disclosedAt                                                      │
+│ attestationType              ──────── See attestation enum       │
+│ attestationDocument          ──────── S3 key for signed doc      │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Disclosure Status Enum:**
+
+```typescript
+enum DisclosureStatus {
+  PENDING = 'PENDING',           // Email sent, awaiting response
+  LINK_ACCESSED = 'LINK_ACCESSED',  // Supplier clicked link
+  DISCLOSED = 'DISCLOSED',       // CAS provided
+  ATTESTED = 'ATTESTED',         // Supplier attested compliance without CAS
+  EXPIRED = 'EXPIRED',           // Token expired, no response
+  DECLINED = 'DECLINED',         // Supplier refused
+}
+```
+
+**Attestation Types:**
+
+```typescript
+enum AttestationType {
+  FULL_DISCLOSURE = 'FULL_DISCLOSURE',   // Supplier revealed CAS
+  COMPLIANT_ATTESTATION = 'COMPLIANT_ATTESTATION',  // "We attest this substance complies with [list]"
+  NON_REGULATED = 'NON_REGULATED',       // "This substance is not on any restricted list"
+}
+```
+
+**Workflow:**
+
+```
+Customer uploads BOM with "Proprietary Ingredient X"
+                    │
+                    ▼
+          UnresolvedSubstance created
+          (status: PENDING)
+                    │
+                    ▼
+      Admin clicks "Request Disclosure"
+                    │
+                    ▼
+      BlindDisclosureRequest created
+      Secure link emailed to supplier
+      (status: DISCLOSURE_REQUESTED)
+                    │
+         ┌──────────┴──────────┐
+         │                     │
+         ▼                     ▼
+   Supplier clicks      Token expires
+   secure link          (status: EXPIRED)
+         │
+         ▼
+   Supplier portal:
+   ┌─────────────────────────────────┐
+   │  Options:                       │
+   │  1. Disclose CAS (encrypted)    │
+   │  2. Attest compliance           │
+   │  3. Decline                     │
+   └─────────────────────────────────┘
+         │
+         ▼
+   CAS stored encrypted
+   Only system can decrypt for compliance check
+   Customer sees: "Disclosed ✓" (not the CAS)
+```
+
+**Security:**
+- CAS disclosed via blind portal is encrypted at rest
+- Customer never sees the actual CAS - only compliance status
+- Supplier can revoke disclosure at any time
+- Audit log tracks all access
 
 ---
 
@@ -422,6 +621,135 @@ WHERE sle.substance_id = $1
 | Same substance + same list + same scope + newer `sourceReference` | Compare regulation version/date | `SUPERSEDED` + suggest archive old |
 | Same substance + same list + same scope + same version | True conflict | `THRESHOLD_MISMATCH` |
 
+### 6.5 Unit Normalization (UnitConversionService)
+
+Thresholds are stored with their original units (`thresholdUnit` field), but conflict detection requires comparing apples to apples. The UnitConversionService normalizes all thresholds to a canonical unit before comparison.
+
+**Supported Units:**
+
+```typescript
+enum ThresholdUnit {
+  PERCENT_BY_WEIGHT = 'PERCENT_BY_WEIGHT',   // w/w %
+  PPM = 'PPM',                               // parts per million (mg/kg)
+  PPB = 'PPB',                               // parts per billion (µg/kg)
+  MG_PER_KG = 'MG_PER_KG',                   // milligrams per kilogram
+  MG_PER_CM2 = 'MG_PER_CM2',                 // migration limit (surface area)
+  MG_PER_L = 'MG_PER_L',                     // concentration in liquid
+}
+
+// Canonical unit for comparison
+const CANONICAL_UNIT = ThresholdUnit.PPM;
+```
+
+**Conversion Factors:**
+
+```typescript
+const CONVERSION_TO_PPM: Record<ThresholdUnit, number> = {
+  PERCENT_BY_WEIGHT: 10_000,  // 1% = 10,000 ppm
+  PPM: 1,
+  PPB: 0.001,                 // 1 ppb = 0.001 ppm
+  MG_PER_KG: 1,               // mg/kg ≡ ppm
+  MG_PER_CM2: null,           // Not convertible (different dimension)
+  MG_PER_L: null,             // Not directly convertible without density
+};
+```
+
+**Service Interface:**
+
+```typescript
+interface UnitConversionService {
+  /**
+   * Convert threshold to canonical unit (ppm) for comparison
+   * Returns null if units are incompatible (e.g., surface vs weight)
+   */
+  toCanonical(value: number, unit: ThresholdUnit): number | null;
+
+  /**
+   * Check if two thresholds can be compared
+   */
+  areComparable(unit1: ThresholdUnit, unit2: ThresholdUnit): boolean;
+
+  /**
+   * Compare two thresholds, accounting for unit conversion
+   * Returns: -1 (a stricter), 0 (equal), 1 (b stricter), null (incomparable)
+   */
+  compareThresholds(
+    a: { value: number; unit: ThresholdUnit },
+    b: { value: number; unit: ThresholdUnit }
+  ): -1 | 0 | 1 | null;
+}
+```
+
+**Implementation:**
+
+```typescript
+class UnitConversionServiceImpl implements UnitConversionService {
+  toCanonical(value: number, unit: ThresholdUnit): number | null {
+    const factor = CONVERSION_TO_PPM[unit];
+    if (factor === null) return null;
+    return value * factor;
+  }
+
+  areComparable(unit1: ThresholdUnit, unit2: ThresholdUnit): boolean {
+    return (
+      CONVERSION_TO_PPM[unit1] !== null &&
+      CONVERSION_TO_PPM[unit2] !== null
+    );
+  }
+
+  compareThresholds(
+    a: { value: number; unit: ThresholdUnit },
+    b: { value: number; unit: ThresholdUnit }
+  ): -1 | 0 | 1 | null {
+    if (!this.areComparable(a.unit, b.unit)) return null;
+
+    const aPpm = this.toCanonical(a.value, a.unit)!;
+    const bPpm = this.toCanonical(b.value, b.unit)!;
+
+    // Lower threshold = stricter
+    if (aPpm < bPpm) return -1;
+    if (aPpm > bPpm) return 1;
+    return 0;
+  }
+}
+```
+
+**Usage in Conflict Detection:**
+
+```typescript
+// Before comparing thresholds
+const comparison = unitConversion.compareThresholds(
+  { value: existingEntry.threshold, unit: existingEntry.thresholdUnit },
+  { value: newEntry.threshold, unit: newEntry.thresholdUnit }
+);
+
+if (comparison === null) {
+  // Incompatible units - flag for manual review
+  conflicts.push({
+    type: 'THRESHOLD_MISMATCH',
+    severity: 'WARNING',
+    message: `Cannot compare thresholds: ${existingEntry.thresholdUnit} vs ${newEntry.thresholdUnit}`,
+    suggestedAction: 'MANUAL_REVIEW',
+  });
+} else if (comparison !== 0) {
+  // Thresholds differ
+  conflicts.push({
+    type: 'THRESHOLD_MISMATCH',
+    severity: 'ERROR',
+    message: `Threshold conflict: ${existingEntry.threshold} ${existingEntry.thresholdUnit} vs ${newEntry.threshold} ${newEntry.thresholdUnit}`,
+  });
+}
+```
+
+**Edge Cases:**
+
+| Scenario | Handling |
+|----------|----------|
+| Surface area units (mg/cm²) vs weight (ppm) | Incomparable - flag for manual review |
+| Concentration (mg/L) vs weight (ppm) | Incomparable without density - flag |
+| No threshold specified | Treat as "any detectable amount" (0 ppm) |
+| "Prohibited" status | Threshold = 0, interpret as banned |
+
 ---
 
 ## 7. Integration Points
@@ -503,12 +831,16 @@ packages/gsr/
 │   │   ├── RegistrySource.ts
 │   │   ├── RegulatoryList.ts
 │   │   ├── SubstanceListEntry.ts
-│   │   └── UnresolvedSubstance.ts
+│   │   ├── SubstanceGroup.ts
+│   │   ├── SubstanceGroupMember.ts
+│   │   ├── UnresolvedSubstance.ts
+│   │   └── BlindDisclosureRequest.ts
 │   ├── enums/
 │   │   └── ProductScope.ts
 │   ├── services/
 │   │   ├── SubstanceResolver.ts
-│   │   └── ConflictDetector.ts
+│   │   ├── ConflictDetector.ts
+│   │   └── UnitConversionService.ts
 │   ├── seeders/
 │   │   ├── echa-inventory.seeder.ts
 │   │   ├── echa-svhc.seeder.ts
