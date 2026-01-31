@@ -1,5 +1,5 @@
 export { BaseEntity } from './BaseEntity.js';
-export { UnitSystem, TargetType, AliasType, ComparisonOperator, Severity, ListRequirement, RegulationSource } from './enums/index.js';
+export { UnitSystem, TargetType, AliasType, AliasSource, ComparisonOperator, Severity, ListRequirement, RegulationSource } from './enums/index.js';
 export { RegulationStatus } from './enums/RegulationStatus.js';
 export { Substance } from './Substance.js';
 export { SubstanceAlias } from './SubstanceAlias.js';

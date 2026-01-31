@@ -1,7 +1,11 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { MikroORM, EntityManager } from '@mikro-orm/postgresql';
+import { setupTestDb, teardownTestDb, clearTestDb, isDatabaseAvailable } from '../test-utils.js';
 import { SubstanceAlias } from './SubstanceAlias.js';
 import { Substance } from './Substance.js';
-import { AliasType } from './enums/index.js';
+import { AliasType, AliasSource } from './enums/index.js';
+
+const dbAvailable = await isDatabaseAvailable();
 
 describe('SubstanceAlias', () => {
   it('should create an alias with type and name', () => {
@@ -67,5 +71,112 @@ describe('SubstanceAlias', () => {
 
     expect(alias.substance).toBe(substance);
     expect(alias.substance.casNumber).toBe('127-19-5');
+  });
+});
+
+describe('SubstanceAlias (database integration)', () => {
+  let orm: MikroORM;
+  let em: EntityManager;
+
+  beforeAll(async () => {
+    if (dbAvailable) {
+      orm = await setupTestDb();
+    }
+  });
+
+  afterAll(async () => {
+    if (dbAvailable) {
+      await teardownTestDb();
+    }
+  });
+
+  beforeEach(async () => {
+    if (dbAvailable) {
+      await clearTestDb(orm.em);
+      em = orm.em.fork();
+    }
+  });
+
+  // Helper to create a test substance
+  async function createTestSubstance(): Promise<Substance> {
+    const substance = em.create(Substance, {
+      casNumber: '1309-60-0',
+      primaryName: 'Lead dioxide',
+    });
+    await em.persistAndFlush(substance);
+    return substance;
+  }
+
+  it.skipIf(!dbAvailable)('should store nameNormalized automatically', async () => {
+    const substance = await createTestSubstance();
+
+    const alias = em.create(SubstanceAlias, {
+      substance,
+      name: 'Lead(IV) Oxide',
+      type: AliasType.COMMON,
+    });
+
+    await em.persistAndFlush(alias);
+    em.clear();
+
+    const found = await em.findOne(SubstanceAlias, { name: 'Lead(IV) Oxide' });
+    expect(found).toBeTruthy();
+    expect(found!.nameNormalized).toBe('leadiv oxide');
+  });
+
+  it.skipIf(!dbAvailable)('should store source for provenance', async () => {
+    const substance = await createTestSubstance();
+
+    const alias = em.create(SubstanceAlias, {
+      substance,
+      name: 'Lead peroxide',
+      type: AliasType.SYNONYM,
+      source: AliasSource.PUBCHEM,
+    });
+
+    await em.persistAndFlush(alias);
+    em.clear();
+
+    const found = await em.findOne(SubstanceAlias, { name: 'Lead peroxide' });
+    expect(found).toBeTruthy();
+    expect(found!.source).toBe(AliasSource.PUBCHEM);
+  });
+
+  it.skipIf(!dbAvailable)('should default source to MANUAL', async () => {
+    const substance = await createTestSubstance();
+
+    const alias = em.create(SubstanceAlias, {
+      substance,
+      name: 'Plumbic oxide',
+      type: AliasType.COMMON,
+    });
+
+    await em.persistAndFlush(alias);
+    em.clear();
+
+    const found = await em.findOne(SubstanceAlias, { name: 'Plumbic oxide' });
+    expect(found).toBeTruthy();
+    expect(found!.source).toBe(AliasSource.MANUAL);
+  });
+
+  it.skipIf(!dbAvailable)('should recompute nameNormalized on update', async () => {
+    const substance = await createTestSubstance();
+
+    // Create alias with initial name
+    const alias = em.create(SubstanceAlias, {
+      substance,
+      name: 'Original Name',
+      type: AliasType.COMMON,
+    });
+    await em.persistAndFlush(alias);
+
+    // Update the name
+    alias.name = 'Updated (New) Name';
+    await em.flush();
+    em.clear();
+
+    // Verify nameNormalized was recomputed
+    const found = await em.findOne(SubstanceAlias, { id: alias.id });
+    expect(found!.nameNormalized).toBe('updated new name');
   });
 });

@@ -1,6 +1,6 @@
-import { Entity, Property, Unique, Index, Enum, ManyToOne, type Rel } from '@mikro-orm/core';
+import { Entity, Property, Unique, Index, Enum, ManyToOne, BeforeCreate, BeforeUpdate, type Rel } from '@mikro-orm/core';
 import { BaseEntity } from './BaseEntity.js';
-import { AliasType } from './enums/index.js';
+import { AliasType, AliasSource } from './enums/index.js';
 import { Substance } from './Substance.js';
 
 @Entity({ tableName: 'substance_alias', schema: 'public' })
@@ -21,4 +21,25 @@ export class SubstanceAlias extends BaseEntity {
 
   @Property({ length: 10, default: 'en' })
   language: string = 'en';  // "en", "de", "fr"
+
+  /** Normalized name for consistent matching (lowercase, stripped) */
+  @Property({ type: 'text', name: 'name_normalized', default: '' })
+  @Index()
+  nameNormalized: string = '';
+
+  /** Data source for provenance tracking */
+  @Enum({ items: () => AliasSource, default: AliasSource.MANUAL })
+  source: AliasSource = AliasSource.MANUAL;
+
+  @BeforeCreate()
+  @BeforeUpdate()
+  normalizeNameField(): void {
+    if (this.name) {
+      this.nameNormalized = this.name
+        .toLowerCase()
+        .replace(/\s+/g, ' ')
+        .replace(/[^\p{L}\p{N}\s-]/gu, '')
+        .trim();
+    }
+  }
 }

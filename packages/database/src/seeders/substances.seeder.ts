@@ -4,7 +4,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { Substance } from '../entities/Substance.js';
 import { SubstanceAlias } from '../entities/SubstanceAlias.js';
-import { AliasType } from '../entities/enums/index.js';
+import { AliasType, AliasSource } from '../entities/enums/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // Data file is at package root: packages/database/data/
@@ -118,6 +118,8 @@ export class SubstancesSeeder {
             name: a.name,
             type: a.type as AliasType,
             language: a.language ?? 'en',
+            nameNormalized: '', // Will be set by BeforeCreate hook
+            source: AliasSource.ECHA,
             createdAt: now,
             updatedAt: now,
           });

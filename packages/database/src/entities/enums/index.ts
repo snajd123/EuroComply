@@ -1,6 +1,7 @@
 export { UnitSystem } from './UnitSystem.js';
 export { TargetType } from './TargetType.js';
 export { AliasType } from './AliasType.js';
+export { AliasSource } from './AliasSource.js';
 export { ComparisonOperator } from './ComparisonOperator.js';
 export { ConsensusStatus } from './ConsensusStatus.js';
 export { Severity } from './Severity.js';
