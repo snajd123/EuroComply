@@ -128,7 +128,8 @@ export class Migration20260122000000 extends Migration {
     this.addSql('CREATE INDEX "category_parent_id_idx" ON "public"."category" ("parent_id");');
 
     // =====================================================
-    // Substance table - REACH/SVHC substances
+    // Substance table - chemical substances with CAS/EC numbers
+    // Regulatory status is tracked via SubstanceListEntry (GSR)
     // =====================================================
     this.addSql(`
       CREATE TABLE "public"."substance" (
@@ -141,12 +142,9 @@ export class Migration20260122000000 extends Migration {
         "description" text,
         "molecular_weight" decimal(12, 4),
         "molecular_formula" varchar(500),
-        "is_svhc" boolean NOT NULL DEFAULT false,
-        "requires_authorization" boolean NOT NULL DEFAULT false,
-        "is_restricted" boolean NOT NULL DEFAULT false,
-        "restriction_conditions" text,
-        "sunset_date" date,
-        "latest_application_date" date,
+        "smiles" text,
+        "inchi_key" varchar(27),
+        "iupac_name" text,
         "echa_url" text,
         "source_version" varchar(50),
         "is_active" boolean NOT NULL DEFAULT true
@@ -155,9 +153,7 @@ export class Migration20260122000000 extends Migration {
     this.addSql('CREATE INDEX "substance_cas_number_idx" ON "public"."substance" ("cas_number");');
     this.addSql('CREATE INDEX "substance_ec_number_idx" ON "public"."substance" ("ec_number");');
     this.addSql('CREATE INDEX "substance_primary_name_idx" ON "public"."substance" ("primary_name");');
-    this.addSql('CREATE INDEX "substance_is_svhc_idx" ON "public"."substance" ("is_svhc") WHERE "is_svhc" = true;');
-    this.addSql('CREATE INDEX "substance_requires_auth_idx" ON "public"."substance" ("requires_authorization") WHERE "requires_authorization" = true;');
-    this.addSql('CREATE INDEX "substance_is_restricted_idx" ON "public"."substance" ("is_restricted") WHERE "is_restricted" = true;');
+    this.addSql('CREATE INDEX IF NOT EXISTS "substance_inchi_key_idx" ON "public"."substance" ("inchi_key") WHERE "inchi_key" IS NOT NULL;');
 
     // =====================================================
     // Substance Alias table - alternative names

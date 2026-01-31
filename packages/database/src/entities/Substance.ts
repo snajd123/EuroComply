@@ -40,25 +40,6 @@ export class Substance extends BaseEntity {
   @Property({ type: 'text', name: 'iupac_name', nullable: true })
   iupacName?: string;
 
-  // Regulatory status from ECHA
-  @Property({ type: 'boolean', default: false, name: 'is_svhc' })
-  isSvhc: boolean = false;  // SVHC Candidate List
-
-  @Property({ type: 'boolean', default: false, name: 'requires_authorization' })
-  requiresAuthorization: boolean = false;  // Annex XIV
-
-  @Property({ type: 'boolean', default: false, name: 'is_restricted' })
-  isRestricted: boolean = false;  // Annex XVII
-
-  @Property({ type: 'text', nullable: true, name: 'restriction_conditions' })
-  restrictionConditions?: string;  // "Max 0.1% in consumer products"
-
-  @Property({ type: 'date', nullable: true, name: 'sunset_date' })
-  sunsetDate?: Date;  // Authorization deadline
-
-  @Property({ type: 'date', nullable: true, name: 'latest_application_date' })
-  latestApplicationDate?: Date;  // Last date to apply for authorization
-
   // Source tracking
   @Property({ type: 'text', nullable: true, name: 'echa_url' })
   echaUrl?: string;  // Link to ECHA substance page
