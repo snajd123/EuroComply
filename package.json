@@ -23,7 +23,9 @@
     "db:seed:all": "pnpm db:seed:categories && pnpm db:seed:regulations",
     "db:seed:check": "node --env-file=.env packages/database/dist/cli/seed-check.js",
     "gsr:seed:inventory": "node --env-file=.env packages/gsr/dist/cli/index.js seed echa-inventory packages/gsr/data/ec_inventory.csv",
-    "gsr:seed:svhc": "node --env-file=.env packages/gsr/dist/cli/index.js seed echa-svhc packages/gsr/data/svhc_candidate_list.csv"
+    "gsr:seed:svhc": "node --env-file=.env packages/gsr/dist/cli/index.js seed echa-svhc packages/gsr/data/svhc_candidate_list.csv",
+    "gsr:enrich:pubchem": "node --env-file=.env packages/gsr/dist/cli/index.js enrich pubchem",
+    "gsr:enrich:echa-urls": "node --env-file=.env packages/gsr/dist/cli/index.js enrich echa-urls"
   },
   "devDependencies": {
     "tsx": "^4.19.0",
