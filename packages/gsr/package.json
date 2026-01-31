@@ -23,6 +23,7 @@
     "@eurocomply/database": "workspace:*",
     "@mikro-orm/core": "^6.4.3",
     "@mikro-orm/postgresql": "^6.4.3",
+    "@paralleldrive/cuid2": "^2.2.2",
     "csv-parse": "^6.1.0",
     "zod": "^3.24.1"
   },
