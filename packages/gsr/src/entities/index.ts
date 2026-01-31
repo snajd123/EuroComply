@@ -2,3 +2,4 @@ export { RegistrySource, RegistrySourceName } from './RegistrySource.js';
 export { RegulatoryList } from './RegulatoryList.js';
 export { SubstanceGroup, SubstanceGroupMember, InheritanceType } from './SubstanceGroup.js';
 export { SubstanceListEntry } from './SubstanceListEntry.js';
+export { UnresolvedSubstance, UnresolvedSource } from './UnresolvedSubstance.js';
