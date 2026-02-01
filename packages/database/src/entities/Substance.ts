@@ -40,6 +40,16 @@ export class Substance extends BaseEntity {
   @Property({ type: 'text', name: 'iupac_name', nullable: true })
   iupacName?: string;
 
+  // CLP identity fields
+  /** CLP Index Number (e.g., "605-001-00-5") */
+  @Property({ length: 20, nullable: true, name: 'index_number' })
+  @Index()
+  indexNumber?: string;
+
+  /** Last ATP version applied (e.g., "ATP21") */
+  @Property({ length: 20, nullable: true, name: 'clp_version' })
+  clpVersion?: string;
+
   // Source tracking
   @Property({ type: 'text', nullable: true, name: 'echa_url' })
   echaUrl?: string;  // Link to ECHA substance page

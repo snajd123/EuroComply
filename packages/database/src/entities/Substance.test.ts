@@ -131,3 +131,89 @@ describe('Substance enhanced fields', () => {
     expect(found!.iupacName).toBe('methanal');
   });
 });
+
+describe('Substance CLP identity fields', () => {
+  let orm: MikroORM;
+
+  beforeAll(async () => {
+    if (dbAvailable) {
+      orm = await setupTestDb();
+    }
+  });
+
+  afterAll(async () => {
+    if (dbAvailable) {
+      await teardownTestDb();
+    }
+  });
+
+  beforeEach(async () => {
+    if (dbAvailable) {
+      await clearTestDb(orm.em);
+    }
+  });
+
+  it.skipIf(!dbAvailable)('should_store_indexNumber_when_provided', async () => {
+    const em = orm.em.fork();
+    const substance = em.create(Substance, {
+      casNumber: '50-00-0',
+      primaryName: 'Formaldehyde',
+      indexNumber: '605-001-00-5',
+    });
+    await em.persistAndFlush(substance);
+    em.clear();
+
+    const found = await em.findOne(Substance, { casNumber: '50-00-0' });
+    expect(found).not.toBeNull();
+    expect(found!.indexNumber).toBe('605-001-00-5');
+  });
+
+  it.skipIf(!dbAvailable)('should_store_clpVersion_when_provided', async () => {
+    const em = orm.em.fork();
+    const substance = em.create(Substance, {
+      casNumber: '71-43-2',
+      primaryName: 'Benzene',
+      clpVersion: 'ATP21',
+    });
+    await em.persistAndFlush(substance);
+    em.clear();
+
+    const found = await em.findOne(Substance, { casNumber: '71-43-2' });
+    expect(found).not.toBeNull();
+    expect(found!.clpVersion).toBe('ATP21');
+  });
+
+  it.skipIf(!dbAvailable)('should_allow_null_indexNumber_and_clpVersion', async () => {
+    const em = orm.em.fork();
+    const substance = em.create(Substance, {
+      casNumber: '100-00-5',
+      primaryName: 'Test Substance',
+    });
+    await em.persistAndFlush(substance);
+    em.clear();
+
+    const found = await em.findOne(Substance, { casNumber: '100-00-5' });
+    expect(found).not.toBeNull();
+    // Database returns null for nullable columns that have no value
+    expect(found!.indexNumber).toBeNull();
+    expect(found!.clpVersion).toBeNull();
+  });
+
+  it.skipIf(!dbAvailable)('should_index_indexNumber_for_efficient_lookup', async () => {
+    const em = orm.em.fork();
+
+    // Create a substance with index number
+    const substance = em.create(Substance, {
+      casNumber: '50-00-0',
+      primaryName: 'Formaldehyde',
+      indexNumber: '605-001-00-5',
+    });
+    await em.persistAndFlush(substance);
+    em.clear();
+
+    // Verify we can find by indexNumber (the index should make this efficient)
+    const found = await em.findOne(Substance, { indexNumber: '605-001-00-5' });
+    expect(found).not.toBeNull();
+    expect(found!.casNumber).toBe('50-00-0');
+  });
+});
