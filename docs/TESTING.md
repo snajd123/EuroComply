@@ -6,12 +6,23 @@
 # 1. Start database
 pnpm db:start
 
-# 2. Run migrations and seed reference data
+# 2. Run migrations and seed base data
 pnpm db:setup
 
-# 3. Start API server
+# 3. Seed substances from ECHA (9,841 chemicals)
+cd packages/gsr
+pnpm build
+pnpm gsr seed echa-inventory data/ec_inventory.csv
+
+# 4. Enrich with PubChem (adds SMILES, aliases - takes ~30 min)
+pnpm gsr enrich pubchem
+cd ../..
+
+# 5. Start API server
 pnpm dev:local
 ```
+
+**Minimal setup (skip enrichment):** Steps 1-3 give you a working database. Step 4 (enrichment) adds chemical structure data and 50,000+ synonyms but takes time.
 
 ---
 
@@ -20,7 +31,7 @@ pnpm dev:local
 | Command | Purpose |
 |---------|---------|
 | `pnpm db:start` | Start PostgreSQL database (port 5432) |
-| `pnpm db:setup` | Run migrations and seed reference data |
+| `pnpm db:setup` | Run migrations and seed base data (units, categories) |
 | `pnpm db:reset` | Reset database (drops all data) |
 | `pnpm db:schema` | Show database structure |
 | `pnpm dev:local` | Start API + Worker with hot-reload |
@@ -312,12 +323,48 @@ tenant_org_xxx (per tenant):
 
 ## Global Substance Registry (GSR)
 
-The GSR package manages substance reference data from regulatory sources.
+The GSR package manages chemical substance reference data from regulatory sources.
 
-### Seeding Substances
+### Fresh Start (Complete Pipeline)
 
 ```bash
-# Seed from ECHA EC Inventory (9,800+ substances)
+# 1. Reset database (if needed)
+pnpm db:reset
+pnpm db:start
+pnpm db:setup
+
+# 2. Build GSR package
+cd packages/gsr
+pnpm build
+
+# 3. Seed substances from ECHA EC Inventory (9,841 substances)
+pnpm gsr seed echa-inventory data/ec_inventory.csv
+
+# 4. Enrich with PubChem data (SMILES, aliases) - takes ~30 min
+pnpm gsr enrich pubchem
+
+# 5. Verify results
+docker exec eurocomply-postgres psql -U postgres -d eurocomply -c "
+  SELECT COUNT(*) as total, COUNT(smiles) as enriched FROM substance;"
+
+docker exec eurocomply-postgres psql -U postgres -d eurocomply -c "
+  SELECT source, COUNT(*) FROM substance_alias GROUP BY source;"
+
+cd ../..
+```
+
+**Expected results after full pipeline:**
+- ~9,841 substances seeded
+- ~7,500 enriched with SMILES (~76%)
+- ~52,000 PubChem aliases + ~9,841 ECHA aliases = ~62,000 total
+
+### GSR Commands Reference
+
+All commands run from `packages/gsr` directory after `pnpm build`:
+
+**Seeding:**
+```bash
+# Seed ECHA EC Inventory (base substance list)
 pnpm gsr seed echa-inventory <path-to-csv>
 
 # Seed SVHC Candidate List entries
@@ -327,64 +374,40 @@ pnpm gsr seed echa-svhc <path-to-csv>
 pnpm gsr seed echa-inventory <path-to-csv> --dry-run
 ```
 
-### Enriching with PubChem
-
-After seeding, enrich substances with chemical structure data from PubChem:
-
+**Enrichment:**
 ```bash
-# Enrich all unenriched substances (recommended)
+# Enrich unenriched substances (default)
 pnpm gsr enrich pubchem
 
-# Enrich with smaller batch size (default: 100)
+# Smaller batch size (default: 100)
 pnpm gsr enrich pubchem --batch-size 50
 
-# Dry run (see what would be enriched)
+# Dry run
 pnpm gsr enrich pubchem --dry-run
 
-# Re-enrich ALL substances (including already enriched)
+# Re-enrich ALL substances (use after code changes)
 pnpm gsr enrich pubchem --all
+
+# Set ECHA URLs only (no PubChem API calls)
+pnpm gsr enrich echa-urls
 ```
 
 **What enrichment adds:**
-- SMILES (molecular structure)
-- InChIKey (unique identifier)
-- IUPAC name
-- Molecular formula
-- Molecular weight
+- SMILES (molecular structure notation)
+- InChIKey (structure hash for matching)
+- IUPAC name (systematic name)
+- Molecular formula and weight
 - **Synonyms** → Creates `SubstanceAlias` records (up to 50 per substance)
-- ECHA URL (for substances with EC numbers)
+- ECHA URL (link to ECHA substance page)
 
-**Rate limiting:** PubChem allows 5 requests/second. The enricher handles this automatically with ~200ms delays between requests.
+**Rate limiting:** Conservative 2 requests/second to avoid PubChem throttling. Each substance requires 3 API calls (CID lookup, properties, synonyms).
 
-**Expected results:**
-- ~35% of ECHA substances are found in PubChem
-- Common chemicals get 20-50 synonyms/aliases each
-- Obscure compounds may not be found
+**Why ~24% aren't enriched:** The remaining substances are obscure industrial compounds, mixtures, or proprietary chemicals not in PubChem's database.
 
-### Set ECHA URLs Only
+### Verification Queries
 
 ```bash
-# Set ECHA URLs for substances with EC numbers (no PubChem API calls)
-pnpm gsr enrich echa-urls
-
-# Dry run
-pnpm gsr enrich echa-urls --dry-run
-```
-
-### Full Pipeline Example
-
-```bash
-# 1. Start database
-pnpm db:start
-pnpm db:setup
-
-# 2. Seed substances from ECHA inventory
-pnpm gsr seed echa-inventory packages/gsr/data/ec_inventory.csv
-
-# 3. Enrich with PubChem (takes ~30 min for 10k substances)
-pnpm gsr enrich pubchem
-
-# 4. Verify results
+# Substance counts
 docker exec eurocomply-postgres psql -U postgres -d eurocomply -c "
   SELECT
     COUNT(*) as total_substances,
@@ -393,7 +416,7 @@ docker exec eurocomply-postgres psql -U postgres -d eurocomply -c "
   FROM public.substance;
 "
 
-# Check aliases created
+# Alias counts by source
 docker exec eurocomply-postgres psql -U postgres -d eurocomply -c "
   SELECT source, COUNT(*) FROM public.substance_alias GROUP BY source;
 "
