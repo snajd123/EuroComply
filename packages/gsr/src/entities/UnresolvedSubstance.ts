@@ -8,6 +8,7 @@ export enum UnresolvedSource {
   EXTRACTION = 'EXTRACTION',
   CUSTOMER_UPLOAD = 'CUSTOMER_UPLOAD',
   BOM_IMPORT = 'BOM_IMPORT',
+  REGULATORY_IMPORT = 'REGULATORY_IMPORT',  // For CLP, SVHC, Annex XVII etc.
 }
 
 /**

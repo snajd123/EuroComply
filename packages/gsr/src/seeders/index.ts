@@ -23,3 +23,6 @@ export type { PopSeederResult } from './echa-pop.seeder.js';
 
 export { HazardReferenceSeeder, HAZARD_STATEMENTS } from './hazard-reference.seeder.js';
 export type { HazardReferenceSeederResult, HazardStatementDefinition } from './hazard-reference.seeder.js';
+
+export { ClpHarmonisedSeeder } from './clp-harmonised.seeder.js';
+export type { ClpHarmonisedSeederResult } from './clp-harmonised.seeder.js';
