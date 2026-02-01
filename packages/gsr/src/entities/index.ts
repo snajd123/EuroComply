@@ -4,6 +4,7 @@ export { SubstanceGroup, SubstanceGroupMember, InheritanceType } from './Substan
 export { SubstanceListEntry } from './SubstanceListEntry.js';
 export { UnresolvedSubstance, UnresolvedSource } from './UnresolvedSubstance.js';
 export { BlindDisclosureRequest } from './BlindDisclosureRequest.js';
+export { HazardClass, HazardType, SignalWord } from './HazardClass.js';
 
 // Import classes for entity array
 import { RegistrySource } from './RegistrySource.js';
@@ -12,6 +13,7 @@ import { SubstanceGroup, SubstanceGroupMember } from './SubstanceGroup.js';
 import { SubstanceListEntry } from './SubstanceListEntry.js';
 import { UnresolvedSubstance } from './UnresolvedSubstance.js';
 import { BlindDisclosureRequest } from './BlindDisclosureRequest.js';
+import { HazardClass } from './HazardClass.js';
 
 /**
  * GSR entities for ORM registration.
@@ -32,4 +34,5 @@ export const gsrEntities = [
   SubstanceListEntry,
   UnresolvedSubstance,
   BlindDisclosureRequest,
+  HazardClass,
 ];

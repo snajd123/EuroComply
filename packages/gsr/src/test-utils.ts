@@ -8,6 +8,7 @@ import { SubstanceGroup, SubstanceGroupMember } from './entities/SubstanceGroup.
 import { SubstanceListEntry } from './entities/SubstanceListEntry.js';
 import { UnresolvedSubstance } from './entities/UnresolvedSubstance.js';
 import { BlindDisclosureRequest } from './entities/BlindDisclosureRequest.js';
+import { HazardClass } from './entities/HazardClass.js';
 
 let testOrm: MikroORM | null = null;
 let dbAvailable: boolean | null = null;
@@ -15,7 +16,7 @@ let dbAvailable: boolean | null = null;
 /**
  * GSR entities that will be added to the public schema.
  */
-export const gsrEntities = [RegistrySource, RegulatoryList, SubstanceGroup, SubstanceGroupMember, SubstanceListEntry, UnresolvedSubstance, BlindDisclosureRequest];
+export const gsrEntities = [RegistrySource, RegulatoryList, SubstanceGroup, SubstanceGroupMember, SubstanceListEntry, UnresolvedSubstance, BlindDisclosureRequest, HazardClass];
 
 /**
  * All entities for GSR tests (database + GSR entities).
@@ -82,6 +83,7 @@ export async function clearGsrTestDb(em: EntityManager): Promise<void> {
     'substance_group',
     'regulatory_list',
     'registry_source',
+    'hazard_class',
     'substance',
   ];
 
