@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // packages/gsr/src/cli/index.ts
 import { Command } from 'commander';
-import { seedEchaInventory, seedEchaSvhc, seedAll, type SeedCommandOptions } from './seed.js';
+import { seedEchaInventory, seedEchaSvhc, seedEchaAnnexXvii, seedEchaAnnexXiv, seedEchaPop, seedRohs, seedAll, seedClpReference, seedClpHarmonised, type SeedCommandOptions, type ClpSeedOptions } from './seed.js';
 import { enrichPubchem, enrichEchaUrls, type EnrichCommandOptions } from './enrich.js';
 
 // Read package.json for version
@@ -26,17 +26,17 @@ const enrichCommand = program
 
 // ECHA EC Inventory seeder
 seedCommand
-  .command('echa-inventory <csv-file>')
-  .description('Seed substances from ECHA EC Inventory CSV file')
+  .command('echa-inventory <file>')
+  .description('Seed substances from ECHA EC Inventory (supports .csv or .i6z format)')
   .option('--data-version <version>', 'Version identifier for this data (default: current month YYYY-MM)')
   .option('-d, --dry-run', 'Preview without writing to database', false)
-  .action(async (csvFile: string, options: { dataVersion?: string; dryRun: boolean }) => {
+  .action(async (file: string, options: { dataVersion?: string; dryRun: boolean }) => {
     try {
       const seedOptions: SeedCommandOptions = {
         version: options.dataVersion || '',
         dryRun: options.dryRun,
       };
-      await seedEchaInventory(csvFile, seedOptions);
+      await seedEchaInventory(file, seedOptions);
       process.exit(0);
     } catch (error) {
       console.error('\n[ERROR]', error instanceof Error ? error.message : error);
@@ -46,17 +46,109 @@ seedCommand
 
 // ECHA SVHC seeder
 seedCommand
-  .command('echa-svhc <csv-file>')
-  .description('Seed SVHC Candidate List entries from ECHA CSV file')
+  .command('echa-svhc [file]')
+  .description('Seed SVHC Candidate List entries. Use --entries and --substances for complete data with groups, or provide a single file for legacy mode.')
+  .option('--entries <file>', 'Entries/full file with regulatory data (dates, reasons, decision URLs)')
+  .option('--substances <file>', 'Substances/expanded file with all individual substances')
   .option('--data-version <version>', 'Version identifier for this data (default: current month YYYY-MM)')
   .option('-d, --dry-run', 'Preview without writing to database', false)
-  .action(async (csvFile: string, options: { dataVersion?: string; dryRun: boolean }) => {
+  .action(async (file: string | undefined, options: { entries?: string; substances?: string; dataVersion?: string; dryRun: boolean }) => {
+    try {
+      await seedEchaSvhc(file, {
+        version: options.dataVersion || '',
+        dryRun: options.dryRun,
+        entries: options.entries,
+        substances: options.substances,
+      });
+      process.exit(0);
+    } catch (error) {
+      console.error('\n[ERROR]', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+// ECHA Annex XVII seeder
+seedCommand
+  .command('echa-annex-xvii [file]')
+  .description('Seed REACH Annex XVII restrictions. Use --entries and --substances for complete data with EUR-Lex URLs, or provide a single file for legacy mode.')
+  .option('--entries <file>', 'Entries file with Entry numbers and EUR-Lex URLs (grouped export)')
+  .option('--substances <file>', 'Substances file with all individual substances (expanded export)')
+  .option('--data-version <version>', 'Version identifier for this data (default: current month YYYY-MM)')
+  .option('-d, --dry-run', 'Preview without writing to database', false)
+  .action(async (file: string | undefined, options: { entries?: string; substances?: string; dataVersion?: string; dryRun: boolean }) => {
+    try {
+      await seedEchaAnnexXvii(file, {
+        version: options.dataVersion || '',
+        dryRun: options.dryRun,
+        entries: options.entries,
+        substances: options.substances,
+      });
+      process.exit(0);
+    } catch (error) {
+      console.error('\n[ERROR]', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+// ECHA Annex XIV seeder
+seedCommand
+  .command('echa-annex-xiv [file]')
+  .description('Seed REACH Annex XIV (Authorization List). Use --entries and --substances for complete data, or provide a single file for legacy mode.')
+  .option('--entries <file>', 'Entries/full file with regulatory data (dates, reasons, exemptions)')
+  .option('--substances <file>', 'Substances/expanded file with all individual substances')
+  .option('--data-version <version>', 'Version identifier for this data (default: current month YYYY-MM)')
+  .option('-d, --dry-run', 'Preview without writing to database', false)
+  .action(async (file: string | undefined, options: { entries?: string; substances?: string; dataVersion?: string; dryRun: boolean }) => {
+    try {
+      await seedEchaAnnexXiv(file, {
+        version: options.dataVersion || '',
+        dryRun: options.dryRun,
+        entries: options.entries,
+        substances: options.substances,
+      });
+      process.exit(0);
+    } catch (error) {
+      console.error('\n[ERROR]', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+// ECHA POP Regulation seeder
+seedCommand
+  .command('echa-pop [file]')
+  .description('Seed POP Regulation (Persistent Organic Pollutants). Use --entries and --substances for complete data with groups, or provide a single file for legacy mode.')
+  .option('--entries <file>', 'Entries/full file with regulatory data (annexes, dates)')
+  .option('--substances <file>', 'Substances/expanded file with all individual substances')
+  .option('--data-version <version>', 'Version identifier for this data (default: current month YYYY-MM)')
+  .option('-d, --dry-run', 'Preview without writing to database', false)
+  .action(async (file: string | undefined, options: { entries?: string; substances?: string; dataVersion?: string; dryRun: boolean }) => {
+    try {
+      await seedEchaPop(file, {
+        version: options.dataVersion || '',
+        dryRun: options.dryRun,
+        entries: options.entries,
+        substances: options.substances,
+      });
+      process.exit(0);
+    } catch (error) {
+      console.error('\n[ERROR]', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+// RoHS seeder (no CSV needed - hardcoded list)
+seedCommand
+  .command('rohs')
+  .description('Seed RoHS Directive Annex II restricted substances (hardcoded list, no CSV needed)')
+  .option('--data-version <version>', 'Version identifier for this data (default: current month YYYY-MM)')
+  .option('-d, --dry-run', 'Preview without writing to database', false)
+  .action(async (options: { dataVersion?: string; dryRun: boolean }) => {
     try {
       const seedOptions: SeedCommandOptions = {
         version: options.dataVersion || '',
         dryRun: options.dryRun,
       };
-      await seedEchaSvhc(csvFile, seedOptions);
+      await seedRohs(seedOptions);
       process.exit(0);
     } catch (error) {
       console.error('\n[ERROR]', error instanceof Error ? error.message : error);
@@ -77,6 +169,45 @@ seedCommand
         dryRun: options.dryRun,
       };
       await seedAll(seedOptions);
+      process.exit(0);
+    } catch (error) {
+      console.error('\n[ERROR]', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+// CLP reference seeder (hazard classes and H-statements)
+seedCommand
+  .command('clp-reference')
+  .description('Seed CLP hazard classes and H-statements (run first before clp-harmonised)')
+  .option('-d, --dry-run', 'Preview without writing to database', false)
+  .action(async (options: { dryRun: boolean }) => {
+    try {
+      const seedOptions: SeedCommandOptions = {
+        version: '',
+        dryRun: options.dryRun,
+      };
+      await seedClpReference(seedOptions);
+      process.exit(0);
+    } catch (error) {
+      console.error('\n[ERROR]', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+// CLP harmonised seeder (classifications from ECHA XLSX)
+seedCommand
+  .command('clp-harmonised <file>')
+  .description('Seed CLP harmonised classifications from ECHA XLSX file')
+  .option('--version <version>', 'ATP version (e.g., ATP21, ATP22)', 'ATP21')
+  .option('-d, --dry-run', 'Preview without writing to database', false)
+  .action(async (file: string, options: { version?: string; dryRun: boolean }) => {
+    try {
+      const seedOptions: ClpSeedOptions = {
+        version: options.version || 'ATP21',
+        dryRun: options.dryRun,
+      };
+      await seedClpHarmonised(file, seedOptions);
       process.exit(0);
     } catch (error) {
       console.error('\n[ERROR]', error instanceof Error ? error.message : error);
