@@ -6,6 +6,7 @@ export { UnresolvedSubstance, UnresolvedSource } from './UnresolvedSubstance.js'
 export { BlindDisclosureRequest } from './BlindDisclosureRequest.js';
 export { HazardClass, HazardType, SignalWord } from './HazardClass.js';
 export { HazardStatement } from './HazardStatement.js';
+export { SubstanceHazardClassification, SclOperator, type SclLogic } from './SubstanceHazardClassification.js';
 
 // Import classes for entity array
 import { RegistrySource } from './RegistrySource.js';
@@ -16,6 +17,7 @@ import { UnresolvedSubstance } from './UnresolvedSubstance.js';
 import { BlindDisclosureRequest } from './BlindDisclosureRequest.js';
 import { HazardClass } from './HazardClass.js';
 import { HazardStatement } from './HazardStatement.js';
+import { SubstanceHazardClassification } from './SubstanceHazardClassification.js';
 
 /**
  * GSR entities for ORM registration.
@@ -38,4 +40,5 @@ export const gsrEntities = [
   BlindDisclosureRequest,
   HazardClass,
   HazardStatement,
+  SubstanceHazardClassification,
 ];
