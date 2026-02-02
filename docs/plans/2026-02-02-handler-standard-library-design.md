@@ -1291,11 +1291,67 @@ await mcp.call('eurocomply:create_rule', {
 });
 ```
 
-**Step 6: Simulator Validates**
+**Step 6: Handler Logic Verification (Compile-Time)**
 
-The Simulator automatically:
+Before simulation, the Seeder **compiles** the rule AST and runs verification:
+
+```typescript
+// The Seeder acts as a "compiler" - validates AST before execution
+const compilationResult = await seeder.compile({
+  vertical_id: 'biocides',
+  rules: proposedRules
+});
+
+// Compilation performs:
+// 1. AST Validation - all handlers exist, configs match schemas
+// 2. Dependency Resolution - resolve substance IDs via Identity Ladder
+// 3. "Hello World" Test - execute each rule against synthetic data
+
+// Result:
+{
+  status: 'compiled',
+  ast_validation: {
+    valid: true,
+    handlers_used: ['core:for_each', 'core:list_check', 'core:enum_check', 'core:or', 'core:absence_check', 'core:document_check'],
+    unknown_handlers: [],
+    config_errors: []
+  },
+  dependency_resolution: {
+    substances_resolved: 847,        // Active substances found in GSR
+    substances_not_found: 0,
+    gsr_version_pinned: '2026.02.03'
+  },
+  hello_world_tests: {
+    rules_tested: 3,
+    rules_passed: 3,
+    rules_failed: 0,
+    test_cases: [
+      {
+        rule: 'BPR_ACTIVE_SUBSTANCE_APPROVED',
+        input: { active_substances: [{ substance_id: 'uuid-approved' }] },
+        expected: 'pass',
+        actual: 'pass',
+        explanation_generated: true
+      },
+      {
+        rule: 'BPR_ACTIVE_SUBSTANCE_APPROVED',
+        input: { active_substances: [{ substance_id: 'uuid-not-on-list' }] },
+        expected: 'fail',
+        actual: 'fail',
+        explanation_generated: true
+      }
+    ]
+  }
+}
+```
+
+If compilation fails, the process stops before reaching the Simulator - fast feedback for the AI agent.
+
+**Step 7: Simulator Validates (Run-Time)**
+
+The Simulator runs the **full simulation** against the validation dataset:
 1. Creates shadow schema with new vertical
-2. Runs validation dataset (synthetic biocidal products)
+2. Runs validation dataset (50+ synthetic biocidal products)
 3. Checks for conflicts with existing rules
 4. Generates diff report
 
@@ -1332,7 +1388,7 @@ const simulationResult = await mcp.call('eurocomply:get_simulation_result', {
 }
 ```
 
-**Step 7: Human Approves**
+**Step 8: Human Approves**
 
 Human reviews the diff report in the admin UI and approves. The vertical goes live.
 
@@ -1751,11 +1807,240 @@ const reachArticle33Rule = {
 
 ---
 
+## Appendix C: Technology Stack
+
+| Layer | Technology | Purpose |
+|-------|------------|---------|
+| **API Gateway** | Hono (Node.js) | REST/GraphQL endpoints |
+| **MCP Server** | `@modelcontextprotocol/server` | **Exposes 48 handlers as AI-callable tools** |
+| **ORM** | MikroORM | PostgreSQL entity management |
+| **Relational DB** | PostgreSQL 15 | GSR + Tenant data |
+| **Graph DB** | Neo4j 5.x | Compliance knowledge graph |
+| **Vector Store** | pgvector | AI embeddings, semantic search |
+| **Auth** | Clerk | User authentication |
+| **File Storage** | Cloudflare R2 | Document storage |
+| **Event Bus** | AWS EventBridge | Async event processing |
+| **Credentials** | walt.id | Verifiable Credential signing |
+| **LLM** | Claude API | AI handler execution |
+
+### MCP Server Architecture
+
+The MCP Server is what makes the platform **programmable**. It exposes all handlers as tools that AI agents can discover and invoke.
+
+```typescript
+// packages/mcp-server/src/server.ts
+import { McpServer } from '@modelcontextprotocol/server';
+import { handlerRegistry } from '@eurocomply/handlers';
+
+const server = new McpServer({
+  name: 'eurocomply',
+  version: '1.0.0',
+});
+
+// Expose all 48 handlers as MCP tools
+for (const handler of handlerRegistry.getAll()) {
+  server.tool({
+    name: `eurocomply:${handler.id}`,
+    description: handler.description,
+    inputSchema: handler.configSchema,
+
+    async execute(config) {
+      // Route through Simulator for META changes
+      if (handler.category === 'meta') {
+        return await simulator.propose(handler.id, config);
+      }
+
+      // Direct execution for OPS changes
+      return await handler.execute(config, context);
+    }
+  });
+}
+
+// AI agents connect to this endpoint
+server.listen({ port: 3002, transport: 'stdio' });
+```
+
+### Tool Discovery
+
+AI agents discover available tools via MCP's standard discovery protocol:
+
+```typescript
+// What the AI agent sees when connecting
+const tools = await mcpClient.listTools();
+// Returns:
+// [
+//   { name: 'eurocomply:core:bom_sum', description: 'Sum field across BOM', inputSchema: {...} },
+//   { name: 'eurocomply:core:threshold_check', description: 'Compare value against limit', inputSchema: {...} },
+//   { name: 'eurocomply:create_vertical', description: 'Create new industry vertical', inputSchema: {...} },
+//   ... 45 more handlers
+// ]
+```
+
+---
+
+## Appendix D: Rule Logic AST Specification
+
+The `rules.logic` field contains an **Abstract Syntax Tree (AST)** that defines the compliance check as a composable program.
+
+### AST Node Types
+
+Every AST node has this structure:
+
+```typescript
+interface ASTNode {
+  handler: string;           // Handler ID: "core:threshold_check", "core:and", etc.
+  config: Record<string, unknown>;  // Handler-specific configuration
+  label?: string;            // Human-readable label for explanations
+}
+```
+
+### Composition Patterns
+
+**1. Single Handler (Leaf Node)**
+
+```json
+{
+  "handler": "core:threshold_check",
+  "config": {
+    "value": { "field": "concentration" },
+    "operator": "lt",
+    "threshold": 0.001
+  },
+  "label": "Concentration below 0.1%"
+}
+```
+
+**2. Handler Chain (Sequential Execution)**
+
+```json
+{
+  "handler": "core:pipe",
+  "config": {
+    "steps": [
+      {
+        "handler": "core:bom_weighted",
+        "config": { "source": { "entity": "materials" }, "value_field": "concentration" }
+      },
+      {
+        "handler": "core:unit_convert",
+        "config": { "target_unit": "PPM" }
+      },
+      {
+        "handler": "core:threshold_check",
+        "config": { "operator": "lt", "threshold": 1000 }
+      }
+    ]
+  }
+}
+```
+
+**3. Handler Tree (Conditional Logic)**
+
+```json
+{
+  "handler": "core:or",
+  "config": {
+    "conditions": [
+      {
+        "handler": "core:absence_check",
+        "config": { "prohibited": { "field": "cas", "value": "50-00-0" } },
+        "label": "Substance not present"
+      },
+      {
+        "handler": "core:and",
+        "config": {
+          "conditions": [
+            {
+              "handler": "core:threshold_check",
+              "config": { "value": { "field": "concentration" }, "operator": "lt", "threshold": 0.001 },
+              "label": "Below threshold"
+            },
+            {
+              "handler": "core:credential_check",
+              "config": { "checks": { "schema": { "required_type": "ExemptionCredential" } } },
+              "label": "Has exemption"
+            }
+          ]
+        },
+        "label": "Threshold + Exemption path"
+      }
+    ]
+  }
+}
+```
+
+**4. Collection Iteration**
+
+```json
+{
+  "handler": "core:for_each",
+  "config": {
+    "source": { "entity": "materials", "path": "substances" },
+    "validation": {
+      "handler": "core:list_check",
+      "config": { "list_type": "negative", "list_source": { "table": "substance_svhc" } }
+    },
+    "require": "all"
+  }
+}
+```
+
+### AST Execution Model
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    AST EXECUTOR                             │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  1. Parse AST root node                                     │
+│  2. Resolve handler from registry                           │
+│  3. If handler is composition (and/or/for_each/pipe):       │
+│     a. Recursively execute child AST nodes                  │
+│     b. Aggregate results per handler semantics              │
+│  4. If handler is leaf (threshold_check/list_check/etc):    │
+│     a. Execute handler with config                          │
+│     b. Return ValidationResult                              │
+│  5. Build explanation chain from all executed handlers      │
+│  6. Return final result with full trace                     │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Type Safety
+
+The AST is validated at compile time (seeding) and runtime:
+
+```typescript
+// packages/handlers/src/ast/validator.ts
+interface ASTValidationResult {
+  valid: boolean;
+  errors: Array<{
+    path: string;           // JSON path to error: "config.conditions[0].handler"
+    error: string;          // "Unknown handler: core:invalid"
+    suggestion?: string;    // "Did you mean core:threshold_check?"
+  }>;
+  handlers_used: string[];  // For dependency tracking
+  estimated_complexity: number;  // For execution planning
+}
+
+function validateAST(ast: ASTNode): ASTValidationResult {
+  // 1. Verify handler exists in registry
+  // 2. Validate config against handler's configSchema
+  // 3. Recursively validate nested AST nodes
+  // 4. Check for circular references
+  // 5. Estimate execution complexity
+}
+```
+
+---
+
 **Document Control**
 
 | Version | Date | Changes |
 |---------|------|---------|
 | 0.1 | 2026-02-02 | Initial design from brainstorming session |
+| 0.2 | 2026-02-02 | Added AI-Programmable Platform section |
+| 0.3 | 2026-02-02 | Added MCP Server to tech stack, Rule Logic AST spec |
 
 ---
 
