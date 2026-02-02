@@ -126,7 +126,7 @@ describe('SubstanceCosing', () => {
         inciName: 'PHOSPHORIC ACID',
         inciNameNormalized: 'phosphoric acid',
         restrictionType: CosmeticRestrictionType.ANNEX_III,
-        maxConcentration: '8.0000',
+        maxConcentration: 8.0,
         concentrationUnit: '%',
         restrictionText: 'Oral products only up to 8%',
       });
@@ -136,7 +136,7 @@ describe('SubstanceCosing', () => {
       // Assert
       const found = await em.findOne(SubstanceCosing, { cosingRef: '37050' });
       expect(found!.restrictionType).toBe(CosmeticRestrictionType.ANNEX_III);
-      expect(found!.maxConcentration).toBe('8.0000');
+      expect(parseFloat(String(found!.maxConcentration))).toBe(8.0);
       expect(found!.concentrationUnit).toBe('%');
     });
 
@@ -179,7 +179,7 @@ describe('SubstanceCosing', () => {
         inciName: 'BUTYLPARABEN',
         inciNameNormalized: 'butylparaben',
         restrictionType: CosmeticRestrictionType.ANNEX_V,
-        maxConcentration: '0.4000',
+        maxConcentration: 0.4,
         concentrationUnit: '%',
         sccsOpinions: {
           'SCCS/1514/13': {
@@ -213,7 +213,7 @@ describe('SubstanceCosing', () => {
         inciName: 'OCTOCRYLENE',
         inciNameNormalized: 'octocrylene',
         restrictionType: CosmeticRestrictionType.ANNEX_VI,
-        maxConcentration: '10.0000',
+        maxConcentration: 10.0,
         concentrationUnit: '%',
         functions: ['UV ABSORBER', 'UV FILTER'],
       });

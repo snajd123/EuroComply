@@ -84,7 +84,7 @@ export class SubstanceCosing extends BaseEntity {
 
   /** Maximum allowed concentration */
   @Property({ type: 'decimal', precision: 10, scale: 4, nullable: true, name: 'max_concentration' })
-  maxConcentration?: string;
+  maxConcentration?: number;
 
   /** Unit for concentration (e.g., %, ppm) */
   @Property({ type: 'varchar', length: 20, nullable: true, name: 'concentration_unit' })
