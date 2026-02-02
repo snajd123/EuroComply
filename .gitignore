@@ -60,3 +60,9 @@ secrets.tfvars
 
 # Uploaded files
 uploads/
+
+# Build cache
+.next/
+
+# GSR data files (large ECHA downloads)
+packages/gsr/data/
