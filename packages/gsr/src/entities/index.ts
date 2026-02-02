@@ -8,6 +8,7 @@ export { HazardClass, HazardType, SignalWord } from './HazardClass.js';
 export { HazardStatement } from './HazardStatement.js';
 export { SubstanceHazardClassification, SclOperator, type SclLogic } from './SubstanceHazardClassification.js';
 export { SubstanceCosing, CosmeticRestrictionType } from './SubstanceCosing.js';
+export { SubstanceEfsa, EfsaReEvaluationOutcome } from './SubstanceEfsa.js';
 
 // Import classes for entity array
 import { RegistrySource } from './RegistrySource.js';
@@ -20,6 +21,7 @@ import { HazardClass } from './HazardClass.js';
 import { HazardStatement } from './HazardStatement.js';
 import { SubstanceHazardClassification } from './SubstanceHazardClassification.js';
 import { SubstanceCosing } from './SubstanceCosing.js';
+import { SubstanceEfsa } from './SubstanceEfsa.js';
 
 /**
  * GSR entities for ORM registration.
@@ -44,4 +46,5 @@ export const gsrEntities = [
   HazardStatement,
   SubstanceHazardClassification,
   SubstanceCosing,
+  SubstanceEfsa,
 ];

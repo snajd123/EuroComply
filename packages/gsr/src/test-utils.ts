@@ -11,6 +11,8 @@ import { BlindDisclosureRequest } from './entities/BlindDisclosureRequest.js';
 import { HazardClass } from './entities/HazardClass.js';
 import { HazardStatement } from './entities/HazardStatement.js';
 import { SubstanceHazardClassification } from './entities/SubstanceHazardClassification.js';
+import { SubstanceCosing } from './entities/SubstanceCosing.js';
+import { SubstanceEfsa } from './entities/SubstanceEfsa.js';
 
 let testOrm: MikroORM | null = null;
 let dbAvailable: boolean | null = null;
@@ -18,7 +20,7 @@ let dbAvailable: boolean | null = null;
 /**
  * GSR entities that will be added to the public schema.
  */
-export const gsrEntities = [RegistrySource, RegulatoryList, SubstanceGroup, SubstanceGroupMember, SubstanceListEntry, UnresolvedSubstance, BlindDisclosureRequest, HazardClass, HazardStatement, SubstanceHazardClassification];
+export const gsrEntities = [RegistrySource, RegulatoryList, SubstanceGroup, SubstanceGroupMember, SubstanceListEntry, UnresolvedSubstance, BlindDisclosureRequest, HazardClass, HazardStatement, SubstanceHazardClassification, SubstanceCosing, SubstanceEfsa];
 
 /**
  * All entities for GSR tests (database + GSR entities).
@@ -78,6 +80,8 @@ export async function clearGsrTestDb(em: EntityManager): Promise<void> {
   // Include substance table since SubstanceGroupMember tests create substances
   // blind_disclosure_request must come before unresolved_substance due to FK
   const gsrTables = [
+    'substance_efsa',  // Must come before substance due to FK
+    'substance_cosing',  // Must come before substance due to FK
     'blind_disclosure_request',
     'unresolved_substance',
     'substance_list_entry',
