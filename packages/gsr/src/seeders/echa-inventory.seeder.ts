@@ -14,6 +14,8 @@ export interface SeederResult {
   message: string;
 }
 
+export type FileFormat = 'csv' | 'i6z';
+
 const BATCH_SIZE = 1000;
 
 /**
@@ -39,6 +41,94 @@ export class EchaInventorySeeder {
 
   constructor(private readonly em: EntityManager) {
     this.parser = new EchaInventoryParser();
+  }
+
+  /**
+   * Seeds substances from a file (CSV or i6z format).
+   *
+   * @param filePath - Path to the file (CSV or i6z)
+   * @param version - Version identifier for this data (e.g., "2026-01")
+   * @param onProgress - Optional callback for progress updates (for i6z parsing)
+   * @returns SeederResult with counts and status
+   */
+  async seedFromFile(
+    filePath: string,
+    version: string,
+    onProgress?: (message: string) => void
+  ): Promise<SeederResult> {
+    const format = this.detectFormat(filePath);
+
+    if (format === 'i6z') {
+      return this.seedFromI6z(filePath, version, onProgress);
+    }
+
+    // CSV format - read file content
+    const { readFileSync } = await import('node:fs');
+    const csvContent = readFileSync(filePath, 'utf-8');
+    return this.seedFromContent(csvContent, version);
+  }
+
+  /**
+   * Detects file format based on extension.
+   */
+  private detectFormat(filePath: string): FileFormat {
+    const lower = filePath.toLowerCase();
+    if (lower.endsWith('.i6z')) {
+      return 'i6z';
+    }
+    return 'csv';
+  }
+
+  /**
+   * Seeds substances from an i6z file.
+   *
+   * @param i6zPath - Path to the i6z file
+   * @param version - Version identifier for this data
+   * @param onProgress - Optional callback for progress updates
+   * @returns SeederResult with counts and status
+   */
+  async seedFromI6z(
+    i6zPath: string,
+    version: string,
+    onProgress?: (message: string) => void
+  ): Promise<SeederResult> {
+    // Check if already seeded with same version
+    const existingSource = await this.em.findOne(RegistrySource, {
+      name: RegistrySourceName.ECHA_EC,
+    });
+
+    if (existingSource?.version === version) {
+      return {
+        seeded: false,
+        skipped: true,
+        substanceCount: existingSource.recordCount ?? 0,
+        aliasCount: 0,
+        version,
+        message: `ECHA EC Inventory already seeded with version ${version}, skipping.`,
+      };
+    }
+
+    // Parse i6z file
+    onProgress?.('Extracting and parsing i6z file...');
+    const records = await this.parser.parseI6z(i6zPath, (processed, found) => {
+      onProgress?.(`Processed ${processed.toLocaleString()} entries, found ${found.toLocaleString()} valid substances`);
+    });
+
+    if (records.length === 0) {
+      return {
+        seeded: false,
+        skipped: true,
+        substanceCount: 0,
+        aliasCount: 0,
+        version,
+        message: 'No valid records found in i6z file.',
+      };
+    }
+
+    onProgress?.(`Found ${records.length.toLocaleString()} substances, seeding to database...`);
+
+    // Use the common seeding logic
+    return this.seedRecords(records, version);
   }
 
   /**
@@ -79,6 +169,19 @@ export class EchaInventorySeeder {
       };
     }
 
+    // Use the common seeding logic
+    return this.seedRecords(records, version);
+  }
+
+  /**
+   * Seeds parsed records to the database.
+   * Common logic used by both CSV and i6z seeding methods.
+   *
+   * @param records - Parsed ECHA inventory records
+   * @param version - Version identifier for this data
+   * @returns SeederResult with counts and status
+   */
+  private async seedRecords(records: EchaInventoryRecord[], version: string): Promise<SeederResult> {
     // Wrap all database operations in a transaction
     return await this.em.transactional(async (txEm) => {
       // Separate records with CAS numbers from those without

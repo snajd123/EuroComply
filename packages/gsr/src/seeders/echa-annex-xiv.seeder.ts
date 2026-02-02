@@ -1,13 +1,13 @@
-// packages/gsr/src/seeders/echa-svhc.seeder.ts
+// packages/gsr/src/seeders/echa-annex-xiv.seeder.ts
 import type { EntityManager } from '@mikro-orm/postgresql';
 import { createId } from '@paralleldrive/cuid2';
 import {
-  EchaSvhcParser,
-  type EchaSvhcRecord,
-  type SvhcEntry,
-  type SvhcSubstance,
-  type SvhcParsedData,
-} from '../parsers/echa-svhc.parser.js';
+  EchaAnnexXivParser,
+  type EchaAnnexXivRecord,
+  type AnnexXivEntry,
+  type AnnexXivSubstance,
+  type AnnexXivParsedData,
+} from '../parsers/echa-annex-xiv.parser.js';
 import { RegistrySource, RegistrySourceName } from '../entities/RegistrySource.js';
 import { RegulatoryList } from '../entities/RegulatoryList.js';
 import { SubstanceListEntry } from '../entities/SubstanceListEntry.js';
@@ -17,7 +17,7 @@ import { ProductScope } from '../enums/ProductScope.js';
 import { Substance } from '@eurocomply/database';
 import { findOrCreateSubstance } from '../utils/substance-finder.js';
 
-export interface SvhcSeederResult {
+export interface AnnexXivSeederResult {
   seeded: boolean;
   skipped: boolean;
   entryCount: number;
@@ -29,12 +29,12 @@ export interface SvhcSeederResult {
 }
 
 /**
- * Generates a unique group code for an SVHC entry.
+ * Generates a unique group code for an Annex XIV entry.
  *
  * @param entryName - Entry/substance name
- * @returns Normalized group code (e.g., "SVHC_CADMIUM_COMPOUNDS")
+ * @returns Normalized group code (e.g., "ANNEX_XIV_CHROMIUM_TRIOXIDE")
  */
-export function generateSvhcGroupCode(entryName: string): string {
+export function generateAnnexXivGroupCode(entryName: string): string {
   let normalizedName = entryName.toUpperCase();
 
   // Common replacements for cleaner codes
@@ -51,39 +51,55 @@ export function generateSvhcGroupCode(entryName: string): string {
     normalizedName = normalizedName.replace(/_$/, '');
   }
 
-  return `SVHC_${normalizedName}`;
+  return `ANNEX_XIV_${normalizedName}`;
 }
 
 /**
- * Seeds SVHC Candidate List entries from ECHA CSV files.
+ * Extracts and normalizes Article 57 reason text.
+ * Simply trims whitespace and returns the original text.
+ *
+ * @param intrinsicProperties - Raw intrinsic properties text from ECHA
+ * @returns Trimmed reason text
+ */
+export function extractArticle57Reason(intrinsicProperties: string): string {
+  return intrinsicProperties.trim();
+}
+
+/**
+ * Seeds REACH Annex XIV (Authorization List) entries from ECHA CSV files.
  *
  * Creates SubstanceListEntry records linking existing substances
- * to the REACH_SVHC regulatory list.
+ * to the REACH_ANNEX_XIV regulatory list with:
+ * - Status: AUTHORIZED (requires authorization to use)
+ * - sunsetDate: Date after which substance cannot be used without authorization
+ * - listingDate: Latest application date (deadline to apply for authorization)
+ * - conditions: Contains Article 57 reason for inclusion and exempted uses
+ * - scopes: ALL_PRODUCTS (authorization applies broadly)
  */
-export class EchaSvhcSeeder {
-  private readonly parser: EchaSvhcParser;
+export class EchaAnnexXivSeeder {
+  private readonly parser: EchaAnnexXivParser;
 
   constructor(private readonly em: EntityManager) {
-    this.parser = new EchaSvhcParser();
+    this.parser = new EchaAnnexXivParser();
   }
 
   /**
-   * Seeds SVHC from both the entries file (with regulatory data) and substances file (with all substances).
+   * Seeds Annex XIV from both the entries file (with regulatory data) and substances file (with all substances).
    * This is the recommended method for complete data.
    *
-   * @param entriesFilePath - Path to the entries/full file (has regulatory data: dates, reasons, decision URLs)
+   * @param entriesFilePath - Path to the entries/full file (has regulatory data: dates, reasons, exemptions)
    * @param substancesFilePath - Path to the substances/expanded file (has all individual substances)
    * @param version - Version identifier for this data (e.g., "2026-01")
-   * @returns SvhcSeederResult with counts and status
+   * @returns AnnexXivSeederResult with counts and status
    */
   async seedFromBothFiles(
     entriesFilePath: string,
     substancesFilePath: string,
     version: string
-  ): Promise<SvhcSeederResult> {
+  ): Promise<AnnexXivSeederResult> {
     // Check if already seeded with same version
     const existingSource = await this.em.findOne(RegistrySource, {
-      name: RegistrySourceName.ECHA_SVHC,
+      name: RegistrySourceName.ECHA_ANNEX_XIV,
     });
 
     if (existingSource?.version === version) {
@@ -95,7 +111,7 @@ export class EchaSvhcSeeder {
         skippedCount: 0,
         stubsCreated: 0,
         version,
-        message: `ECHA SVHC already seeded with version ${version}, skipping.`,
+        message: `ECHA Annex XIV already seeded with version ${version}, skipping.`,
       };
     }
 
@@ -117,7 +133,7 @@ export class EchaSvhcSeeder {
 
     // Wrap all database operations in a transaction
     return await this.em.transactional(async (txEm) => {
-      // Create or find REACH_SVHC regulatory list
+      // Create or find REACH_ANNEX_XIV regulatory list
       const regulatoryList = await this.getOrCreateRegulatoryList(txEm);
 
       let entryCount = 0;
@@ -136,7 +152,7 @@ export class EchaSvhcSeeder {
 
       // Create SubstanceGroups for entries that have child substances
       const entryGroups = new Map<string, SubstanceGroup>();
-      const entryDataMap = new Map<string, SvhcEntry>();
+      const entryDataMap = new Map<string, AnnexXivEntry>();
 
       for (const entry of parsedData.entries) {
         entryDataMap.set(entry.entryName, entry);
@@ -160,7 +176,7 @@ export class EchaSvhcSeeder {
 
         if (!entryName || !entryData) {
           console.warn(
-            `SVHC seeder: No entry found for substance - CAS: ${substance.casNumber ?? 'N/A'}, EC: ${substance.ecNumber ?? 'N/A'}, Name: ${substance.substanceName}`
+            `Annex XIV seeder: No entry found for substance - CAS: ${substance.casNumber ?? 'N/A'}, EC: ${substance.ecNumber ?? 'N/A'}, Name: ${substance.substanceName}`
           );
           skippedCount++;
           continue;
@@ -175,13 +191,13 @@ export class EchaSvhcSeeder {
             name: substance.substanceName,
             description: substance.description,
           },
-          'SVHC',
+          'ANNEX_XIV',
           version
         );
 
         if (result.skipped || !result.substance) {
           console.warn(
-            `SVHC seeder: Skipped substance - ${result.skipReason || 'Unknown reason'}`
+            `Annex XIV seeder: Skipped substance - ${result.skipReason || 'Unknown reason'}`
           );
           skippedCount++;
           continue;
@@ -190,7 +206,7 @@ export class EchaSvhcSeeder {
         if (result.created) {
           stubsCreated++;
           console.log(
-            `SVHC seeder: Created stub - CAS: ${substance.casNumber}, Name: ${substance.substanceName}`
+            `Annex XIV seeder: Created stub - CAS: ${substance.casNumber}, Name: ${substance.substanceName}`
           );
         }
 
@@ -219,23 +235,23 @@ export class EchaSvhcSeeder {
         skippedCount,
         stubsCreated,
         version,
-        message: `Seeded ${entryCount} SVHC entries (${groupCount} groups, ${substancesLinked} substances linked, ${stubsCreated} stubs created, ${skippedCount} skipped) from ECHA (${version}).`,
+        message: `Seeded ${entryCount} Annex XIV entries (${groupCount} groups, ${substancesLinked} substances linked, ${stubsCreated} stubs created, ${skippedCount} skipped) from ECHA (${version}).`,
       };
     });
   }
 
   /**
-   * Seeds SVHC entries from a file (CSV or XLSX format).
+   * Seeds Annex XIV entries from a file (CSV or XLSX format).
    * Legacy method - prefer seedFromBothFiles for complete data.
    *
    * @param filePath - Path to the file
    * @param version - Version identifier for this data (e.g., "2026-01")
-   * @returns SvhcSeederResult with counts and status
+   * @returns AnnexXivSeederResult with counts and status
    */
-  async seedFromFile(filePath: string, version: string): Promise<SvhcSeederResult> {
+  async seedFromFile(filePath: string, version: string): Promise<AnnexXivSeederResult> {
     // Check if already seeded with same version
     const existingSource = await this.em.findOne(RegistrySource, {
-      name: RegistrySourceName.ECHA_SVHC,
+      name: RegistrySourceName.ECHA_ANNEX_XIV,
     });
 
     if (existingSource?.version === version) {
@@ -247,7 +263,7 @@ export class EchaSvhcSeeder {
         skippedCount: 0,
         stubsCreated: 0,
         version,
-        message: `ECHA SVHC already seeded with version ${version}, skipping.`,
+        message: `ECHA Annex XIV already seeded with version ${version}, skipping.`,
       };
     }
 
@@ -257,16 +273,16 @@ export class EchaSvhcSeeder {
   }
 
   /**
-   * Seeds SVHC entries from CSV content.
+   * Seeds Annex XIV entries from CSV content.
    *
-   * @param csvContent - Raw CSV string with ECHA SVHC format
+   * @param csvContent - Raw CSV string with ECHA Annex XIV format
    * @param version - Version identifier for this data (e.g., "2026-01")
-   * @returns SvhcSeederResult with counts and status
+   * @returns AnnexXivSeederResult with counts and status
    */
-  async seedFromContent(csvContent: string, version: string): Promise<SvhcSeederResult> {
+  async seedFromContent(csvContent: string, version: string): Promise<AnnexXivSeederResult> {
     // Check if already seeded with same version (before transaction)
     const existingSource = await this.em.findOne(RegistrySource, {
-      name: RegistrySourceName.ECHA_SVHC,
+      name: RegistrySourceName.ECHA_ANNEX_XIV,
     });
 
     if (existingSource?.version === version) {
@@ -278,7 +294,7 @@ export class EchaSvhcSeeder {
         skippedCount: 0,
         stubsCreated: 0,
         version,
-        message: `ECHA SVHC already seeded with version ${version}, skipping.`,
+        message: `ECHA Annex XIV already seeded with version ${version}, skipping.`,
       };
     }
 
@@ -291,7 +307,7 @@ export class EchaSvhcSeeder {
    * Seeds parsed records to the database.
    * Common logic used by both CSV and XLSX seeding methods.
    */
-  private async seedRecords(records: EchaSvhcRecord[], version: string): Promise<SvhcSeederResult> {
+  private async seedRecords(records: EchaAnnexXivRecord[], version: string): Promise<AnnexXivSeederResult> {
     if (records.length === 0) {
       return {
         seeded: false,
@@ -307,7 +323,7 @@ export class EchaSvhcSeeder {
 
     // Wrap all database operations in a transaction
     return await this.em.transactional(async (txEm) => {
-      // Create or find REACH_SVHC regulatory list
+      // Create or find REACH_ANNEX_XIV regulatory list
       const regulatoryList = await this.getOrCreateRegulatoryList(txEm);
 
       // Process records and create entries
@@ -323,13 +339,13 @@ export class EchaSvhcSeeder {
             ecNumber: record.ecNumber,
             name: record.substanceName,
           },
-          'SVHC',
+          'ANNEX_XIV',
           version
         );
 
         if (result.skipped || !result.substance) {
           console.warn(
-            `SVHC seeder: Skipped - ${result.skipReason || 'Unknown reason'}`
+            `Annex XIV seeder: Skipped - ${result.skipReason || 'Unknown reason'}`
           );
           skippedCount++;
           continue;
@@ -338,7 +354,7 @@ export class EchaSvhcSeeder {
         if (result.created) {
           stubsCreated++;
           console.log(
-            `SVHC seeder: Created stub - CAS: ${record.casNumber}, Name: ${record.substanceName}`
+            `Annex XIV seeder: Created stub - CAS: ${record.casNumber}, Name: ${record.substanceName}`
           );
         }
 
@@ -350,22 +366,32 @@ export class EchaSvhcSeeder {
           regulatoryList,
         });
 
+        // Build conditions object
+        const conditions: Record<string, unknown> = {
+          intrinsicProperties: extractArticle57Reason(record.intrinsicProperties),
+        };
+        if (record.exemptedUses) {
+          conditions['exemptedUses'] = record.exemptedUses;
+        }
+
         if (existingEntry) {
           // Update existing entry
-          existingEntry.listingDate = record.dateOfInclusion;
-          existingEntry.conditions = { reason: record.reasonForInclusion };
-          existingEntry.sourceReference = 'SVHC Candidate List';
+          existingEntry.sunsetDate = record.sunsetDate ?? undefined;
+          existingEntry.listingDate = record.latestApplicationDate ?? undefined;
+          existingEntry.conditions = conditions;
+          existingEntry.sourceReference = 'REACH Annex XIV';
         } else {
           // Create new entry
           const entry = txEm.create(SubstanceListEntry, {
             id: createId(),
             substance,
             regulatoryList,
-            status: ListingStatus.LISTED,
+            status: ListingStatus.AUTHORIZED,
             scopes: [ProductScope.ALL_PRODUCTS],
-            listingDate: record.dateOfInclusion,
-            conditions: { reason: record.reasonForInclusion },
-            sourceReference: 'SVHC Candidate List',
+            sunsetDate: record.sunsetDate ?? undefined,
+            listingDate: record.latestApplicationDate ?? undefined,
+            conditions,
+            sourceReference: 'REACH Annex XIV',
             createdAt: new Date(),
             updatedAt: new Date(),
           });
@@ -388,26 +414,27 @@ export class EchaSvhcSeeder {
         skippedCount,
         stubsCreated,
         version,
-        message: `Seeded ${entryCount} SVHC entries (${stubsCreated} stubs created, ${skippedCount} skipped) from ECHA SVHC (${version}).`,
+        message: `Seeded ${entryCount} Annex XIV entries (${stubsCreated} stubs created, ${skippedCount} skipped) from ECHA Authorization List (${version}).`,
       };
     });
   }
 
   /**
-   * Gets or creates the REACH_SVHC regulatory list.
+   * Gets or creates the REACH_ANNEX_XIV regulatory list.
    */
   private async getOrCreateRegulatoryList(txEm: EntityManager): Promise<RegulatoryList> {
-    let list = await txEm.findOne(RegulatoryList, { code: 'REACH_SVHC' });
+    let list = await txEm.findOne(RegulatoryList, { code: 'REACH_ANNEX_XIV' });
 
     if (!list) {
       list = txEm.create(RegulatoryList, {
         id: createId(),
-        code: 'REACH_SVHC',
-        name: 'SVHC Candidate List',
+        code: 'REACH_ANNEX_XIV',
+        name: 'REACH Authorization List (Annex XIV)',
         jurisdiction: 'EU',
         publisher: 'ECHA',
-        description: 'Substances of Very High Concern (SVHC) identified under REACH Article 57',
-        sourceUrl: 'https://echa.europa.eu/candidate-list-table',
+        description:
+          'Substances requiring authorization under REACH. Use of these substances after the sunset date requires authorization.',
+        sourceUrl: 'https://echa.europa.eu/authorisation-list',
         createdAt: new Date(),
         updatedAt: new Date(),
       });
@@ -420,7 +447,10 @@ export class EchaSvhcSeeder {
   /**
    * Finds a substance by CAS number or EC number.
    */
-  private async findSubstance(txEm: EntityManager, record: EchaSvhcRecord): Promise<Substance | null> {
+  private async findSubstance(
+    txEm: EntityManager,
+    record: EchaAnnexXivRecord
+  ): Promise<Substance | null> {
     // Try to find by CAS number first
     if (record.casNumber) {
       const byCas = await txEm.findOne(Substance, { casNumber: record.casNumber });
@@ -439,9 +469,13 @@ export class EchaSvhcSeeder {
   /**
    * Updates or creates the registry source record.
    */
-  private async updateRegistrySource(txEm: EntityManager, version: string, recordCount: number): Promise<void> {
+  private async updateRegistrySource(
+    txEm: EntityManager,
+    version: string,
+    recordCount: number
+  ): Promise<void> {
     const existing = await txEm.findOne(RegistrySource, {
-      name: RegistrySourceName.ECHA_SVHC,
+      name: RegistrySourceName.ECHA_ANNEX_XIV,
     });
 
     if (existing) {
@@ -452,10 +486,10 @@ export class EchaSvhcSeeder {
     } else {
       const now = new Date();
       const source = txEm.create(RegistrySource, {
-        name: RegistrySourceName.ECHA_SVHC,
+        name: RegistrySourceName.ECHA_ANNEX_XIV,
         version,
         recordCount,
-        sourceUrl: 'https://echa.europa.eu/candidate-list-table',
+        sourceUrl: 'https://echa.europa.eu/authorisation-list',
         lastSyncedAt: now,
         createdAt: now,
         updatedAt: now,
@@ -465,13 +499,13 @@ export class EchaSvhcSeeder {
   }
 
   /**
-   * Gets or creates a SubstanceGroup for an SVHC entry.
+   * Gets or creates a SubstanceGroup for an Annex XIV entry.
    */
   private async getOrCreateSubstanceGroup(
     txEm: EntityManager,
-    entry: SvhcEntry
+    entry: AnnexXivEntry
   ): Promise<SubstanceGroup> {
-    const code = generateSvhcGroupCode(entry.entryName);
+    const code = generateAnnexXivGroupCode(entry.entryName);
 
     let group = await txEm.findOne(SubstanceGroup, { code });
 
@@ -480,7 +514,7 @@ export class EchaSvhcSeeder {
         id: createId(),
         code,
         name: entry.entryName,
-        description: entry.description || `SVHC Candidate List: ${entry.entryName}`,
+        description: entry.description || `REACH Annex XIV: ${entry.entryName}`,
         createdAt: new Date(),
         updatedAt: new Date(),
       });
@@ -497,7 +531,7 @@ export class EchaSvhcSeeder {
     txEm: EntityManager,
     group: SubstanceGroup,
     regulatoryList: RegulatoryList,
-    entry: SvhcEntry
+    entry: AnnexXivEntry
   ): Promise<SubstanceListEntry> {
     const existing = await txEm.findOne(SubstanceListEntry, {
       substanceGroup: group,
@@ -506,18 +540,19 @@ export class EchaSvhcSeeder {
 
     // Build conditions object
     const conditions: Record<string, unknown> = {
-      reason: entry.reasonForInclusion,
+      intrinsicProperties: entry.reasonForInclusion,
     };
-    if (entry.decisionUrl) {
-      conditions['decisionUrl'] = entry.decisionUrl;
+    if (entry.exemptedUses) {
+      conditions['exemptedUses'] = entry.exemptedUses;
     }
 
     if (existing) {
       // Update existing entry
-      existing.status = ListingStatus.LISTED;
-      existing.listingDate = entry.dateOfInclusion ?? undefined;
+      existing.status = ListingStatus.AUTHORIZED;
+      existing.sunsetDate = entry.sunsetDate ?? undefined;
+      existing.listingDate = entry.latestApplicationDate ?? undefined;
       existing.conditions = conditions;
-      existing.sourceReference = 'SVHC Candidate List';
+      existing.sourceReference = 'REACH Annex XIV';
       existing.updatedAt = new Date();
       return existing;
     }
@@ -526,11 +561,12 @@ export class EchaSvhcSeeder {
       id: createId(),
       substanceGroup: group,
       regulatoryList,
-      status: ListingStatus.LISTED,
+      status: ListingStatus.AUTHORIZED,
       scopes: [ProductScope.ALL_PRODUCTS],
-      listingDate: entry.dateOfInclusion ?? undefined,
+      sunsetDate: entry.sunsetDate ?? undefined,
+      listingDate: entry.latestApplicationDate ?? undefined,
       conditions,
-      sourceReference: 'SVHC Candidate List',
+      sourceReference: 'REACH Annex XIV',
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -545,7 +581,7 @@ export class EchaSvhcSeeder {
     txEm: EntityManager,
     substance: Substance,
     regulatoryList: RegulatoryList,
-    entry: SvhcEntry
+    entry: AnnexXivEntry
   ): Promise<SubstanceListEntry> {
     const existing = await txEm.findOne(SubstanceListEntry, {
       substance,
@@ -554,18 +590,19 @@ export class EchaSvhcSeeder {
 
     // Build conditions object
     const conditions: Record<string, unknown> = {
-      reason: entry.reasonForInclusion,
+      intrinsicProperties: entry.reasonForInclusion,
     };
-    if (entry.decisionUrl) {
-      conditions['decisionUrl'] = entry.decisionUrl;
+    if (entry.exemptedUses) {
+      conditions['exemptedUses'] = entry.exemptedUses;
     }
 
     if (existing) {
       // Update existing entry
-      existing.status = ListingStatus.LISTED;
-      existing.listingDate = entry.dateOfInclusion ?? undefined;
+      existing.status = ListingStatus.AUTHORIZED;
+      existing.sunsetDate = entry.sunsetDate ?? undefined;
+      existing.listingDate = entry.latestApplicationDate ?? undefined;
       existing.conditions = conditions;
-      existing.sourceReference = 'SVHC Candidate List';
+      existing.sourceReference = 'REACH Annex XIV';
       existing.updatedAt = new Date();
       return existing;
     }
@@ -574,11 +611,12 @@ export class EchaSvhcSeeder {
       id: createId(),
       substance,
       regulatoryList,
-      status: ListingStatus.LISTED,
+      status: ListingStatus.AUTHORIZED,
       scopes: [ProductScope.ALL_PRODUCTS],
-      listingDate: entry.dateOfInclusion ?? undefined,
+      sunsetDate: entry.sunsetDate ?? undefined,
+      listingDate: entry.latestApplicationDate ?? undefined,
       conditions,
-      sourceReference: 'SVHC Candidate List',
+      sourceReference: 'REACH Annex XIV',
       createdAt: new Date(),
       updatedAt: new Date(),
     });

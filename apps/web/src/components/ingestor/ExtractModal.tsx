@@ -2,11 +2,6 @@
 
 import { useState, useRef, useCallback } from 'react';
 import { ingestorApi, ExtractionResult } from '@/lib/api';
-import * as pdfjs from 'pdfjs-dist';
-import type { TextItem } from 'pdfjs-dist/types/src/display/api';
-
-// Set PDF.js worker
-pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
 
 type SourceType = 'EUR_LEX' | 'ECHA' | 'MANUAL';
 type TabType = 'url' | 'text' | 'pdf';
@@ -39,29 +34,11 @@ export function ExtractModal({ isOpen, onClose, onSuccess }: ExtractModalProps) 
 
   // PDF tab state
   const [pdfFile, setPdfFile] = useState<File | null>(null);
-  const [pdfExtractedText, setPdfExtractedText] = useState('');
+  const [pdfFileId, setPdfFileId] = useState<string | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const extractTextFromPdf = async (file: File): Promise<string> => {
-    const arrayBuffer = await file.arrayBuffer();
-    const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
-
-    let fullText = '';
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page = await pdf.getPage(i);
-      const textContent = await page.getTextContent();
-      const pageText = textContent.items
-        .filter((item): item is TextItem => 'str' in item)
-        .map((item) => item.str)
-        .join(' ');
-      fullText += pageText + '\n\n';
-    }
-
-    return fullText.trim();
-  };
 
   const handlePdfFile = async (file: File) => {
     if (!file.type.includes('pdf')) {
@@ -72,13 +49,13 @@ export function ExtractModal({ isOpen, onClose, onSuccess }: ExtractModalProps) 
     setPdfFile(file);
     setPdfLoading(true);
     setPdfError(null);
-    setPdfExtractedText('');
+    setPdfFileId(null);
 
     try {
-      const extractedText = await extractTextFromPdf(file);
-      setPdfExtractedText(extractedText);
+      const result = await ingestorApi.uploadPdf(file);
+      setPdfFileId(result.fileId);
     } catch (err) {
-      setPdfError(err instanceof Error ? err.message : 'Failed to extract text from PDF');
+      setPdfError(err instanceof Error ? err.message : 'Failed to upload PDF');
       setPdfFile(null);
     } finally {
       setPdfLoading(false);
@@ -135,8 +112,8 @@ export function ExtractModal({ isOpen, onClose, onSuccess }: ExtractModalProps) 
         return 'Document text is required';
       }
     } else if (activeTab === 'pdf') {
-      if (!pdfExtractedText.trim()) {
-        return 'Please upload a PDF and extract text first';
+      if (!pdfFileId) {
+        return 'Please upload a PDF first';
       }
     }
     return null;
@@ -153,7 +130,12 @@ export function ExtractModal({ isOpen, onClose, onSuccess }: ExtractModalProps) 
     setError(null);
 
     try {
-      let params: { sourceUrl: string; sourceType: SourceType; documentText: string };
+      let params: {
+        sourceUrl?: string;
+        sourceType: SourceType;
+        documentText?: string;
+        fileId?: string;
+      };
 
       if (activeTab === 'url') {
         params = {
@@ -170,9 +152,8 @@ export function ExtractModal({ isOpen, onClose, onSuccess }: ExtractModalProps) 
       } else {
         // PDF tab
         params = {
-          sourceUrl: pdfFile?.name || 'uploaded-pdf',
+          fileId: pdfFileId!,
           sourceType: 'MANUAL',
-          documentText: pdfExtractedText.trim(),
         };
       }
 
@@ -194,7 +175,7 @@ export function ExtractModal({ isOpen, onClose, onSuccess }: ExtractModalProps) 
     setTextSourceUrl('');
     setTextDocumentText('');
     setPdfFile(null);
-    setPdfExtractedText('');
+    setPdfFileId(null);
     setPdfLoading(false);
     setPdfError(null);
     setError(null);
@@ -365,15 +346,24 @@ export function ExtractModal({ isOpen, onClose, onSuccess }: ExtractModalProps) 
                 {pdfLoading ? (
                   <div className="flex flex-col items-center">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-2"></div>
-                    <p className="text-gray-600">Extracting text from PDF...</p>
+                    <p className="text-gray-600">Uploading PDF...</p>
                   </div>
-                ) : pdfFile ? (
+                ) : pdfFileId ? (
                   <div className="flex flex-col items-center">
                     <svg className="w-10 h-10 text-green-500 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
-                    <p className="text-gray-800 font-medium">{pdfFile.name}</p>
+                    <p className="text-gray-800 font-medium">{pdfFile?.name}</p>
+                    <p className="text-sm text-green-600 mt-1">Uploaded successfully</p>
                     <p className="text-sm text-gray-500 mt-1">Click or drop to replace</p>
+                  </div>
+                ) : pdfFile ? (
+                  <div className="flex flex-col items-center">
+                    <svg className="w-10 h-10 text-yellow-500 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    <p className="text-gray-800 font-medium">{pdfFile.name}</p>
+                    <p className="text-sm text-yellow-600 mt-1">Upload incomplete</p>
                   </div>
                 ) : (
                   <div className="flex flex-col items-center">
@@ -393,22 +383,10 @@ export function ExtractModal({ isOpen, onClose, onSuccess }: ExtractModalProps) 
                 </div>
               )}
 
-              {/* Extracted Text Preview */}
-              {pdfExtractedText && (
-                <div>
-                  <label htmlFor="pdf-extracted-text" className="block text-sm font-medium text-gray-700 mb-1">
-                    Extracted Text <span className="text-gray-400">(editable)</span>
-                  </label>
-                  <textarea
-                    id="pdf-extracted-text"
-                    value={pdfExtractedText}
-                    onChange={(e) => setPdfExtractedText(e.target.value)}
-                    rows={12}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-y"
-                  />
-                  <p className="mt-1 text-sm text-gray-500">
-                    Review and edit the extracted text if needed before extracting.
-                  </p>
+              {/* Upload Info */}
+              {pdfFileId && (
+                <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800">
+                  PDF uploaded and ready for extraction. The server will extract text with coordinate information preserved.
                 </div>
               )}
             </div>

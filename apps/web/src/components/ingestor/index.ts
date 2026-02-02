@@ -4,3 +4,4 @@ export { ReasoningDrawer } from './ReasoningDrawer';
 export { BulkApproveButton } from './BulkApproveButton';
 export { PublishModal } from './PublishModal';
 export { ExtractModal } from './ExtractModal';
+export { PdfViewer } from './PdfViewer';

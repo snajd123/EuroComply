@@ -193,6 +193,51 @@ const body = CreatePassportSchema.parse(req.body);
 // Now body is guaranteed to be valid
 ```
 
+### No Shortcuts - Implement the Design
+
+**When a design/plan specifies a data source or implementation approach, implement it fully. Do not substitute with "simpler" alternatives.**
+
+This rule exists because:
+- Hardcoded "fallbacks" that become the only implementation create technical debt
+- Skipping the real implementation means the feature is incomplete
+- "Simple" alternatives often lack the robustness the design intended
+
+**Examples of shortcuts to AVOID:**
+
+```typescript
+// ❌ BAD: Design says "load from JSON files", you hardcode instead
+// Design: "Load H-statements from mhchem JSON files for 24 EU languages"
+// Shortcut: Hardcode English-only data as "fallback" and never implement the real loader
+
+private getMinimalHStatements(): Record<string, string> {
+  return { 'H350': 'May cause cancer' };  // "fallback" that becomes permanent
+}
+
+// ❌ BAD: Design says "fetch from API", you use static data instead
+// Design: "Fetch current exchange rates from ECB API"
+// Shortcut: Hardcode rates and call it "offline mode"
+
+// ❌ BAD: Design says "parse PDF", you require manual CSV conversion
+// Design: "Extract tables from regulatory PDFs automatically"
+// Shortcut: "For now, manually convert PDF to CSV first"
+```
+
+**What to do instead:**
+
+1. **Implement what the design specifies** - If it says "load from JSON files", write the JSON loader
+2. **If you can't complete it**, mark the task as blocked and explain why
+3. **If the design is too complex**, discuss with the user BEFORE implementing a simpler alternative
+4. **Fallbacks are acceptable** only when they supplement (not replace) the primary implementation
+
+```typescript
+// ✅ GOOD: Implement the design, fallback only if primary fails
+const statements = await this.loadFromMhchemJson();  // Primary: what design specified
+if (!statements) {
+  logger.warn('mhchem JSON not found, using bundled fallback');
+  return this.getBundledFallback();  // Fallback: only if primary unavailable
+}
+```
+
 ---
 
 ## 6. Security Rules

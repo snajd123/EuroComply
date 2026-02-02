@@ -6,6 +6,8 @@ export enum RegistrySourceName {
   ECHA_SVHC = 'ECHA_SVHC',
   ECHA_ANNEX_XVII = 'ECHA_ANNEX_XVII',
   ECHA_ANNEX_XIV = 'ECHA_ANNEX_XIV',
+  ECHA_POP = 'ECHA_POP',
+  ROHS = 'ROHS',
   PUBCHEM = 'PUBCHEM',
   TSCA = 'TSCA',
   PROP65 = 'PROP65',

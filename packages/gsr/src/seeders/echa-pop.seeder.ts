@@ -1,23 +1,22 @@
-// packages/gsr/src/seeders/echa-svhc.seeder.ts
+// packages/gsr/src/seeders/echa-pop.seeder.ts
 import type { EntityManager } from '@mikro-orm/postgresql';
 import { createId } from '@paralleldrive/cuid2';
 import {
-  EchaSvhcParser,
-  type EchaSvhcRecord,
-  type SvhcEntry,
-  type SvhcSubstance,
-  type SvhcParsedData,
-} from '../parsers/echa-svhc.parser.js';
+  EchaPopParser,
+  type EchaPopRecord,
+  type PopEntry,
+  type PopSubstance,
+  type PopParsedData,
+} from '../parsers/echa-pop.parser.js';
 import { RegistrySource, RegistrySourceName } from '../entities/RegistrySource.js';
 import { RegulatoryList } from '../entities/RegulatoryList.js';
 import { SubstanceListEntry } from '../entities/SubstanceListEntry.js';
 import { SubstanceGroup, SubstanceGroupMember, InheritanceType } from '../entities/SubstanceGroup.js';
-import { ListingStatus } from '../enums/ListingStatus.js';
 import { ProductScope } from '../enums/ProductScope.js';
 import { Substance } from '@eurocomply/database';
 import { findOrCreateSubstance } from '../utils/substance-finder.js';
 
-export interface SvhcSeederResult {
+export interface PopSeederResult {
   seeded: boolean;
   skipped: boolean;
   entryCount: number;
@@ -29,18 +28,18 @@ export interface SvhcSeederResult {
 }
 
 /**
- * Generates a unique group code for an SVHC entry.
+ * Generates a unique group code for a POP entry.
  *
  * @param entryName - Entry/substance name
- * @returns Normalized group code (e.g., "SVHC_CADMIUM_COMPOUNDS")
+ * @returns Normalized group code (e.g., "POP_PFAS_COMPOUNDS")
  */
-export function generateSvhcGroupCode(entryName: string): string {
+export function generatePopGroupCode(entryName: string): string {
   let normalizedName = entryName.toUpperCase();
 
   // Common replacements for cleaner codes
   normalizedName = normalizedName.replace(/\s+AND\s+(ITS|THEIR)\s+COMPOUNDS?/gi, '_COMPOUNDS');
   normalizedName = normalizedName.replace(/\s+AND\s+(ITS|THEIR)\s+SALTS?/gi, '_SALTS');
-  normalizedName = normalizedName.replace(/\s+AND\s+DERIVATIVES?/gi, '');
+  normalizedName = normalizedName.replace(/-RELATED\s+COMPOUNDS?/gi, '_RELATED');
   normalizedName = normalizedName.replace(/[^A-Z0-9]/g, '_');
   normalizedName = normalizedName.replace(/_+/g, '_');
   normalizedName = normalizedName.replace(/^_|_$/g, '');
@@ -51,39 +50,53 @@ export function generateSvhcGroupCode(entryName: string): string {
     normalizedName = normalizedName.replace(/_$/, '');
   }
 
-  return `SVHC_${normalizedName}`;
+  return `POP_${normalizedName}`;
 }
 
 /**
- * Seeds SVHC Candidate List entries from ECHA CSV files.
+ * Formats the source reference for a POP Regulation entry.
+ *
+ * @param annexes - Array of annex identifiers
+ * @returns Formatted source reference string
+ */
+export function formatSourceReference(annexes: string[]): string {
+  return `POP Regulation (EU 2019/1021), Annex ${annexes.join(', ')}`;
+}
+
+/**
+ * Seeds EU POP Regulation (Persistent Organic Pollutants) entries from ECHA CSV files.
  *
  * Creates SubstanceListEntry records linking existing substances
- * to the REACH_SVHC regulatory list.
+ * to the POP regulatory list with:
+ * - Status: BANNED for Annex I, RESTRICTED for Annex II, LISTED for others
+ * - conditions: Contains exemptions and annex information
+ * - scopes: ALL_PRODUCTS (POP Regulation applies broadly)
+ * - sourceReference: "POP Regulation (EU 2019/1021), Annex {annexes}"
  */
-export class EchaSvhcSeeder {
-  private readonly parser: EchaSvhcParser;
+export class EchaPopSeeder {
+  private readonly parser: EchaPopParser;
 
   constructor(private readonly em: EntityManager) {
-    this.parser = new EchaSvhcParser();
+    this.parser = new EchaPopParser();
   }
 
   /**
-   * Seeds SVHC from both the entries file (with regulatory data) and substances file (with all substances).
+   * Seeds POP from both the entries file (with regulatory data) and substances file (with all substances).
    * This is the recommended method for complete data.
    *
-   * @param entriesFilePath - Path to the entries/full file (has regulatory data: dates, reasons, decision URLs)
+   * @param entriesFilePath - Path to the entries/full file (has regulatory data: annexes, dates)
    * @param substancesFilePath - Path to the substances/expanded file (has all individual substances)
    * @param version - Version identifier for this data (e.g., "2026-01")
-   * @returns SvhcSeederResult with counts and status
+   * @returns PopSeederResult with counts and status
    */
   async seedFromBothFiles(
     entriesFilePath: string,
     substancesFilePath: string,
     version: string
-  ): Promise<SvhcSeederResult> {
+  ): Promise<PopSeederResult> {
     // Check if already seeded with same version
     const existingSource = await this.em.findOne(RegistrySource, {
-      name: RegistrySourceName.ECHA_SVHC,
+      name: RegistrySourceName.ECHA_POP,
     });
 
     if (existingSource?.version === version) {
@@ -95,7 +108,7 @@ export class EchaSvhcSeeder {
         skippedCount: 0,
         stubsCreated: 0,
         version,
-        message: `ECHA SVHC already seeded with version ${version}, skipping.`,
+        message: `ECHA POP Regulation already seeded with version ${version}, skipping.`,
       };
     }
 
@@ -117,7 +130,7 @@ export class EchaSvhcSeeder {
 
     // Wrap all database operations in a transaction
     return await this.em.transactional(async (txEm) => {
-      // Create or find REACH_SVHC regulatory list
+      // Create or find POP regulatory list
       const regulatoryList = await this.getOrCreateRegulatoryList(txEm);
 
       let entryCount = 0;
@@ -136,7 +149,7 @@ export class EchaSvhcSeeder {
 
       // Create SubstanceGroups for entries that have child substances
       const entryGroups = new Map<string, SubstanceGroup>();
-      const entryDataMap = new Map<string, SvhcEntry>();
+      const entryDataMap = new Map<string, PopEntry>();
 
       for (const entry of parsedData.entries) {
         entryDataMap.set(entry.entryName, entry);
@@ -160,7 +173,7 @@ export class EchaSvhcSeeder {
 
         if (!entryName || !entryData) {
           console.warn(
-            `SVHC seeder: No entry found for substance - CAS: ${substance.casNumber ?? 'N/A'}, EC: ${substance.ecNumber ?? 'N/A'}, Name: ${substance.substanceName}`
+            `POP seeder: No entry found for substance - CAS: ${substance.casNumber ?? 'N/A'}, EC: ${substance.ecNumber ?? 'N/A'}, Name: ${substance.substanceName}`
           );
           skippedCount++;
           continue;
@@ -175,13 +188,13 @@ export class EchaSvhcSeeder {
             name: substance.substanceName,
             description: substance.description,
           },
-          'SVHC',
+          'POP',
           version
         );
 
         if (result.skipped || !result.substance) {
           console.warn(
-            `SVHC seeder: Skipped substance - ${result.skipReason || 'Unknown reason'}`
+            `POP seeder: Skipped substance - ${result.skipReason || 'Unknown reason'}`
           );
           skippedCount++;
           continue;
@@ -190,7 +203,7 @@ export class EchaSvhcSeeder {
         if (result.created) {
           stubsCreated++;
           console.log(
-            `SVHC seeder: Created stub - CAS: ${substance.casNumber}, Name: ${substance.substanceName}`
+            `POP seeder: Created stub - CAS: ${substance.casNumber}, Name: ${substance.substanceName}`
           );
         }
 
@@ -219,23 +232,23 @@ export class EchaSvhcSeeder {
         skippedCount,
         stubsCreated,
         version,
-        message: `Seeded ${entryCount} SVHC entries (${groupCount} groups, ${substancesLinked} substances linked, ${stubsCreated} stubs created, ${skippedCount} skipped) from ECHA (${version}).`,
+        message: `Seeded ${entryCount} POP entries (${groupCount} groups, ${substancesLinked} substances linked, ${stubsCreated} stubs created, ${skippedCount} skipped) from ECHA (${version}).`,
       };
     });
   }
 
   /**
-   * Seeds SVHC entries from a file (CSV or XLSX format).
+   * Seeds POP Regulation entries from a file (CSV or XLSX format).
    * Legacy method - prefer seedFromBothFiles for complete data.
    *
    * @param filePath - Path to the file
    * @param version - Version identifier for this data (e.g., "2026-01")
-   * @returns SvhcSeederResult with counts and status
+   * @returns PopSeederResult with counts and status
    */
-  async seedFromFile(filePath: string, version: string): Promise<SvhcSeederResult> {
+  async seedFromFile(filePath: string, version: string): Promise<PopSeederResult> {
     // Check if already seeded with same version
     const existingSource = await this.em.findOne(RegistrySource, {
-      name: RegistrySourceName.ECHA_SVHC,
+      name: RegistrySourceName.ECHA_POP,
     });
 
     if (existingSource?.version === version) {
@@ -247,7 +260,7 @@ export class EchaSvhcSeeder {
         skippedCount: 0,
         stubsCreated: 0,
         version,
-        message: `ECHA SVHC already seeded with version ${version}, skipping.`,
+        message: `ECHA POP Regulation already seeded with version ${version}, skipping.`,
       };
     }
 
@@ -257,16 +270,16 @@ export class EchaSvhcSeeder {
   }
 
   /**
-   * Seeds SVHC entries from CSV content.
+   * Seeds POP Regulation entries from CSV content.
    *
-   * @param csvContent - Raw CSV string with ECHA SVHC format
+   * @param csvContent - Raw CSV string with ECHA POP Regulation format
    * @param version - Version identifier for this data (e.g., "2026-01")
-   * @returns SvhcSeederResult with counts and status
+   * @returns PopSeederResult with counts and status
    */
-  async seedFromContent(csvContent: string, version: string): Promise<SvhcSeederResult> {
+  async seedFromContent(csvContent: string, version: string): Promise<PopSeederResult> {
     // Check if already seeded with same version (before transaction)
     const existingSource = await this.em.findOne(RegistrySource, {
-      name: RegistrySourceName.ECHA_SVHC,
+      name: RegistrySourceName.ECHA_POP,
     });
 
     if (existingSource?.version === version) {
@@ -278,7 +291,7 @@ export class EchaSvhcSeeder {
         skippedCount: 0,
         stubsCreated: 0,
         version,
-        message: `ECHA SVHC already seeded with version ${version}, skipping.`,
+        message: `ECHA POP Regulation already seeded with version ${version}, skipping.`,
       };
     }
 
@@ -291,7 +304,7 @@ export class EchaSvhcSeeder {
    * Seeds parsed records to the database.
    * Common logic used by both CSV and XLSX seeding methods.
    */
-  private async seedRecords(records: EchaSvhcRecord[], version: string): Promise<SvhcSeederResult> {
+  private async seedRecords(records: EchaPopRecord[], version: string): Promise<PopSeederResult> {
     if (records.length === 0) {
       return {
         seeded: false,
@@ -307,7 +320,7 @@ export class EchaSvhcSeeder {
 
     // Wrap all database operations in a transaction
     return await this.em.transactional(async (txEm) => {
-      // Create or find REACH_SVHC regulatory list
+      // Create or find POP regulatory list
       const regulatoryList = await this.getOrCreateRegulatoryList(txEm);
 
       // Process records and create entries
@@ -323,13 +336,13 @@ export class EchaSvhcSeeder {
             ecNumber: record.ecNumber,
             name: record.substanceName,
           },
-          'SVHC',
+          'POP',
           version
         );
 
         if (result.skipped || !result.substance) {
           console.warn(
-            `SVHC seeder: Skipped - ${result.skipReason || 'Unknown reason'}`
+            `POP seeder: Skipped - ${result.skipReason || 'Unknown reason'}`
           );
           skippedCount++;
           continue;
@@ -338,7 +351,7 @@ export class EchaSvhcSeeder {
         if (result.created) {
           stubsCreated++;
           console.log(
-            `SVHC seeder: Created stub - CAS: ${record.casNumber}, Name: ${record.substanceName}`
+            `POP seeder: Created stub - CAS: ${record.casNumber}, Name: ${record.substanceName}`
           );
         }
 
@@ -350,22 +363,29 @@ export class EchaSvhcSeeder {
           regulatoryList,
         });
 
+        // Build conditions object
+        const conditions: Record<string, unknown> = {
+          annexes: record.annexes,
+        };
+        if (record.exemptions) {
+          conditions['exemptions'] = record.exemptions;
+        }
+
         if (existingEntry) {
           // Update existing entry
-          existingEntry.listingDate = record.dateOfInclusion;
-          existingEntry.conditions = { reason: record.reasonForInclusion };
-          existingEntry.sourceReference = 'SVHC Candidate List';
+          existingEntry.status = record.listingStatus;
+          existingEntry.conditions = conditions;
+          existingEntry.sourceReference = formatSourceReference(record.annexes);
         } else {
           // Create new entry
           const entry = txEm.create(SubstanceListEntry, {
             id: createId(),
             substance,
             regulatoryList,
-            status: ListingStatus.LISTED,
+            status: record.listingStatus,
             scopes: [ProductScope.ALL_PRODUCTS],
-            listingDate: record.dateOfInclusion,
-            conditions: { reason: record.reasonForInclusion },
-            sourceReference: 'SVHC Candidate List',
+            conditions,
+            sourceReference: formatSourceReference(record.annexes),
             createdAt: new Date(),
             updatedAt: new Date(),
           });
@@ -388,26 +408,27 @@ export class EchaSvhcSeeder {
         skippedCount,
         stubsCreated,
         version,
-        message: `Seeded ${entryCount} SVHC entries (${stubsCreated} stubs created, ${skippedCount} skipped) from ECHA SVHC (${version}).`,
+        message: `Seeded ${entryCount} POP Regulation entries (${stubsCreated} stubs created, ${skippedCount} skipped) from ECHA export (${version}).`,
       };
     });
   }
 
   /**
-   * Gets or creates the REACH_SVHC regulatory list.
+   * Gets or creates the POP regulatory list.
    */
   private async getOrCreateRegulatoryList(txEm: EntityManager): Promise<RegulatoryList> {
-    let list = await txEm.findOne(RegulatoryList, { code: 'REACH_SVHC' });
+    let list = await txEm.findOne(RegulatoryList, { code: 'POP' });
 
     if (!list) {
       list = txEm.create(RegulatoryList, {
         id: createId(),
-        code: 'REACH_SVHC',
-        name: 'SVHC Candidate List',
+        code: 'POP',
+        name: 'EU POP Regulation (Persistent Organic Pollutants)',
         jurisdiction: 'EU',
-        publisher: 'ECHA',
-        description: 'Substances of Very High Concern (SVHC) identified under REACH Article 57',
-        sourceUrl: 'https://echa.europa.eu/candidate-list-table',
+        publisher: 'European Commission / ECHA',
+        description:
+          'The EU POP Regulation (EU 2019/1021) bans or restricts persistent organic pollutants. Annex I substances are prohibited, Annex II substances are restricted.',
+        sourceUrl: 'https://echa.europa.eu/list-of-substances-subject-to-pops-regulation',
         createdAt: new Date(),
         updatedAt: new Date(),
       });
@@ -420,7 +441,10 @@ export class EchaSvhcSeeder {
   /**
    * Finds a substance by CAS number or EC number.
    */
-  private async findSubstance(txEm: EntityManager, record: EchaSvhcRecord): Promise<Substance | null> {
+  private async findSubstance(
+    txEm: EntityManager,
+    record: EchaPopRecord
+  ): Promise<Substance | null> {
     // Try to find by CAS number first
     if (record.casNumber) {
       const byCas = await txEm.findOne(Substance, { casNumber: record.casNumber });
@@ -439,9 +463,13 @@ export class EchaSvhcSeeder {
   /**
    * Updates or creates the registry source record.
    */
-  private async updateRegistrySource(txEm: EntityManager, version: string, recordCount: number): Promise<void> {
+  private async updateRegistrySource(
+    txEm: EntityManager,
+    version: string,
+    recordCount: number
+  ): Promise<void> {
     const existing = await txEm.findOne(RegistrySource, {
-      name: RegistrySourceName.ECHA_SVHC,
+      name: RegistrySourceName.ECHA_POP,
     });
 
     if (existing) {
@@ -452,10 +480,10 @@ export class EchaSvhcSeeder {
     } else {
       const now = new Date();
       const source = txEm.create(RegistrySource, {
-        name: RegistrySourceName.ECHA_SVHC,
+        name: RegistrySourceName.ECHA_POP,
         version,
         recordCount,
-        sourceUrl: 'https://echa.europa.eu/candidate-list-table',
+        sourceUrl: 'https://echa.europa.eu/list-of-substances-subject-to-pops-regulation',
         lastSyncedAt: now,
         createdAt: now,
         updatedAt: now,
@@ -465,13 +493,13 @@ export class EchaSvhcSeeder {
   }
 
   /**
-   * Gets or creates a SubstanceGroup for an SVHC entry.
+   * Gets or creates a SubstanceGroup for a POP entry.
    */
   private async getOrCreateSubstanceGroup(
     txEm: EntityManager,
-    entry: SvhcEntry
+    entry: PopEntry
   ): Promise<SubstanceGroup> {
-    const code = generateSvhcGroupCode(entry.entryName);
+    const code = generatePopGroupCode(entry.entryName);
 
     let group = await txEm.findOne(SubstanceGroup, { code });
 
@@ -480,7 +508,7 @@ export class EchaSvhcSeeder {
         id: createId(),
         code,
         name: entry.entryName,
-        description: entry.description || `SVHC Candidate List: ${entry.entryName}`,
+        description: entry.description || `POP Regulation: ${entry.entryName}`,
         createdAt: new Date(),
         updatedAt: new Date(),
       });
@@ -497,7 +525,7 @@ export class EchaSvhcSeeder {
     txEm: EntityManager,
     group: SubstanceGroup,
     regulatoryList: RegulatoryList,
-    entry: SvhcEntry
+    entry: PopEntry
   ): Promise<SubstanceListEntry> {
     const existing = await txEm.findOne(SubstanceListEntry, {
       substanceGroup: group,
@@ -506,18 +534,18 @@ export class EchaSvhcSeeder {
 
     // Build conditions object
     const conditions: Record<string, unknown> = {
-      reason: entry.reasonForInclusion,
+      annexes: entry.annexes,
     };
-    if (entry.decisionUrl) {
-      conditions['decisionUrl'] = entry.decisionUrl;
+    if (entry.regulatoryOutcome) {
+      conditions['regulatoryOutcome'] = entry.regulatoryOutcome;
     }
 
     if (existing) {
       // Update existing entry
-      existing.status = ListingStatus.LISTED;
+      existing.status = entry.listingStatus;
       existing.listingDate = entry.dateOfInclusion ?? undefined;
       existing.conditions = conditions;
-      existing.sourceReference = 'SVHC Candidate List';
+      existing.sourceReference = formatSourceReference(entry.annexes);
       existing.updatedAt = new Date();
       return existing;
     }
@@ -526,11 +554,11 @@ export class EchaSvhcSeeder {
       id: createId(),
       substanceGroup: group,
       regulatoryList,
-      status: ListingStatus.LISTED,
+      status: entry.listingStatus,
       scopes: [ProductScope.ALL_PRODUCTS],
       listingDate: entry.dateOfInclusion ?? undefined,
       conditions,
-      sourceReference: 'SVHC Candidate List',
+      sourceReference: formatSourceReference(entry.annexes),
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -545,7 +573,7 @@ export class EchaSvhcSeeder {
     txEm: EntityManager,
     substance: Substance,
     regulatoryList: RegulatoryList,
-    entry: SvhcEntry
+    entry: PopEntry
   ): Promise<SubstanceListEntry> {
     const existing = await txEm.findOne(SubstanceListEntry, {
       substance,
@@ -554,18 +582,18 @@ export class EchaSvhcSeeder {
 
     // Build conditions object
     const conditions: Record<string, unknown> = {
-      reason: entry.reasonForInclusion,
+      annexes: entry.annexes,
     };
-    if (entry.decisionUrl) {
-      conditions['decisionUrl'] = entry.decisionUrl;
+    if (entry.regulatoryOutcome) {
+      conditions['regulatoryOutcome'] = entry.regulatoryOutcome;
     }
 
     if (existing) {
       // Update existing entry
-      existing.status = ListingStatus.LISTED;
+      existing.status = entry.listingStatus;
       existing.listingDate = entry.dateOfInclusion ?? undefined;
       existing.conditions = conditions;
-      existing.sourceReference = 'SVHC Candidate List';
+      existing.sourceReference = formatSourceReference(entry.annexes);
       existing.updatedAt = new Date();
       return existing;
     }
@@ -574,11 +602,11 @@ export class EchaSvhcSeeder {
       id: createId(),
       substance,
       regulatoryList,
-      status: ListingStatus.LISTED,
+      status: entry.listingStatus,
       scopes: [ProductScope.ALL_PRODUCTS],
       listingDate: entry.dateOfInclusion ?? undefined,
       conditions,
-      sourceReference: 'SVHC Candidate List',
+      sourceReference: formatSourceReference(entry.annexes),
       createdAt: new Date(),
       updatedAt: new Date(),
     });

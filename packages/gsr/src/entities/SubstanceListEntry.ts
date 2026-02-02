@@ -73,4 +73,8 @@ export class SubstanceListEntry extends BaseEntity {
   /** Reference to source (e.g., "Annex XVII Entry 63") */
   @Property({ type: 'text', name: 'source_reference', nullable: true })
   sourceReference?: string;
+
+  /** URL to the legal document (e.g., EUR-Lex link) */
+  @Property({ type: 'text', name: 'source_url', nullable: true })
+  sourceUrl?: string;
 }

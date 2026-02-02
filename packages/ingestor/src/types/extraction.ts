@@ -6,7 +6,7 @@ import { z } from 'zod';
 export const RegulationMetadataSchema = z.object({
   code: z.string(),
   name: z.string(),
-  sourceUrl: z.string().url().nullish(),
+  sourceUrl: z.string().nullish(), // Accept any string, not just URLs (Claude may return identifiers)
   version: z.string().nullish(),
   effectiveDate: z.string().nullish(),
   jurisdiction: z.string().nullish(),

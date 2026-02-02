@@ -1,6 +1,8 @@
 // packages/gsr/src/parsers/echa-svhc.parser.ts
 import { parse } from 'csv-parse/sync';
+import { readFileSync } from 'node:fs';
 import { sanitizeCas } from '../utils/cas-sanitizer.js';
+import { readXlsxFile, detectFileFormat } from '../utils/xlsx-reader.js';
 
 export interface EchaSvhcRecord {
   substanceName: string;
@@ -8,6 +10,66 @@ export interface EchaSvhcRecord {
   casNumber?: string;
   dateOfInclusion: Date;
   reasonForInclusion: string;
+}
+
+/**
+ * Entry from the entries/full file (has regulatory data).
+ */
+export interface SvhcEntry {
+  entryName: string;
+  ecNumber?: string;
+  casNumber?: string;
+  dateOfInclusion: Date | null;
+  reasonForInclusion: string;
+  decisionUrl?: string;
+  description?: string;
+}
+
+/**
+ * Substance from the expanded substances file.
+ */
+export interface SvhcSubstance {
+  substanceName: string;
+  casNumber?: string;
+  ecNumber?: string;
+  regulatoryGroup?: string; // Links to entry name
+  description?: string;
+}
+
+/**
+ * Combined parsed data from both files.
+ */
+export interface SvhcParsedData {
+  entries: SvhcEntry[];
+  substances: SvhcSubstance[];
+  groupToEntryMap: Map<string, string>; // regulatory group -> entry name
+}
+
+/**
+ * Raw row format from ECHA SVHC entries/full XLSX export.
+ */
+export interface SvhcEntriesRawRow {
+  'Substance name': string;
+  'Description'?: string;
+  'EC number'?: string;
+  'CAS number'?: string;
+  'Date of inclusion'?: string;
+  'Reason for inclusion'?: string;
+  'Decision'?: string;
+  'Regulatory outcome'?: string;
+  'Regulatory outcome date'?: string;
+}
+
+/**
+ * Raw row format from ECHA SVHC substances/expanded XLSX export.
+ */
+export interface SvhcSubstancesRawRow {
+  'Substance name': string;
+  'Description'?: string;
+  'EC number'?: string;
+  'CAS number'?: string;
+  'Regulatory group'?: string;
+  'Group relationship'?: string;
 }
 
 /**
@@ -79,6 +141,25 @@ function parseDate(dateStr: string): Date | null {
  * that may be subject to authorization requirements.
  */
 export class EchaSvhcParser {
+  /**
+   * Parses an ECHA SVHC file (CSV or XLSX format).
+   *
+   * @param filePath - Path to the file
+   * @returns Array of valid parsed records
+   */
+  async parseFile(filePath: string): Promise<EchaSvhcRecord[]> {
+    const format = detectFileFormat(filePath);
+
+    if (format === 'xlsx') {
+      const rows = readXlsxFile<EchaSvhcRawRow>(filePath);
+      return this.parseRows(rows);
+    }
+
+    // CSV format
+    const content = readFileSync(filePath, 'utf-8');
+    return this.parse(content);
+  }
+
   /**
    * Parses a single row from the ECHA SVHC list.
    *
@@ -201,5 +282,108 @@ export class EchaSvhcParser {
     }
 
     return results;
+  }
+
+  /**
+   * Parses both entries and substances files and links them together.
+   *
+   * @param entriesFilePath - Path to the entries/full file (has regulatory data)
+   * @param substancesFilePath - Path to the substances/expanded file (has all individual substances)
+   * @returns Combined parsed data with entries, substances, and linking map
+   */
+  async parseBothFiles(entriesFilePath: string, substancesFilePath: string): Promise<SvhcParsedData> {
+    const entries = await this.parseEntriesFile(entriesFilePath);
+    const substances = await this.parseSubstancesFile(substancesFilePath);
+
+    // Build map from regulatory group name to entry name
+    // In SVHC, the regulatory group IS the entry name
+    const groupToEntryMap = new Map<string, string>();
+    for (const entry of entries) {
+      groupToEntryMap.set(entry.entryName, entry.entryName);
+    }
+
+    return { entries, substances, groupToEntryMap };
+  }
+
+  /**
+   * Parses the entries/full XLSX file (contains regulatory data).
+   */
+  async parseEntriesFile(filePath: string): Promise<SvhcEntry[]> {
+    const rows = readXlsxFile<SvhcEntriesRawRow>(filePath);
+    const entries: SvhcEntry[] = [];
+
+    for (const row of rows) {
+      const entryName = row['Substance name']?.trim();
+      if (!entryName) continue;
+
+      const rawCas = row['CAS number'];
+      const casNumber = isNoCasValue(rawCas) ? undefined : sanitizeCas(rawCas) || undefined;
+
+      entries.push({
+        entryName,
+        ecNumber: row['EC number']?.trim() || undefined,
+        casNumber,
+        dateOfInclusion: parseDate(row['Date of inclusion'] || ''),
+        reasonForInclusion: row['Reason for inclusion']?.trim() || '',
+        decisionUrl: row['Decision']?.trim() || undefined,
+        description: row['Description']?.trim() || undefined,
+      });
+    }
+
+    return entries;
+  }
+
+  /**
+   * Parses the substances/expanded XLSX file (contains all individual substances).
+   */
+  async parseSubstancesFile(filePath: string): Promise<SvhcSubstance[]> {
+    const rows = readXlsxFile<SvhcSubstancesRawRow>(filePath);
+    const substances: SvhcSubstance[] = [];
+
+    for (const row of rows) {
+      const substanceName = row['Substance name']?.trim();
+      if (!substanceName) continue;
+
+      const rawCas = row['CAS number'];
+      const casNumber = isNoCasValue(rawCas) ? undefined : sanitizeCas(rawCas) || undefined;
+
+      const regulatoryGroup = row['Regulatory group']?.trim();
+
+      substances.push({
+        substanceName,
+        casNumber,
+        ecNumber: row['EC number']?.trim() || undefined,
+        regulatoryGroup: regulatoryGroup && regulatoryGroup !== '-' ? regulatoryGroup : undefined,
+        description: row['Description']?.trim() || undefined,
+      });
+    }
+
+    return substances;
+  }
+
+  /**
+   * Finds the entry name for a substance based on its regulatory group.
+   * For standalone substances (no group), matches by substance name.
+   *
+   * @param substance - Substance to find entry for
+   * @param parsedData - Parsed data with entries and map
+   * @returns Entry name or undefined if not found
+   */
+  findEntryForSubstance(substance: SvhcSubstance, parsedData: SvhcParsedData): string | undefined {
+    // If substance has a regulatory group, use it to find the entry
+    if (substance.regulatoryGroup) {
+      if (parsedData.groupToEntryMap.has(substance.regulatoryGroup)) {
+        return substance.regulatoryGroup;
+      }
+    }
+
+    // For standalone substances, find by substance name matching entry name
+    for (const entry of parsedData.entries) {
+      if (entry.entryName === substance.substanceName) {
+        return entry.entryName;
+      }
+    }
+
+    return undefined;
   }
 }

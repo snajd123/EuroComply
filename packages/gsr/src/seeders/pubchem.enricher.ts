@@ -60,6 +60,7 @@ export class PubChemEnricher {
 
   /**
    * Enriches a single substance with PubChem data.
+   * Each substance is processed atomically - all changes are persisted and flushed together.
    *
    * @param substance - The substance to enrich
    * @returns Object with enriched status and alias count
@@ -73,11 +74,15 @@ export class PubChemEnricher {
 
     // Skip if already enriched
     if (substance.smiles) {
+      // Still flush ECHA URL change if any
+      await this.em.flush();
       return { enriched: false, aliasCount: 0 };
     }
 
     // Skip if no CAS number
     if (!substance.casNumber) {
+      // Still flush ECHA URL change if any
+      await this.em.flush();
       return { enriched: false, aliasCount: 0 };
     }
 
@@ -85,6 +90,8 @@ export class PubChemEnricher {
     const data = await this.client.getEnrichmentData(substance.casNumber);
 
     if (!data) {
+      // Still flush ECHA URL change if any
+      await this.em.flush();
       return { enriched: false, aliasCount: 0 };
     }
 
@@ -105,20 +112,28 @@ export class PubChemEnricher {
       substance.molecularFormula = data.molecularFormula;
     }
 
-    // Create aliases from PubChem synonyms
-    let aliasCount = 0;
+    // Collect aliases from PubChem synonyms (don't persist yet)
+    const aliases: SubstanceAlias[] = [];
     if (data.synonyms && data.synonyms.length > 0) {
-      aliasCount = await this.createAliases(substance, data.synonyms);
+      const newAliases = await this.collectAliases(substance, data.synonyms);
+      aliases.push(...newAliases);
     }
 
-    return { enriched: true, aliasCount };
+    // Persist all aliases and flush atomically
+    for (const alias of aliases) {
+      this.em.persist(alias);
+    }
+    await this.em.flush();
+
+    return { enriched: true, aliasCount: aliases.length };
   }
 
   /**
-   * Creates SubstanceAlias records from PubChem synonyms.
+   * Collects SubstanceAlias records from PubChem synonyms without persisting them.
    * Skips duplicates and limits to reasonable number of aliases per substance.
+   * Returns the aliases to be persisted by the caller.
    */
-  private async createAliases(substance: Substance, synonyms: string[]): Promise<number> {
+  private async collectAliases(substance: Substance, synonyms: string[]): Promise<SubstanceAlias[]> {
     // Limit synonyms to prevent overwhelming the database
     // PubChem can return hundreds of synonyms for common compounds
     const MAX_ALIASES_PER_SUBSTANCE = 50;
@@ -131,7 +146,7 @@ export class PubChemEnricher {
     });
     const existingNames = new Set(existingAliases.map((a) => a.name.toLowerCase()));
 
-    let created = 0;
+    const aliases: SubstanceAlias[] = [];
     for (const synonym of limitedSynonyms) {
       // Skip empty or very short synonyms
       if (!synonym || synonym.trim().length < 2) {
@@ -163,12 +178,12 @@ export class PubChemEnricher {
       alias.type = aliasType;
       alias.source = AliasSource.PUBCHEM;
       alias.language = 'en';
-      this.em.persist(alias);
+      // Don't persist here - let caller handle it
       existingNames.add(synonym.toLowerCase());
-      created++;
+      aliases.push(alias);
     }
 
-    return created;
+    return aliases;
   }
 
   /**
@@ -202,6 +217,7 @@ export class PubChemEnricher {
 
   /**
    * Enriches multiple substances in batch.
+   * Each substance is processed and flushed atomically to prevent cross-contamination on errors.
    *
    * @param substances - Array of substances to enrich
    * @param options - Options for batch processing
@@ -249,6 +265,8 @@ export class PubChemEnricher {
       } catch (error) {
         console.error(`Failed to enrich substance ${substance.casNumber}:`, error);
         failedCount++;
+        // Clear any pending changes for this failed substance to prevent contamination
+        this.em.clear();
       }
 
       if (onProgress) {
@@ -256,8 +274,7 @@ export class PubChemEnricher {
       }
     }
 
-    // Flush all changes at once instead of per-substance
-    await this.em.flush();
+    // No batch flush needed - each substance is flushed atomically in enrichSubstance
 
     return {
       enrichedCount,

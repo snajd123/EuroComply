@@ -1,5 +1,12 @@
 // packages/gsr/src/parsers/echa-inventory.parser.ts
 import { parse } from 'csv-parse/sync';
+import { createReadStream } from 'node:fs';
+import { readdir, readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { Extract } from 'unzipper';
+import { XMLParser } from 'fast-xml-parser';
 import { sanitizeCas } from '../utils/cas-sanitizer.js';
 
 export interface EchaInventoryRecord {
@@ -25,12 +32,7 @@ export interface EchaRawRow {
 /**
  * Patterns that indicate no CAS number is available (not an error)
  */
-const NO_CAS_PATTERNS = [
-  /^-$/,
-  /^$/,
-  /^n\/?a$/i,
-  /^not\s*(available|applicable)$/i,
-];
+const NO_CAS_PATTERNS = [/^-$/, /^$/, /^n\/?a$/i, /^not\s*(available|applicable)$/i];
 
 /**
  * Checks if a CAS value indicates "no CAS number" (as opposed to an invalid CAS)
@@ -42,21 +44,17 @@ function isNoCasValue(cas: string | undefined): boolean {
 }
 
 /**
- * Parser for ECHA EC Inventory CSV files.
+ * Parser for ECHA EC Inventory files.
  *
- * The EC Inventory contains substance identifiers from the European Chemicals Agency.
- * Each record contains an EC number (EINECS/ELINCS/NLP), primary name, optional CAS number,
- * molecular formula, and description.
+ * Supports two formats:
+ * - CSV/TSV: Tab-separated export from ECHA website
+ * - i6z: IUCLID format (ZIP containing XML files)
  */
 export class EchaInventoryParser {
   /**
-   * Parses a single row from the ECHA inventory.
-   *
-   * @param row - Raw CSV row with ECHA column names
-   * @returns Parsed record or null if row is invalid (missing required fields or invalid CAS)
+   * Parses a single row from the ECHA CSV inventory.
    */
   parseRow(row: EchaRawRow): EchaInventoryRecord | null {
-    // Validate required fields - use actual ECHA column names
     const ecNumber = row['EC no.']?.trim();
     const ecName = row['Name']?.trim();
 
@@ -66,9 +64,7 @@ export class EchaInventoryParser {
 
     const rawCas = row['CAS no.'];
 
-    // Check if CAS is a "no value" placeholder
     if (isNoCasValue(rawCas)) {
-      // Accept record without CAS number
       return {
         ecNumber,
         primaryName: ecName.toLowerCase(),
@@ -78,11 +74,9 @@ export class EchaInventoryParser {
       };
     }
 
-    // CAS is present - validate it
     const sanitizedCas = sanitizeCas(rawCas);
 
     if (sanitizedCas === null) {
-      // CAS was provided but is invalid (bad format or checksum)
       return null;
     }
 
@@ -97,16 +91,8 @@ export class EchaInventoryParser {
 
   /**
    * Parses CSV content from an ECHA EC Inventory file.
-   *
-   * Note: ECHA exports have metadata header lines before the actual data.
-   * The format uses tab as delimiter and has headers like "CAS no.", "EC no.", "Name".
-   *
-   * @param csvContent - Raw CSV/TSV string from ECHA export
-   * @returns Array of valid parsed records (invalid rows are skipped)
    */
   async parse(csvContent: string): Promise<EchaInventoryRecord[]> {
-    // ECHA exports have metadata lines before actual data
-    // Find the actual header line (contains "CAS no." and "EC no.")
     const lines = csvContent.split('\n');
     let headerLineIndex = -1;
 
@@ -119,7 +105,6 @@ export class EchaInventoryParser {
     }
 
     if (headerLineIndex === -1) {
-      // Fallback: try parsing as-is (may be a cleaned file)
       const rows = parse(csvContent, {
         columns: true,
         skip_empty_lines: true,
@@ -130,7 +115,6 @@ export class EchaInventoryParser {
       return this.parseRows(rows);
     }
 
-    // Extract content from header line onwards
     const dataContent = lines.slice(headerLineIndex).join('\n');
 
     const rows = parse(dataContent, {
@@ -144,7 +128,172 @@ export class EchaInventoryParser {
   }
 
   /**
-   * Parses an array of raw rows into records.
+   * Parses an i6z file (IUCLID EC Inventory format).
+   *
+   * The EC Inventory i6z format is a ZIP archive containing:
+   * - A single large .i6i XML file with all inventory entries
+   * - A manifest.xml file
+   *
+   * Structure of the .i6i file:
+   * <Inventory>
+   *   <inventoryEntries>
+   *     <inventoryEntry>
+   *       <inventoryNumber>200-579-1</inventoryNumber>
+   *       <inventoryNames><inventoryName>formic acid</inventoryName></inventoryNames>
+   *       <casNumber>64-18-6</casNumber>
+   *       <molecularFormula>CH2O2</molecularFormula>
+   *     </inventoryEntry>
+   *     ...
+   *   </inventoryEntries>
+   * </Inventory>
+   *
+   * @param i6zPath - Path to the i6z file
+   * @param onProgress - Optional callback for progress updates
+   * @returns Array of parsed records
+   */
+  async parseI6z(
+    i6zPath: string,
+    onProgress?: (processed: number, found: number) => void
+  ): Promise<EchaInventoryRecord[]> {
+    // Create temp directory for extraction
+    const tempDir = await mkdtemp(join(tmpdir(), 'i6z-'));
+
+    try {
+      // Extract the i6z (ZIP) file
+      await this.extractZip(i6zPath, tempDir);
+
+      // Find the .i6i file (the main data file)
+      const i6iFile = await this.findI6iFile(tempDir);
+      if (!i6iFile) {
+        return [];
+      }
+
+      // Read the large XML file
+      const xmlContent = await readFile(i6iFile, 'utf-8');
+
+      // Parse the XML
+      const xmlParser = new XMLParser({
+        ignoreAttributes: true,
+        textNodeName: '_text',
+        isArray: (name) => name === 'inventoryEntry' || name === 'inventoryName',
+      });
+
+      const doc = xmlParser.parse(xmlContent);
+
+      // Extract inventory entries
+      const inventory = doc?.Inventory;
+      if (!inventory) {
+        return [];
+      }
+
+      const entries = inventory.inventoryEntries?.inventoryEntry;
+      if (!entries || !Array.isArray(entries)) {
+        return [];
+      }
+
+      const records: EchaInventoryRecord[] = [];
+      let processed = 0;
+
+      for (const entry of entries) {
+        processed++;
+
+        if (onProgress && processed % 10000 === 0) {
+          onProgress(processed, records.length);
+        }
+
+        const record = this.parseInventoryEntry(entry);
+        if (record) {
+          records.push(record);
+        }
+      }
+
+      if (onProgress) {
+        onProgress(processed, records.length);
+      }
+
+      return records;
+    } finally {
+      // Cleanup temp directory
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  }
+
+  /**
+   * Parses a single inventory entry from the EC Inventory XML.
+   */
+  private parseInventoryEntry(entry: Record<string, unknown>): EchaInventoryRecord | null {
+    try {
+      // EC Number (inventoryNumber)
+      const ecNumber = String(entry['inventoryNumber'] || '').trim();
+
+      // Name (first inventoryName)
+      const names = entry['inventoryNames'] as { inventoryName?: string | string[] } | undefined;
+      let primaryName = '';
+      if (names?.inventoryName) {
+        if (Array.isArray(names.inventoryName)) {
+          primaryName = String(names.inventoryName[0] || '').trim();
+        } else {
+          primaryName = String(names.inventoryName || '').trim();
+        }
+      }
+
+      // Must have EC number and name
+      if (!ecNumber || !primaryName) {
+        return null;
+      }
+
+      // CAS Number (optional)
+      const rawCas = String(entry['casNumber'] || '').trim();
+      let casNumber: string | undefined;
+
+      if (rawCas && !isNoCasValue(rawCas)) {
+        const sanitized = sanitizeCas(rawCas);
+        if (sanitized) {
+          casNumber = sanitized;
+        }
+      }
+
+      // Molecular Formula (optional)
+      const molecularFormula = String(entry['molecularFormula'] || '').trim() || undefined;
+
+      return {
+        ecNumber,
+        primaryName: primaryName.toLowerCase(),
+        casNumber,
+        molecularFormula,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Extracts a ZIP file to a directory.
+   */
+  private async extractZip(zipPath: string, outputDir: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      createReadStream(zipPath)
+        .pipe(Extract({ path: outputDir }))
+        .on('close', resolve)
+        .on('error', reject);
+    });
+  }
+
+  /**
+   * Finds the .i6i file in the extracted directory.
+   */
+  private async findI6iFile(dir: string): Promise<string | null> {
+    const entries = await readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isFile() && entry.name.endsWith('.i6i')) {
+        return join(dir, entry.name);
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Parses an array of raw CSV rows into records.
    */
   private parseRows(rows: EchaRawRow[]): EchaInventoryRecord[] {
     const results: EchaInventoryRecord[] = [];

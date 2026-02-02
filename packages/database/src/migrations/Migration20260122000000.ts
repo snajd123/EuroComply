@@ -500,6 +500,7 @@ export class Migration20260122000000 extends Migration {
         "scope_raw" text,
         "conditions" jsonb,
         "source_reference" text,
+        "source_url" text,
         CHECK ("substance_id" IS NOT NULL OR "substance_group_id" IS NOT NULL)
       );
     `);
@@ -556,6 +557,71 @@ export class Migration20260122000000 extends Migration {
     this.addSql('CREATE INDEX IF NOT EXISTS "blind_disclosure_token_idx" ON "public"."blind_disclosure_request" ("secure_token");');
 
     // =====================================================
+    // CLP Identity Fields on Substance table
+    // =====================================================
+    this.addSql(`
+      ALTER TABLE "public"."substance"
+      ADD COLUMN IF NOT EXISTS "index_number" varchar(20),
+      ADD COLUMN IF NOT EXISTS "clp_version" varchar(20);
+    `);
+    this.addSql('CREATE INDEX IF NOT EXISTS "substance_index_number_idx" ON "public"."substance" ("index_number");');
+
+    // =====================================================
+    // Hazard Class table - CLP/GHS hazard classes (~33 classes)
+    // =====================================================
+    this.addSql(`
+      CREATE TABLE IF NOT EXISTS "public"."hazard_class" (
+        "code" varchar(50) PRIMARY KEY,
+        "full_name" varchar(100) NOT NULL,
+        "hazard_type" varchar(20) NOT NULL,
+        "pictogram" varchar(10),
+        "signal_word" varchar(10),
+        "is_cmr" boolean NOT NULL DEFAULT false
+      );
+    `);
+    this.addSql('CREATE INDEX IF NOT EXISTS "hazard_class_hazard_type_idx" ON "public"."hazard_class" ("hazard_type");');
+    this.addSql('CREATE INDEX IF NOT EXISTS "hazard_class_is_cmr_idx" ON "public"."hazard_class" ("is_cmr");');
+
+    // =====================================================
+    // Hazard Statement table - H-statements with translations
+    // =====================================================
+    this.addSql(`
+      CREATE TABLE IF NOT EXISTS "public"."hazard_statement" (
+        "code" varchar(20) PRIMARY KEY,
+        "translations" jsonb NOT NULL,
+        "primary_hazard_class_code" varchar(50) REFERENCES "public"."hazard_class"("code")
+      );
+    `);
+    this.addSql('CREATE INDEX IF NOT EXISTS "hazard_statement_primary_class_idx" ON "public"."hazard_statement" ("primary_hazard_class_code");');
+
+    // =====================================================
+    // Substance Hazard Classification table - junction for CLP Annex VI
+    // =====================================================
+    this.addSql(`
+      CREATE TABLE IF NOT EXISTS "public"."substance_hazard_classification" (
+        "id" text PRIMARY KEY,
+        "created_at" timestamptz NOT NULL DEFAULT NOW(),
+        "updated_at" timestamptz NOT NULL DEFAULT NOW(),
+        "substance_id" text NOT NULL REFERENCES "public"."substance"("id") ON DELETE CASCADE,
+        "hazard_class_code" varchar(50) NOT NULL REFERENCES "public"."hazard_class"("code"),
+        "category" varchar(10),
+        "h_code" varchar(20),
+        "notes" text[],
+        "scl_logic" jsonb,
+        "m_factor" integer,
+        "is_minimum_classification" boolean NOT NULL DEFAULT false,
+        "atp_source" varchar(20) NOT NULL,
+        "valid_from" date NOT NULL,
+        "valid_to" date
+      );
+    `);
+    this.addSql('CREATE INDEX IF NOT EXISTS "shc_substance_idx" ON "public"."substance_hazard_classification" ("substance_id");');
+    this.addSql('CREATE INDEX IF NOT EXISTS "shc_hazard_class_idx" ON "public"."substance_hazard_classification" ("hazard_class_code");');
+    this.addSql('CREATE INDEX IF NOT EXISTS "shc_valid_from_idx" ON "public"."substance_hazard_classification" ("valid_from");');
+    this.addSql('CREATE INDEX IF NOT EXISTS "shc_atp_source_idx" ON "public"."substance_hazard_classification" ("atp_source");');
+    this.addSql('CREATE UNIQUE INDEX IF NOT EXISTS "shc_unique_classification_idx" ON "public"."substance_hazard_classification" ("substance_id", "hazard_class_code", "category", "h_code") WHERE "valid_to" IS NULL;');
+
+    // =====================================================
     // Product Scope Hierarchy table - recursive scope queries
     // =====================================================
     this.addSql(`
@@ -591,6 +657,20 @@ export class Migration20260122000000 extends Migration {
   }
 
   override async down(): Promise<void> {
+    // =====================================================
+    // Drop CLP tables (reverse order of creation)
+    // =====================================================
+    this.addSql('DROP TABLE IF EXISTS "public"."substance_hazard_classification" CASCADE;');
+    this.addSql('DROP TABLE IF EXISTS "public"."hazard_statement" CASCADE;');
+    this.addSql('DROP TABLE IF EXISTS "public"."hazard_class" CASCADE;');
+
+    // Drop CLP columns from substance
+    this.addSql(`
+      ALTER TABLE "public"."substance"
+      DROP COLUMN IF EXISTS "index_number",
+      DROP COLUMN IF EXISTS "clp_version";
+    `);
+
     // =====================================================
     // Drop GSR tables (reverse order of creation)
     // =====================================================
