@@ -40,9 +40,10 @@ The Handler Standard Library is to EuroComply what CPU instructions are to a com
 6. [Graph Handlers](#6-graph-handlers)
 7. [Resolution Handlers](#7-resolution-handlers)
 8. [AI/Intelligence Handlers](#8-aiintelligence-handlers)
-9. [MCP Tool Interface](#9-mcp-tool-interface)
-10. [The Simulator](#10-the-simulator)
-11. [Implementation Plan](#11-implementation-plan)
+9. [**AI-Programmable Platform**](#9-ai-programmable-platform) *(Core Innovation)*
+10. [MCP Tool Interface](#10-mcp-tool-interface)
+11. [The Simulator](#11-the-simulator)
+12. [Implementation Plan](#12-implementation-plan)
 
 ---
 
@@ -978,11 +979,477 @@ interface ExplainConfig {
 
 ---
 
-## 9. MCP Tool Interface
+## 9. AI-Programmable Platform
+
+This is the **core innovation** of EuroComply v2: the platform is not fixed software - it's a **Generative Operating System** that AI agents can program at runtime.
+
+### 9.1 The Vision: Software That Programs Itself
+
+Traditional compliance software:
+```
+Developer writes code → Deploys → Users use fixed features
+```
+
+EuroComply v2:
+```
+Handlers are the instruction set (immutable, tested, audited)
+     ↓
+AI Agent composes handlers into rules/verticals/workflows
+     ↓
+Simulator validates the composition (shadow test)
+     ↓
+Human approves → Production deployment
+     ↓
+Platform gains new capability WITHOUT code deployment
+```
+
+**This means:**
+- New regulation? AI reads it and creates rules.
+- New industry vertical? AI defines it from existing handlers.
+- Customer-specific workflow? AI configures it.
+- No developer in the loop for capability expansion.
+
+### 9.2 What AI Agents Can Program
+
+| Programmable Element | What It Is | Example |
+|---------------------|------------|---------|
+| **Vertical** | Industry-specific configuration | "Biocides", "Medical Devices", "Batteries" |
+| **Workspace** | Role-based view within vertical | "Formulation", "Regulatory Affairs", "QA" |
+| **Rule** | Compliance check composed from handlers | "SVHC > 0.1% requires notification" |
+| **Entity Schema** | Data structure for vertical-specific data | Cosmetic formulation fields, battery cell chemistry |
+| **Workflow** | State machine for product lifecycle | Draft → Review → Approved → Published |
+| **UI Configuration** | How data is displayed/edited | Field order, required fields, conditional visibility |
+
+### 9.3 MCP as the Universal Interface
+
+**MCP (Model Context Protocol)** is how AI agents interact with the platform. Every programmable action is an MCP tool.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     AI AGENT (Claude, GPT, etc.)                │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              │ MCP Protocol
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    EUROCOMPLY MCP SERVER                        │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐             │
+│  │   META      │  │    OPS      │  │ INTELLIGENCE│             │
+│  │   Tools     │  │    Tools    │  │    Tools    │             │
+│  ├─────────────┤  ├─────────────┤  ├─────────────┤             │
+│  │create_      │  │get_product  │  │analyze_gap  │             │
+│  │  vertical   │  │update_      │  │interpret_   │             │
+│  │create_rule  │  │  material   │  │  regulation │             │
+│  │define_      │  │evaluate_    │  │explain_     │             │
+│  │  workspace  │  │  compliance │  │  decision   │             │
+│  │define_      │  │trace_       │  │classify     │             │
+│  │  entity     │  │  substance  │  │             │             │
+│  └──────┬──────┘  └─────────────┘  └─────────────┘             │
+│         │                                                       │
+│         │ Requires Simulator Approval                           │
+│         ▼                                                       │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │                    SIMULATOR                             │   │
+│  │  Shadow Schema → Validate → Diff Report → Human Approve  │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                  HANDLER STANDARD LIBRARY                       │
+│            (48 immutable, tested, audited primitives)           │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 9.4 Example: AI Creates a "Biocides" Vertical
+
+Here's the complete flow of an AI agent creating a new industry vertical:
+
+**Step 1: AI Reads the Regulation**
+
+```typescript
+// AI uses intelligence tools to understand EU Biocidal Products Regulation
+const interpretation = await mcp.call('eurocomply:interpret_regulation', {
+  regulation: { id: 'EU_BPR_528_2012' },
+  questions: [
+    { id: 'product_types', question: 'What are the 22 biocidal product types?', answer_type: 'category' },
+    { id: 'approval_requirements', question: 'What are the active substance approval requirements?', answer_type: 'action_required' },
+    { id: 'efficacy_requirements', question: 'What efficacy data is required?', answer_type: 'freeform' }
+  ]
+});
+```
+
+**Step 2: AI Defines the Vertical**
+
+```typescript
+// AI composes a vertical definition
+const verticalDefinition = await mcp.call('eurocomply:create_vertical', {
+  vertical: {
+    id: 'biocides',
+    name: 'Biocidal Products',
+    description: 'EU BPR 528/2012 compliance for biocidal products',
+
+    // Which GSR personas does this vertical use?
+    gsr_personas: ['substance_biocide', 'substance_hazard_classification'],
+
+    // Vertical-specific configuration
+    config: {
+      product_types: [1, 2, 3, 4, 5, /* ... 22 types */],
+      requires_active_substance_approval: true,
+      efficacy_data_required: true
+    }
+  }
+});
+// Returns: { status: 'pending_simulation', simulation_id: 'sim_123' }
+```
+
+**Step 3: AI Defines Workspaces**
+
+```typescript
+// AI creates workspaces for different roles
+await mcp.call('eurocomply:define_workspace', {
+  vertical_id: 'biocides',
+  workspaces: [
+    {
+      code: 'formulation',
+      name: 'Product Formulation',
+      description: 'Define biocidal product composition',
+      available_roles: ['VIEWER', 'CONTRIBUTOR', 'EDITOR', 'MANAGER'],
+      icon: 'flask',
+      color: 'green'
+    },
+    {
+      code: 'regulatory',
+      name: 'Regulatory Dossier',
+      description: 'Prepare and manage authorization dossiers',
+      available_roles: ['VIEWER', 'CONTRIBUTOR', 'EDITOR', 'MANAGER'],
+      icon: 'document',
+      color: 'blue'
+    },
+    {
+      code: 'efficacy',
+      name: 'Efficacy Testing',
+      description: 'Manage efficacy studies and claims',
+      available_roles: ['VIEWER', 'CONTRIBUTOR', 'EDITOR'],
+      icon: 'microscope',
+      color: 'purple'
+    }
+  ]
+});
+```
+
+**Step 4: AI Defines Entity Schemas**
+
+```typescript
+// AI creates vertical-specific data structures
+await mcp.call('eurocomply:define_entity', {
+  vertical_id: 'biocides',
+  entities: [
+    {
+      code: 'biocidal_product',
+      name: 'Biocidal Product',
+      extends_entity: 'product',  // Extends base product
+
+      data_schema: {
+        type: 'object',
+        properties: {
+          product_type: {
+            type: 'integer',
+            enum: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22],
+            description: 'BPR Product Type (PT1-PT22)'
+          },
+          active_substances: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                substance_id: { type: 'string', format: 'uuid' },
+                concentration: { type: 'number' },
+                concentration_unit: { type: 'string', enum: ['PERCENT', 'G_L', 'G_KG'] },
+                function: { type: 'string', enum: ['BIOCIDAL', 'SYNERGIST'] }
+              }
+            }
+          },
+          target_organisms: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Target harmful organisms'
+          },
+          application_method: { type: 'string' },
+          authorization_status: {
+            type: 'string',
+            enum: ['NOT_SUBMITTED', 'UNDER_REVIEW', 'AUTHORIZED', 'REFUSED', 'WITHDRAWN']
+          },
+          authorization_number: { type: 'string' },
+          authorization_expiry: { type: 'string', format: 'date' }
+        },
+        required: ['product_type', 'active_substances', 'target_organisms']
+      }
+    }
+  ]
+});
+```
+
+**Step 5: AI Creates Rules by Composing Handlers**
+
+```typescript
+// AI creates compliance rules using handler composition
+await mcp.call('eurocomply:create_rule', {
+  vertical_id: 'biocides',
+  rules: [
+    {
+      code: 'BPR_ACTIVE_SUBSTANCE_APPROVED',
+      name: 'Active Substance Must Be Approved',
+      description: 'All active substances must be on the Union list of approved substances',
+      regulation_id: 'EU_BPR_528_2012',
+      severity: 'BLOCKER',
+
+      // Rule logic composed from handlers
+      logic: {
+        handler: 'core:for_each',
+        config: {
+          source: { entity: 'biocidal_product', path: 'active_substances' },
+          validation: {
+            handler: 'core:list_check',
+            config: {
+              value: { field: 'substance_id' },
+              list_type: 'positive',
+              list_source: {
+                type: 'gsr_table',
+                table: 'substance_biocide',
+                lookup_field: 'substance_id'
+              }
+            }
+          },
+          require: 'all'
+        }
+      },
+
+      applies_to: {
+        entity_types: ['biocidal_product'],
+        markets: ['EU']
+      }
+    },
+    {
+      code: 'BPR_PT_VALID',
+      name: 'Product Type Must Be Valid',
+      description: 'Product must declare a valid BPR product type (PT1-PT22)',
+      severity: 'BLOCKER',
+
+      logic: {
+        handler: 'core:enum_check',
+        config: {
+          value: { field: 'product_type' },
+          allowed_values: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
+        }
+      }
+    },
+    {
+      code: 'BPR_CMR_PROHIBITION',
+      name: 'CMR Substances Restricted',
+      description: 'CMR 1A/1B substances not allowed unless essential use exemption',
+      severity: 'BLOCKER',
+
+      logic: {
+        handler: 'core:for_each',
+        config: {
+          source: { entity: 'biocidal_product', path: 'active_substances' },
+          validation: {
+            handler: 'core:or',
+            config: {
+              conditions: [
+                {
+                  handler: 'core:absence_check',
+                  config: {
+                    source: { entity: 'substance_hazard_classification' },
+                    prohibited: {
+                      field: 'hazard_class_code',
+                      operator: 'in',
+                      value: ['Carc. 1A', 'Carc. 1B', 'Muta. 1A', 'Muta. 1B', 'Repr. 1A', 'Repr. 1B']
+                    }
+                  },
+                  label: 'Substance is not CMR 1A/1B'
+                },
+                {
+                  handler: 'core:document_check',
+                  config: {
+                    required_documents: [{ type: 'cmr_essential_use_exemption' }]
+                  },
+                  label: 'Has essential use exemption'
+                }
+              ]
+            }
+          },
+          require: 'all'
+        }
+      }
+    }
+  ]
+});
+```
+
+**Step 6: Simulator Validates**
+
+The Simulator automatically:
+1. Creates shadow schema with new vertical
+2. Runs validation dataset (synthetic biocidal products)
+3. Checks for conflicts with existing rules
+4. Generates diff report
+
+```typescript
+// Simulator returns diff report
+const simulationResult = await mcp.call('eurocomply:get_simulation_result', {
+  simulation_id: 'sim_123'
+});
+
+// Result:
+{
+  status: 'ready_for_review',
+  diff_report: {
+    proposed_changes: [
+      { type: 'vertical', action: 'create', id: 'biocides' },
+      { type: 'workspace', action: 'create', count: 3 },
+      { type: 'entity', action: 'create', count: 1 },
+      { type: 'rule', action: 'create', count: 3 }
+    ],
+    validation_results: {
+      test_products_evaluated: 50,
+      expected_compliant: 35,
+      actual_compliant: 35,
+      expected_non_compliant: 15,
+      actual_non_compliant: 15,
+      accuracy: 1.0
+    },
+    conflict_check: {
+      conflicts_found: 0
+    },
+    recommendation: 'approve',
+    recommendation_reason: 'All validation tests passed, no conflicts with existing rules'
+  }
+}
+```
+
+**Step 7: Human Approves**
+
+Human reviews the diff report in the admin UI and approves. The vertical goes live.
+
+### 9.5 META vs OPS: The Safety Boundary
+
+| Category | What It Changes | Approval Required | Rollback |
+|----------|-----------------|-------------------|----------|
+| **META** | Platform structure | Full Simulator + Human | Complex (migration) |
+| **OPS** | Tenant data | Auto if within rules | Easy (event replay) |
+
+**META Changes (Require Simulator):**
+- Create/modify vertical
+- Create/modify workspace
+- Create/modify rule
+- Create/modify entity schema
+- Change workflow definition
+- Modify UI configuration
+
+**OPS Changes (Auto-Approve if Valid):**
+- Create/update product
+- Add/modify material
+- Upload document
+- Run compliance evaluation
+- Generate report
+- Request credential
+
+### 9.6 The Four "God-Tier" User Stories
+
+These user stories demonstrate the full power of the AI-Programmable Platform:
+
+#### Story 1: "Read this PDF and make me compliant"
+
+```
+User uploads regulatory PDF
+     ↓
+AI: ai:document_extract → extracts requirements
+     ↓
+AI: eurocomply:create_rule → creates rules for each requirement
+     ↓
+Simulator validates rules against test products
+     ↓
+Human approves
+     ↓
+AI: eurocomply:analyze_gap → identifies gaps in user's products
+     ↓
+AI: ai:explain → explains what needs to change in plain language
+```
+
+#### Story 2: "What happens if the EU bans PFAS?"
+
+```
+User asks impact question
+     ↓
+AI: core:impact_analysis → graph traversal finds all affected products
+     ↓
+AI: core:find_substitute → identifies alternatives for each use case
+     ↓
+AI: core:action_sequence → optimal reformulation sequence
+     ↓
+AI: ai:document_generate → creates impact report for management
+```
+
+#### Story 3: "Get me proof my suppliers are compliant"
+
+```
+User requests supplier compliance verification
+     ↓
+AI: core:trace_upstream → identifies all suppliers in chain
+     ↓
+AI: eurocomply:request_credential → A2A: asks each supplier's AI for VCs
+     ↓
+AI: core:credential_check → validates received credentials
+     ↓
+AI: ai:document_generate → creates verified supplier compliance report
+```
+
+#### Story 4: "We're entering the medical devices market"
+
+```
+User declares new market entry
+     ↓
+AI: ai:compliance_interpret → reads MDR regulation
+     ↓
+AI: eurocomply:create_vertical → defines medical_devices vertical
+     ↓
+AI: eurocomply:define_workspace → creates Clinical, QMS, RA workspaces
+     ↓
+AI: eurocomply:create_rule → creates MDR compliance rules
+     ↓
+Simulator validates
+     ↓
+Human approves
+     ↓
+AI: eurocomply:analyze_gap → shows user what they need for certification
+```
+
+### 9.7 Why This Matters: The Competitive Moat
+
+This architecture creates an **insurmountable competitive advantage**:
+
+1. **Network Effects**: Every rule created by AI makes the platform smarter
+2. **Data Flywheel**: More usage → better AI → more capability → more usage
+3. **Composability**: 48 handlers combine into unlimited rules
+4. **Safety**: Simulator ensures AI can't break production
+5. **Trust**: Explanations make every decision auditable
+6. **Speed**: New regulations → new rules in hours, not months
+7. **Customization**: Each tenant gets AI-configured workflows
+
+**The result:** EuroComply becomes an **industrial infrastructure** that gets better with every customer, every regulation, every AI interaction.
+
+---
+
+## 10. MCP Tool Interface
 
 The Handler Standard Library is exposed via **MCP (Model Context Protocol)** as the Universal Interface.
 
-### 9.1 MCP Tool Categories
+### 10.1 MCP Tool Categories
 
 ```typescript
 // MCP exposes handlers grouped by capability
@@ -1010,7 +1477,7 @@ const mcpTools = {
 };
 ```
 
-### 9.2 META vs OPS Changes
+### 10.2 META vs OPS Changes
 
 | Change Type | Examples | Approval Required |
 |-------------|----------|-------------------|
@@ -1019,11 +1486,11 @@ const mcpTools = {
 
 ---
 
-## 10. The Simulator
+## 11. The Simulator
 
 The Simulator provides **human-in-the-loop safety** for META changes.
 
-### 10.1 Simulator Flow
+### 11.1 Simulator Flow
 
 ```
 AI Agent proposes META change (e.g., new rule)
@@ -1044,7 +1511,7 @@ APPROVE → Apply to Production
 REJECT  → Discard, AI learns why
 ```
 
-### 10.2 Diff Report Contents
+### 11.2 Diff Report Contents
 
 ```typescript
 interface SimulatorDiffReport {
@@ -1077,7 +1544,7 @@ interface SimulatorDiffReport {
 }
 ```
 
-### 10.3 Validation Dataset
+### 11.3 Validation Dataset
 
 Each vertical maintains a validation dataset:
 
@@ -1103,7 +1570,7 @@ interface ValidationDataset {
 
 ---
 
-## 11. Implementation Plan
+## 12. Implementation Plan
 
 ### Phase 1: Core Infrastructure (Week 1)
 
