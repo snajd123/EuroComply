@@ -17,6 +17,14 @@ The GSR manages chemical substance data for regulatory compliance. The tables ar
 │  └──────┬──────┘    └─────────────────┘    └────────────────┘              │
 │         │                                                                   │
 ├─────────┼───────────────────────────────────────────────────────────────────┤
+│  CLP HAZARD CLASSIFICATION                                                  │
+│         │                                                                   │
+│  ┌──────▼──────────────────┐    ┌─────────────┐    ┌──────────────────┐    │
+│  │ substance_hazard_       │───►│ hazard_class│    │ hazard_statement │    │
+│  │ classification          │    │   (~33)     │    │  (~91 H-codes)   │    │
+│  └─────────────────────────┘    └─────────────┘    └──────────────────┘    │
+│                                                                             │
+├─────────────────────────────────────────────────────────────────────────────┤
 │  GROUPING & REGULATORY LISTS                                                │
 │         │                                                                   │
 │  ┌──────▼──────┐    ┌───────────────────┐    ┌─────────────────┐           │
@@ -53,6 +61,8 @@ The central table containing one record per unique chemical substance.
 | `inchi_key` | string(27) | **InChIKey** - structure hash for matching | `"WSFSSNUMVMOOMR-..."` |
 | `iupac_name` | text | Systematic IUPAC name | `"methanal"` |
 | `echa_url` | text | Link to ECHA substance page | `"https://echa.europa.eu/..."` |
+| `index_number` | string(20) | CLP Annex VI index number | `"650-017-00-8"` |
+| `clp_version` | string(20) | CLP data version (ATP number) | `"ATP21"` |
 | `source_version` | string | Data version identifier | `"2026-01"` |
 | `is_active` | boolean | Soft delete flag | `true` |
 | `created_at` | timestamp | Record creation time | |
@@ -278,6 +288,99 @@ Holds substances that couldn't be automatically matched to master records.
 
 ---
 
+## CLP Classification Tables
+
+These tables store CLP (Classification, Labelling and Packaging) hazard data from EU Regulation EC 1272/2008.
+
+### `hazard_class` - GHS Hazard Classes
+
+Stores the ~33 CLP/GHS hazard classes with metadata.
+
+| Column | Type | Description | Example |
+|--------|------|-------------|---------|
+| `code` | string(50) | **Primary Key** - CLP abbreviation | `"Carc."` |
+| `full_name` | string(100) | Full hazard class name | `"Carcinogenicity"` |
+| `hazard_type` | enum | Category (see below) | `"HEALTH"` |
+| `pictogram` | string(10) | GHS pictogram code | `"GHS08"` |
+| `signal_word` | enum | Warning level | `"DANGER"` |
+| `is_cmr` | boolean | CMR substance flag | `true` |
+
+**Hazard Types (`hazard_type`):**
+
+| Value | Description | Examples |
+|-------|-------------|----------|
+| `PHYSICAL` | Physical hazards | Explosives, Flammable, Oxidising |
+| `HEALTH` | Health hazards | Acute Toxicity, Carcinogenicity, Mutagenicity |
+| `ENVIRONMENTAL` | Environmental hazards | Aquatic Acute/Chronic, Ozone |
+
+**Signal Words (`signal_word`):**
+
+| Value | Severity |
+|-------|----------|
+| `DANGER` | More severe hazards |
+| `WARNING` | Less severe hazards |
+
+---
+
+### `hazard_statement` - H-Statements with Translations
+
+Stores H-codes with translations for all 24 EU languages.
+
+| Column | Type | Description | Example |
+|--------|------|-------------|---------|
+| `code` | string(20) | **Primary Key** - H-code | `"H350"` |
+| `translations` | jsonb | Language → text mapping | `{"en": "May cause cancer.", "de": "Kann Krebs erzeugen."}` |
+| `primary_hazard_class_code` | string(50) | FK to `hazard_class` (optional) | `"Carc."` |
+
+**Supported Languages:** bg, cs, da, de, el, en, es, et, fi, fr, ga, hr, hu, it, lt, lv, mt, nl, pl, pt, ro, sk, sl, sv
+
+**H-Code Ranges:**
+- H200-H299: Physical hazards
+- H300-H399: Health hazards
+- H400-H499: Environmental hazards
+
+---
+
+### `substance_hazard_classification` - Substance Classifications
+
+Junction table linking substances to their CLP Annex VI harmonised classifications.
+
+| Column | Type | Description | Example |
+|--------|------|-------------|---------|
+| `id` | string | CUID primary key | |
+| `substance_id` | string | FK to `substance` | |
+| `hazard_class_code` | string(50) | FK to `hazard_class` | `"Carc."` |
+| `category` | string(10) | Category within class | `"1A"` |
+| `h_code` | string(20) | Associated H-statement | `"H350"` |
+| `notes` | text[] | Regulatory notes | `["A", "C"]` |
+| `scl_logic` | jsonb | Specific concentration limit | `{"operator": ">=", "value": 0.1, "unit": "%"}` |
+| `m_factor` | int | Aquatic hazard multiplier | `10` |
+| `is_minimum_classification` | boolean | Marked with asterisk (*) | `false` |
+| `atp_source` | string(20) | ATP version | `"ATP21"` |
+| `valid_from` | date | When classification became effective | |
+| `valid_to` | date | When superseded (null if current) | |
+
+**SCL Operators (`scl_logic.operator`):**
+
+| Value | Meaning |
+|-------|---------|
+| `>=` | Greater than or equal |
+| `>` | Greater than |
+| `<=` | Less than or equal |
+| `<` | Less than |
+
+**Common Hazard Class Categories:**
+
+| Class | Categories | Meaning |
+|-------|------------|---------|
+| Carc. (Carcinogenicity) | 1A, 1B, 2 | 1A=known, 1B=presumed, 2=suspected |
+| Muta. (Mutagenicity) | 1A, 1B, 2 | Same as above |
+| Repr. (Reproductive Toxicity) | 1A, 1B, 2 | Same as above |
+| Acute Tox. | 1, 2, 3, 4 | 1=most severe |
+| Skin Sens. | 1, 1A, 1B | A=strong, B=weak sensitizers |
+
+---
+
 ## Data Flow
 
 ### 1. Initial Seeding
@@ -360,7 +463,7 @@ ORDER BY source, COUNT(*) DESC;
 
 ---
 
-## Current Statistics (as of 2026-01-31)
+## Current Statistics (as of 2026-02-01)
 
 | Table | Count |
 |-------|-------|
@@ -369,7 +472,12 @@ ORDER BY source, COUNT(*) DESC;
 | `substance_alias` (ECHA) | 9,841 |
 | `substance_alias` (PubChem) | 52,313 |
 | **Total aliases** | **62,154** |
+| `hazard_class` | 33 |
+| `hazard_statement` | 91 |
+| `substance_hazard_classification` | ~4,762* |
+
+*\* Substance hazard classifications require seeding from CLP Annex VI XLSX file*
 
 ---
 
-*Last Updated: 2026-01-31*
+*Last Updated: 2026-02-01*

@@ -9,7 +9,7 @@ pnpm db:start
 # 2. Run migrations and seed base data
 pnpm db:setup
 
-# 3. Seed substances from ECHA (9,841 chemicals)
+# 3. Seed substances from ECHA (~10,000 chemicals from truncated export)
 cd packages/gsr
 pnpm build
 pnpm gsr seed echa-inventory data/ec_inventory.csv
@@ -304,6 +304,9 @@ public (shared):
 ├── unit_definition     ← UNECE unit codes
 ├── substance           ← ECHA regulated substances
 ├── substance_alias     ← substance alternative names
+├── hazard_class        ← GHS hazard class definitions (~33)
+├── hazard_statement    ← H-codes with 24 EU language translations (~91)
+├── substance_hazard_classification ← CLP Annex VI classifications
 ├── outbox_event        ← system events
 └── mikro_orm_migrations
 
@@ -337,8 +340,10 @@ pnpm db:setup
 cd packages/gsr
 pnpm build
 
-# 3. Seed substances from ECHA EC Inventory (9,841 substances)
-pnpm gsr seed echa-inventory data/ec_inventory.csv
+# 3. Seed substances from ECHA EC Inventory
+#    Download i6z from https://iuclid6.echa.europa.eu/get-iuclid-data
+#    Supports both .i6z (full 106k) and .csv (truncated 10k) formats
+pnpm gsr seed echa-inventory data/ec_inventory.i6z
 
 # 4. Enrich with PubChem data (SMILES, aliases) - takes ~30 min
 pnpm gsr enrich pubchem
@@ -354,9 +359,9 @@ cd ../..
 ```
 
 **Expected results after full pipeline:**
-- ~9,841 substances seeded
-- ~7,500 enriched with SMILES (~76%)
-- ~52,000 PubChem aliases + ~9,841 ECHA aliases = ~62,000 total
+- ~106,213 substances seeded (from i6z) or ~10,000 (from CSV export)
+- ~76% enriched with SMILES from PubChem
+- Multiple aliases per substance (ECHA index names + PubChem synonyms)
 
 ### GSR Commands Reference
 
@@ -365,13 +370,40 @@ All commands run from `packages/gsr` directory after `pnpm build`:
 **Seeding:**
 ```bash
 # Seed ECHA EC Inventory (base substance list)
-pnpm gsr seed echa-inventory <path-to-csv>
+# Supports both .i6z (full 106k substances) and .csv formats
+pnpm gsr seed echa-inventory <path-to-file>  # Auto-detects format by extension
 
 # Seed SVHC Candidate List entries
 pnpm gsr seed echa-svhc <path-to-csv>
 
+# Seed EU Regulatory Lists
+pnpm gsr seed rohs                           # RoHS Directive (hardcoded, no CSV needed)
+
+# REACH Annex XVII - Two-file approach (recommended, includes EUR-Lex URLs)
+# Download from https://echa.europa.eu/substances-restricted-under-reach
+# 1. Export WITHOUT "Show all substances in scope" → entries file (has EUR-Lex links)
+# 2. Export WITH "Show all substances in scope" → substances file (all individual chemicals)
+pnpm gsr seed echa-annex-xvii \
+  --entries data/annex_xvii_entries.xlsx \
+  --substances data/annex_xvii_substances.xlsx
+
+# REACH Annex XVII - Single file (legacy, basic data only)
+pnpm gsr seed echa-annex-xvii <path-to-xlsx>
+
+# REACH Annex XIV - Two-file approach (recommended)
+# Download from https://echa.europa.eu/authorisation-list
+# 1. Export WITHOUT "Show all substances in scope" → entries file (has dates, reasons)
+# 2. Export WITH "Show all substances in scope" → substances file (all individual chemicals)
+pnpm gsr seed echa-annex-xiv \
+  --entries data/authorisation_list_full.xlsx \
+  --substances data/authorisation_list_substances.xlsx
+
+# REACH Annex XIV - Single file (legacy, basic data only)
+pnpm gsr seed echa-annex-xiv <path-to-xlsx>
+pnpm gsr seed echa-pop <path-to-xlsx>        # POP Regulation
+
 # Dry run (preview without database changes)
-pnpm gsr seed echa-inventory <path-to-csv> --dry-run
+pnpm gsr seed echa-inventory <path-to-file> --dry-run
 ```
 
 **Enrichment:**
@@ -391,6 +423,43 @@ pnpm gsr enrich pubchem --all
 # Set ECHA URLs only (no PubChem API calls)
 pnpm gsr enrich echa-urls
 ```
+
+**CLP Classification:**
+```bash
+# Seed hazard reference data (classes + H-statements)
+# Downloads translations from mhchem for 24 EU languages
+pnpm gsr seed clp-reference
+
+# Seed substance classifications from ECHA CLP Annex VI XLSX
+# Download from https://echa.europa.eu/information-on-chemicals/annex-vi-to-clp
+pnpm gsr seed clp-harmonised data/clp_annex_vi.xlsx --version ATP21
+
+# Dry run
+pnpm gsr seed clp-reference --dry-run
+pnpm gsr seed clp-harmonised data/clp_annex_vi.xlsx --dry-run
+```
+
+### EU Regulatory Lists
+
+The GSR supports seeding multiple EU regulatory lists. Each list has different status implications:
+
+| List | Status | Description |
+|------|--------|-------------|
+| **RoHS** | RESTRICTED | 9 substances restricted in electrical/electronic equipment |
+| **REACH Annex XVII** | RESTRICTED | Substances restricted under specific conditions |
+| **REACH Annex XIV** | AUTHORIZED | Substances requiring authorization to use (has sunset dates) |
+| **POP Annex I** | BANNED | Persistent Organic Pollutants - prohibited substances |
+| **POP Annex II** | RESTRICTED | POPs with restricted uses |
+
+**Stub Substances:**
+When seeding regulatory lists, if a substance has a valid CAS number but isn't in the EC Inventory, a "stub" substance is automatically created. This ensures all regulated substances are available for users to select. Stubs can be enriched later via PubChem.
+
+**Data sources (manual download):**
+- Annex XVII: https://echa.europa.eu/substances-restricted-under-reach
+- Annex XIV: https://echa.europa.eu/authorisation-list
+- POP: https://echa.europa.eu/list-of-substances-subject-to-pops-regulation
+
+Export as CSV/TSV and place in `packages/gsr/data/`.
 
 **What enrichment adds:**
 - SMILES (molecular structure notation)
@@ -419,6 +488,39 @@ docker exec eurocomply-postgres psql -U postgres -d eurocomply -c "
 # Alias counts by source
 docker exec eurocomply-postgres psql -U postgres -d eurocomply -c "
   SELECT source, COUNT(*) FROM public.substance_alias GROUP BY source;
+"
+
+# Regulatory list entries
+docker exec eurocomply-postgres psql -U postgres -d eurocomply -c "
+  SELECT rl.code, rl.name, COUNT(sle.id) as entries
+  FROM regulatory_list rl
+  LEFT JOIN substance_list_entry sle ON sle.regulatory_list_id = rl.id
+  GROUP BY rl.code, rl.name
+  ORDER BY rl.code;
+"
+
+# Registry sources (seeder versions)
+docker exec eurocomply-postgres psql -U postgres -d eurocomply -c "
+  SELECT name, version, record_count, last_synced_at
+  FROM registry_source
+  ORDER BY name;
+"
+
+# CLP classification counts
+docker exec eurocomply-postgres psql -U postgres -d eurocomply -c "
+  SELECT
+    (SELECT COUNT(*) FROM hazard_class) as hazard_classes,
+    (SELECT COUNT(*) FROM hazard_statement) as h_statements,
+    (SELECT COUNT(*) FROM substance_hazard_classification) as classifications;
+"
+
+# CMR substances count
+docker exec eurocomply-postgres psql -U postgres -d eurocomply -c "
+  SELECT hc.code, hc.full_name, COUNT(shc.id) as substances
+  FROM hazard_class hc
+  LEFT JOIN substance_hazard_classification shc ON shc.hazard_class_code = hc.code
+  WHERE hc.is_cmr = true
+  GROUP BY hc.code, hc.full_name;
 "
 ```
 

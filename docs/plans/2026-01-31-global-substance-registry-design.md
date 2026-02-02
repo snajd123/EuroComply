@@ -1,8 +1,8 @@
 # Global Substance Registry (GSR) Design
 
-> **Status:** DESIGN
+> **Status:** IMPLEMENTED (Core), CLP ADDED 2026-02-01
 > **Supersedes:** taxonomy-04-substance-registry.md (partial)
-> **Related:** taxonomy-10-regulatory-list-registry.md, ai-regulation-ingestor-design.md
+> **Related:** taxonomy-10-regulatory-list-registry.md, ai-regulation-ingestor-design.md, 2026-02-01-clp-integration-design.md
 
 **Goal:** Build a comprehensive substance registry seeded from authoritative public sources (ECHA, PubChem), with identity resolution that handles nomenclature variations, structured regulatory requirement linking, and conflict detection.
 
@@ -54,6 +54,14 @@
 | ChemSpider | Curated synonyms | RSC negotiation |
 | EPA TSCA | ~87k | Free (add when US market needed) |
 | OEHHA Prop 65 | ~1k | Free (add when US market needed) |
+
+### CLP Hazard Classification
+
+See `2026-02-01-clp-integration-design.md` for:
+- HazardClass, HazardStatement, SubstanceHazardClassification entities
+- CLP Annex VI seeding workflow (~4,762 substances with harmonised classifications)
+- mhchem H-statement translations (24 EU languages)
+- CMR (Carcinogenic, Mutagenic, Reprotoxic) flagging
 
 ---
 

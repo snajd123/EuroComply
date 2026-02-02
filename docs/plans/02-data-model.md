@@ -1,7 +1,7 @@
 # Data Model (MikroORM)
 
 **Status:** Active
-**Last Updated:** 2026-01-28
+**Last Updated:** 2026-02-01
 
 ---
 
@@ -24,6 +24,9 @@ eurocomply database
 │   ├── product_classification  -- HS/CN codes
 │   ├── substance               -- ECHA substance registry
 │   ├── substance_alias         -- Substance alternative names
+│   ├── hazard_class            -- GHS hazard class definitions (~33)
+│   ├── hazard_statement        -- H-codes with 24 EU translations (~91)
+│   ├── substance_hazard_classification -- CLP Annex VI classifications
 │   ├── regulation              -- Regulations (REACH, RoHS, CLP, etc.)
 │   ├── requirement             -- Compliance requirements per regulation
 │   ├── category_regulation     -- Category-to-regulation M:N junction
@@ -64,6 +67,9 @@ eurocomply database
 | ProductClassification | `public` | HS/CN codes (shared international standard) |
 | Substance | `public` | ECHA substance registry (shared) |
 | SubstanceAlias | `public` | Substance names (shared) |
+| HazardClass | `public` | GHS hazard class reference data (shared) |
+| HazardStatement | `public` | H-statement translations (shared) |
+| SubstanceHazardClassification | `public` | CLP Annex VI classifications (shared) |
 | Regulation | `public` | Regulations with lifecycle states (shared across tenants) |
 | Requirement | `public` | Compliance requirements per regulation (shared) |
 | CategoryRegulation | `public` | Category-to-regulation M:N junction (shared) |

@@ -37,9 +37,11 @@ describe('HazardReferenceSeeder', () => {
     }
   });
 
-  describe('HAZARD_STATEMENTS reference data', () => {
+  describe('HAZARD_STATEMENTS fallback reference data', () => {
+    // Note: HAZARD_STATEMENTS is now the FALLBACK data - only used when mhchem is unavailable.
+    // The actual seeder uses mhchem as primary source, which has ~91 H-statements.
     it('should_have_at_least_40_statements', () => {
-      // We expect a good coverage of H-statements
+      // We expect a good coverage of H-statements in the fallback
       expect(HAZARD_STATEMENTS.length).toBeGreaterThanOrEqual(40);
     });
 
@@ -174,12 +176,16 @@ describe('HazardReferenceSeeder', () => {
   });
 
   describe('seedHazardStatements', () => {
+    // Note: The seeder loads from mhchem as primary source (91+ H-statements)
+    // with fallback to hardcoded English-only data (65 statements) if unavailable.
+
     it.skipIf(!dbAvailable)('should_seed_statements_when_database_empty', async () => {
       const result = await seeder.seedHazardStatements();
 
       expect(result.seeded).toBe(true);
       expect(result.skipped).toBe(false);
-      expect(result.count).toBe(HAZARD_STATEMENTS.length);
+      // mhchem provides ~91 H-statements, fallback has ~65
+      expect(result.count).toBeGreaterThanOrEqual(HAZARD_STATEMENTS.length);
       expect(result.message).toContain('Seeded');
     });
 
@@ -188,7 +194,8 @@ describe('HazardReferenceSeeder', () => {
 
       const h350 = await em.findOne(HazardStatement, { code: 'H350' });
       expect(h350).not.toBeNull();
-      expect(h350!.translations.en).toBe('May cause cancer');
+      // Use toContain since mhchem includes placeholders in angle brackets
+      expect(h350!.translations.en).toContain('May cause cancer');
 
       const h350i = await em.findOne(HazardStatement, { code: 'H350i' });
       expect(h350i).not.toBeNull();
@@ -229,11 +236,23 @@ describe('HazardReferenceSeeder', () => {
     });
 
     it.skipIf(!dbAvailable)('should_not_create_duplicates_on_rerun', async () => {
-      await seeder.seedHazardStatements();
+      const firstResult = await seeder.seedHazardStatements();
       await seeder.seedHazardStatements();
 
       const count = await em.count(HazardStatement, {});
-      expect(count).toBe(HAZARD_STATEMENTS.length);
+      // Count should match what was seeded the first time
+      expect(count).toBe(firstResult.count);
+    });
+
+    it.skipIf(!dbAvailable)('should_include_languages_in_result_when_using_mhchem', async () => {
+      const result = await seeder.seedHazardStatements();
+
+      // If mhchem was used, languagesLoaded should be populated
+      if (!result.usedFallback) {
+        expect(result.languagesLoaded).toBeDefined();
+        expect(result.languagesLoaded!.length).toBeGreaterThan(0);
+        expect(result.languagesLoaded).toContain('en');
+      }
     });
   });
 
@@ -244,7 +263,8 @@ describe('HazardReferenceSeeder', () => {
       expect(result.classes.seeded).toBe(true);
       expect(result.classes.count).toBe(HAZARD_CLASSES.length);
       expect(result.statements.seeded).toBe(true);
-      expect(result.statements.count).toBe(HAZARD_STATEMENTS.length);
+      // mhchem provides ~91 H-statements, fallback has ~65
+      expect(result.statements.count).toBeGreaterThanOrEqual(HAZARD_STATEMENTS.length);
     });
 
     it.skipIf(!dbAvailable)('should_skip_both_when_already_seeded', async () => {
@@ -259,13 +279,14 @@ describe('HazardReferenceSeeder', () => {
     it.skipIf(!dbAvailable)('should_seed_classes_before_statements', async () => {
       // This test verifies the order by checking that both work together
       // and that statements can be seeded without classes present
-      await seeder.seedAll();
+      const result = await seeder.seedAll();
 
       const classCount = await em.count(HazardClass, {});
       const statementCount = await em.count(HazardStatement, {});
 
       expect(classCount).toBe(HAZARD_CLASSES.length);
-      expect(statementCount).toBe(HAZARD_STATEMENTS.length);
+      // Statement count should match what was seeded
+      expect(statementCount).toBe(result.statements.count);
     });
   });
 });
