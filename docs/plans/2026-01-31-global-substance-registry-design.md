@@ -1,8 +1,22 @@
 # Global Substance Registry (GSR) Design
 
-> **Status:** IMPLEMENTED (Core), CLP ADDED 2026-02-01
+> **Status:** SUPERSEDED BY v2 (2026-02-02)
+> **Successor:** [2026-02-02-gsr-golden-record-design.md](./2026-02-02-gsr-golden-record-design.md) - Golden Record architecture with InChIKey deduplication, multi-registry persona tables, and CompTox foundation
+> **Original Status:** IMPLEMENTED (Core), CLP ADDED 2026-02-01
 > **Supersedes:** taxonomy-04-substance-registry.md (partial)
 > **Related:** taxonomy-10-regulatory-list-registry.md, ai-regulation-ingestor-design.md, 2026-02-01-clp-integration-design.md
+
+---
+
+> **NOTE:** This document describes the v1 GSR architecture which used a single `substance` table with identity via CAS/EC numbers. The v2 Golden Record architecture (linked above) introduces:
+> - **InChIKey as primary chemical identity** - True chemical fingerprint for deduplication
+> - **CompTox foundation** - 1.25M pre-linked chemicals with CAS → InChIKey → SMILES
+> - **Separate persona tables** - Type-safe columns per registry (ECHA, CosIng, EFSA, TSCA, Biocides)
+> - **Identity Ladder algorithm** - Multi-step resolution with PubChem healer fallback
+>
+> The v1 implementation remains functional but will be migrated to v2 via `pnpm db:reset` and re-seed.
+
+---
 
 **Goal:** Build a comprehensive substance registry seeded from authoritative public sources (ECHA, PubChem), with identity resolution that handles nomenclature variations, structured regulatory requirement linking, and conflict detection.
 
