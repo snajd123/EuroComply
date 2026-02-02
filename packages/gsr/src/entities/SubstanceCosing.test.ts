@@ -47,6 +47,14 @@ describe('SubstanceCosing', () => {
       expect(entity).toHaveProperty('otherRestrictions');
       expect(entity).toHaveProperty('sccsOpinions');
     });
+
+    it.skipIf(!dbAvailable)('should_have_correct_table_name_when_entity_is_defined', async () => {
+      // Arrange
+      const metadata = orm.getMetadata().get(SubstanceCosing);
+
+      // Act & Assert
+      expect(metadata.tableName).toBe('substance_cosing');
+    });
   });
 
   describe('entity persistence', () => {

@@ -53,7 +53,18 @@ export class SubstanceCosing extends BaseEntity {
   @Property({ type: 'text' })
   inciName!: string;
 
-  /** Normalized INCI name for fuzzy matching (lowercase) */
+  /**
+   * Normalized INCI name for fuzzy matching (lowercase).
+   *
+   * Note: This field requires a GIN trigram index for efficient fuzzy search.
+   * The standard @Index() creates a B-tree index for exact/prefix matches.
+   * A GIN trigram index must be added in the migration:
+   * ```sql
+   * CREATE INDEX "substance_cosing_inci_name_trgm_idx"
+   *   ON "public"."substance_cosing"
+   *   USING gin ("inci_name_normalized" gin_trgm_ops);
+   * ```
+   */
   @Property({ type: 'text', name: 'inci_name_normalized' })
   @Index()
   inciNameNormalized!: string;
