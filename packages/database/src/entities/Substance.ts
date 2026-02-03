@@ -22,7 +22,7 @@ export class Substance extends BaseEntity {
   description?: string;
 
   @Property({ type: 'decimal', precision: 12, scale: 4, nullable: true, name: 'molecular_weight' })
-  molecularWeight?: string;  // "87.1204"
+  molecularWeight?: number;
 
   @Property({ length: 500, nullable: true, name: 'molecular_formula' })
   molecularFormula?: string;  // "C4H9NO"
@@ -31,7 +31,7 @@ export class Substance extends BaseEntity {
   @Property({ type: 'text', nullable: true })
   smiles?: string;
 
-  /** InChIKey structure hash for matching */
+  /** InChIKey structure hash for matching (unique when not null, enforced by migration) */
   @Property({ length: 27, name: 'inchi_key', nullable: true })
   @Index()
   inchiKey?: string;
@@ -39,6 +39,15 @@ export class Substance extends BaseEntity {
   /** IUPAC systematic name */
   @Property({ type: 'text', name: 'iupac_name', nullable: true })
   iupacName?: string;
+
+  /** DTXSID - EPA DSSTox substance ID (e.g., "DTXSID7020001", unique when not null, enforced by migration) */
+  @Property({ type: 'varchar', length: 20, nullable: true })
+  @Index()
+  dtxsid?: string;
+
+  /** QC Level from CompTox (1-5, quality indicator) */
+  @Property({ type: 'smallint', nullable: true, name: 'qc_level' })
+  qcLevel?: number;
 
   // CLP identity fields
   /** CLP Index Number (e.g., "605-001-00-5") */

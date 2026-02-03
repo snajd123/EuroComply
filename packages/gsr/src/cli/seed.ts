@@ -13,6 +13,10 @@ import { EchaPopSeeder } from '../seeders/echa-pop.seeder.js';
 import { RohsSeeder } from '../seeders/rohs.seeder.js';
 import { HazardReferenceSeeder } from '../seeders/hazard-reference.seeder.js';
 import { ClpHarmonisedSeeder } from '../seeders/clp-harmonised.seeder.js';
+import { ComptoxSeeder } from '../seeders/comptox.seeder.js';
+import { CosingSeeder } from '../seeders/cosing.seeder.js';
+import { EfsaSeeder } from '../seeders/efsa.seeder.js';
+import { TscaSeeder } from '../seeders/tsca.seeder.js';
 
 export interface SeedCommandOptions {
   version?: string;
@@ -21,6 +25,10 @@ export interface SeedCommandOptions {
 
 export interface ClpSeedOptions extends SeedCommandOptions {
   version?: string;
+}
+
+export interface ComptoxSeedOptions extends SeedCommandOptions {
+  batchSize: number;
 }
 
 /**
@@ -832,27 +840,371 @@ export async function seedClpHarmonised(filePath: string, options: ClpSeedOption
       console.log(`  Version: ${result.version}`);
       console.log(`  Total rows: ${result.totalRows}`);
       console.log(`  Substances matched: ${result.substancesMatched}`);
-      console.log(`  Substances not found: ${result.substancesNotFound}`);
-      console.log(`  Unresolved logged: ${result.unresolvedLogged}`);
+      console.log(`  Stubs created: ${result.stubsCreated}`);
+      console.log(`  Skipped (no valid CAS): ${result.skippedEntries}`);
       console.log(`  Classifications created: ${result.classificationsCreated}`);
       console.log(`  Classifications skipped: ${result.classificationsSkipped}`);
 
-      // Warn if many substances not found
-      if (result.substancesNotFound > result.substancesMatched) {
+      // Info about stubs created
+      if (result.stubsCreated > 0) {
         console.log('');
-        console.log('[WARNING] More substances not found than matched.');
-        console.log('This may indicate the EC Inventory has not been seeded yet.');
-        console.log("Run 'pnpm gsr seed echa-inventory <file>' to seed the substance database.");
+        console.log(`[INFO] ${result.stubsCreated} stub substances created for CAS numbers not in EC Inventory.`);
+        console.log('Run "pnpm gsr enrich pubchem" to enrich these stubs with additional data.');
       }
 
-      // Info about unresolved substances
-      if (result.unresolvedLogged > 0) {
+      // Info about skipped entries
+      if (result.skippedEntries > 0) {
         console.log('');
-        console.log(`[INFO] ${result.unresolvedLogged} unresolved substances logged for review.`);
-        console.log('Query with: SELECT * FROM unresolved_substance WHERE source = \'REGULATORY_IMPORT\' ORDER BY occurrence_count DESC;');
+        console.log(`[INFO] ${result.skippedEntries} entries skipped (group entries or invalid CAS).`);
       }
     } else {
       console.log(`[INFO] ${result.message}`);
+    }
+  } finally {
+    await closeOrm();
+  }
+}
+
+/**
+ * Seeds EPA CompTox substances from a CSV file.
+ *
+ * This is the foundation seeder for the GSR - loads 1.2M+ substances from
+ * the EPA Computational Toxicology dashboard dataset.
+ *
+ * Performance considerations:
+ * - Uses streaming CSV parsing for memory efficiency (664MB file)
+ * - Raw SQL bulk inserts with batches of 5,000+ records
+ * - Progress reporting every batch
+ */
+export async function seedComptox(filePath: string, options: ComptoxSeedOptions): Promise<void> {
+  // Validate file path
+  if (!filePath || filePath.trim() === '') {
+    throw new Error('File path is required');
+  }
+
+  const absolutePath = resolveFilePath(filePath);
+
+  console.log(`\nEPA CompTox Foundation Seeder`);
+  console.log(`=============================`);
+  console.log(`File: ${absolutePath}`);
+  console.log(`Batch size: ${options.batchSize.toLocaleString()}`);
+  console.log(`Dry run: ${options.dryRun}`);
+  console.log('');
+
+  // Check file exists
+  checkFileExists(filePath);
+
+  if (options.dryRun) {
+    console.log('[DRY RUN] Counting records in CSV file...');
+    console.log('');
+  }
+
+  // Initialize ORM
+  if (!options.dryRun) {
+    console.log('Connecting to database...');
+  }
+  const orm = await getOrm();
+
+  try {
+    const em = orm.em.fork();
+    const seeder = new ComptoxSeeder(em);
+
+    console.log('Processing CompTox CSV file...');
+    console.log('This may take several minutes for the full 1.2M+ substance dataset.');
+    console.log('');
+
+    const startTime = Date.now();
+    const result = await seeder.seedFromFile(
+      absolutePath,
+      options.dryRun,
+      options.batchSize,
+      (message) => process.stdout.write(`\r${message}    `)
+    );
+
+    // Clear progress line
+    console.log('');
+
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+
+    console.log('');
+    if (options.dryRun) {
+      console.log(`[DRY RUN] Results:`);
+    } else {
+      console.log(`[SUCCESS] Seeding complete`);
+    }
+    console.log(`  Processed: ${result.processed.toLocaleString()}`);
+    console.log(`  Created: ${result.created.toLocaleString()}`);
+    console.log(`  Skipped (no CAS): ${result.skipped.toLocaleString()}`);
+    console.log(`  Errors: ${result.errors.toLocaleString()}`);
+    console.log(`  Time: ${elapsed}s`);
+
+    if (result.errors > 0) {
+      console.log('');
+      console.log('[WARNING] Some records had errors. Check logs for details.');
+    }
+  } finally {
+    await closeOrm();
+  }
+}
+
+export interface CosingSeedOptions extends SeedCommandOptions {
+  // Additional options can be added here
+}
+
+/**
+ * Seeds CosIng cosmetics substances from XLS files.
+ *
+ * Reads CosIng Annex II-VI XLS files from the specified directory,
+ * uses Identity Ladder to match substances to Golden Records,
+ * and creates SubstanceCosing persona records.
+ *
+ * Expected files:
+ * - COSING_Annex_II_v2.xls (Prohibited substances)
+ * - COSING_Annex_III_v2.xls (Restricted substances)
+ * - COSING_Annex_IV_v2.xls (Permitted colorants)
+ * - COSING_Annex_V_v2.xls (Permitted preservatives)
+ * - COSING_Annex_VI_v2.xls (Permitted UV filters)
+ */
+export async function seedCosing(directory: string, options: CosingSeedOptions): Promise<void> {
+  // Validate directory path
+  if (!directory || directory.trim() === '') {
+    throw new Error('Directory path is required');
+  }
+
+  const absolutePath = resolveFilePath(directory);
+
+  console.log(`\nCosIng Cosmetics Seeder`);
+  console.log(`=======================`);
+  console.log(`Directory: ${absolutePath}`);
+  console.log(`Dry run: ${options.dryRun}`);
+  console.log('');
+
+  // Check directory exists
+  checkFileExists(directory);
+
+  if (options.dryRun) {
+    console.log('[DRY RUN] Scanning for CosIng Annex files...');
+    console.log('');
+  }
+
+  // Initialize ORM
+  if (!options.dryRun) {
+    console.log('Connecting to database...');
+  }
+  const orm = await getOrm();
+
+  try {
+    const em = orm.em.fork();
+    const seeder = new CosingSeeder(em);
+
+    console.log('Processing CosIng Annex files...');
+    console.log('');
+
+    const startTime = Date.now();
+    const result = await seeder.seedFromDirectory(
+      absolutePath,
+      options.dryRun,
+      (message) => console.log(message)
+    );
+
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+
+    console.log('');
+    if (options.dryRun) {
+      console.log(`[DRY RUN] Results:`);
+    } else {
+      console.log(`[SUCCESS] Seeding complete`);
+    }
+    console.log(`  Processed: ${result.processed.toLocaleString()}`);
+    console.log(`  Attached to Golden Records: ${result.attached.toLocaleString()}`);
+    console.log(`  Unresolved (no match): ${result.unresolved.toLocaleString()}`);
+    console.log(`  Errors: ${result.errors.toLocaleString()}`);
+    console.log(`  Time: ${elapsed}s`);
+
+    if (result.unresolved > 0) {
+      console.log('');
+      console.log(`[INFO] ${result.unresolved} substances could not be matched to Golden Records.`);
+      console.log('These have been added to the unresolved_substance queue for manual review.');
+    }
+
+    if (result.errors > 0) {
+      console.log('');
+      console.log('[WARNING] Some records had errors. Check logs for details.');
+    }
+  } finally {
+    await closeOrm();
+  }
+}
+
+export interface EfsaSeedOptions extends SeedCommandOptions {
+  // Additional options can be added here
+}
+
+/**
+ * Seeds EFSA food additive substances from ENumbers.txt file.
+ *
+ * Reads ENumbers.txt from the specified directory,
+ * uses Identity Ladder to match substances to Golden Records,
+ * and creates SubstanceEfsa persona records.
+ *
+ * Expected file: ENumbers.txt (tab-separated: E-number, IsGroup, Name)
+ */
+export async function seedEfsa(directory: string, options: EfsaSeedOptions): Promise<void> {
+  // Validate directory path
+  if (!directory || directory.trim() === '') {
+    throw new Error('Directory path is required');
+  }
+
+  const absolutePath = resolveFilePath(directory);
+
+  console.log(`\nEFSA Food Additives Seeder`);
+  console.log(`==========================`);
+  console.log(`Directory: ${absolutePath}`);
+  console.log(`Dry run: ${options.dryRun}`);
+  console.log('');
+
+  // Check directory exists
+  checkFileExists(directory);
+
+  if (options.dryRun) {
+    console.log('[DRY RUN] Scanning for ENumbers.txt...');
+    console.log('');
+  }
+
+  // Initialize ORM
+  if (!options.dryRun) {
+    console.log('Connecting to database...');
+  }
+  const orm = await getOrm();
+
+  try {
+    const em = orm.em.fork();
+    const seeder = new EfsaSeeder(em);
+
+    console.log('Processing ENumbers.txt...');
+    console.log('');
+
+    const startTime = Date.now();
+    const result = await seeder.seedFromDirectory(
+      absolutePath,
+      options.dryRun,
+      (message) => console.log(message)
+    );
+
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+
+    console.log('');
+    if (options.dryRun) {
+      console.log(`[DRY RUN] Results:`);
+    } else {
+      console.log(`[SUCCESS] Seeding complete`);
+    }
+    console.log(`  Processed: ${result.processed.toLocaleString()}`);
+    console.log(`  Attached to Golden Records: ${result.attached.toLocaleString()}`);
+    console.log(`  Unresolved (no match): ${result.unresolved.toLocaleString()}`);
+    console.log(`  Errors: ${result.errors.toLocaleString()}`);
+    console.log(`  Time: ${elapsed}s`);
+
+    if (result.unresolved > 0) {
+      console.log('');
+      console.log(`[INFO] ${result.unresolved} substances could not be matched to Golden Records.`);
+      console.log('These have been added to the unresolved_substance queue for manual review.');
+    }
+
+    if (result.errors > 0) {
+      console.log('');
+      console.log('[WARNING] Some records had errors. Check logs for details.');
+    }
+  } finally {
+    await closeOrm();
+  }
+}
+
+export interface TscaSeedOptions extends SeedCommandOptions {
+  batchSize: number;
+}
+
+/**
+ * Seeds EPA TSCA US inventory substances from a CSV file.
+ *
+ * Uses the TSCA Inventory CSV export from the EPA website.
+ * Approximately 70,000+ substances in the full inventory.
+ *
+ * Performance considerations:
+ * - Uses streaming CSV parsing for memory efficiency
+ * - Batch processing with progress reporting
+ */
+export async function seedTsca(filePath: string, options: TscaSeedOptions): Promise<void> {
+  // Validate file path
+  if (!filePath || filePath.trim() === '') {
+    throw new Error('File path is required');
+  }
+
+  const absolutePath = resolveFilePath(filePath);
+
+  console.log(`\nEPA TSCA US Inventory Seeder`);
+  console.log(`============================`);
+  console.log(`File: ${absolutePath}`);
+  console.log(`Batch size: ${options.batchSize.toLocaleString()}`);
+  console.log(`Dry run: ${options.dryRun}`);
+  console.log('');
+
+  // Check file exists
+  checkFileExists(filePath);
+
+  if (options.dryRun) {
+    console.log('[DRY RUN] Counting records in CSV file...');
+    console.log('');
+  }
+
+  // Initialize ORM
+  if (!options.dryRun) {
+    console.log('Connecting to database...');
+  }
+  const orm = await getOrm();
+
+  try {
+    const em = orm.em.fork();
+    const seeder = new TscaSeeder(em);
+
+    console.log('Processing TSCA CSV file...');
+    console.log('This may take a few minutes for the full 70k+ substance dataset.');
+    console.log('');
+
+    const startTime = Date.now();
+    const result = await seeder.seedFromFile(
+      absolutePath,
+      options.dryRun,
+      options.batchSize,
+      (message) => process.stdout.write(`\r${message}    `)
+    );
+
+    // Clear progress line
+    console.log('');
+
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+
+    console.log('');
+    if (options.dryRun) {
+      console.log(`[DRY RUN] Results:`);
+    } else {
+      console.log(`[SUCCESS] Seeding complete`);
+    }
+    console.log(`  Processed: ${result.processed.toLocaleString()}`);
+    console.log(`  Attached to Golden Records: ${result.attached.toLocaleString()}`);
+    console.log(`  Unresolved (no match): ${result.unresolved.toLocaleString()}`);
+    console.log(`  Errors: ${result.errors.toLocaleString()}`);
+    console.log(`  Time: ${elapsed}s`);
+
+    if (result.unresolved > 0) {
+      console.log('');
+      console.log(`[INFO] ${result.unresolved} substances could not be matched to Golden Records.`);
+      console.log('These have been added to the unresolved_substance queue for manual review.');
+    }
+
+    if (result.errors > 0) {
+      console.log('');
+      console.log('[WARNING] Some records had errors. Check logs for details.');
     }
   } finally {
     await closeOrm();

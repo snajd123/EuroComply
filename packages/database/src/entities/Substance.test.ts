@@ -12,23 +12,17 @@ describe('Substance', () => {
     substance.casNumber = '127-19-5';
     substance.primaryName = 'N,N-Dimethylacetamide';
     substance.ecNumber = '204-826-4';
-    substance.isSvhc = true;
-    substance.requiresAuthorization = true;
-    substance.isRestricted = false;
 
     expect(substance.casNumber).toBe('127-19-5');
     expect(substance.primaryName).toBe('N,N-Dimethylacetamide');
-    expect(substance.isSvhc).toBe(true);
+    expect(substance.ecNumber).toBe('204-826-4');
   });
 
-  it('should have regulatory status defaults', () => {
+  it('should have isActive default to true', () => {
     const substance = new Substance();
     substance.casNumber = '7732-18-5';
     substance.primaryName = 'Water';
 
-    expect(substance.isSvhc).toBe(false);
-    expect(substance.requiresAuthorization).toBe(false);
-    expect(substance.isRestricted).toBe(false);
     expect(substance.isActive).toBe(true);
   });
 
@@ -37,24 +31,21 @@ describe('Substance', () => {
     substance.casNumber = '127-19-5';
     substance.primaryName = 'N,N-Dimethylacetamide';
     substance.molecularFormula = 'C4H9NO';
-    substance.molecularWeight = '87.1204';
+    substance.molecularWeight = 87.1204;
 
     expect(substance.molecularFormula).toBe('C4H9NO');
-    expect(substance.molecularWeight).toBe('87.1204');
+    expect(substance.molecularWeight).toBe(87.1204);
   });
 
-  it('should store authorization dates', () => {
-    const sunsetDate = new Date('2025-02-28');
-    const latestApplicationDate = new Date('2024-08-28');
-
+  it('should store DTXSID and qcLevel', () => {
     const substance = new Substance();
     substance.casNumber = '127-19-5';
-    substance.primaryName = 'DMAC';
-    substance.sunsetDate = sunsetDate;
-    substance.latestApplicationDate = latestApplicationDate;
+    substance.primaryName = 'N,N-Dimethylacetamide';
+    substance.dtxsid = 'DTXSID7020001';
+    substance.qcLevel = 1;
 
-    expect(substance.sunsetDate).toEqual(sunsetDate);
-    expect(substance.latestApplicationDate).toEqual(latestApplicationDate);
+    expect(substance.dtxsid).toBe('DTXSID7020001');
+    expect(substance.qcLevel).toBe(1);
   });
 
   it('should validate CAS number on assignment', () => {
@@ -130,6 +121,48 @@ describe('Substance enhanced fields', () => {
     expect(found).not.toBeNull();
     expect(found!.iupacName).toBe('methanal');
   });
+
+  it.skipIf(!dbAvailable)('should store DTXSID and qcLevel', async () => {
+    const em = orm.em.fork();
+
+    const substance = em.create(Substance, {
+      casNumber: '71-43-2',
+      primaryName: 'Benzene',
+      dtxsid: 'DTXSID3039242',
+      qcLevel: 1,
+    });
+
+    await em.persistAndFlush(substance);
+    em.clear();
+
+    const found = await em.findOne(Substance, { casNumber: '71-43-2' });
+    expect(found).not.toBeNull();
+    expect(found!.dtxsid).toBe('DTXSID3039242');
+    expect(found!.qcLevel).toBe(1);
+  });
+
+  it.skipIf(!dbAvailable)('should store molecularWeight as number', async () => {
+    const em = orm.em.fork();
+
+    const substance = em.create(Substance, {
+      casNumber: '127-19-5',
+      primaryName: 'N,N-Dimethylacetamide',
+      molecularWeight: 87.1204,
+    });
+
+    await em.persistAndFlush(substance);
+    em.clear();
+
+    const found = await em.findOne(Substance, { casNumber: '127-19-5' });
+    expect(found).not.toBeNull();
+    // MikroORM returns decimal as string by default, but can be parsed
+    expect(Number(found!.molecularWeight)).toBeCloseTo(87.1204, 4);
+  });
+
+  // Note: Unique constraints for nullable columns (dtxsid, inchiKey) are enforced
+  // by partial unique indexes in the migration (WHERE column IS NOT NULL).
+  // MikroORM's schema generator doesn't create these partial indexes for tests,
+  // so uniqueness is only enforced in the real database setup.
 });
 
 describe('Substance CLP identity fields', () => {

@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 // packages/gsr/src/cli/index.ts
 import { Command } from 'commander';
-import { seedEchaInventory, seedEchaSvhc, seedEchaAnnexXvii, seedEchaAnnexXiv, seedEchaPop, seedRohs, seedAll, seedClpReference, seedClpHarmonised, type SeedCommandOptions, type ClpSeedOptions } from './seed.js';
+import { seedEchaInventory, seedEchaSvhc, seedEchaAnnexXvii, seedEchaAnnexXiv, seedEchaPop, seedRohs, seedAll, seedClpReference, seedClpHarmonised, seedComptox, seedCosing, seedEfsa, seedTsca, type SeedCommandOptions, type ClpSeedOptions, type ComptoxSeedOptions, type CosingSeedOptions, type EfsaSeedOptions, type TscaSeedOptions } from './seed.js';
 import { enrichPubchem, enrichEchaUrls, type EnrichCommandOptions } from './enrich.js';
+import { runValidation } from './validate.js';
+import { runFullValidation } from './full-validate.js';
 
 // Read package.json for version
 const VERSION = '0.0.1';
@@ -199,15 +201,91 @@ seedCommand
 seedCommand
   .command('clp-harmonised <file>')
   .description('Seed CLP harmonised classifications from ECHA XLSX file')
-  .option('--version <version>', 'ATP version (e.g., ATP21, ATP22)', 'ATP21')
+  .option('--atp-version <version>', 'ATP version (e.g., ATP21, ATP22)', 'ATP21')
   .option('-d, --dry-run', 'Preview without writing to database', false)
-  .action(async (file: string, options: { version?: string; dryRun: boolean }) => {
+  .action(async (file: string, options: { atpVersion?: string; dryRun: boolean }) => {
     try {
       const seedOptions: ClpSeedOptions = {
-        version: options.version || 'ATP21',
+        version: options.atpVersion || 'ATP21',
         dryRun: options.dryRun,
       };
       await seedClpHarmonised(file, seedOptions);
+      process.exit(0);
+    } catch (error) {
+      console.error('\n[ERROR]', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+// EPA CompTox foundation seeder (1.2M+ substances)
+seedCommand
+  .command('comptox <file>')
+  .description('Seed EPA CompTox foundation substances from CSV file (DSSToxCCDdump.csv)')
+  .option('--batch-size <size>', 'Records per batch insert (default: 5000)', '5000')
+  .option('-d, --dry-run', 'Preview without writing to database', false)
+  .action(async (file: string, options: { batchSize: string; dryRun: boolean }) => {
+    try {
+      const seedOptions: ComptoxSeedOptions = {
+        batchSize: parseInt(options.batchSize, 10),
+        dryRun: options.dryRun,
+      };
+      await seedComptox(file, seedOptions);
+      process.exit(0);
+    } catch (error) {
+      console.error('\n[ERROR]', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+// CosIng cosmetics seeder
+seedCommand
+  .command('cosing <directory>')
+  .description('Seed CosIng cosmetics substances from XLS files (Annex II-VI)')
+  .option('-d, --dry-run', 'Preview without writing to database', false)
+  .action(async (directory: string, options: { dryRun: boolean }) => {
+    try {
+      const seedOptions: CosingSeedOptions = {
+        dryRun: options.dryRun,
+      };
+      await seedCosing(directory, seedOptions);
+      process.exit(0);
+    } catch (error) {
+      console.error('\n[ERROR]', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+// EFSA food additives seeder
+seedCommand
+  .command('efsa <directory>')
+  .description('Seed EFSA food additives from ENumbers.txt file')
+  .option('-d, --dry-run', 'Preview without writing to database', false)
+  .action(async (directory: string, options: { dryRun: boolean }) => {
+    try {
+      const seedOptions: EfsaSeedOptions = {
+        dryRun: options.dryRun,
+      };
+      await seedEfsa(directory, seedOptions);
+      process.exit(0);
+    } catch (error) {
+      console.error('\n[ERROR]', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+// EPA TSCA US inventory seeder
+seedCommand
+  .command('tsca <file>')
+  .description('Seed EPA TSCA US inventory substances from CSV file')
+  .option('--batch-size <size>', 'Records per batch (default: 1000)', '1000')
+  .option('-d, --dry-run', 'Preview without writing to database', false)
+  .action(async (file: string, options: { batchSize: string; dryRun: boolean }) => {
+    try {
+      const seedOptions: TscaSeedOptions = {
+        batchSize: parseInt(options.batchSize, 10),
+        dryRun: options.dryRun,
+      };
+      await seedTsca(file, seedOptions);
       process.exit(0);
     } catch (error) {
       console.error('\n[ERROR]', error instanceof Error ? error.message : error);
@@ -248,6 +326,35 @@ enrichCommand
     try {
       await enrichEchaUrls({ dryRun: options.dryRun });
       process.exit(0);
+    } catch (error) {
+      console.error('\n[ERROR]', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+// Validate command (quick spot-checks)
+program
+  .command('validate')
+  .description('Quick validation with spot-checks (CLP classifications, CAS checksums, reference substances)')
+  .action(async () => {
+    try {
+      await runValidation();
+      process.exit(0);
+    } catch (error) {
+      console.error('\n[ERROR]', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+// Full validate command (comprehensive source-to-database comparison)
+program
+  .command('validate-full')
+  .description('Comprehensive validation comparing ALL database records against source files')
+  .option('--clp-xlsx <file>', 'Path to CLP Harmonised List XLSX file')
+  .action(async (options: { clpXlsx?: string }) => {
+    try {
+      const report = await runFullValidation(options.clpXlsx);
+      process.exit(report.summary.failed > 0 ? 1 : 0);
     } catch (error) {
       console.error('\n[ERROR]', error instanceof Error ? error.message : error);
       process.exit(1);

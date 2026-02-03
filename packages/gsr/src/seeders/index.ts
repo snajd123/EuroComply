@@ -26,3 +26,12 @@ export type { HazardReferenceSeederResult, HazardStatementDefinition } from './h
 
 export { ClpHarmonisedSeeder } from './clp-harmonised.seeder.js';
 export type { ClpHarmonisedSeederResult } from './clp-harmonised.seeder.js';
+
+export { ComptoxSeeder, seedComptox, buildBulkInsertSql } from './comptox.seeder.js';
+export type { ComptoxSeederOptions, ComptoxSeederResult } from './comptox.seeder.js';
+
+export { CosingSeeder, seedCosing } from './cosing.seeder.js';
+export type { CosingSeederOptions, CosingSeederResult } from './cosing.seeder.js';
+
+export { TscaSeeder, seedTsca } from './tsca.seeder.js';
+export type { TscaSeederOptions, TscaSeederResult } from './tsca.seeder.js';

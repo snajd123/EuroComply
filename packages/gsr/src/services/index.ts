@@ -17,3 +17,9 @@ export {
   type NewEntryInput,
 } from './ConflictDetector.js';
 export { migrateRegulatoryFlags, type MigrateResult } from './migrateRegulatoryFlags.js';
+export {
+  IdentityLadder,
+  type ResolveInput as IdentityLadderInput,
+  type ResolveResult as IdentityLadderResult,
+  type MatchType,
+} from './IdentityLadder.js';

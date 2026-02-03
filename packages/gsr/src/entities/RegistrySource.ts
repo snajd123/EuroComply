@@ -11,6 +11,9 @@ export enum RegistrySourceName {
   PUBCHEM = 'PUBCHEM',
   TSCA = 'TSCA',
   PROP65 = 'PROP65',
+  EPA_COMPTOX = 'EPA_COMPTOX',
+  COSING = 'COSING',
+  EFSA = 'EFSA',
 }
 
 /**

@@ -567,6 +567,18 @@ export class Migration20260122000000 extends Migration {
     this.addSql('CREATE INDEX IF NOT EXISTS "substance_index_number_idx" ON "public"."substance" ("index_number");');
 
     // =====================================================
+    // Golden Record Fields on Substance table
+    // =====================================================
+    this.addSql(`
+      ALTER TABLE "public"."substance"
+      ADD COLUMN IF NOT EXISTS "dtxsid" varchar(20),
+      ADD COLUMN IF NOT EXISTS "qc_level" smallint;
+    `);
+    this.addSql('CREATE UNIQUE INDEX IF NOT EXISTS "substance_dtxsid_idx" ON "public"."substance" ("dtxsid") WHERE "dtxsid" IS NOT NULL;');
+    this.addSql('DROP INDEX IF EXISTS "public"."substance_inchi_key_idx";');
+    this.addSql('CREATE UNIQUE INDEX IF NOT EXISTS "substance_inchi_key_unique_idx" ON "public"."substance" ("inchi_key") WHERE "inchi_key" IS NOT NULL;');
+
+    // =====================================================
     // Hazard Class table - CLP/GHS hazard classes (~33 classes)
     // =====================================================
     this.addSql(`
@@ -622,6 +634,100 @@ export class Migration20260122000000 extends Migration {
     this.addSql('CREATE UNIQUE INDEX IF NOT EXISTS "shc_unique_classification_idx" ON "public"."substance_hazard_classification" ("substance_id", "hazard_class_code", "category", "h_code") WHERE "valid_to" IS NULL;');
 
     // =====================================================
+    // Substance Persona Tables - regulatory domain-specific data
+    // =====================================================
+
+    // COSING (Cosmetics Ingredients Database)
+    this.addSql(`
+      CREATE TABLE IF NOT EXISTS "public"."substance_cosing" (
+        "id" varchar(30) PRIMARY KEY,
+        "substance_id" varchar(30) NOT NULL REFERENCES "public"."substance"("id") ON DELETE CASCADE,
+        "cosing_ref" varchar(20) NOT NULL,
+        "inci_name" text NOT NULL,
+        "inci_name_normalized" text NOT NULL,
+        "functions" text[],
+        "restriction_type" varchar(20),
+        "restriction_text" text,
+        "max_concentration" decimal(10, 4),
+        "concentration_unit" varchar(20),
+        "other_restrictions" text,
+        "sccs_opinions" jsonb,
+        "created_at" timestamptz DEFAULT NOW(),
+        "updated_at" timestamptz DEFAULT NOW()
+      );
+    `);
+    this.addSql('CREATE INDEX IF NOT EXISTS "idx_cosing_substance" ON "public"."substance_cosing"("substance_id");');
+    this.addSql('CREATE INDEX IF NOT EXISTS "idx_cosing_ref" ON "public"."substance_cosing"("cosing_ref");');
+    this.addSql('CREATE INDEX IF NOT EXISTS "idx_cosing_restriction" ON "public"."substance_cosing"("restriction_type");');
+    this.addSql('CREATE INDEX IF NOT EXISTS "idx_cosing_inci_trgm" ON "public"."substance_cosing" USING gin ("inci_name_normalized" gin_trgm_ops);');
+
+    // EFSA (European Food Safety Authority - food additives)
+    this.addSql(`
+      CREATE TABLE IF NOT EXISTS "public"."substance_efsa" (
+        "id" varchar(30) PRIMARY KEY,
+        "substance_id" varchar(30) NOT NULL REFERENCES "public"."substance"("id") ON DELETE CASCADE,
+        "e_number" varchar(10),
+        "efsa_ref" varchar(50),
+        "functional_class" varchar(50) NOT NULL,
+        "adi_value" decimal(10, 4),
+        "adi_unit" varchar(20),
+        "adi_note" text,
+        "approved_uses" text[],
+        "conditions" text,
+        "re_evaluation_date" date,
+        "re_evaluation_outcome" varchar(50),
+        "created_at" timestamptz DEFAULT NOW(),
+        "updated_at" timestamptz DEFAULT NOW()
+      );
+    `);
+    this.addSql('CREATE INDEX IF NOT EXISTS "idx_efsa_substance" ON "public"."substance_efsa"("substance_id");');
+    this.addSql('CREATE INDEX IF NOT EXISTS "idx_efsa_e_number" ON "public"."substance_efsa"("e_number") WHERE "e_number" IS NOT NULL;');
+    this.addSql('CREATE INDEX IF NOT EXISTS "idx_efsa_functional_class" ON "public"."substance_efsa"("functional_class");');
+
+    // TSCA (Toxic Substances Control Act - US EPA)
+    this.addSql(`
+      CREATE TABLE IF NOT EXISTS "public"."substance_tsca" (
+        "id" varchar(30) PRIMARY KEY,
+        "substance_id" varchar(30) NOT NULL REFERENCES "public"."substance"("id") ON DELETE CASCADE,
+        "tsca_cas" varchar(20) NOT NULL,
+        "inventory_status" varchar(20) NOT NULL,
+        "is_section_5" boolean DEFAULT FALSE,
+        "is_section_6" boolean DEFAULT FALSE,
+        "is_snur" boolean DEFAULT FALSE,
+        "cdr_flags" jsonb,
+        "created_at" timestamptz DEFAULT NOW(),
+        "updated_at" timestamptz DEFAULT NOW()
+      );
+    `);
+    this.addSql('CREATE INDEX IF NOT EXISTS "idx_tsca_substance" ON "public"."substance_tsca"("substance_id");');
+    this.addSql('CREATE INDEX IF NOT EXISTS "idx_tsca_cas" ON "public"."substance_tsca"("tsca_cas");');
+    this.addSql('CREATE INDEX IF NOT EXISTS "idx_tsca_status" ON "public"."substance_tsca"("inventory_status");');
+    this.addSql('CREATE INDEX IF NOT EXISTS "idx_tsca_section6" ON "public"."substance_tsca"("is_section_6") WHERE "is_section_6" = TRUE;');
+
+    // Biocidal Products Regulation (EU BPR)
+    this.addSql(`
+      CREATE TABLE IF NOT EXISTS "public"."substance_biocide" (
+        "id" varchar(30) PRIMARY KEY,
+        "substance_id" varchar(30) NOT NULL REFERENCES "public"."substance"("id") ON DELETE CASCADE,
+        "biocides_ref" varchar(50) NOT NULL,
+        "substance_name" text NOT NULL,
+        "status" varchar(30) NOT NULL,
+        "product_types" integer[] NOT NULL,
+        "approval_date" date,
+        "expiry_date" date,
+        "conditions" text,
+        "supplier_requirements" text,
+        "created_at" timestamptz DEFAULT NOW(),
+        "updated_at" timestamptz DEFAULT NOW()
+      );
+    `);
+    this.addSql('CREATE INDEX IF NOT EXISTS "idx_biocide_substance" ON "public"."substance_biocide"("substance_id");');
+    this.addSql('CREATE INDEX IF NOT EXISTS "idx_biocide_ref" ON "public"."substance_biocide"("biocides_ref");');
+    this.addSql('CREATE INDEX IF NOT EXISTS "idx_biocide_status" ON "public"."substance_biocide"("status");');
+    this.addSql('CREATE INDEX IF NOT EXISTS "idx_biocide_pt" ON "public"."substance_biocide" USING gin ("product_types");');
+    this.addSql('CREATE INDEX IF NOT EXISTS "idx_biocide_expiry" ON "public"."substance_biocide"("expiry_date") WHERE "expiry_date" IS NOT NULL;');
+
+    // =====================================================
     // Product Scope Hierarchy table - recursive scope queries
     // =====================================================
     this.addSql(`
@@ -671,10 +777,26 @@ export class Migration20260122000000 extends Migration {
       DROP COLUMN IF EXISTS "clp_version";
     `);
 
+    // Drop Golden Record columns from substance
+    this.addSql('DROP INDEX IF EXISTS "public"."substance_dtxsid_idx";');
+    this.addSql('DROP INDEX IF EXISTS "public"."substance_inchi_key_unique_idx";');
+    this.addSql(`
+      ALTER TABLE "public"."substance"
+      DROP COLUMN IF EXISTS "dtxsid",
+      DROP COLUMN IF EXISTS "qc_level";
+    `);
+
     // =====================================================
     // Drop GSR tables (reverse order of creation)
     // =====================================================
     this.addSql('DROP TABLE IF EXISTS "public"."product_scope_hierarchy" CASCADE;');
+
+    // Drop Substance Persona tables
+    this.addSql('DROP TABLE IF EXISTS "public"."substance_biocide" CASCADE;');
+    this.addSql('DROP TABLE IF EXISTS "public"."substance_tsca" CASCADE;');
+    this.addSql('DROP TABLE IF EXISTS "public"."substance_efsa" CASCADE;');
+    this.addSql('DROP TABLE IF EXISTS "public"."substance_cosing" CASCADE;');
+
     this.addSql('DROP TABLE IF EXISTS "public"."blind_disclosure_request" CASCADE;');
     this.addSql('DROP TABLE IF EXISTS "public"."unresolved_substance" CASCADE;');
     this.addSql('DROP TABLE IF EXISTS "public"."substance_list_entry" CASCADE;');

@@ -302,6 +302,17 @@ export const HAZARD_CLASSES: HazardClassDefinition[] = [
     isCmr: true,
   },
 
+  // 3.7 additional: Effects on or via lactation
+  // (Part of reproductive toxicity but separate classification)
+  {
+    code: 'Lact.',
+    fullName: 'Effects on or via Lactation',
+    hazardType: HazardType.HEALTH,
+    // No pictogram for Lact. category
+    // No signal word for Lact. category
+    isCmr: false, // Lact. is not considered CMR
+  },
+
   // 3.8 Specific target organ toxicity - single exposure
   {
     code: 'STOT SE',

@@ -104,9 +104,13 @@ export class PubChemEnricher {
     }
     if (data.iupacName) {
       substance.iupacName = data.iupacName;
+      // Update primaryName if it's "Unknown" or empty
+      if (!substance.primaryName || substance.primaryName === 'Unknown') {
+        substance.primaryName = data.iupacName;
+      }
     }
     if (data.molecularWeight !== null) {
-      substance.molecularWeight = data.molecularWeight.toFixed(4);
+      substance.molecularWeight = data.molecularWeight;
     }
     if (data.molecularFormula) {
       substance.molecularFormula = data.molecularFormula;

@@ -4,11 +4,9 @@ import { createId } from '@paralleldrive/cuid2';
 import { Substance } from '@eurocomply/database';
 import { HazardClass } from '../entities/HazardClass.js';
 import { SubstanceHazardClassification } from '../entities/SubstanceHazardClassification.js';
-import { UnresolvedSubstance, UnresolvedSource } from '../entities/UnresolvedSubstance.js';
-import { UnresolvedStatus } from '../enums/UnresolvedStatus.js';
 import { ClpClassificationParser } from '../parsers/clp-classification.parser.js';
 import { buildHazardClassDictionary } from '../reference-data/hazard-classes.js';
-import { sanitizeCas, readXlsxFile } from '../utils/index.js';
+import { readXlsxFile, findOrCreateSubstance } from '../utils/index.js';
 
 /**
  * Result of a CLP Harmonised List seeding operation.
@@ -22,10 +20,10 @@ export interface ClpHarmonisedSeederResult {
   totalRows: number;
   /** Number of substances matched to existing records */
   substancesMatched: number;
-  /** Number of substances not found in database */
-  substancesNotFound: number;
-  /** Number of unresolved entries logged */
-  unresolvedLogged: number;
+  /** Number of stub substances created for unmatched CAS numbers */
+  stubsCreated: number;
+  /** Number of entries skipped (no valid CAS, group entries) */
+  skippedEntries: number;
   /** Number of classifications created */
   classificationsCreated: number;
   /** Number of classifications skipped (duplicates, unknown classes) */
@@ -96,8 +94,8 @@ export class ClpHarmonisedSeeder {
         skipped: true,
         totalRows: 0,
         substancesMatched: 0,
-        substancesNotFound: 0,
-        unresolvedLogged: 0,
+        stubsCreated: 0,
+        skippedEntries: 0,
         classificationsCreated: 0,
         classificationsSkipped: 0,
         version,
@@ -119,8 +117,8 @@ export class ClpHarmonisedSeeder {
         skipped: false,
         totalRows: 0,
         substancesMatched: 0,
-        substancesNotFound: 0,
-        unresolvedLogged: 0,
+        stubsCreated: 0,
+        skippedEntries: 0,
         classificationsCreated: 0,
         classificationsSkipped: 0,
         version,
@@ -134,8 +132,8 @@ export class ClpHarmonisedSeeder {
         skipped: false,
         totalRows: 0,
         substancesMatched: 0,
-        substancesNotFound: 0,
-        unresolvedLogged: 0,
+        stubsCreated: 0,
+        skippedEntries: 0,
         classificationsCreated: 0,
         classificationsSkipped: 0,
         version,
@@ -145,8 +143,8 @@ export class ClpHarmonisedSeeder {
 
     // Process rows
     let substancesMatched = 0;
-    let substancesNotFound = 0;
-    let unresolvedLogged = 0;
+    let stubsCreated = 0;
+    let skippedEntries = 0;
     let classificationsCreated = 0;
     let classificationsSkipped = 0;
 
@@ -168,14 +166,15 @@ export class ClpHarmonisedSeeder {
       );
 
       if (result.matched) {
-        substancesMatched++;
+        if (result.stubCreated) {
+          stubsCreated++;
+        } else {
+          substancesMatched++;
+        }
         classificationsCreated += result.classificationsCreated;
         classificationsSkipped += result.classificationsSkipped;
       } else {
-        substancesNotFound++;
-        if (result.unresolvedLogged) {
-          unresolvedLogged++;
-        }
+        skippedEntries++;
       }
     }
 
@@ -184,12 +183,12 @@ export class ClpHarmonisedSeeder {
       skipped: false,
       totalRows: rows.length,
       substancesMatched,
-      substancesNotFound,
-      unresolvedLogged,
+      stubsCreated,
+      skippedEntries,
       classificationsCreated,
       classificationsSkipped,
       version,
-      message: `Processed ${rows.length} rows: ${substancesMatched} matched, ${classificationsCreated} classifications created, ${substancesNotFound} not found (${unresolvedLogged} logged as unresolved).`,
+      message: `Processed ${rows.length} rows: ${substancesMatched} matched, ${stubsCreated} stubs created, ${classificationsCreated} classifications created, ${skippedEntries} skipped (no valid CAS).`,
     };
   }
 
@@ -205,7 +204,7 @@ export class ClpHarmonisedSeeder {
     validFrom: Date
   ): Promise<{
     matched: boolean;
-    unresolvedLogged: boolean;
+    stubCreated: boolean;
     classificationsCreated: number;
     classificationsSkipped: number;
   }> {
@@ -216,19 +215,30 @@ export class ClpHarmonisedSeeder {
     const hazardBlock = row['Hazard class, category and statement code(s)'] || '';
     const rawNotes = row['Notes']?.trim() || '';
 
-    // Try to match substance
-    const substance = await this.findSubstance(em, rawCas, rawEc);
+    // Find or create substance (creates stub if not found but has valid CAS)
+    const result = await findOrCreateSubstance(
+      em,
+      {
+        casNumber: rawCas,
+        ecNumber: rawEc,
+        name: chemicalName || 'Unknown',
+        description: `CLP Annex VI substance (Index: ${indexNumber})`,
+      },
+      'CLP_ANNEX_VI',
+      version
+    );
 
-    if (!substance) {
-      // Log as unresolved
-      const unresolvedLogged = await this.logUnresolved(em, chemicalName, rawCas);
+    if (result.skipped || !result.substance) {
+      // No valid CAS - skip this entry
       return {
         matched: false,
-        unresolvedLogged,
+        stubCreated: false,
         classificationsCreated: 0,
         classificationsSkipped: 0,
       };
     }
+
+    const substance = result.substance;
 
     // Update substance metadata
     await this.updateSubstanceMetadata(em, substance, indexNumber, version);
@@ -282,47 +292,16 @@ export class ClpHarmonisedSeeder {
       classificationsCreated++;
     }
 
-    if (classificationsCreated > 0) {
+    if (classificationsCreated > 0 || result.created) {
       await em.flush();
     }
 
     return {
       matched: true,
-      unresolvedLogged: false,
+      stubCreated: result.created,
       classificationsCreated,
       classificationsSkipped,
     };
-  }
-
-  /**
-   * Finds a substance by CAS number (primary) or EC number (fallback).
-   */
-  private async findSubstance(
-    em: EntityManager,
-    rawCas: string,
-    rawEc: string
-  ): Promise<Substance | null> {
-    // Try CAS first
-    const validCas = sanitizeCas(rawCas);
-    if (validCas) {
-      const byCase = await em.findOne(Substance, { casNumber: validCas });
-      if (byCase) {
-        return byCase;
-      }
-    }
-
-    // Fallback to EC number
-    if (rawEc) {
-      const cleanEc = rawEc.trim();
-      if (cleanEc) {
-        const byEc = await em.findOne(Substance, { ecNumber: cleanEc });
-        if (byEc) {
-          return byEc;
-        }
-      }
-    }
-
-    return null;
   }
 
   /**
@@ -349,47 +328,5 @@ export class ClpHarmonisedSeeder {
     if (updated) {
       await em.persistAndFlush(substance);
     }
-  }
-
-  /**
-   * Logs an unmatched substance to the UnresolvedSubstance table.
-   */
-  private async logUnresolved(
-    em: EntityManager,
-    rawName: string,
-    rawCas: string
-  ): Promise<boolean> {
-    if (!rawName && !rawCas) {
-      return false;
-    }
-
-    // Check for existing entry
-    const existing = await em.findOne(UnresolvedSubstance, {
-      rawName: rawName || '',
-      rawCasNumber: rawCas || undefined,
-      source: UnresolvedSource.REGULATORY_IMPORT,
-    });
-
-    if (existing) {
-      existing.occurrenceCount += 1;
-      await em.persistAndFlush(existing);
-      return true;
-    }
-
-    // Create new entry
-    const now = new Date();
-    const unresolved = em.create(UnresolvedSubstance, {
-      id: createId(),
-      rawName: rawName || 'Unknown',
-      rawCasNumber: rawCas || undefined,
-      source: UnresolvedSource.REGULATORY_IMPORT,
-      occurrenceCount: 1,
-      status: UnresolvedStatus.PENDING,
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    await em.persistAndFlush(unresolved);
-    return true;
   }
 }

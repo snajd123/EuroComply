@@ -9,6 +9,9 @@ export enum UnresolvedSource {
   CUSTOMER_UPLOAD = 'CUSTOMER_UPLOAD',
   BOM_IMPORT = 'BOM_IMPORT',
   REGULATORY_IMPORT = 'REGULATORY_IMPORT',  // For CLP, SVHC, Annex XVII etc.
+  COSING = 'COSING',  // CosIng cosmetics database
+  EFSA = 'EFSA',  // EFSA food additives database
+  TSCA = 'TSCA',  // EPA TSCA US inventory
 }
 
 /**

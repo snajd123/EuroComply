@@ -64,7 +64,7 @@ describe('PubChemEnricher', () => {
         expect(updatedSubstance.smiles).toBe('C=O');
         expect(updatedSubstance.inchiKey).toBe('WSFSSNUMVMOOMR-UHFFFAOYSA-N');
         expect(updatedSubstance.molecularFormula).toBe('CH2O');
-        expect(updatedSubstance.molecularWeight).toBe('30.0260'); // 4 decimal places
+        expect(updatedSubstance.molecularWeight).toBeCloseTo(30.026, 4); // 4 decimal places
         expect(updatedSubstance.iupacName).toBe('formaldehyde');
       },
       20000,
