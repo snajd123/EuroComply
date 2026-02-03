@@ -460,7 +460,7 @@ The **CLP Harmonised Classification and Labelling List** (Annex VI to CLP Regula
 pnpm gsr seed clp-reference
 
 # Step 2: Seed substance classifications from ECHA XLSX
-pnpm gsr seed clp-harmonised data/clp_annex_vi.xlsx --version ATP21
+pnpm gsr seed clp-harmonised data/clp_annex_vi.xlsx --atp-version ATP21
 ```
 
 ### Update Frequency
@@ -547,7 +547,7 @@ pnpm gsr seed rohs
 
 # 4. Seed CLP hazard classifications
 pnpm gsr seed clp-reference  # Hazard classes + H-statements (downloads from mhchem)
-pnpm gsr seed clp-harmonised data/clp_annex_vi.xlsx --version ATP21
+pnpm gsr seed clp-harmonised data/clp_annex_vi.xlsx --atp-version ATP21
 
 # Verify results
 docker exec eurocomply-postgres psql -U postgres -d eurocomply -c "

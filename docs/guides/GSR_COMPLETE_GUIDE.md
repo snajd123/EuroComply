@@ -361,7 +361,7 @@ pnpm gsr enrich echa-urls
 
 # 3. CLP hazard classification
 pnpm gsr seed clp-reference
-pnpm gsr seed clp-harmonised data/clp_annex_vi.xlsx --version ATP21
+pnpm gsr seed clp-harmonised data/clp_annex_vi.xlsx --atp-version ATP21
 
 # 4. Regulatory lists
 pnpm gsr seed echa-svhc --entries data/svhc_entries.xlsx --substances data/svhc_substances.xlsx

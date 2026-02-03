@@ -432,7 +432,7 @@ pnpm gsr seed clp-reference
 
 # Seed substance classifications from ECHA CLP Annex VI XLSX
 # Download from https://echa.europa.eu/information-on-chemicals/annex-vi-to-clp
-pnpm gsr seed clp-harmonised data/clp_annex_vi.xlsx --version ATP21
+pnpm gsr seed clp-harmonised data/clp_annex_vi.xlsx --atp-version ATP21
 
 # Dry run
 pnpm gsr seed clp-reference --dry-run
